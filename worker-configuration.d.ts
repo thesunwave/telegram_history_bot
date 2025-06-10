@@ -5,4 +5,6 @@ interface Env {
   AI: any;
   TOKEN: string;
   SECRET: string;
+  SUMMARY_MODEL: string;
+  SUMMARY_PROMPT: string;
 }
