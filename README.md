@@ -32,4 +32,5 @@ npm test
 ```
 
 ## Setup Script
-`setup.sh` creates KV namespaces, the D1 database and schedules the cron trigger.
+`setup.sh` creates KV namespaces and the D1 database. The cron trigger is
+configured in `wrangler.jsonc` and will be created on deployment.

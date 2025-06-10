@@ -1,7 +1,7 @@
 #!/bin/bash
-# Create resources for the worker
-wrangler kv:namespace create HISTORY
-wrangler kv:namespace create COUNTERS
-wrangler d1 create summaries
-wrangler d1 migrations apply summaries
-wrangler cron create daily_summary "59 23 * * *" /jobs/daily_summary
+# Create resources for the worker using Wrangler
+npx wrangler kv namespace create HISTORY
+npx wrangler kv namespace create COUNTERS
+npx wrangler d1 create summaries
+npx wrangler d1 migrations apply summaries
+# Cron trigger is defined in wrangler.jsonc and will be created on deploy
