@@ -1,5 +1,6 @@
 #!/bin/bash
 # Create resources for the worker using Wrangler
+
 # Use an empty config so creation works before IDs are set
 npx wrangler kv namespace create HISTORY --config /dev/null
 npx wrangler kv namespace create COUNTERS --config /dev/null

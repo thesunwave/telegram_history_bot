@@ -4,13 +4,12 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-06-10",
   "kv_namespaces": [
-    { "binding": "HISTORY", "id": "", "preview_id": "" },
-    { "binding": "COUNTERS", "id": "", "preview_id": "" }
+    { "binding": "HISTORY", "id": "2c2400074dd346fa9d19830f893189df", "preview_id": "2c2400074dd346fa9d19830f893189df" },
+    { "binding": "COUNTERS", "id": "eb2d8e7ad2e74a37bb123e4ca820fbb8", "preview_id": "eb2d8e7ad2e74a37bb123e4ca820fbb8" }
   ],
   "d1_databases": [
-    { "binding": "DB", "database_name": "summaries", "database_id": "" }
+    { "binding": "DB", "database_name": "summaries", "database_id": "34682d13-30ec-409f-97e2-e751603e4dcd" }
   ],
-  "migrations_dir": "./migrations",
   "ai": { "binding": "AI" },
   "triggers": { "crons": ["59 23 * * *"] }
 }
