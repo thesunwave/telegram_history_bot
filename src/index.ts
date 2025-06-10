@@ -1,111 +1,176 @@
-import {
-	WorkflowEntrypoint,
-	WorkflowEvent,
-	WorkflowStep,
-} from "cloudflare:workers";
-
-/**
- * Welcome to Cloudflare Workers! This is your first Workflows application.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your Workflow in action
- * - Run `npm run deploy` to publish your application
- *
- * Learn more at https://developers.cloudflare.com/workflows
- */
- 
-// User-defined params passed to your Workflow
-type Params = {
-	email: string;
-	metadata: Record<string, string>;
-};
-
-export class MyWorkflow extends WorkflowEntrypoint<Env, Params> {
-	async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
-		// Can access bindings on `this.env`
-		// Can access params on `event.payload`
-
-		const files = await step.do("my first step", async () => {
-			// Fetch a list of files from $SOME_SERVICE
-			return {
-				inputParams: event,
-				files: [
-					"doc_7392_rev3.pdf",
-					"report_x29_final.pdf",
-					"memo_2024_05_12.pdf",
-					"file_089_update.pdf",
-					"proj_alpha_v2.pdf",
-					"data_analysis_q2.pdf",
-					"notes_meeting_52.pdf",
-					"summary_fy24_draft.pdf",
-				],
-			};
-		});
-
-		// You can optionally have a Workflow wait for additional data,
-		// human approval or an external webhook or HTTP request, before progressing.
-		// You can submit data via HTTP POST to /accounts/{account_id}/workflows/{workflow_name}/instances/{instance_id}/events/{eventName}
-		const waitForApproval = await step.waitForEvent("request-approval", {
-			type: "approval", // define an optional key to switch on
-			timeout: "1 minute", // keep it short for the example!
-		});
-
-		const apiResponse = await step.do("some other step", async () => {
-			let resp = await fetch("https://api.cloudflare.com/client/v4/ips");
-			return await resp.json<any>();
-		});
-
-		await step.sleep("wait on something", "1 minute");
-
-		await step.do(
-			"make a call to write that could maybe, just might, fail",
-			// Define a retry strategy
-			{
-				retries: {
-					limit: 5,
-					delay: "5 second",
-					backoff: "exponential",
-				},
-				timeout: "15 minutes",
-			},
-			async () => {
-				// Do stuff here, with access to the state from our previous steps
-				if (Math.random() > 0.5) {
-					throw new Error("API call to $STORAGE_SYSTEM failed");
-				}
-			},
-		);
-	}
+interface Env {
+  HISTORY: KVNamespace;
+  COUNTERS: KVNamespace;
+  DB: D1Database;
+  AI: any;
+  TOKEN: string;
+  SECRET: string;
 }
+
+interface StoredMessage {
+  chat: number;
+  user: number;
+  username: string;
+  text: string;
+  ts: number;
+}
+
+const DAY = 86400;
+
+async function sendMessage(env: Env, chatId: number, text: string) {
+  const url = `https://api.telegram.org/bot${env.TOKEN}/sendMessage`;
+  await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text }),
+  });
+}
+
+async function fetchMessages(env: Env, chatId: number, start: number, end: number) {
+  const prefix = `msg:${chatId}:`;
+  let cursor: string | undefined = undefined;
+  const messages: StoredMessage[] = [];
+  do {
+    const list = await env.HISTORY.list({ prefix, cursor });
+    cursor = list.cursor;
+    for (const key of list.keys) {
+      const parts = key.name.split(":");
+      const ts = parseInt(parts[2]);
+      if (ts >= start && ts <= end) {
+        const m = await env.HISTORY.get<StoredMessage>(key.name, { type: "json" });
+        if (m) messages.push(m);
+      }
+    }
+  } while (cursor && messages.length < 10000);
+  return messages.sort((a, b) => a.ts - b.ts);
+}
+
+async function summariseChat(env: Env, chatId: number, days: number) {
+  const end = Math.floor(Date.now() / 1000);
+  const start = end - days * DAY;
+  const messages = await fetchMessages(env, chatId, start, end);
+  if (!messages.length) {
+    await sendMessage(env, chatId, "Нет сообщений");
+    return;
+  }
+  const content = messages.map((m) => `${m.username}: ${m.text}`).join("\n");
+  const prompt = `Summarize per user who said what and how many messages in Russian:\n${content}`;
+  const aiResp = await env.AI.run("@cf/meta/llama-3-8b-instruct", { prompt });
+  const summary = aiResp.response ?? aiResp;
+  await sendMessage(env, chatId, summary);
+  if (env.DB) {
+    await env.DB.prepare(
+      "INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)"
+    )
+      .bind(
+        chatId,
+        new Date(start * 1000).toISOString(),
+        new Date(end * 1000).toISOString(),
+        summary
+      )
+      .run();
+  }
+}
+
+async function topChat(env: Env, chatId: number, n: number, day: string) {
+  const prefix = `stats:${chatId}:`;
+  let cursor: string | undefined = undefined;
+  const counts: Record<string, number> = {};
+  do {
+    const list = await env.COUNTERS.list({ prefix, cursor });
+    cursor = list.cursor;
+    for (const key of list.keys) {
+      const [_, chat, user, d] = key.name.split(":");
+      if (d !== day) continue;
+      const c = parseInt((await env.COUNTERS.get(key.name)) || "0");
+      counts[user] = (counts[user] || 0) + c;
+    }
+  } while (cursor);
+  const sorted = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n);
+  const text =
+    sorted.map(([u, c], i) => `${i + 1}. ${u}: ${c}`).join("\n") || "Нет данных";
+  await sendMessage(env, chatId, text);
+}
+
+async function resetCounters(env: Env, chatId: number) {
+  const prefix = `stats:${chatId}:`;
+  let cursor: string | undefined = undefined;
+  do {
+    const list = await env.COUNTERS.list({ prefix, cursor });
+    cursor = list.cursor;
+    for (const key of list.keys) {
+      await env.COUNTERS.delete(key.name);
+    }
+  } while (cursor);
+}
+
+async function handleUpdate(update: any, env: Env) {
+  const msg = update.message;
+  if (!msg || !msg.text) return;
+  const chatId = msg.chat.id;
+  const userId = msg.from?.id || 0;
+  const username = msg.from?.username || `id${userId}`;
+  const ts = msg.date;
+  const stored: StoredMessage = { chat: chatId, user: userId, username, text: msg.text, ts };
+  const key = `msg:${chatId}:${ts}:${msg.message_id}`;
+  await env.HISTORY.put(key, JSON.stringify(stored), { expirationTtl: 7 * DAY });
+  const day = new Date(ts * 1000).toISOString().slice(0, 10);
+  const ckey = `stats:${chatId}:${userId}:${day}`;
+  const count = parseInt((await env.COUNTERS.get(ckey)) || "0") + 1;
+  await env.COUNTERS.put(ckey, String(count), { expirationTtl: 8 * DAY });
+
+  if (msg.text.startsWith("/summary")) {
+    const d = parseInt(msg.text.split(" ")[1] || "1");
+    await summariseChat(env, chatId, d);
+  } else if (msg.text.startsWith("/top")) {
+    const n = parseInt(msg.text.split(" ")[1] || "5");
+    await topChat(env, chatId, n, day);
+  } else if (msg.text.startsWith("/reset")) {
+    await resetCounters(env, chatId);
+    await sendMessage(env, chatId, "Counters reset");
+  }
+}
+
+async function dailySummary(env: Env) {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const start = Math.floor((today.getTime() - DAY * 1000) / 1000);
+  const date = new Date(start * 1000).toISOString().slice(0, 10);
+  const prefix = "stats:";
+  let cursor: string | undefined = undefined;
+  const chats = new Set<number>();
+  do {
+    const list = await env.COUNTERS.list({ prefix, cursor });
+    cursor = list.cursor;
+    for (const key of list.keys) {
+      const [_, chat, , d] = key.name.split(":");
+      if (d === date) chats.add(parseInt(chat));
+    }
+  } while (cursor);
+  for (const c of chats) {
+    await summariseChat(env, c, 1);
+  }
+}
+
 export default {
-	async fetch(req: Request, env: Env): Promise<Response> {
-		let url = new URL(req.url);
-
-		if (url.pathname.startsWith("/favicon")) {
-			return Response.json({}, { status: 404 });
-		}
-
-		// Get the status of an existing instance, if provided
-		// GET /?instanceId=<id here>
-		let id = url.searchParams.get("instanceId");
-		if (id) {
-			let instance = await env.MY_WORKFLOW.get(id);
-			return Response.json({
-				status: await instance.status(),
-			});
-		}
-
-		// Spawn a new instance and return the ID and status
-		let instance = await env.MY_WORKFLOW.create();
-		// You can also set the ID to match an ID in your own system
-		// and pass an optional payload to the Workflow
-		// let instance = await env.MY_WORKFLOW.create({
-		// 	id: 'id-from-your-system',
-		// 	params: { payload: 'to send' },
-		// });
-		return Response.json({
-			id: instance.id,
-			details: await instance.status(),
-		});
-	},
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(req.url);
+    if (url.pathname === "/healthz") return new Response("ok");
+    if (url.pathname.startsWith("/tg/") && url.pathname.endsWith("/webhook") && req.method === "POST") {
+      const token = url.pathname.split("/")[2];
+      if (token !== env.TOKEN) return new Response("forbidden", { status: 403 });
+      if (req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.SECRET)
+        return new Response("forbidden", { status: 403 });
+      const update = await req.json();
+      ctx.waitUntil(handleUpdate(update, env));
+      return Response.json({});
+    }
+    if (url.pathname === "/jobs/daily_summary" && req.method === "POST") {
+      await dailySummary(env);
+      return Response.json({});
+    }
+    return new Response("Not found", { status: 404 });
+  },
 };
