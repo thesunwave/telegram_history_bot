@@ -25,5 +25,11 @@ Cloudflare Worker that stores Telegram chat messages for 7 days and can produce 
    npm run deploy
    ```
 
+## Development
+Run unit tests with:
+```bash
+npm test
+```
+
 ## Setup Script
 `setup.sh` creates KV namespaces, the D1 database and schedules the cron trigger.
