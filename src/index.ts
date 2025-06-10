@@ -62,7 +62,7 @@ async function summariseChat(env: Env, chatId: number, days: number) {
 Сначала самых активных. Игнорируй системные и сервисные сообщения. Пиши по-русски, отчёт не длиннее 15 строк.
 
 === СООБЩЕНИЯ ===
-{messages}:\n${content}`;
+${content}`;
   const aiResp = await env.AI.run("@cf/qwen/qwen1.5-0.5b-chat", { prompt });
   const summary = aiResp.response ?? aiResp;
   await sendMessage(env, chatId, summary);
