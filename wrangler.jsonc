@@ -11,5 +11,14 @@
     { "binding": "DB", "database_name": "summaries", "database_id": "34682d13-30ec-409f-97e2-e751603e4dcd" }
   ],
   "ai": { "binding": "AI" },
-  "triggers": { "crons": ["59 23 * * *"] }
+  "triggers": { "crons": ["59 23 * * *"] },
+  "logpush": {
+    "destination": "splunk",
+    "logpull_options": "fields=ClientIP,ClientRequestHost,ClientRequestMethod,ClientRequestURI,EdgeEndTimestamp,EdgeResponseBytes,EdgeResponseStatus,EdgeStartTimestamp,RayID&timestamps=rfc3339"
+  },
+  "analytics_engine": {
+    "bindings": [
+      { "name": "ANALYTICS", "dataset": "telegram_history_bot_analytics" }
+    ]
+  }
 }
