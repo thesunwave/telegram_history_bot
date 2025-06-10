@@ -11,6 +11,7 @@ Cloudflare Worker that stores Telegram chat messages for 7 days and can produce 
 
 ## Deployment
 1. Install dependencies: `npm install`.
+
 2. Create resources and update `wrangler.jsonc` with their IDs:
    ```bash
    ./setup.sh
