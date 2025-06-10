@@ -5,6 +5,8 @@ interface Env {
   AI: any;
   TOKEN: string;
   SECRET: string;
+  SUMMARY_MODEL: string;
+  SUMMARY_PROMPT: string;
 }
 
 interface StoredMessage {
@@ -54,16 +56,8 @@ async function summariseChat(env: Env, chatId: number, days: number) {
     return;
   }
   const content = messages.map((m) => `${m.username}: ${m.text}`).join("\n");
-  const prompt = `Сделай сводку сообщений за период. Для каждого пользователя выведи:
-
-<username> — <количество сообщений>
-• 1-2 ключевые мысли / темы
-
-Сначала самых активных. Игнорируй системные и сервисные сообщения. Пиши по-русски, отчёт не длиннее 15 строк.
-
-=== СООБЩЕНИЯ ===
-${content}`;
-  const aiResp = await env.AI.run("@cf/qwen/qwen1.5-0.5b-chat", { prompt });
+  const input = `${env.SUMMARY_PROMPT}\n${content}`;
+  const aiResp = await env.AI.run(env.SUMMARY_MODEL, { input_text: input });
   const summary = aiResp.response ?? aiResp;
   await sendMessage(env, chatId, summary);
   if (env.DB) {

@@ -11,6 +11,8 @@ interface Env {
   AI: { run: (model: string, opts: any) => Promise<any> }
   TOKEN: string
   SECRET: string
+  SUMMARY_MODEL: string
+  SUMMARY_PROMPT: string
 }
 
 let env: Env
@@ -31,7 +33,9 @@ beforeEach(async () => {
     DB: db,
     AI: { run: vi.fn(async () => ({ response: 'ok' })) },
     TOKEN: 't',
-    SECRET: 's'
+    SECRET: 's',
+    SUMMARY_MODEL: 'model',
+    SUMMARY_PROMPT: 'prompt'
   }
 })
 
