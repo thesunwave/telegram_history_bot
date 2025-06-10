@@ -12,13 +12,8 @@
   ],
   "ai": { "binding": "AI" },
   "triggers": { "crons": ["59 23 * * *"] },
-  "logpush": {
-    "destination": "splunk",
-    "logpull_options": "fields=ClientIP,ClientRequestHost,ClientRequestMethod,ClientRequestURI,EdgeEndTimestamp,EdgeResponseBytes,EdgeResponseStatus,EdgeStartTimestamp,RayID&timestamps=rfc3339"
-  },
-  "analytics_engine": {
-    "bindings": [
-      { "name": "ANALYTICS", "dataset": "telegram_history_bot_analytics" }
-    ]
-  }
+  "logpush": true,
+  "analytics_engine_datasets": [
+    { "binding": "ANALYTICS", "dataset": "telegram_history_bot_analytics" }
+  ]
 }
