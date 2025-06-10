@@ -12,7 +12,6 @@
   ],
   "ai": { "binding": "AI" },
   "triggers": { "crons": ["59 23 * * *"] },
-  "logpush": true,
   "analytics_engine_datasets": [
     { "binding": "ANALYTICS", "dataset": "telegram_history_bot_analytics" }
   ],
