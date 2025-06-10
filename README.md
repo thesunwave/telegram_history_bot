@@ -11,9 +11,14 @@ Cloudflare Worker that stores Telegram chat messages for 7 days and can produce 
 
 ## Deployment
 1. Install dependencies: `npm install`.
-2. Create resources:
+
+2. Create resources and update `wrangler.jsonc` with their IDs:
    ```bash
    ./setup.sh
+   ```
+   This will also run the initial D1 migrations. You can rerun them later with:
+   ```bash
+   npx wrangler d1 migrations apply summaries
    ```
 3. Set secrets:
    ```bash
@@ -32,5 +37,6 @@ npm test
 ```
 
 ## Setup Script
-`setup.sh` creates KV namespaces and the D1 database. The cron trigger is
+`setup.sh` creates KV namespaces and the D1 database. Copy the printed IDs into
+`wrangler.jsonc` so the worker can bind to these resources. The cron trigger is
 configured in `wrangler.jsonc` and will be created on deployment.
