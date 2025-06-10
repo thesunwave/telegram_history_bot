@@ -56,8 +56,8 @@ async function summariseChat(env: Env, chatId: number, days: number) {
     return;
   }
   const content = messages.map((m) => `${m.username}: ${m.text}`).join("\n");
-  const prompt = `${env.SUMMARY_PROMPT}\n${content}`;
-  const aiResp = await env.AI.run(env.SUMMARY_MODEL, { prompt });
+  const input = `${env.SUMMARY_PROMPT}\n${content}`;
+  const aiResp = await env.AI.run(env.SUMMARY_MODEL, { input_text: input });
   const summary = aiResp.response ?? aiResp;
   await sendMessage(env, chatId, summary);
   if (env.DB) {
