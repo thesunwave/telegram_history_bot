@@ -28,7 +28,12 @@ async function sendMessage(env: Env, chatId: number, text: string) {
   });
 }
 
-async function fetchMessages(env: Env, chatId: number, start: number, end: number) {
+async function fetchMessages(
+  env: Env,
+  chatId: number,
+  start: number,
+  end: number,
+) {
   const prefix = `msg:${chatId}:`;
   let cursor: string | undefined = undefined;
   const messages: StoredMessage[] = [];
@@ -39,7 +44,9 @@ async function fetchMessages(env: Env, chatId: number, start: number, end: numbe
       const parts = key.name.split(":");
       const ts = parseInt(parts[2]);
       if (ts >= start && ts <= end) {
-        const m = await env.HISTORY.get<StoredMessage>(key.name, { type: "json" });
+        const m = await env.HISTORY.get<StoredMessage>(key.name, {
+          type: "json",
+        });
         if (m) messages.push(m);
       }
     }
@@ -55,20 +62,35 @@ async function summariseChat(env: Env, chatId: number, days: number) {
     await sendMessage(env, chatId, "Нет сообщений");
     return;
   }
-  const content = messages.map((m) => `${m.username}: ${m.text}`).join("\n");
-  const input = `${env.SUMMARY_PROMPT}\n${content}`;
-  const aiResp = await env.AI.run(env.SUMMARY_MODEL, { input_text: input });
+  const content = messages.map((m) => `${m.username}: ${m.text}`).join('\n');
+  console.debug('summarize', {
+    chat: chatId.toString(36),
+    days,
+    model: env.SUMMARY_MODEL,
+    count: messages.length,
+  });
+  let aiResp: any;
+  if (env.SUMMARY_MODEL.includes('chat')) {
+    const msg = [
+      { role: 'system', content: env.SUMMARY_PROMPT },
+      { role: 'user', content },
+    ];
+    aiResp = await env.AI.run(env.SUMMARY_MODEL, { messages: msg });
+  } else {
+    const input = `${env.SUMMARY_PROMPT}\n${content}`;
+    aiResp = await env.AI.run(env.SUMMARY_MODEL, { prompt: input });
+  }
   const summary = aiResp.response ?? aiResp;
   await sendMessage(env, chatId, summary);
   if (env.DB) {
     await env.DB.prepare(
-      "INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)"
+      "INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)",
     )
       .bind(
         chatId,
         new Date(start * 1000).toISOString(),
         new Date(end * 1000).toISOString(),
-        summary
+        summary,
       )
       .run();
   }
@@ -92,7 +114,8 @@ async function topChat(env: Env, chatId: number, n: number, day: string) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, n);
   const text =
-    sorted.map(([u, c], i) => `${i + 1}. ${u}: ${c}`).join("\n") || "Нет данных";
+    sorted.map(([u, c], i) => `${i + 1}. ${u}: ${c}`).join("\n") ||
+    "Нет данных";
   await sendMessage(env, chatId, text);
 }
 
@@ -115,9 +138,17 @@ async function handleUpdate(update: any, env: Env) {
   const userId = msg.from?.id || 0;
   const username = msg.from?.username || `id${userId}`;
   const ts = msg.date;
-  const stored: StoredMessage = { chat: chatId, user: userId, username, text: msg.text, ts };
+  const stored: StoredMessage = {
+    chat: chatId,
+    user: userId,
+    username,
+    text: msg.text,
+    ts,
+  };
   const key = `msg:${chatId}:${ts}:${msg.message_id}`;
-  await env.HISTORY.put(key, JSON.stringify(stored), { expirationTtl: 7 * DAY });
+  await env.HISTORY.put(key, JSON.stringify(stored), {
+    expirationTtl: 7 * DAY,
+  });
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
   const ckey = `stats:${chatId}:${userId}:${day}`;
   const count = parseInt((await env.COUNTERS.get(ckey)) || "0") + 1;
@@ -157,12 +188,21 @@ async function dailySummary(env: Env) {
 }
 
 export default {
-  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(
+    req: Request,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === "/healthz") return new Response("ok");
-    if (url.pathname.startsWith("/tg/") && url.pathname.endsWith("/webhook") && req.method === "POST") {
+    if (
+      url.pathname.startsWith("/tg/") &&
+      url.pathname.endsWith("/webhook") &&
+      req.method === "POST"
+    ) {
       const token = url.pathname.split("/")[2];
-      if (token !== env.TOKEN) return new Response("forbidden", { status: 403 });
+      if (token !== env.TOKEN)
+        return new Response("forbidden", { status: 403 });
       if (req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.SECRET)
         return new Response("forbidden", { status: 403 });
       const update = await req.json();
