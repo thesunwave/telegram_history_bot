@@ -71,6 +71,8 @@ describe("webhook", () => {
     const day = new Date(now * 1000).toISOString().slice(0, 10);
     const cnt = await env.COUNTERS.get(`stats:1:2:${day}`);
     expect(cnt).toBe("1");
+    const list = await env.COUNTERS.list({ prefix: `stats:1:2:` });
+    expect(list.keys[0]?.expiration).toBeUndefined();
   });
 
   it("calls AI and sends summary", async () => {
