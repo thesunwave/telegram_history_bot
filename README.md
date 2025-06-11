@@ -42,3 +42,14 @@ npm test
 `setup.sh` creates KV namespaces and the D1 database. Copy the printed IDs into
 `wrangler.jsonc` so the worker can bind to these resources. The cron trigger is
 configured in `wrangler.jsonc` and will be created on deployment.
+
+## Local QuestDB with Compression
+To run QuestDB locally with Zstd compression enabled for replication, use the provided `questdb/server.conf`:
+```bash
+docker run \
+  -p 9000:9000 -p 8812:8812 \
+  -v $(pwd)/questdb/server.conf:/root/.questdb/conf/server.conf \
+  questdb/questdb:latest
+```
+This starts QuestDB with `replication.primary.compression.level=3` and
+`replication.primary.compression.threads=2` as defaults. Adjust values if needed.
