@@ -28,7 +28,7 @@ export async function handleUpdate(update: any, env: Env) {
   await env.COUNTERS.put(`user:${userId}`, username);
 
   if (msg.text.startsWith('/summary_last')) {
-    const n = parseInt(msg.text.split(' ')[1] || '1');
+    const n = parseInt(msg.text.split(' ')[1] || '100');
     await summariseChatMessages(env, chatId, n);
   } else if (msg.text.startsWith('/summary')) {
     const d = parseInt(msg.text.split(' ')[1] || '1');
