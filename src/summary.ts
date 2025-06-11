@@ -174,4 +174,9 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       });
     }
   }
+  finally {
+    console.debug("summariseChat finished", {
+      chat: chatId.toString(LOG_ID_RADIX),
+    });
+  }
 }
