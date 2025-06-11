@@ -59,7 +59,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     });
 
     const limitNote = `Ответ не длиннее ${TELEGRAM_LIMIT} символов.`;
-    const chunkSize = env.SUMMARY_CHUNK_SIZE || DEFAULT_SUMMARY_CHUNK_SIZE;
+    const chunkSize = env.SUMMARY_CHUNK_SIZE ?? DEFAULT_SUMMARY_CHUNK_SIZE;
     const parts = chunkText(content, chunkSize);
     console.debug("summarize chunks", {
       chat: chatId.toString(LOG_ID_RADIX),
