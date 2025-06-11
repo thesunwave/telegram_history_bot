@@ -118,8 +118,8 @@ describe("webhook", () => {
     });
     await worker.fetch(req2, env, ctx);
     await Promise.all(tasks);
-    expect(env.AI.run).toHaveBeenCalledWith("model", {
-      prompt: expect.any(String),
+    expect(env.AI.run).toHaveBeenCalledWith('model', {
+      prompt: expect.stringContaining('4096'),
     });
     expect(fetchMock).toHaveBeenCalled();
   });
@@ -169,7 +169,9 @@ describe("webhook", () => {
     await worker.fetch(req2, env, ctx);
     await Promise.all(tasks);
     expect(env.AI.run).toHaveBeenCalledWith('model-chat', {
-      messages: expect.any(Array),
+      messages: expect.arrayContaining([
+        expect.objectContaining({ content: expect.stringContaining('4096') }),
+      ]),
     });
     expect(fetchMock).toHaveBeenCalled();
   });
