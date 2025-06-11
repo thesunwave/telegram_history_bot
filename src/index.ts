@@ -107,6 +107,7 @@ async function summariseChat(env: Env, chatId: number, days: number) {
     const input = `${env.SUMMARY_PROMPT}\n${limitNote}\n${content}`;
     aiResp = await env.AI.run(env.SUMMARY_MODEL, { prompt: input });
   }
+
   const summary = truncateText(aiResp.response ?? aiResp, TELEGRAM_LIMIT);
   await sendMessage(env, chatId, summary);
   if (env.DB) {
