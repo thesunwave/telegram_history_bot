@@ -67,11 +67,11 @@ async function fetchMessages(
     const list = await env.HISTORY.list({ prefix, cursor });
     cursor = list.cursor;
     for (const key of list.keys) {
-      const parts = key.name.split(":");
+      const parts = key.name.split(':');
       const ts = parseInt(parts[2]);
       if (ts >= start && ts <= end) {
         const m = await env.HISTORY.get<StoredMessage>(key.name, {
-          type: "json",
+          type: 'json',
         });
         if (m) messages.push(m);
       }
@@ -85,7 +85,7 @@ async function summariseChat(env: Env, chatId: number, days: number) {
   const start = end - days * DAY;
   const messages = await fetchMessages(env, chatId, start, end);
   if (!messages.length) {
-    await sendMessage(env, chatId, "Нет сообщений");
+    await sendMessage(env, chatId, 'Нет сообщений');
     return;
   }
   const content = messages.map((m) => `${m.username}: ${m.text}`).join('\n');
@@ -112,7 +112,7 @@ async function summariseChat(env: Env, chatId: number, days: number) {
   await sendMessage(env, chatId, summary);
   if (env.DB) {
     await env.DB.prepare(
-      "INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)",
+      'INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)',
     )
       .bind(
         chatId,
@@ -132,18 +132,22 @@ async function topChat(env: Env, chatId: number, n: number, day: string) {
     const list = await env.COUNTERS.list({ prefix, cursor });
     cursor = list.cursor;
     for (const key of list.keys) {
-      const [_, chat, user, d] = key.name.split(":");
+      const [_, chat, user, d] = key.name.split(':');
       if (d !== day) continue;
-      const c = parseInt((await env.COUNTERS.get(key.name)) || "0");
+      const c = parseInt((await env.COUNTERS.get(key.name)) || '0');
       counts[user] = (counts[user] || 0) + c;
     }
   } while (cursor);
   const sorted = Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, n);
-  const text =
-    sorted.map(([u, c], i) => `${i + 1}. ${u}: ${c}`).join("\n") ||
-    "Нет данных";
+  const lines = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const [u, c] = sorted[i];
+    const name = (await env.COUNTERS.get(`user:${u}`)) || `id${u}`;
+    lines.push(`${i + 1}. ${name}: ${c}`);
+  }
+  const text = lines.join('\n') || 'Нет данных';
   await sendMessage(env, chatId, text);
 }
 
@@ -179,18 +183,19 @@ async function handleUpdate(update: any, env: Env) {
   });
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
   const ckey = `stats:${chatId}:${userId}:${day}`;
-  const count = parseInt((await env.COUNTERS.get(ckey)) || "0") + 1;
+  const count = parseInt((await env.COUNTERS.get(ckey)) || '0') + 1;
   await env.COUNTERS.put(ckey, String(count));
+  await env.COUNTERS.put(`user:${userId}`, username);
 
-  if (msg.text.startsWith("/summary")) {
-    const d = parseInt(msg.text.split(" ")[1] || "1");
+  if (msg.text.startsWith('/summary')) {
+    const d = parseInt(msg.text.split(' ')[1] || '1');
     await summariseChat(env, chatId, d);
-  } else if (msg.text.startsWith("/top")) {
-    const n = parseInt(msg.text.split(" ")[1] || "5");
+  } else if (msg.text.startsWith('/top')) {
+    const n = parseInt(msg.text.split(' ')[1] || '5');
     await topChat(env, chatId, n, day);
-  } else if (msg.text.startsWith("/reset")) {
+  } else if (msg.text.startsWith('/reset')) {
     await resetCounters(env, chatId);
-    await sendMessage(env, chatId, "Counters reset");
+    await sendMessage(env, chatId, 'Counters reset');
   }
 }
 
@@ -199,14 +204,14 @@ async function dailySummary(env: Env) {
   today.setUTCHours(0, 0, 0, 0);
   const start = Math.floor((today.getTime() - DAY * 1000) / 1000);
   const date = new Date(start * 1000).toISOString().slice(0, 10);
-  const prefix = "stats:";
+  const prefix = 'stats:';
   let cursor: string | undefined = undefined;
   const chats = new Set<number>();
   do {
     const list = await env.COUNTERS.list({ prefix, cursor });
     cursor = list.cursor;
     for (const key of list.keys) {
-      const [_, chat, , d] = key.name.split(":");
+      const [_, chat, , d] = key.name.split(':');
       if (d === date) chats.add(parseInt(chat));
     }
   } while (cursor);
@@ -222,25 +227,25 @@ export default {
     ctx: ExecutionContext,
   ): Promise<Response> {
     const url = new URL(req.url);
-    if (url.pathname === "/healthz") return new Response("ok");
+    if (url.pathname === '/healthz') return new Response('ok');
     if (
-      url.pathname.startsWith("/tg/") &&
-      url.pathname.endsWith("/webhook") &&
-      req.method === "POST"
+      url.pathname.startsWith('/tg/') &&
+      url.pathname.endsWith('/webhook') &&
+      req.method === 'POST'
     ) {
-      const token = url.pathname.split("/")[2];
+      const token = url.pathname.split('/')[2];
       if (token !== env.TOKEN)
-        return new Response("forbidden", { status: 403 });
-      if (req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.SECRET)
-        return new Response("forbidden", { status: 403 });
+        return new Response('forbidden', { status: 403 });
+      if (req.headers.get('X-Telegram-Bot-Api-Secret-Token') !== env.SECRET)
+        return new Response('forbidden', { status: 403 });
       const update = await req.json();
       ctx.waitUntil(handleUpdate(update, env));
       return Response.json({});
     }
-    if (url.pathname === "/jobs/daily_summary" && req.method === "POST") {
+    if (url.pathname === '/jobs/daily_summary' && req.method === 'POST') {
       await dailySummary(env);
       return Response.json({});
     }
-    return new Response("Not found", { status: 404 });
+    return new Response('Not found', { status: 404 });
   },
 };
