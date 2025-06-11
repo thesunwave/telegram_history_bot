@@ -9,10 +9,14 @@ export async function topChat(env: Env, chatId: number, n: number, day: string) 
   do {
     const list = await env.COUNTERS.list({ prefix, cursor });
     cursor = list.cursor;
-    for (const key of list.keys) {
+    const values = await Promise.all(
+      list.keys.map((k) => env.COUNTERS.get(k.name)),
+    );
+    for (let i = 0; i < list.keys.length; i++) {
+      const key = list.keys[i];
       const [_, chat, user, d] = key.name.split(':');
       if (d !== day) continue;
-      const c = parseInt((await env.COUNTERS.get(key.name)) || '0');
+      const c = parseInt(values[i] || '0');
       counts[user] = (counts[user] || 0) + c;
     }
   } while (cursor);
@@ -20,9 +24,12 @@ export async function topChat(env: Env, chatId: number, n: number, day: string) 
     .sort((a, b) => b[1] - a[1])
     .slice(0, n);
   const lines = [];
+  const names = await Promise.all(
+    sorted.map(([u]) => env.COUNTERS.get(`user:${u}`)),
+  );
   for (let i = 0; i < sorted.length; i++) {
     const [u, c] = sorted[i];
-    const name = (await env.COUNTERS.get(`user:${u}`)) || `id${u}`;
+    const name = names[i] || `id${u}`;
     lines.push(`${i + 1}. ${name}: ${c}`);
   }
   const text = lines.join('\n') || 'Нет данных';
