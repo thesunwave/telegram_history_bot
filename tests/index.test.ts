@@ -219,6 +219,18 @@ describe("webhook", () => {
       headers: {
         'X-Telegram-Bot-Api-Secret-Token': 's',
         'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(cmd),
+    });
+    await worker.fetch(req2, env, ctx);
+    await Promise.all(tasks);
+    const call = (env.AI.run as any).mock.calls.at(-1)[1];
+    const text = call.prompt ?? call.messages[1].content;
+    const lines = text.split('\n').filter((l: string) => l.startsWith('u:'));
+    expect(lines).toHaveLength(2);
+    expect(lines.at(-1)).toContain('third');
+    expect(fetchMock).toHaveBeenCalled();
+  });
 
   it("summarizes long history in chunks", async () => {
     env.SUMMARY_CHUNK_SIZE = 80;
@@ -266,19 +278,9 @@ describe("webhook", () => {
     await worker.fetch(req2, env, ctx);
     await Promise.all(tasks);
 
-    const call = (env.AI.run as any).mock.calls.at(-1)[1];
-    const text = call.prompt ?? call.messages[1].content;
-    const lines = text.split('\n').filter((l: string) => l.startsWith('u:'));
-    expect(lines).toHaveLength(2);
-    expect(lines.at(-1)).toContain('third');
-    expect(fetchMock).toHaveBeenCalled();
-  });
-
-  it('shows usernames in /top and handles rename', async () => {
     expect(env.AI.run).toHaveBeenCalledTimes(3);
     expect(fetchMock).toHaveBeenCalled();
   });
-
   it("shows usernames in /top and handles rename", async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
