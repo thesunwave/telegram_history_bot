@@ -18,14 +18,40 @@ interface StoredMessage {
 }
 
 const DAY = 86400;
+const TELEGRAM_LIMIT = 4096;
+
+function chunkText(text: string, limit: number): string[] {
+  const chars = Array.from(text);
+  const parts: string[] = [];
+  for (let i = 0; i < chars.length; i += limit) {
+    parts.push(chars.slice(i, i + limit).join(''));
+  }
+  return parts.length ? parts : [''];
+}
+
+function truncateText(text: string, limit: number): string {
+  return Array.from(text).slice(0, limit).join('');
+}
 
 async function sendMessage(env: Env, chatId: number, text: string) {
   const url = `https://api.telegram.org/bot${env.TOKEN}/sendMessage`;
-  await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text }),
-  });
+  const parts = chunkText(text, TELEGRAM_LIMIT);
+  for (const part of parts) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: part }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('tg send', {
+        status: res.status,
+        chat: chatId.toString(36),
+        err,
+      });
+      break;
+    }
+  }
 }
 
 async function fetchMessages(
@@ -69,18 +95,19 @@ async function summariseChat(env: Env, chatId: number, days: number) {
     model: env.SUMMARY_MODEL,
     count: messages.length,
   });
+  const limitNote = `Ответ не длиннее ${TELEGRAM_LIMIT} символов.`;
   let aiResp: any;
   if (env.SUMMARY_MODEL.includes('chat')) {
     const msg = [
-      { role: 'system', content: env.SUMMARY_PROMPT },
+      { role: 'system', content: `${env.SUMMARY_PROMPT}\n${limitNote}` },
       { role: 'user', content },
     ];
     aiResp = await env.AI.run(env.SUMMARY_MODEL, { messages: msg });
   } else {
-    const input = `${env.SUMMARY_PROMPT}\n${content}`;
+    const input = `${env.SUMMARY_PROMPT}\n${limitNote}\n${content}`;
     aiResp = await env.AI.run(env.SUMMARY_MODEL, { prompt: input });
   }
-  const summary = aiResp.response ?? aiResp;
+  const summary = truncateText(aiResp.response ?? aiResp, TELEGRAM_LIMIT);
   await sendMessage(env, chatId, summary);
   if (env.DB) {
     await env.DB.prepare(
