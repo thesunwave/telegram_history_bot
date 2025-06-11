@@ -152,7 +152,7 @@ async function handleUpdate(update: any, env: Env) {
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
   const ckey = `stats:${chatId}:${userId}:${day}`;
   const count = parseInt((await env.COUNTERS.get(ckey)) || "0") + 1;
-  await env.COUNTERS.put(ckey, String(count), { expirationTtl: 8 * DAY });
+  await env.COUNTERS.put(ckey, String(count));
 
   if (msg.text.startsWith("/summary")) {
     const d = parseInt(msg.text.split(" ")[1] || "1");
