@@ -176,6 +176,60 @@ describe('webhook', () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
+  it('summarises last N messages', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const now = Math.floor(Date.now() / 1000);
+    const msgs = ['first', 'second', 'third'];
+    for (let i = 0; i < msgs.length; i++) {
+      const upd = {
+        message: {
+          message_id: i + 1,
+          text: msgs[i],
+          chat: { id: 1 },
+          from: { id: 2, username: 'u' },
+          date: now + i,
+        },
+      };
+      const req = new Request('http://localhost/tg/t/webhook', {
+        method: 'POST',
+        headers: {
+          'X-Telegram-Bot-Api-Secret-Token': 's',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(upd),
+      });
+      await worker.fetch(req, env, ctx);
+      await Promise.all(tasks);
+      tasks = [];
+    }
+    const cmd = {
+      message: {
+        message_id: 4,
+        text: '/summary_last 2',
+        chat: { id: 1 },
+        from: { id: 2, username: 'u' },
+        date: now + 3,
+      },
+    };
+    const req2 = new Request('http://localhost/tg/t/webhook', {
+      method: 'POST',
+      headers: {
+        'X-Telegram-Bot-Api-Secret-Token': 's',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(cmd),
+    });
+    await worker.fetch(req2, env, ctx);
+    await Promise.all(tasks);
+    const call = (env.AI.run as any).mock.calls.at(-1)[1];
+    const text = call.prompt ?? call.messages[1].content;
+    const lines = text.split('\n').filter((l: string) => l.startsWith('u:'));
+    expect(lines).toHaveLength(2);
+    expect(lines.at(-1)).toContain('third');
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
   it('shows usernames in /top and handles rename', async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
