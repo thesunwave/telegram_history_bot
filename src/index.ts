@@ -20,19 +20,34 @@ interface StoredMessage {
 const DAY = 86400;
 const TELEGRAM_LIMIT = 4096;
 
+function chunkText(text: string, limit: number): string[] {
+  const chars = Array.from(text);
+  const parts: string[] = [];
+  for (let i = 0; i < chars.length; i += limit) {
+    parts.push(chars.slice(i, i + limit).join(''));
+  }
+  return parts.length ? parts : [''];
+}
+
+function truncateText(text: string, limit: number): string {
+  return Array.from(text).slice(0, limit).join('');
+}
+
 async function sendMessage(env: Env, chatId: number, text: string) {
   const url = `https://api.telegram.org/bot${env.TOKEN}/sendMessage`;
-  const parts = text.match(new RegExp(`[^]{1,${TELEGRAM_LIMIT}}`, "g")) || [""];
+  const parts = chunkText(text, TELEGRAM_LIMIT);
   for (const part of parts) {
     const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text: part }),
     });
     if (!res.ok) {
-      console.error("tg send", {
+      const err = await res.text();
+      console.error('tg send', {
         status: res.status,
         chat: chatId.toString(36),
+        err,
       });
       break;
     }
@@ -92,7 +107,8 @@ async function summariseChat(env: Env, chatId: number, days: number) {
     const input = `${env.SUMMARY_PROMPT}\n${limitNote}\n${content}`;
     aiResp = await env.AI.run(env.SUMMARY_MODEL, { prompt: input });
   }
-  const summary = (aiResp.response ?? aiResp).slice(0, TELEGRAM_LIMIT);
+
+  const summary = truncateText(aiResp.response ?? aiResp, TELEGRAM_LIMIT);
   await sendMessage(env, chatId, summary);
   if (env.DB) {
     await env.DB.prepare(
