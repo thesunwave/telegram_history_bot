@@ -19,3 +19,4 @@ export interface StoredMessage {
 
 export const DAY = 86400;
 export const TELEGRAM_LIMIT = 4096;
+export const LOG_ID_RADIX = 36;
