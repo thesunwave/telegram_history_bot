@@ -44,6 +44,7 @@ Run unit tests with:
 ```bash
 npm test
 ```
+Run `npm install` before `npm test` to ensure dev dependencies like Vitest are available.
 
 ## Setup Script
 `setup.sh` creates KV namespaces and the D1 database. Copy the printed IDs into
