@@ -5,7 +5,7 @@ import {
   LOG_ID_RADIX,
   DEFAULT_SUMMARY_CHUNK_SIZE,
 } from "./env";
-import { fetchMessages } from "./history";
+import { fetchMessages, fetchLastMessages } from "./history";
 import { chunkText, truncateText } from "./utils";
 import { sendMessage } from "./telegram";
 
