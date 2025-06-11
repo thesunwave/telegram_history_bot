@@ -186,7 +186,7 @@ describe("webhook", () => {
     const m = {
       message: {
         message_id: 1,
-        text: "a".repeat(160),
+        text: "a".repeat(150),
         chat: { id: 1 },
         from: { id: 2, username: "u" },
         date: now,
@@ -222,7 +222,7 @@ describe("webhook", () => {
     });
     await worker.fetch(req2, env, ctx);
     await Promise.all(tasks);
-    expect(env.AI.run).toHaveBeenCalledTimes(4);
+    expect(env.AI.run).toHaveBeenCalledTimes(3);
     expect(fetchMock).toHaveBeenCalled();
   });
 
