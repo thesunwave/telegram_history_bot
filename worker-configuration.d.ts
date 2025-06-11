@@ -7,4 +7,5 @@ interface Env {
   SECRET: string;
   SUMMARY_MODEL: string;
   SUMMARY_PROMPT: string;
+  SUMMARY_CHUNK_SIZE?: number;
 }

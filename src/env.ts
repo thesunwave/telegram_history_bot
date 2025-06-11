@@ -7,6 +7,7 @@ export interface Env {
   SECRET: string;
   SUMMARY_MODEL: string;
   SUMMARY_PROMPT: string;
+  SUMMARY_CHUNK_SIZE?: number;
 }
 
 export interface StoredMessage {
@@ -20,3 +21,4 @@ export interface StoredMessage {
 export const DAY = 86400;
 export const TELEGRAM_LIMIT = 4096;
 export const LOG_ID_RADIX = 36;
+export const DEFAULT_SUMMARY_CHUNK_SIZE = 8000;
