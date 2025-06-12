@@ -33,7 +33,8 @@ Cloudflare Worker that stores Telegram chat messages for 7 days and can produce 
    wrangler secret put SECRET
    ```
    The summarisation model and prompt can be configured via `SUMMARY_MODEL` and
-   `SUMMARY_PROMPT` in `wrangler.jsonc`.
+   `SUMMARY_PROMPT` in `wrangler.jsonc`. По умолчанию промпт заставляет
+   модель отвечать только по-русски.
 4. Deploy with Wrangler:
    ```bash
    npm run deploy
