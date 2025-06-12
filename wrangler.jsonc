@@ -4,22 +4,45 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-06-10",
   "kv_namespaces": [
-    { "binding": "HISTORY", "id": "2c2400074dd346fa9d19830f893189df", "preview_id": "2c2400074dd346fa9d19830f893189df" },
-    { "binding": "COUNTERS", "id": "eb2d8e7ad2e74a37bb123e4ca820fbb8", "preview_id": "eb2d8e7ad2e74a37bb123e4ca820fbb8" }
+    {
+      "binding": "HISTORY",
+      "id": "2c2400074dd346fa9d19830f893189df",
+      "preview_id": "2c2400074dd346fa9d19830f893189df"
+    },
+    {
+      "binding": "COUNTERS",
+      "id": "eb2d8e7ad2e74a37bb123e4ca820fbb8",
+      "preview_id": "eb2d8e7ad2e74a37bb123e4ca820fbb8"
+    }
   ],
   "d1_databases": [
-    { "binding": "DB", "database_name": "summaries", "database_id": "34682d13-30ec-409f-97e2-e751603e4dcd" }
+    {
+      "binding": "DB",
+      "database_name": "summaries",
+      "database_id": "34682d13-30ec-409f-97e2-e751603e4dcd"
+    }
   ],
-  "ai": { "binding": "AI" },
+  "ai": {
+    "binding": "AI"
+  },
   "vars": {
     "SUMMARY_MODEL": "@cf/meta/llama-3-8b-instruct",
-    "SUMMARY_PROMPT": "Сделай сводку сообщений за период. Для каждого пользователя выведи:\n\n<username>\n• 1-2 ключевые мысли / темы\n\nСначала самых активных. Игнорируй системные и сервисные сообщения. Пиши по-русски, отчёт не длиннее 15 строк.\n\n=== СООБЩЕНИЯ ==="
+    "SUMMARY_PROMPT": "Сделай сводку сообщений за период. Для каждого пользователя выведи:\n\n<username>\n• 1-2 ключевые мысли или цитаты\n\nВсегда отвечай по-русски, без английского. Сначала самых активных. Игнорируй системные и сервисные сообщения. Отчёт не длиннее 15 строк.\n\n=== СООБЩЕНИЯ ==="
   },
-  "triggers": { "crons": ["59 23 * * *"] },
+  "triggers": {
+    "crons": [
+      "59 23 * * *"
+    ]
+  },
   "analytics_engine_datasets": [
-    { "binding": "ANALYTICS", "dataset": "telegram_history_bot_analytics" }
+    {
+      "binding": "ANALYTICS",
+      "dataset": "telegram_history_bot_analytics"
+    }
   ],
   "observability": {
-    "logs": { "enabled": true }
+    "logs": {
+      "enabled": true
+    }
   }
 }
