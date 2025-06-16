@@ -1,4 +1,4 @@
-import { Env, DAY } from './env';
+import { Env, DAY, MAX_LAST_MESSAGES } from './env';
 import { summariseChat, summariseChatMessages } from './summary';
 import { topChat, resetCounters } from './stats';
 import { sendMessage } from './telegram';
@@ -28,8 +28,9 @@ export async function handleUpdate(update: any, env: Env) {
   await env.COUNTERS.put(`user:${userId}`, username);
 
   if (msg.text.startsWith('/summary_last')) {
-    const n = parseInt(msg.text.split(' ')[1] || '100');
-    await summariseChatMessages(env, chatId, n);
+    const n = parseInt(msg.text.split(' ')[1] || '1', 10);
+    const count = Math.min(n, MAX_LAST_MESSAGES);
+    await summariseChatMessages(env, chatId, count);
   } else if (msg.text.startsWith('/summary')) {
     const d = parseInt(msg.text.split(' ')[1] || '1');
     await summariseChat(env, chatId, d);
