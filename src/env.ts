@@ -22,3 +22,4 @@ export const DAY = 86400;
 export const TELEGRAM_LIMIT = 4096;
 export const LOG_ID_RADIX = 36;
 export const DEFAULT_SUMMARY_CHUNK_SIZE = 8000;
+export const MAX_LAST_MESSAGES = 40;

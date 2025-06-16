@@ -1,11 +1,6 @@
 import { Env, StoredMessage, LOG_ID_RADIX } from './env';
 
-export async function fetchMessages(
-  env: Env,
-  chatId: number,
-  start: number,
-  end: number,
-) {
+export async function fetchMessages(env: Env, chatId: number, start: number, end: number) {
   const prefix = `msg:${chatId}:`;
   let cursor: string | undefined = undefined;
   const messages: StoredMessage[] = [];
@@ -65,7 +60,7 @@ export async function fetchMessages(
 export async function fetchLastMessages(env: Env, chatId: number, count: number) {
   const prefix = `msg:${chatId}:`;
   let cursor: string | undefined = undefined;
-  const messages: StoredMessage[] = [];
+  const keys: string[] = [];
   console.debug('fetchLastMessages start', {
     chat: chatId.toString(LOG_ID_RADIX),
     count,
@@ -83,18 +78,21 @@ export async function fetchLastMessages(env: Env, chatId: number, count: number)
         keys: list.keys.length,
         nextCursor: cursor,
       });
-      const results = await Promise.all(
-        list.keys.map((key) =>
-          env.HISTORY.get<StoredMessage>(key.name, { type: 'json' }),
-        ),
-      );
-      for (const m of results) if (m) messages.push(m);
+      for (const k of list.keys) {
+        keys.push(k.name);
+        if (keys.length > count) keys.shift();
+      }
       console.debug('fetchLastMessages page processed', {
         chat: chatId.toString(LOG_ID_RADIX),
-        collected: messages.length,
+        collected: keys.length,
       });
-    } while (cursor && messages.length < 10000);
-    const sorted = messages.sort((a, b) => b.ts - a.ts).slice(0, count);
+    } while (cursor);
+
+    const msgs = await Promise.all(
+      keys.map((k) => env.HISTORY.get<StoredMessage>(k, { type: 'json' })),
+    );
+    const filtered = msgs.filter((m): m is StoredMessage => !!m);
+    const sorted = filtered.sort((a, b) => b.ts - a.ts);
     return sorted;
   } catch (err: any) {
     console.error('fetchLastMessages failed', {
@@ -106,7 +104,7 @@ export async function fetchLastMessages(env: Env, chatId: number, count: number)
   } finally {
     console.debug('fetchLastMessages finished', {
       chat: chatId.toString(LOG_ID_RADIX),
-      count: messages.length,
+      count: keys.length,
     });
   }
 }

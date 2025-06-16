@@ -3,6 +3,7 @@
 Cloudflare Worker that stores Telegram chat messages for 7 days and can produce daily summaries via Workers AI.
 
 ## Features
+
 - Webhook for receiving Telegram updates.
 - Stores each message in KV with 7 day TTL.
 - Maintains per-user counters in KV.
@@ -12,11 +13,12 @@ Cloudflare Worker that stores Telegram chat messages for 7 days and can produce 
 ## Commands
 
 - `/summary <days>` – summarise messages from the last N days (default 1).
-- `/summary_last <n>` – summarise the most recent N messages (default 1).
+- `/summary_last <n>` – summarise the most recent N messages (default 1, max 40).
 - `/top <n>` – show top N active users for today (default 5).
 - `/reset` – reset all counters for the current chat.
 
 ## Deployment
+
 1. Install dependencies: `npm install`.
 
 2. Create resources and update `wrangler.jsonc` with their IDs:
@@ -41,13 +43,17 @@ Cloudflare Worker that stores Telegram chat messages for 7 days and can produce 
    ```
 
 ## Development
+
 Run unit tests with:
+
 ```bash
 npm test
 ```
+
 Run `npm install` before `npm test` to ensure dev dependencies like Vitest are available.
 
 ## Setup Script
+
 `setup.sh` creates KV namespaces and the D1 database. Copy the printed IDs into
 `wrangler.jsonc` so the worker can bind to these resources. The cron trigger is
 configured in `wrangler.jsonc` and will be created on deployment.
