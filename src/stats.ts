@@ -46,6 +46,29 @@ export async function resetCounters(env: Env, chatId: number) {
       await env.COUNTERS.delete(key.name);
     }
   } while (cursor);
+  const aPrefix = `activity:${chatId}:`;
+  cursor = undefined;
+  do {
+    const list = await env.COUNTERS.list({ prefix: aPrefix, cursor });
+    cursor = list.cursor;
+    for (const key of list.keys) {
+      await env.COUNTERS.delete(key.name);
+    }
+  } while (cursor);
+  if (env.DB) {
+    try {
+      await env
+        .DB
+        .prepare('DELETE FROM activity WHERE chat_id = ?')
+        .bind(chatId)
+        .run();
+    } catch (e) {
+      console.error('activity reset db error', {
+        chat: chatId.toString(36),
+        err: (e as any).message || String(e),
+      });
+    }
+  }
 }
 
 export async function dailySummary(env: Env) {
@@ -67,4 +90,87 @@ export async function dailySummary(env: Env) {
   for (const c of chats) {
     await summariseChat(env, c, 1);
   }
+}
+
+function drawGraph(data: { label: string; value: number }[]): string {
+  const max = Math.max(...data.map((d) => d.value), 1);
+  const scale = max > 0 ? 10 / max : 0;
+  return data
+    .map(({ label, value }) => {
+      const bar = '█'.repeat(Math.round(value * scale));
+      return `${label.padStart(3, ' ')} |${bar} ${value}`;
+    })
+    .join('\n');
+}
+
+export async function activityChart(
+  env: Env,
+  chatId: number,
+  period: 'week' | 'month',
+) {
+  const prefix = `activity:${chatId}:`;
+  let cursor: string | undefined = undefined;
+  const totals: Record<string, number> = {};
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const start = new Date(today);
+  start.setUTCDate(start.getUTCDate() - (period === 'month' ? 27 : 6));
+  const startStr = start.toISOString().slice(0, 10);
+  if (env.DB) {
+    try {
+      const res = await env
+        .DB
+        .prepare(
+          'SELECT day, count FROM activity WHERE chat_id = ? AND day >= ? ORDER BY day',
+        )
+        .bind(chatId, startStr)
+        .all();
+      for (const row of (res.results as any[])) {
+        totals[row.day] = row.count;
+      }
+    } catch (e) {
+      console.error('activity db read error', {
+        chat: chatId.toString(36),
+        err: (e as any).message || String(e),
+      });
+    }
+  } else {
+    do {
+      const list = await env.COUNTERS.list({ prefix, cursor });
+      cursor = list.cursor;
+      const values = await Promise.all(
+        list.keys.map((k) => env.COUNTERS.get(k.name)),
+      );
+      for (let i = 0; i < list.keys.length; i++) {
+        const [_, , day] = list.keys[i].name.split(':');
+        if (day >= startStr) {
+          const c = parseInt(values[i] || '0', 10);
+          totals[day] = (totals[day] || 0) + c;
+        }
+      }
+    } while (cursor);
+  }
+
+  let data: { label: string; value: number }[] = [];
+  if (period === 'week') {
+    const labels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today.getTime() - i * DAY * 1000);
+      const key = d.toISOString().slice(0, 10);
+      data.push({ label: labels[d.getUTCDay()], value: totals[key] || 0 });
+    }
+  } else {
+    const weeks = [0, 0, 0, 0];
+    for (const day in totals) {
+      const diff = Math.floor(
+        (today.getTime() - new Date(day).getTime()) / (DAY * 1000),
+      );
+      const idx = 3 - Math.floor(diff / 7);
+      if (idx >= 0 && idx < 4) weeks[idx] += totals[day];
+    }
+    for (let i = 0; i < 4; i++) data.push({ label: `W${i + 1}`, value: weeks[i] });
+  }
+
+  const text = drawGraph(data);
+  await sendMessage(env, chatId, text || 'Нет данных');
 }
