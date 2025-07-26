@@ -26,7 +26,12 @@ beforeEach(async () => {
   const history = new KVNamespace(new MemoryStorage());
   const counters = new KVNamespace(new MemoryStorage());
   const db = {
-    prepare: vi.fn(() => ({ bind: () => ({ run: vi.fn() }) })),
+    prepare: vi.fn(() => ({
+      bind: () => ({
+        run: vi.fn(),
+        all: vi.fn(async () => ({ results: [] })),
+      }),
+    })),
   } as unknown as D1Database;
   env = {
     HISTORY: history,
@@ -73,6 +78,8 @@ describe("webhook", () => {
     const day = new Date(now * 1000).toISOString().slice(0, 10);
     const cnt = await env.COUNTERS.get(`stats:1:2:${day}`);
     expect(cnt).toBe("1");
+    const activity = await env.COUNTERS.get(`activity:1:${day}`);
+    expect(activity).toBe("1");
     const list = await env.COUNTERS.list({ prefix: `stats:1:2:` });
     expect(list.keys[0]?.expiration).toBeUndefined();
   });
@@ -368,5 +375,54 @@ describe("webhook", () => {
     await Promise.all(tasks);
     body = JSON.parse(fetchMock.mock.calls.at(-1)[1].body);
     expect(body.text).toContain("bar: 2");
+  });
+
+  it('shows activity graph for week', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const now = Math.floor(Date.now() / 1000);
+    for (let i = 0; i < 3; i++) {
+      const upd = {
+        message: {
+          message_id: i + 1,
+          text: 'hi',
+          chat: { id: 1 },
+          from: { id: 2, username: 'u' },
+          date: now - i * 86400,
+        },
+      };
+      const req = new Request('http://localhost/tg/t/webhook', {
+        method: 'POST',
+        headers: {
+          'X-Telegram-Bot-Api-Secret-Token': 's',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(upd),
+      });
+      await worker.fetch(req, env, ctx);
+      await Promise.all(tasks);
+      tasks = [];
+    }
+    const cmd = {
+      message: {
+        message_id: 10,
+        text: '/activity week',
+        chat: { id: 1 },
+        from: { id: 3, username: 'c' },
+        date: now + 1,
+      },
+    };
+    const req2 = new Request('http://localhost/tg/t/webhook', {
+      method: 'POST',
+      headers: {
+        'X-Telegram-Bot-Api-Secret-Token': 's',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(cmd),
+    });
+    await worker.fetch(req2, env, ctx);
+    await Promise.all(tasks);
+    const body = JSON.parse(fetchMock.mock.calls.at(-1)[1].body);
+    expect(body.text.split('\n')).toHaveLength(7);
   });
 });
