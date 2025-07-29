@@ -114,6 +114,24 @@ function sanitizeLabel(label: string): string {
   return sanitized || 'unknown';
 }
 
+function formatActivityText(data: { label: string; value: number }[]): string {
+  if (data.length === 0) return 'Нет данных';
+  const text = drawGraph(data);
+  const total = data.reduce((sum, d) => sum + d.value, 0);
+  return total > 0 ? `${text}\nTotal: ${total}` : text;
+}
+
+interface ChartDataset {
+  label: string;
+  data: number[];
+}
+
+interface ChartConfig {
+  type: 'bar';
+  data: { labels: string[]; datasets: ChartDataset[] };
+  options?: { plugins: { title: { display: boolean; text: string } } };
+}
+
 function createBarChartUrl(
   labels: string[],
   data: number[],
@@ -130,7 +148,7 @@ function createBarChartUrl(
         `Received labels.length=${labels.length}, data.length=${data.length}.`,
     );
   }
-  const chart: any = {
+  const chart: ChartConfig = {
     type: 'bar',
     data: { labels, datasets: [{ label: name, data }] },
   };
@@ -157,7 +175,6 @@ export async function activityChart(
     start.getUTCDate() - (period === 'month' ? MONTH_DAYS : WEEK_DAYS),
   );
   const startStr = start.toISOString().slice(0, 10);
-  const endStr = today.toISOString().slice(0, 10);
   let dbOk = false;
   if (env.DB) {
     try {
@@ -215,10 +232,7 @@ export async function activityChart(
       data.push({ label: `W${i + 1}`, value: weeks[i] });
   }
 
-  const text = drawGraph(data);
-  const total = data.reduce((sum, d) => sum + d.value, 0);
-  const msg = total > 0 ? `${text}\nTotal: ${total}` : text;
-  await sendMessage(env, chatId, msg || 'Нет данных');
+  await sendMessage(env, chatId, formatActivityText(data));
 }
 
 export async function activityByUser(
