@@ -3,9 +3,10 @@ import { summariseChat, summariseChatMessages } from './summary';
 import { topChat, resetCounters, activityChart } from './stats';
 import { sendMessage } from './telegram';
 
-export async function handleUpdate(update: any, env: Env) {
+export async function recordMessage(update: any, env: Env) {
   const msg = update.message;
   if (!msg || !msg.text) return;
+  if (msg.from?.is_bot) return;
   const chatId = msg.chat.id;
   const userId = msg.from?.id || 0;
   const username = msg.from?.username || `id${userId}`;
@@ -46,7 +47,15 @@ export async function handleUpdate(update: any, env: Env) {
       });
     }
   }
+}
 
+export async function handleUpdate(update: any, env: Env) {
+  const msg = update.message;
+  if (!msg || !msg.text) return;
+  if (msg.from?.is_bot) return;
+  const chatId = msg.chat.id;
+  const ts = msg.date;
+  const day = new Date(ts * 1000).toISOString().slice(0, 10);
   if (msg.text.startsWith('/summary_last')) {
     const n = parseInt(msg.text.split(' ')[1] || '1', 10);
     const count = Math.min(n, MAX_LAST_MESSAGES);

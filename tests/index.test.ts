@@ -84,6 +84,35 @@ describe("webhook", () => {
     expect(list.keys[0]?.expiration).toBeUndefined();
   });
 
+  it('ignores messages from bots', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const update = {
+      message: {
+        message_id: 1,
+        text: 'hi',
+        chat: { id: 1 },
+        from: { id: 2, username: 'bot', is_bot: true },
+        date: now,
+      },
+    };
+    const req = new Request('http://localhost/tg/t/webhook', {
+      method: 'POST',
+      headers: {
+        'X-Telegram-Bot-Api-Secret-Token': 's',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(update),
+    });
+    const res = await worker.fetch(req, env, ctx);
+    expect(res.status).toBe(200);
+    await Promise.all(tasks);
+    const msg = await env.HISTORY.get(`msg:1:${now}:1`);
+    expect(msg).toBeNull();
+    const day = new Date(now * 1000).toISOString().slice(0, 10);
+    const cnt = await env.COUNTERS.get(`stats:1:2:${day}`);
+    expect(cnt).toBeNull();
+  });
+
   it("calls AI and sends summary", async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
