@@ -21,3 +21,20 @@ export async function sendMessage(env: Env, chatId: number, text: string) {
     }
   }
 }
+
+export async function sendPhoto(env: Env, chatId: number, url: string) {
+  const api = `https://api.telegram.org/bot${env.TOKEN}/sendPhoto`;
+  const res = await fetch(api, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, photo: url }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error('tg sendPhoto', {
+      status: res.status,
+      chat: chatId.toString(LOG_ID_RADIX),
+      err,
+    });
+  }
+}
