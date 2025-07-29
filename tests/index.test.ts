@@ -561,4 +561,54 @@ describe("webhook", () => {
     const body = JSON.parse(call[1].body);
     expect(body.photo).toContain('quickchart.io');
   });
+
+  it('sanitizes labels in user activity charts', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const now = Math.floor(Date.now() / 1000);
+    const upd = {
+      message: {
+        message_id: 1,
+        text: 'hi',
+        chat: { id: 1 },
+        from: { id: 2, username: 'bad"name' },
+        date: now,
+      },
+    };
+    const req = new Request('http://localhost/tg/t/webhook', {
+      method: 'POST',
+      headers: {
+        'X-Telegram-Bot-Api-Secret-Token': 's',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(upd),
+    });
+    await worker.fetch(req, env, ctx);
+    await Promise.all(tasks);
+    tasks = [];
+    const cmd = {
+      message: {
+        message_id: 2,
+        text: '/activity users week',
+        chat: { id: 1 },
+        from: { id: 3, username: 'c' },
+        date: now + 1,
+      },
+    };
+    const req2 = new Request('http://localhost/tg/t/webhook', {
+      method: 'POST',
+      headers: {
+        'X-Telegram-Bot-Api-Secret-Token': 's',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(cmd),
+    });
+    await worker.fetch(req2, env, ctx);
+    await Promise.all(tasks);
+    const call = fetchMock.mock.calls.at(-1);
+    const body = JSON.parse(call[1].body);
+    const encoded = body.photo.split('?c=')[1];
+    const chart = JSON.parse(decodeURIComponent(encoded));
+    expect(chart.data.labels[0]).toBe('badname');
+  });
 });
