@@ -1,6 +1,6 @@
-import { Env, DAY, MONTH_DAYS, WEEK_DAYS } from "./env";
-import { sendMessage, sendPhoto } from "./telegram";
-import { summariseChat } from "./summary";
+import { Env, DAY, MONTH_DAYS, WEEK_DAYS } from './env';
+import { sendMessage, sendPhoto } from './telegram';
+import { summariseChat } from './summary';
 
 export async function topChat(
   env: Env,
@@ -104,6 +104,15 @@ function drawGraph(data: { label: string; value: number }[]): string {
       return `${label.padStart(3, " ")} |${bar} ${value}`;
     })
     .join("\n");
+}
+
+function sanitizeLabel(label: string): string {
+  return label.replace(/[^\w@.-]/g, '').slice(0, 32);
+}
+
+function createBarChartUrl(labels: string[], data: number[], name: string): string {
+  const chart = { type: 'bar', data: { labels, datasets: [{ label: name, data }] } };
+  return 'https://quickchart.io/chart?c=' + encodeURIComponent(JSON.stringify(chart));
 }
 
 export async function activityChart(
@@ -215,14 +224,8 @@ export async function activityByUser(
   const names = await Promise.all(
     sorted.map(([u]) => env.COUNTERS.get(`user:${u}`)),
   );
-  const labels = names.map((n, i) => n || `id${sorted[i][0]}`);
+  const labels = names.map((n, i) => sanitizeLabel(n || `id${sorted[i][0]}`));
   const data = sorted.map(([, c]) => c);
-  const chart = {
-    type: "bar",
-    data: { labels, datasets: [{ label: "Messages", data }] },
-  };
-  const url =
-    "https://quickchart.io/chart?c=" +
-    encodeURIComponent(JSON.stringify(chart));
+  const url = createBarChartUrl(labels, data, 'Messages');
   await sendPhoto(env, chatId, url);
 }
