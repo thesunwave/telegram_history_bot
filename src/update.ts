@@ -1,6 +1,6 @@
 import { Env, DAY, MAX_LAST_MESSAGES } from './env';
 import { summariseChat, summariseChatMessages } from './summary';
-import { topChat, resetCounters, activityChart } from './stats';
+import { topChat, resetCounters, activityChart, activityByUser } from './stats';
 import { sendMessage } from './telegram';
 
 export function getTextMessage(update: any) {
@@ -73,8 +73,14 @@ export async function handleUpdate(msg: any, env: Env) {
     await resetCounters(env, chatId);
     await sendMessage(env, chatId, 'Counters reset');
   } else if (msg.text.startsWith('/activity')) {
-    const arg = msg.text.split(' ')[1] || 'week';
-    const period = arg === 'month' ? 'month' : 'week';
-    await activityChart(env, chatId, period);
+    const parts = msg.text.split(/\s+/);
+    const sub = parts[1] || 'week';
+    if (sub === 'users') {
+      const period = parts[2] === 'month' ? 'month' : 'week';
+      await activityByUser(env, chatId, period);
+    } else {
+      const period = sub === 'month' ? 'month' : 'week';
+      await activityChart(env, chatId, period);
+    }
   }
 }

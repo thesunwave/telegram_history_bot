@@ -454,4 +454,111 @@ describe("webhook", () => {
     const body = JSON.parse(fetchMock.mock.calls.at(-1)[1].body);
     expect(body.text.split('\n')).toHaveLength(7);
   });
+
+  it('shows activity chart by user', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const now = Math.floor(Date.now() / 1000);
+    const users = [
+      { id: 2, username: 'a' },
+      { id: 3, username: 'b' },
+    ];
+    for (const u of users) {
+      const upd = {
+        message: {
+          message_id: u.id,
+          text: 'hi',
+          chat: { id: 1 },
+          from: u,
+          date: now,
+        },
+      };
+      const req = new Request('http://localhost/tg/t/webhook', {
+        method: 'POST',
+        headers: {
+          'X-Telegram-Bot-Api-Secret-Token': 's',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(upd),
+      });
+      await worker.fetch(req, env, ctx);
+      await Promise.all(tasks);
+      tasks = [];
+    }
+    const cmd = {
+      message: {
+        message_id: 10,
+        text: '/activity users week',
+        chat: { id: 1 },
+        from: { id: 4, username: 'c' },
+        date: now + 1,
+      },
+    };
+    const req2 = new Request('http://localhost/tg/t/webhook', {
+      method: 'POST',
+      headers: {
+        'X-Telegram-Bot-Api-Secret-Token': 's',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(cmd),
+    });
+    await worker.fetch(req2, env, ctx);
+    await Promise.all(tasks);
+    const call = fetchMock.mock.calls.at(-1);
+    expect(call[0]).toContain('/sendPhoto');
+    const body = JSON.parse(call[1].body);
+    expect(body.photo).toContain('quickchart.io');
+  });
+
+  it('shows monthly activity chart by user', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const now = Math.floor(Date.now() / 1000);
+    const user = { id: 2, username: 'a' };
+    for (let i = 0; i < 2; i++) {
+      const upd = {
+        message: {
+          message_id: i + 1,
+          text: 'hi',
+          chat: { id: 1 },
+          from: user,
+          date: now - i * 20 * 86400,
+        },
+      };
+      const req = new Request('http://localhost/tg/t/webhook', {
+        method: 'POST',
+        headers: {
+          'X-Telegram-Bot-Api-Secret-Token': 's',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(upd),
+      });
+      await worker.fetch(req, env, ctx);
+      await Promise.all(tasks);
+      tasks = [];
+    }
+    const cmd = {
+      message: {
+        message_id: 10,
+        text: '/activity users month',
+        chat: { id: 1 },
+        from: { id: 3, username: 'b' },
+        date: now + 1,
+      },
+    };
+    const req2 = new Request('http://localhost/tg/t/webhook', {
+      method: 'POST',
+      headers: {
+        'X-Telegram-Bot-Api-Secret-Token': 's',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(cmd),
+    });
+    await worker.fetch(req2, env, ctx);
+    await Promise.all(tasks);
+    const call = fetchMock.mock.calls.at(-1);
+    expect(call[0]).toContain('/sendPhoto');
+    const body = JSON.parse(call[1].body);
+    expect(body.photo).toContain('quickchart.io');
+  });
 });

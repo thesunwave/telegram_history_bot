@@ -1,5 +1,5 @@
 import { Env, DAY } from './env';
-import { sendMessage } from './telegram';
+import { sendMessage, sendPhoto } from './telegram';
 import { summariseChat } from './summary';
 
 export async function topChat(env: Env, chatId: number, n: number, day: string) {
@@ -173,4 +173,48 @@ export async function activityChart(
 
   const text = drawGraph(data);
   await sendMessage(env, chatId, text || 'Нет данных');
+}
+
+export async function activityByUser(
+  env: Env,
+  chatId: number,
+  period: 'week' | 'month',
+) {
+  const prefix = `stats:${chatId}:`;
+  let cursor: string | undefined = undefined;
+  const totals: Record<string, number> = {};
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const start = new Date(today);
+  start.setUTCDate(start.getUTCDate() - (period === 'month' ? 27 : 6));
+  const startStr = start.toISOString().slice(0, 10);
+  do {
+    const list = await env.COUNTERS.list({ prefix, cursor });
+    cursor = list.cursor;
+    const values = await Promise.all(list.keys.map((k) => env.COUNTERS.get(k.name)));
+    for (let i = 0; i < list.keys.length; i++) {
+      const [_, , user, day] = list.keys[i].name.split(':');
+      if (day >= startStr) {
+        const c = parseInt(values[i] || '0', 10);
+        totals[user] = (totals[user] || 0) + c;
+      }
+    }
+  } while (cursor);
+
+  const sorted = Object.entries(totals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+  const names = await Promise.all(
+    sorted.map(([u]) => env.COUNTERS.get(`user:${u}`)),
+  );
+  const labels = names.map((n, i) => n || `id${sorted[i][0]}`);
+  const data = sorted.map(([, c]) => c);
+  const chart = {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Messages', data }] },
+  };
+  const url =
+    'https://quickchart.io/chart?c=' +
+    encodeURIComponent(JSON.stringify(chart));
+  await sendPhoto(env, chatId, url);
 }
