@@ -1,6 +1,6 @@
-import { Env, DAY, MONTH_DAYS, WEEK_DAYS } from './env';
-import { sendMessage, sendPhoto } from './telegram';
-import { summariseChat } from './summary';
+import { Env, DAY, MONTH_DAYS, WEEK_DAYS } from "./env";
+import { sendMessage, sendPhoto } from "./telegram";
+import { summariseChat } from "./summary";
 
 export async function topChat(
   env: Env,
@@ -107,12 +107,31 @@ function drawGraph(data: { label: string; value: number }[]): string {
 }
 
 function sanitizeLabel(label: string): string {
-  return label.replace(/[^\w@.-]/g, '').slice(0, 32);
+  const truncated = label.slice(0, 32);
+  const allowlist = /^[a-zA-Z0-9_.@-]+$/;
+  if (allowlist.test(truncated)) return truncated;
+  return truncated.replace(/[^a-zA-Z0-9_.@-]/g, "");
 }
 
-function createBarChartUrl(labels: string[], data: number[], name: string): string {
-  const chart = { type: 'bar', data: { labels, datasets: [{ label: name, data }] } };
-  return 'https://quickchart.io/chart?c=' + encodeURIComponent(JSON.stringify(chart));
+function createBarChartUrl(
+  labels: string[],
+  data: number[],
+  name: string,
+): string {
+  if (
+    labels.length === 0 ||
+    data.length === 0 ||
+    labels.length !== data.length
+  ) {
+    throw new Error("invalid chart data");
+  }
+  const chart = {
+    type: "bar",
+    data: { labels, datasets: [{ label: name, data }] },
+  };
+  return (
+    "https://quickchart.io/chart?c=" + encodeURIComponent(JSON.stringify(chart))
+  );
 }
 
 export async function activityChart(
@@ -226,6 +245,6 @@ export async function activityByUser(
   );
   const labels = names.map((n, i) => sanitizeLabel(n || `id${sorted[i][0]}`));
   const data = sorted.map(([, c]) => c);
-  const url = createBarChartUrl(labels, data, 'Messages');
+  const url = createBarChartUrl(labels, data, "Messages");
   await sendPhoto(env, chatId, url);
 }
