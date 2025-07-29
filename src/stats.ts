@@ -110,8 +110,8 @@ function sanitizeLabel(label: string): string {
   const truncated = label.slice(0, 32);
   const allowlist = /^[a-zA-Z0-9_.@-]+$/;
   if (allowlist.test(truncated)) return truncated;
-  const sanitized = truncated.replace(/[^a-zA-Z0-9_.@-]/g, "_");
-  return sanitized || "unknown";
+  const sanitized = truncated.replace(/[^a-zA-Z0-9_.@-]+/g, '');
+  return sanitized || 'unknown';
 }
 
 function createBarChartUrl(
