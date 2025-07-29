@@ -124,7 +124,10 @@ function createBarChartUrl(
     data.length === 0 ||
     labels.length !== data.length
   ) {
-    throw new Error("invalid chart data");
+    throw new Error(
+      `Invalid chart data: labels and data arrays must have equal lengths and contain at least one element each. ` +
+      `Received labels.length=${labels.length}, data.length=${data.length}.`
+    );
   }
   const chart = {
     type: "bar",
