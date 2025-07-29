@@ -23,3 +23,5 @@ export const TELEGRAM_LIMIT = 4096;
 export const LOG_ID_RADIX = 36;
 export const DEFAULT_SUMMARY_CHUNK_SIZE = 8000;
 export const MAX_LAST_MESSAGES = 40;
+export const WEEK_DAYS = 6; // lookback days for weekly stats
+export const MONTH_DAYS = 27; // lookback days for monthly stats
