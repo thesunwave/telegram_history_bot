@@ -454,7 +454,7 @@ describe("webhook", () => {
     const msgCall = fetchMock.mock.calls.at(-2);
     expect(msgCall[0]).toContain("/sendMessage");
     const text = JSON.parse(msgCall[1].body).text;
-    expect(text).toContain("Total:");
+    expect(text).not.toContain("Total:");
     expect(text.split("\n").length).toBeGreaterThanOrEqual(7);
     const photoCall = fetchMock.mock.calls.at(-1);
     expect(photoCall[0]).toContain("/sendPhoto");
