@@ -1,5 +1,5 @@
 import { Env } from './env';
-import { handleUpdate } from './update';
+import { handleUpdate, recordMessage } from './update';
 import { dailySummary } from './stats';
 
 export default {
@@ -16,6 +16,7 @@ export default {
       if (req.headers.get('X-Telegram-Bot-Api-Secret-Token') !== env.SECRET)
         return new Response('forbidden', { status: 403 });
       const update = await req.json();
+      await recordMessage(update, env);
       ctx.waitUntil(handleUpdate(update, env));
       return Response.json({});
     }
