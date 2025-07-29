@@ -10,8 +10,7 @@ export function getTextMessage(update: any) {
   return msg;
 }
 
-export async function recordMessage(update: any, env: Env) {
-  const msg = getTextMessage(update);
+export async function recordMessage(msg: any, env: Env) {
   if (!msg) return;
   const chatId = msg.chat.id;
   const userId = msg.from?.id || 0;
@@ -55,8 +54,7 @@ export async function recordMessage(update: any, env: Env) {
   }
 }
 
-export async function handleUpdate(update: any, env: Env) {
-  const msg = getTextMessage(update);
+export async function handleUpdate(msg: any, env: Env) {
   if (!msg) return;
   const chatId = msg.chat.id;
   const ts = msg.date;

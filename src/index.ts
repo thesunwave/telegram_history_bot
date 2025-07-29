@@ -1,5 +1,5 @@
 import { Env } from './env';
-import { handleUpdate, recordMessage } from './update';
+import { handleUpdate, recordMessage, getTextMessage } from './update';
 import { dailySummary } from './stats';
 
 export default {
@@ -16,8 +16,9 @@ export default {
       if (req.headers.get('X-Telegram-Bot-Api-Secret-Token') !== env.SECRET)
         return new Response('forbidden', { status: 403 });
       const update = await req.json();
-      await recordMessage(update, env);
-      ctx.waitUntil(handleUpdate(update, env));
+      const msg = getTextMessage(update);
+      await recordMessage(msg, env);
+      ctx.waitUntil(handleUpdate(msg, env));
       return Response.json({});
     }
     if (url.pathname === '/jobs/daily_summary' && req.method === 'POST') {
