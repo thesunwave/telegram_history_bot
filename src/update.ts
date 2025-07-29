@@ -89,7 +89,6 @@ export async function handleUpdate(msg: any, env: Env) {
     } else {
       const period = sub === 'month' ? 'month' : 'week';
       await activityChart(env, chatId, period);
-      await activityByUser(env, chatId, period);
     }
   }
 }
