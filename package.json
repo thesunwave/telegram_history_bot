@@ -6,8 +6,8 @@
 		"deploy": "wrangler deploy",
 		"start": "wrangler dev",
 		"dev": "wrangler dev",
-        "cf-typegen": "wrangler types",
-        "test": "vitest run"
+		"cf-typegen": "wrangler types",
+		"test": "vitest run"
 	},
 	"devDependencies": {
 		"@miniflare/core": "^2.14.4",
@@ -16,6 +16,6 @@
 		"@miniflare/storage-memory": "^2.14.4",
 		"typescript": "^5.0.4",
 		"vitest": "^3.2.3",
-		"wrangler": "^4.19.1"
+		"wrangler": "^4.26.1"
 	}
 }
