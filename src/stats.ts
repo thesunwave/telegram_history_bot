@@ -158,6 +158,7 @@ export async function activityChart(
   );
   const startStr = start.toISOString().slice(0, 10);
   const endStr = today.toISOString().slice(0, 10);
+  let dbOk = false;
   if (env.DB) {
     try {
       const res = await env.DB.prepare(
@@ -168,6 +169,7 @@ export async function activityChart(
       for (const row of res.results as any[]) {
         totals[row.day] = row.count;
       }
+      dbOk = true;
     } catch (e) {
       console.error('activity db read error', {
         chat: chatId.toString(36),
@@ -175,7 +177,7 @@ export async function activityChart(
       });
     }
   }
-  if (Object.keys(totals).length === 0) {
+  if (!dbOk) {
     do {
       const list = await env.COUNTERS.list({ prefix, cursor });
       cursor = list.cursor;
