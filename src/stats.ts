@@ -219,7 +219,6 @@ export async function activityChart(
   const total = data.reduce((sum, d) => sum + d.value, 0);
   const msg = total > 0 ? `${text}\nTotal: ${total}` : text;
   await sendMessage(env, chatId, msg || 'Нет данных');
-  return total;
 }
 
 export async function activityByUser(
