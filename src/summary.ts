@@ -67,6 +67,11 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       chunks: parts.length,
     });
 
+    const maxTokens = env.SUMMARY_MAX_TOKENS ?? 300;
+    const temperature = env.SUMMARY_TEMPERATURE ?? 0.1;
+    const topP = env.SUMMARY_TOP_P ?? 0.9;
+    const freqPenalty = env.SUMMARY_FREQUENCY_PENALTY;
+
     async function summariseText(text: string, stage: string) {
       let resp: any;
       console.debug("summarize AI model", {
@@ -79,8 +84,11 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       try {
         if (env.SUMMARY_MODEL.includes("chat")) {
           const msg = [
-            { role: "system", content: `${env.SUMMARY_PROMPT}\n${limitNote}` },
-            { role: "user", content: text },
+            {
+              role: "system",
+              content: `${env.SUMMARY_SYSTEM ?? env.SUMMARY_PROMPT}\n${limitNote}`,
+            },
+            { role: "user", content: `${env.SUMMARY_PROMPT}\n=== СООБЩЕНИЯ ===\n${text}` },
           ];
           console.debug("summarize AI request (chat)", {
             chat: chatId.toString(LOG_ID_RADIX),
@@ -89,7 +97,14 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
             systemContentLength: msg[0].content.length,
             userContentLength: msg[1].content.length,
           });
-          resp = await env.AI.run(env.SUMMARY_MODEL, { messages: msg });
+          const opts: any = {
+            messages: msg,
+            max_tokens: maxTokens,
+            temperature,
+            top_p: topP,
+          };
+          if (freqPenalty !== undefined) opts.frequency_penalty = freqPenalty;
+          resp = await env.AI.run(env.SUMMARY_MODEL, opts);
         } else {
           const input = `${env.SUMMARY_PROMPT}\n${limitNote}\n${text}`;
           console.debug("summarize AI request (completion)", {
@@ -97,7 +112,14 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
             stage,
             inputLength: input.length,
           });
-          resp = await env.AI.run(env.SUMMARY_MODEL, { prompt: input });
+          const opts: any = {
+            prompt: input,
+            max_tokens: maxTokens,
+            temperature,
+            top_p: topP,
+          };
+          if (freqPenalty !== undefined) opts.frequency_penalty = freqPenalty;
+          resp = await env.AI.run(env.SUMMARY_MODEL, opts);
         }
 
         console.debug("summarize AI response received", {
@@ -269,6 +291,10 @@ export async function summariseChatMessages(
     });
 
     const limitNote = `Ответ не длиннее ${TELEGRAM_LIMIT} символов.`;
+    const maxTokens = env.SUMMARY_MAX_TOKENS ?? 300;
+    const temperature = env.SUMMARY_TEMPERATURE ?? 0.1;
+    const topP = env.SUMMARY_TOP_P ?? 0.9;
+    const freqPenalty = env.SUMMARY_FREQUENCY_PENALTY;
     let aiResp: any;
 
     console.debug('summariseChatMessages AI model', {
@@ -281,13 +307,30 @@ export async function summariseChatMessages(
     try {
       if (env.SUMMARY_MODEL.includes('chat')) {
         const msg = [
-          { role: 'system', content: `${env.SUMMARY_PROMPT}\n${limitNote}` },
-          { role: 'user', content },
+          {
+            role: 'system',
+            content: `${env.SUMMARY_SYSTEM ?? env.SUMMARY_PROMPT}\n${limitNote}`,
+          },
+          { role: 'user', content: `${env.SUMMARY_PROMPT}\n=== СООБЩЕНИЯ ===\n${content}` },
         ];
-        aiResp = await env.AI.run(env.SUMMARY_MODEL, { messages: msg });
+        const opts: any = {
+          messages: msg,
+          max_tokens: maxTokens,
+          temperature,
+          top_p: topP,
+        };
+        if (freqPenalty !== undefined) opts.frequency_penalty = freqPenalty;
+        aiResp = await env.AI.run(env.SUMMARY_MODEL, opts);
       } else {
         const input = `${env.SUMMARY_PROMPT}\n${limitNote}\n${content}`;
-        aiResp = await env.AI.run(env.SUMMARY_MODEL, { prompt: input });
+        const opts: any = {
+          prompt: input,
+          max_tokens: maxTokens,
+          temperature,
+          top_p: topP,
+        };
+        if (freqPenalty !== undefined) opts.frequency_penalty = freqPenalty;
+        aiResp = await env.AI.run(env.SUMMARY_MODEL, opts);
       }
     } catch (error) {
       console.error('summariseChatMessages AI error', {

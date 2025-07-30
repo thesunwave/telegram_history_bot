@@ -43,9 +43,10 @@ To enable autocomplete, register the commands with **BotFather** via `/setcomman
    wrangler secret put TOKEN
    wrangler secret put SECRET
    ```
-   The summarisation model and prompt can be configured via `SUMMARY_MODEL` and
-   `SUMMARY_PROMPT` in `wrangler.jsonc`. По умолчанию промпт заставляет
-   модель отвечать только по-русски.
+   The summarisation model and prompts can be configured via
+   `SUMMARY_MODEL`, `SUMMARY_SYSTEM` and `SUMMARY_PROMPT` in `wrangler.jsonc`.
+   By default the bot uses Llama‑3.1 8B instruct fast and always replies in
+   Russian.
 4. Deploy with Wrangler:
    ```bash
    npm run deploy
