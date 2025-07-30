@@ -9,6 +9,40 @@ import { fetchMessages, fetchLastMessages } from "./history";
 import { chunkText, truncateText } from "./utils";
 import { sendMessage } from "./telegram";
 
+const MESSAGE_SEPARATOR = "=== СООБЩЕНИЯ ===";
+
+interface AiBaseOptions {
+  max_tokens: number;
+  temperature: number;
+  top_p: number;
+  frequency_penalty?: number;
+}
+
+function buildAiOptions(env: Env): AiBaseOptions {
+  const opts: AiBaseOptions = {
+    max_tokens: env.SUMMARY_MAX_TOKENS ?? 300,
+    temperature: env.SUMMARY_TEMPERATURE ?? 0.1,
+    top_p: env.SUMMARY_TOP_P ?? 0.9,
+  };
+  if (env.SUMMARY_FREQUENCY_PENALTY !== undefined) {
+    opts.frequency_penalty = env.SUMMARY_FREQUENCY_PENALTY;
+  }
+  return opts;
+}
+
+function buildChatMessages(env: Env, text: string, limitNote: string) {
+  const system = env.SUMMARY_SYSTEM
+    ? `${env.SUMMARY_SYSTEM}\n${limitNote}`
+    : limitNote;
+  return [
+    { role: "system", content: system },
+    {
+      role: "user",
+      content: `${env.SUMMARY_PROMPT}\n${MESSAGE_SEPARATOR}\n${text}`,
+    },
+  ];
+}
+
 export async function summariseChat(env: Env, chatId: number, days: number) {
   console.debug("summariseChat started", {
     chat: chatId.toString(LOG_ID_RADIX),
@@ -41,7 +75,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     }
 
     // Prepare content
-    const content = messages.map((m) => `${m.username}: ${m.text}`).join("\n");
+    const content = messages.map((m) => `${m.username}: ${m.text}`).join('\n');
     console.debug("summarize start", {
       chat: chatId.toString(LOG_ID_RADIX),
       days,
@@ -67,6 +101,8 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       chunks: parts.length,
     });
 
+    const baseOpts = buildAiOptions(env);
+
     async function summariseText(text: string, stage: string) {
       let resp: any;
       console.debug("summarize AI model", {
@@ -78,10 +114,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       });
       try {
         if (env.SUMMARY_MODEL.includes("chat")) {
-          const msg = [
-            { role: "system", content: `${env.SUMMARY_PROMPT}\n${limitNote}` },
-            { role: "user", content: text },
-          ];
+          const msg = buildChatMessages(env, text, limitNote);
           console.debug("summarize AI request (chat)", {
             chat: chatId.toString(LOG_ID_RADIX),
             stage,
@@ -89,7 +122,8 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
             systemContentLength: msg[0].content.length,
             userContentLength: msg[1].content.length,
           });
-          resp = await env.AI.run(env.SUMMARY_MODEL, { messages: msg });
+          const opts = { ...baseOpts, messages: msg };
+          resp = await env.AI.run(env.SUMMARY_MODEL, opts);
         } else {
           const input = `${env.SUMMARY_PROMPT}\n${limitNote}\n${text}`;
           console.debug("summarize AI request (completion)", {
@@ -97,7 +131,8 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
             stage,
             inputLength: input.length,
           });
-          resp = await env.AI.run(env.SUMMARY_MODEL, { prompt: input });
+          const opts = { ...baseOpts, prompt: input };
+          resp = await env.AI.run(env.SUMMARY_MODEL, opts);
         }
 
         console.debug("summarize AI response received", {
@@ -158,7 +193,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         });
 
         await env.DB.prepare(
-          "INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)",
+          'INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)',
         )
           .bind(
             chatId,
@@ -254,9 +289,7 @@ export async function summariseChatMessages(
       return;
     }
 
-    const content = messages
-      .map((m) => `${m.username}: ${m.text}`)
-      .join('\n');
+    const content = messages.map((m) => `${m.username}: ${m.text}`).join('\n');
     console.debug('summariseChatMessages summarize start', {
       chat: chatId.toString(LOG_ID_RADIX),
       model: env.SUMMARY_MODEL,
@@ -269,6 +302,7 @@ export async function summariseChatMessages(
     });
 
     const limitNote = `Ответ не длиннее ${TELEGRAM_LIMIT} символов.`;
+    const baseOpts = buildAiOptions(env);
     let aiResp: any;
 
     console.debug('summariseChatMessages AI model', {
@@ -280,14 +314,13 @@ export async function summariseChatMessages(
 
     try {
       if (env.SUMMARY_MODEL.includes('chat')) {
-        const msg = [
-          { role: 'system', content: `${env.SUMMARY_PROMPT}\n${limitNote}` },
-          { role: 'user', content },
-        ];
-        aiResp = await env.AI.run(env.SUMMARY_MODEL, { messages: msg });
+        const msg = buildChatMessages(env, content, limitNote);
+        const opts = { ...baseOpts, messages: msg };
+        aiResp = await env.AI.run(env.SUMMARY_MODEL, opts);
       } else {
         const input = `${env.SUMMARY_PROMPT}\n${limitNote}\n${content}`;
-        aiResp = await env.AI.run(env.SUMMARY_MODEL, { prompt: input });
+        const opts = { ...baseOpts, prompt: input };
+        aiResp = await env.AI.run(env.SUMMARY_MODEL, opts);
       }
     } catch (error) {
       console.error('summariseChatMessages AI error', {
@@ -295,7 +328,11 @@ export async function summariseChatMessages(
         error: (error as any).message || String(error),
         stack: (error as any).stack,
       });
-      await sendMessage(env, chatId, 'Ошибка при создании сводки. Пожалуйста, попробуйте позже.');
+      await sendMessage(
+        env,
+        chatId,
+        'Ошибка при создании сводки. Пожалуйста, попробуйте позже.',
+      );
       return;
     }
 
@@ -330,7 +367,11 @@ export async function summariseChatMessages(
       stack: (error as any).stack,
     });
     try {
-      await sendMessage(env, chatId, 'Произошла непредвиденная ошибка при создании сводки.');
+      await sendMessage(
+        env,
+        chatId,
+        'Произошла непредвиденная ошибка при создании сводки.',
+      );
     } catch (sendError) {
       console.error('summariseChatMessages error notification failed', {
         chat: chatId.toString(LOG_ID_RADIX),
