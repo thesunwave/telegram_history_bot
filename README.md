@@ -36,7 +36,7 @@ To enable autocomplete, register the commands with **BotFather** via `/setcomman
    ```
    This will also run the initial D1 migrations. You can rerun them later with:
    ```bash
-  npx wrangler d1 migrations apply summaries
+   npx wrangler d1 migrations apply summaries
    ```
 3. Set secrets:
    ```bash
@@ -45,8 +45,11 @@ To enable autocomplete, register the commands with **BotFather** via `/setcomman
    ```
    The summarisation model and prompts can be configured via
    `SUMMARY_MODEL`, `SUMMARY_SYSTEM` and `SUMMARY_PROMPT` in `wrangler.jsonc`.
-   By default the bot uses Llama‑3.1 8B instruct fast and always replies in
-   Russian.
+   Additional tuning parameters such as `SUMMARY_MAX_TOKENS`,
+   `SUMMARY_TEMPERATURE`, `SUMMARY_TOP_P` and
+   `SUMMARY_FREQUENCY_PENALTY` allow you to control output length and
+   determinism. By default the bot uses Llama‑3.1 8B instruct fast and always
+   replies in Russian.
 4. Deploy with Wrangler:
    ```bash
    npm run deploy
