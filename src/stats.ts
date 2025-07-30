@@ -132,7 +132,11 @@ interface ChartConfig {
   options?: {
     plugins: {
       title?: { display: boolean; text: string };
-      datalabels?: { anchor: 'end'; align: 'top'; color?: string };
+      datalabels?: {
+        anchor?: 'start' | 'center' | 'end' | string;
+        align?: 'top' | 'bottom' | 'center' | 'start' | 'end' | string;
+        color?: string;
+      };
     };
   };
 }
@@ -159,7 +163,9 @@ function createBarChartUrl(
     options: { plugins: { datalabels: { anchor: 'end', align: 'top' } } },
   };
   if (title) {
-    chart.options!.plugins.title = { display: true, text: title };
+    if (!chart.options) chart.options = { plugins: {} };
+    if (!chart.options.plugins) chart.options.plugins = {};
+    chart.options.plugins.title = { display: true, text: title };
   }
   return (
     'https://quickchart.io/chart?c=' + encodeURIComponent(JSON.stringify(chart))
