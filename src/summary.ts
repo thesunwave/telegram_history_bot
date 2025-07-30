@@ -9,6 +9,25 @@ import { fetchMessages, fetchLastMessages } from "./history";
 import { chunkText, truncateText } from "./utils";
 import { sendMessage } from "./telegram";
 
+interface AiBaseOptions {
+  max_tokens: number;
+  temperature: number;
+  top_p: number;
+  frequency_penalty?: number;
+}
+
+function buildAiOptions(env: Env): AiBaseOptions {
+  const opts: AiBaseOptions = {
+    max_tokens: env.SUMMARY_MAX_TOKENS ?? 300,
+    temperature: env.SUMMARY_TEMPERATURE ?? 0.1,
+    top_p: env.SUMMARY_TOP_P ?? 0.9,
+  };
+  if (env.SUMMARY_FREQUENCY_PENALTY !== undefined) {
+    opts.frequency_penalty = env.SUMMARY_FREQUENCY_PENALTY;
+  }
+  return opts;
+}
+
 export async function summariseChat(env: Env, chatId: number, days: number) {
   console.debug("summariseChat started", {
     chat: chatId.toString(LOG_ID_RADIX),
@@ -67,10 +86,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       chunks: parts.length,
     });
 
-    const maxTokens = env.SUMMARY_MAX_TOKENS ?? 300;
-    const temperature = env.SUMMARY_TEMPERATURE ?? 0.1;
-    const topP = env.SUMMARY_TOP_P ?? 0.9;
-    const freqPenalty = env.SUMMARY_FREQUENCY_PENALTY;
+    const baseOpts = buildAiOptions(env);
 
     async function summariseText(text: string, stage: string) {
       let resp: any;
@@ -97,13 +113,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
             systemContentLength: msg[0].content.length,
             userContentLength: msg[1].content.length,
           });
-          const opts: any = {
-            messages: msg,
-            max_tokens: maxTokens,
-            temperature,
-            top_p: topP,
-          };
-          if (freqPenalty !== undefined) opts.frequency_penalty = freqPenalty;
+          const opts = { ...baseOpts, messages: msg };
           resp = await env.AI.run(env.SUMMARY_MODEL, opts);
         } else {
           const input = `${env.SUMMARY_PROMPT}\n${limitNote}\n${text}`;
@@ -112,13 +122,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
             stage,
             inputLength: input.length,
           });
-          const opts: any = {
-            prompt: input,
-            max_tokens: maxTokens,
-            temperature,
-            top_p: topP,
-          };
-          if (freqPenalty !== undefined) opts.frequency_penalty = freqPenalty;
+          const opts = { ...baseOpts, prompt: input };
           resp = await env.AI.run(env.SUMMARY_MODEL, opts);
         }
 
@@ -291,10 +295,7 @@ export async function summariseChatMessages(
     });
 
     const limitNote = `Ответ не длиннее ${TELEGRAM_LIMIT} символов.`;
-    const maxTokens = env.SUMMARY_MAX_TOKENS ?? 300;
-    const temperature = env.SUMMARY_TEMPERATURE ?? 0.1;
-    const topP = env.SUMMARY_TOP_P ?? 0.9;
-    const freqPenalty = env.SUMMARY_FREQUENCY_PENALTY;
+    const baseOpts = buildAiOptions(env);
     let aiResp: any;
 
     console.debug('summariseChatMessages AI model', {
@@ -313,23 +314,11 @@ export async function summariseChatMessages(
           },
           { role: 'user', content: `${env.SUMMARY_PROMPT}\n=== СООБЩЕНИЯ ===\n${content}` },
         ];
-        const opts: any = {
-          messages: msg,
-          max_tokens: maxTokens,
-          temperature,
-          top_p: topP,
-        };
-        if (freqPenalty !== undefined) opts.frequency_penalty = freqPenalty;
+        const opts = { ...baseOpts, messages: msg };
         aiResp = await env.AI.run(env.SUMMARY_MODEL, opts);
       } else {
         const input = `${env.SUMMARY_PROMPT}\n${limitNote}\n${content}`;
-        const opts: any = {
-          prompt: input,
-          max_tokens: maxTokens,
-          temperature,
-          top_p: topP,
-        };
-        if (freqPenalty !== undefined) opts.frequency_penalty = freqPenalty;
+        const opts = { ...baseOpts, prompt: input };
         aiResp = await env.AI.run(env.SUMMARY_MODEL, opts);
       }
     } catch (error) {
