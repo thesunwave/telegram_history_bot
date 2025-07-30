@@ -9,7 +9,7 @@ Cloudflare Worker that stores Telegram chat messages for 7 days and can produce 
 - Maintains per-user counters in KV.
 - Commands: `/summary`, `/summary_last`, `/top`, `/reset`,
   `/activity_week`, `/activity_month`,
-  `/activity_users_week`, `/activity_users_month`.
+  `/activity_users_week`, `/activity_users_month`, `/help`.
 - Daily cron job calls `/jobs/daily_summary`.
 
 ## Commands
@@ -22,6 +22,9 @@ Cloudflare Worker that stores Telegram chat messages for 7 days and can produce 
 - `/activity_month` – totals and user chart for the last month.
 - `/activity_users_week` – user chart for the last week.
 - `/activity_users_month` – user chart for the last month.
+- `/help` – show this list of commands.
+
+To enable autocomplete, register the commands with **BotFather** via `/setcommands` and provide the list above (one per line).
 
 ## Deployment
 
