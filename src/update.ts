@@ -3,16 +3,17 @@ import { summariseChat, summariseChatMessages } from './summary';
 import { topChat, resetCounters, activityChart, activityByUser } from './stats';
 import { sendMessage } from './telegram';
 
-const HELP_TEXT =
-  '/summary <days> – \u0441\u0432\u043e\u0434\u043a\u0430 \u0437\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 N \u0434\u043d\u0435\u0439 (\u043f\u043e \u0443\u043c\u043e\u043b\u0447\u0430\u043d\u0438\u044e 1)\n' +
-  '/summary_last <n> – \u0441\u0432\u043e\u0434\u043a\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0445 N \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0439 (\u043f\u043e \u0443\u043c\u043e\u043b\u0447\u0430\u043d\u0438\u044e 1, \u043c\u0430\u043a\u0441 40)\n' +
-  '/top <n> – \u0442\u043e\u043f N \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u0435\u0439 \u0437\u0430 \u0441\u0435\u0433\u043e\u0434\u043d\u044f (\u043f\u043e \u0443\u043c\u043e\u043b\u0447\u0430\u043d\u0438\u044e 5)\n' +
-  '/reset – \u0441\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u0441\u0447\u0435\u0442\u0447\u0438\u043a\u0438 \u0434\u043b\u044f \u0447\u0430\u0442\u0430\n' +
-  '/activity_week – \u0433\u0440\u0430\u0444\u0438\u043a \u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0441\u0442\u0438 \u0437\u0430 \u043d\u0435\u0434\u0435\u043b\u044e\n' +
-  '/activity_month – \u0433\u0440\u0430\u0444\u0438\u043a \u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0441\u0442\u0438 \u0437\u0430 \u043c\u0435\u0441\u044f\u0446\n' +
-  '/activity_users_week – \u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0441\u0442\u044c \u043f\u043e \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f\u043c \u0437\u0430 \u043d\u0435\u0434\u0435\u043b\u044e\n' +
-  '/activity_users_month – \u0430\u043a\u0442\u0438\u0432\u043d\u043e\u0441\u0442\u044c \u043f\u043e \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f\u043c \u0437\u0430 \u043c\u0435\u0441\u044f\u0446\n' +
-  '/help – \u044d\u0442\u0430 \u0441\u043f\u0440\u0430\u0432\u043a\u0430';
+const HELP_TEXT = [
+  '/summary <days> – сводка за последние N дней (по умолчанию 1)',
+  '/summary_last <n> – сводка последних N сообщений (по умолчанию 1, макс 40)',
+  '/top <n> – топ N активных пользователей за сегодня (по умолчанию 5)',
+  '/reset – сбросить счетчики для чата',
+  '/activity_week – график активности за неделю',
+  '/activity_month – график активности за месяц',
+  '/activity_users_week – активность по пользователям за неделю',
+  '/activity_users_month – активность по пользователям за месяц',
+  '/help – эта справка',
+].join('\n');
 
 export function getTextMessage(update: any) {
   const msg = update.message;
