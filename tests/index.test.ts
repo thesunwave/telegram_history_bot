@@ -523,6 +523,8 @@ describe("webhook", () => {
     const startStr = start.toISOString().slice(0, 10);
     const endStr = today.toISOString().slice(0, 10);
     expect(chart.options.plugins.title.text).toBe(`${startStr} - ${endStr}`);
+    expect(chart.options.plugins.datalabels.anchor).toBe('end');
+    expect(chart.options.plugins.datalabels.align).toBe('top');
   });
 
   it('shows monthly activity chart by user', async () => {
