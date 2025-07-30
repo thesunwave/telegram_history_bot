@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import worker from "../src/index";
-import { KVNamespace } from "@miniflare/kv";
-import { MemoryStorage } from "@miniflare/storage-memory";
-import { D1Database } from "@miniflare/d1";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import worker from '../src/index';
+import { KVNamespace } from '@miniflare/kv';
+import { MemoryStorage } from '@miniflare/storage-memory';
+import { D1Database } from '@miniflare/d1';
+import { WEEK_DAYS } from '../src/env';
 
 interface Env {
   HISTORY: KVNamespace;
@@ -435,7 +436,7 @@ describe("webhook", () => {
     const cmd = {
       message: {
         message_id: 10,
-        text: '/activity week',
+        text: '/activity_week',
         chat: { id: 1 },
         from: { id: 3, username: 'c' },
         date: now + 1,
@@ -451,8 +452,13 @@ describe("webhook", () => {
     });
     await worker.fetch(req2, env, ctx);
     await Promise.all(tasks);
-    const body = JSON.parse(fetchMock.mock.calls.at(-1)[1].body);
-    expect(body.text.split('\n')).toHaveLength(7);
+    const msgCall = fetchMock.mock.calls.at(-2);
+    expect(msgCall[0]).toContain('/sendMessage');
+    const text = JSON.parse(msgCall[1].body).text;
+    expect(text).not.toContain('Total:');
+    expect(text.split('\n').length).toBeGreaterThanOrEqual(7);
+    const photoCall = fetchMock.mock.calls.at(-1);
+    expect(photoCall[0]).toContain('/sendPhoto');
   });
 
   it('shows activity chart by user', async () => {
@@ -488,7 +494,7 @@ describe("webhook", () => {
     const cmd = {
       message: {
         message_id: 10,
-        text: '/activity users week',
+        text: '/activity_users_week',
         chat: { id: 1 },
         from: { id: 4, username: 'c' },
         date: now + 1,
@@ -508,6 +514,15 @@ describe("webhook", () => {
     expect(call[0]).toContain('/sendPhoto');
     const body = JSON.parse(call[1].body);
     expect(body.photo).toContain('quickchart.io');
+    const encoded = body.photo.split('?c=')[1];
+    const chart = JSON.parse(decodeURIComponent(encoded));
+    const today = new Date((now + 1) * 1000);
+    today.setUTCHours(0, 0, 0, 0);
+    const start = new Date(today);
+    start.setUTCDate(start.getUTCDate() - WEEK_DAYS);
+    const startStr = start.toISOString().slice(0, 10);
+    const endStr = today.toISOString().slice(0, 10);
+    expect(chart.options.plugins.title.text).toBe(`${startStr} - ${endStr}`);
   });
 
   it('shows monthly activity chart by user', async () => {
@@ -540,7 +555,7 @@ describe("webhook", () => {
     const cmd = {
       message: {
         message_id: 10,
-        text: '/activity users month',
+        text: '/activity_users_month',
         chat: { id: 1 },
         from: { id: 3, username: 'b' },
         date: now + 1,
@@ -589,7 +604,7 @@ describe("webhook", () => {
     const cmd = {
       message: {
         message_id: 2,
-        text: '/activity users week',
+        text: '/activity_users_week',
         chat: { id: 1 },
         from: { id: 3, username: 'c' },
         date: now + 1,

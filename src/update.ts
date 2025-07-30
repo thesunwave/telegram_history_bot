@@ -37,12 +37,10 @@ export async function recordMessage(msg: any, env: Env) {
   await env.COUNTERS.put(akey, String(acnt));
   if (env.DB) {
     try {
-      await env
-        .DB
-        .prepare(
-          'INSERT INTO activity (chat_id, day, count) VALUES (?, ?, 1) ' +
-            'ON CONFLICT(chat_id, day) DO UPDATE SET count = count + 1',
-        )
+      await env.DB.prepare(
+        'INSERT INTO activity (chat_id, day, count) VALUES (?, ?, 1) ' +
+          'ON CONFLICT(chat_id, day) DO UPDATE SET count = count + 1',
+      )
         .bind(chatId, day)
         .run();
     } catch (e) {
@@ -72,6 +70,16 @@ export async function handleUpdate(msg: any, env: Env) {
   } else if (msg.text.startsWith('/reset')) {
     await resetCounters(env, chatId);
     await sendMessage(env, chatId, 'Counters reset');
+  } else if (msg.text.startsWith('/activity_week')) {
+    await activityChart(env, chatId, 'week');
+    await activityByUser(env, chatId, 'week');
+  } else if (msg.text.startsWith('/activity_month')) {
+    await activityChart(env, chatId, 'month');
+    await activityByUser(env, chatId, 'month');
+  } else if (msg.text.startsWith('/activity_users_week')) {
+    await activityByUser(env, chatId, 'week');
+  } else if (msg.text.startsWith('/activity_users_month')) {
+    await activityByUser(env, chatId, 'month');
   } else if (msg.text.startsWith('/activity')) {
     const parts = msg.text.split(/\s+/);
     const sub = parts[1] || 'week';
