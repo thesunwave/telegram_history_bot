@@ -129,7 +129,16 @@ interface ChartDataset {
 interface ChartConfig {
   type: 'bar';
   data: { labels: string[]; datasets: ChartDataset[] };
-  options?: { plugins: { title: { display: boolean; text: string } } };
+  options?: {
+    plugins: {
+      title: { display: boolean; text: string };
+      datalabels?: {
+        anchor?: 'start' | 'center' | 'end' | string;
+        align?: 'top' | 'bottom' | 'center' | 'start' | 'end' | string;
+        color?: string;
+      };
+    };
+  };
 }
 
 function createBarChartUrl(
@@ -151,10 +160,13 @@ function createBarChartUrl(
   const chart: ChartConfig = {
     type: 'bar',
     data: { labels, datasets: [{ label: name, data }] },
+    options: {
+      plugins: {
+        title: { display: Boolean(title), text: title ?? '' },
+        datalabels: { anchor: 'end', align: 'top' },
+      },
+    },
   };
-  if (title) {
-    chart.options = { plugins: { title: { display: true, text: title } } };
-  }
   return (
     'https://quickchart.io/chart?c=' + encodeURIComponent(JSON.stringify(chart))
   );
