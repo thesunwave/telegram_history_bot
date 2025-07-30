@@ -3,6 +3,18 @@ import { summariseChat, summariseChatMessages } from './summary';
 import { topChat, resetCounters, activityChart, activityByUser } from './stats';
 import { sendMessage } from './telegram';
 
+const HELP_TEXT = [
+  '/summary <days> – сводка за последние N дней (по умолчанию 1)',
+  '/summary_last <n> – сводка последних N сообщений (по умолчанию 1, макс 40)',
+  '/top <n> – топ N активных пользователей за сегодня (по умолчанию 5)',
+  '/reset – сбросить счетчики для чата',
+  '/activity_week – график активности за неделю',
+  '/activity_month – график активности за месяц',
+  '/activity_users_week – активность по пользователям за неделю',
+  '/activity_users_month – активность по пользователям за месяц',
+  '/help – показать список всех команд',
+].join('\n');
+
 export function getTextMessage(update: any) {
   const msg = update.message;
   if (!msg || !msg.text) return null;
@@ -90,5 +102,7 @@ export async function handleUpdate(msg: any, env: Env) {
       const period = sub === 'month' ? 'month' : 'week';
       await activityChart(env, chatId, period);
     }
+  } else if (msg.text.startsWith('/help')) {
+    await sendMessage(env, chatId, HELP_TEXT);
   }
 }
