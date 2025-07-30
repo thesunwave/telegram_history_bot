@@ -129,14 +129,14 @@ interface ChartDataset {
 interface ChartConfig {
   type: 'bar';
   data: { labels: string[]; datasets: ChartDataset[] };
-  options?: {
+  options: {
     plugins: {
-      title?: { display: boolean; text: string };
-      datalabels?: {
+      datalabels: {
         anchor?: 'start' | 'center' | 'end' | string;
         align?: 'top' | 'bottom' | 'center' | 'start' | 'end' | string;
         color?: string;
       };
+      title?: { display: boolean; text: string };
     };
   };
 }
@@ -163,8 +163,6 @@ function createBarChartUrl(
     options: { plugins: { datalabels: { anchor: 'end', align: 'top' } } },
   };
   if (title) {
-    if (!chart.options) chart.options = { plugins: {} };
-    if (!chart.options.plugins) chart.options.plugins = {};
     chart.options.plugins.title = { display: true, text: title };
   }
   return (
