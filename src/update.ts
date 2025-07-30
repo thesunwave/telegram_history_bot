@@ -12,7 +12,7 @@ const HELP_TEXT = [
   '/activity_month – график активности за месяц',
   '/activity_users_week – активность по пользователям за неделю',
   '/activity_users_month – активность по пользователям за месяц',
-  '/help – эта справка',
+  '/help – показать список всех команд',
 ].join('\n');
 
 export function getTextMessage(update: any) {
