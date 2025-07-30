@@ -628,4 +628,33 @@ describe("webhook", () => {
     const chart = JSON.parse(decodeURIComponent(encoded));
     expect(chart.data.labels[0]).toBe('badname');
   });
+
+  it('responds with help text', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const now = Math.floor(Date.now() / 1000);
+    const cmd = {
+      message: {
+        message_id: 1,
+        text: '/help',
+        chat: { id: 1 },
+        from: { id: 2, username: 'u' },
+        date: now,
+      },
+    };
+    const req = new Request('http://localhost/tg/t/webhook', {
+      method: 'POST',
+      headers: {
+        'X-Telegram-Bot-Api-Secret-Token': 's',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(cmd),
+    });
+    await worker.fetch(req, env, ctx);
+    await Promise.all(tasks);
+    const call = fetchMock.mock.calls.at(-1);
+    expect(call[0]).toContain('/sendMessage');
+    const text = JSON.parse(call[1].body).text;
+    expect(text).toContain('/summary');
+  });
 });
