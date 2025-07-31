@@ -13,4 +13,21 @@ interface Env {
   SUMMARY_TEMPERATURE?: number;
   SUMMARY_TOP_P?: number;
   SUMMARY_FREQUENCY_PENALTY?: number;
+  UPDATES?: Queue;
+}
+
+interface Queue {
+  send(message: string | ArrayBuffer): Promise<void>;
+}
+
+interface QueueMessage<Data = unknown> {
+  body: Data;
+  ack(): Promise<void>;
+  retry(): Promise<void>;
+}
+
+interface QueueMessageBatch<Data = unknown> {
+  messages: QueueMessage<Data>[];
+  ackAll(): Promise<void>;
+  retryAll(): Promise<void>;
 }
