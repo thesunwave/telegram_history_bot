@@ -1,6 +1,6 @@
 import { Env } from './env';
-import { handleUpdate, recordMessage, getTextMessage } from './update';
 import { dailySummary } from './stats';
+import { handleUpdate, recordMessage, getTextMessage } from './update';
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -26,5 +26,12 @@ export default {
       return Response.json({});
     }
     return new Response('Not found', { status: 404 });
+  },
+  async scheduled(
+    _event: ScheduledEvent,
+    env: Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    await dailySummary(env);
   },
 };
