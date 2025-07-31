@@ -17,11 +17,9 @@ const HELP_TEXT = [
 
 export function getTextMessage(update: any) {
   const msg = update.message;
-  if (!msg) return null;
+  if (!msg || !msg.text) return null;
   if (msg.from?.is_bot) return null;
-  // Use caption for media messages and allow empty text for counting
-  const text = msg.text ?? msg.caption ?? '';
-  return { ...msg, text };
+  return msg;
 }
 
 export async function recordMessage(msg: any, env: Env) {
@@ -34,7 +32,7 @@ export async function recordMessage(msg: any, env: Env) {
     chat: chatId,
     user: userId,
     username,
-    text: msg.text ?? '',
+    text: msg.text,
     ts,
   };
   const key = `msg:${chatId}:${ts}:${msg.message_id}`;
@@ -49,21 +47,6 @@ export async function recordMessage(msg: any, env: Env) {
   const akey = `activity:${chatId}:${day}`;
   const acnt = parseInt((await env.COUNTERS.get(akey)) || '0') + 1;
   await env.COUNTERS.put(akey, String(acnt));
-  if (env.DB) {
-    try {
-      await env.DB.prepare(
-        'INSERT INTO user_stats (chat_id, user_id, day, count) VALUES (?, ?, ?, 1) ' +
-          'ON CONFLICT(chat_id, user_id, day) DO UPDATE SET count = count + 1',
-      )
-        .bind(chatId, userId, day)
-        .run();
-    } catch (e) {
-      console.error('user_stats db error', {
-        chat: chatId.toString(36),
-        err: (e as any).message || String(e),
-      });
-    }
-  }
   if (env.DB) {
     try {
       await env.DB.prepare(
