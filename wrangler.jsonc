@@ -7,29 +7,23 @@
     {
       "binding": "HISTORY",
       "id": "2c2400074dd346fa9d19830f893189df",
-      "preview_id": "2c2400074dd346fa9d19830f893189df",
+      "preview_id": "2c2400074dd346fa9d19830f893189df"
     },
     {
       "binding": "COUNTERS",
       "id": "eb2d8e7ad2e74a37bb123e4ca820fbb8",
-      "preview_id": "eb2d8e7ad2e74a37bb123e4ca820fbb8",
-    },
+      "preview_id": "eb2d8e7ad2e74a37bb123e4ca820fbb8"
+    }
   ],
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "summaries",
-      "database_id": "34682d13-30ec-409f-97e2-e751603e4dcd",
-    },
-  ],
-  "queues": [
-    {
-      "binding": "UPDATES",
-      "queue_name": "telegram_updates",
-    },
+      "database_id": "34682d13-30ec-409f-97e2-e751603e4dcd"
+    }
   ],
   "ai": {
-    "binding": "AI",
+    "binding": "AI"
   },
   "vars": {
     "SUMMARY_MODEL": "@cf/meta/llama-3.1-8b-instruct-fast",
@@ -38,20 +32,22 @@
     "SUMMARY_MAX_TOKENS": 400,
     "SUMMARY_TEMPERATURE": 0.2,
     "SUMMARY_TOP_P": 0.95,
-    "SUMMARY_FREQUENCY_PENALTY": 0.1,
+    "SUMMARY_FREQUENCY_PENALTY": 0.1
   },
   "triggers": {
-    "crons": ["59 23 * * *"],
+    "crons": [
+      "59 23 * * *"
+    ]
   },
   "analytics_engine_datasets": [
     {
       "binding": "ANALYTICS",
-      "dataset": "telegram_history_bot_analytics",
-    },
+      "dataset": "telegram_history_bot_analytics"
+    }
   ],
   "observability": {
     "logs": {
-      "enabled": true,
-    },
-  },
+      "enabled": true
+    }
+  }
 }
