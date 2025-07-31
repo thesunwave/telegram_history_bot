@@ -27,4 +27,11 @@ export default {
     }
     return new Response('Not found', { status: 404 });
   },
+  async scheduled(
+    _event: ScheduledEvent,
+    env: Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    await dailySummary(env);
+  },
 };

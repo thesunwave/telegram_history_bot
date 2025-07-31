@@ -662,3 +662,13 @@ describe("webhook", () => {
     expect(text).toContain('/summary');
   });
 });
+
+describe('cron', () => {
+  it('runs daily summary on schedule', async () => {
+    const spy = vi
+      .spyOn(await import('../src/stats'), 'dailySummary')
+      .mockResolvedValue(undefined);
+    await (worker as any).scheduled({} as any, env, ctx);
+    expect(spy).toHaveBeenCalled();
+  });
+});
