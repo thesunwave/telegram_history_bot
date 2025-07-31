@@ -52,6 +52,7 @@ If tests fail, prefer minimal fixes over large refactors.
 5. **No console.log of user messages**; use `console.debug` with hashed IDs.
 6. Follow functional programming patterns where possible.
 7. Use descriptive variable names and JSDoc comments for public APIs.
+8. **DO NOT change quotes style** unless explicitly required to replace ALL quotes in the project.
 
 ## 🔐 Security & Privacy Rules
 - Do **not** log full Telegram payloads.  
