@@ -8,30 +8,6 @@ export async function topChat(
   n: number,
   day: string,
 ) {
-  if (env.DB) {
-    try {
-      const res = await env.DB.prepare(
-        'SELECT user_id, count FROM user_stats WHERE chat_id = ? AND day = ? ' +
-          'ORDER BY count DESC LIMIT ?',
-      )
-        .bind(chatId, day, n)
-        .all();
-      const rows = res.results as any[];
-      const names = await Promise.all(
-        rows.map((r) => env.COUNTERS.get(`user:${r.user_id}`)),
-      );
-      const text = rows
-        .map((r, i) => `${i + 1}. ${names[i] || `id${r.user_id}`}: ${r.count}`)
-        .join('\n') || 'Нет данных';
-      await sendMessage(env, chatId, text);
-      return;
-    } catch (e) {
-      console.error('topChat db error', {
-        chat: chatId.toString(36),
-        err: (e as any).message || String(e),
-      });
-    }
-  }
   const prefix = `stats:${chatId}:`;
   let cursor: string | undefined = undefined;
   const counts: Record<string, number> = {};
@@ -86,14 +62,11 @@ export async function resetCounters(env: Env, chatId: number) {
   } while (cursor);
   if (env.DB) {
     try {
-      await env.DB.prepare('DELETE FROM user_stats WHERE chat_id = ?')
-        .bind(chatId)
-        .run();
       await env.DB.prepare('DELETE FROM activity WHERE chat_id = ?')
         .bind(chatId)
         .run();
     } catch (e) {
-      console.error('stats reset db error', {
+      console.error('activity reset db error', {
         chat: chatId.toString(36),
         err: (e as any).message || String(e),
       });
@@ -141,14 +114,11 @@ function sanitizeLabel(label: string): string {
   return sanitized || 'unknown';
 }
 
-function formatActivityText(
-  data: { label: string; value: number }[],
-  includeTotal = true,
-): string {
+function formatActivityText(data: { label: string; value: number }[]): string {
   if (data.length === 0) return 'Нет данных';
   const text = drawGraph(data);
   const total = data.reduce((sum, d) => sum + d.value, 0);
-  return includeTotal && total > 0 ? `${text}\nTotal: ${total}` : text;
+  return total > 0 ? `${text}\nTotal: ${total}` : text;
 }
 
 interface ChartDataset {
@@ -183,8 +153,7 @@ function createBarChartUrl(
     labels.length !== data.length
   ) {
     throw new Error(
-      'Invalid chart data: labels and data arrays must have equal lengths and ' +
-        'contain at least one element each. ' +
+      `Invalid chart data: labels and data arrays must have equal lengths and contain at least one element each. ` +
         `Received labels.length=${labels.length}, data.length=${data.length}.`,
     );
   }
@@ -275,8 +244,7 @@ export async function activityChart(
       data.push({ label: `W${i + 1}`, value: weeks[i] });
   }
 
-  const includeTotal = period === 'month';
-  await sendMessage(env, chatId, formatActivityText(data, includeTotal));
+  await sendMessage(env, chatId, formatActivityText(data));
 }
 
 export async function activityByUser(
@@ -295,42 +263,20 @@ export async function activityByUser(
   );
   const startStr = start.toISOString().slice(0, 10);
   const endStr = today.toISOString().slice(0, 10);
-  let dbOk = false;
-  if (env.DB) {
-    try {
-      const res = await env.DB.prepare(
-        'SELECT user_id, SUM(count) as total FROM user_stats WHERE chat_id = ? ' +
-          'AND day >= ? AND day <= ? GROUP BY user_id ORDER BY total DESC LIMIT 10',
-      )
-        .bind(chatId, startStr, endStr)
-        .all();
-      for (const row of res.results as any[]) {
-        totals[row.user_id] = row.total;
+  do {
+    const list = await env.COUNTERS.list({ prefix, cursor });
+    cursor = list.cursor;
+    const values = await Promise.all(
+      list.keys.map((k) => env.COUNTERS.get(k.name)),
+    );
+    for (let i = 0; i < list.keys.length; i++) {
+      const [_, , user, day] = list.keys[i].name.split(':');
+      if (day >= startStr) {
+        const c = parseInt(values[i] || '0', 10);
+        totals[user] = (totals[user] || 0) + c;
       }
-      dbOk = true;
-    } catch (e) {
-      console.error('activity user db read error', {
-        chat: chatId.toString(36),
-        err: (e as any).message || String(e),
-      });
     }
-  }
-  if (!dbOk) {
-    do {
-      const list = await env.COUNTERS.list({ prefix, cursor });
-      cursor = list.cursor;
-      const values = await Promise.all(
-        list.keys.map((k) => env.COUNTERS.get(k.name)),
-      );
-      for (let i = 0; i < list.keys.length; i++) {
-        const [_, , user, day] = list.keys[i].name.split(':');
-        if (day >= startStr) {
-          const c = parseInt(values[i] || '0', 10);
-          totals[user] = (totals[user] || 0) + c;
-        }
-      }
-    } while (cursor);
-  }
+  } while (cursor);
 
   const sorted = Object.entries(totals)
     .sort((a, b) => b[1] - a[1])

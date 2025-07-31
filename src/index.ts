@@ -1,40 +1,31 @@
-import { Env, QueueMessageBatch } from "./env";
-import { dailySummary } from "./stats";
-import { handleUpdate, recordMessage, getTextMessage } from "./update";
+import { Env } from './env';
+import { dailySummary } from './stats';
+import { handleUpdate, recordMessage, getTextMessage } from './update';
 
 export default {
-  async fetch(
-    req: Request,
-    env: Env,
-    ctx: ExecutionContext,
-  ): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
-    if (url.pathname === "/healthz") return new Response("ok");
+    if (url.pathname === '/healthz') return new Response('ok');
     if (
-      url.pathname.startsWith("/tg/") &&
-      url.pathname.endsWith("/webhook") &&
-      req.method === "POST"
+      url.pathname.startsWith('/tg/') &&
+      url.pathname.endsWith('/webhook') &&
+      req.method === 'POST'
     ) {
-      const token = url.pathname.split("/")[2];
-      if (token !== env.TOKEN)
-        return new Response("forbidden", { status: 403 });
-      if (req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.SECRET)
-        return new Response("forbidden", { status: 403 });
+      const token = url.pathname.split('/')[2];
+      if (token !== env.TOKEN) return new Response('forbidden', { status: 403 });
+      if (req.headers.get('X-Telegram-Bot-Api-Secret-Token') !== env.SECRET)
+        return new Response('forbidden', { status: 403 });
       const update = await req.json();
-      if (env.UPDATES) {
-        await env.UPDATES.send(JSON.stringify(update));
-      } else {
-        const msg = getTextMessage(update);
-        await recordMessage(msg, env);
-        ctx.waitUntil(handleUpdate(msg, env));
-      }
+      const msg = getTextMessage(update);
+      await recordMessage(msg, env);
+      ctx.waitUntil(handleUpdate(msg, env));
       return Response.json({});
     }
-    if (url.pathname === "/jobs/daily_summary" && req.method === "POST") {
+    if (url.pathname === '/jobs/daily_summary' && req.method === 'POST') {
       await dailySummary(env);
       return Response.json({});
     }
-    return new Response("Not found", { status: 404 });
+    return new Response('Not found', { status: 404 });
   },
   async scheduled(
     _event: ScheduledEvent,
@@ -42,24 +33,5 @@ export default {
     _ctx: ExecutionContext,
   ): Promise<void> {
     await dailySummary(env);
-  },
-  async queue(
-    batch: QueueMessageBatch<string>,
-    env: Env,
-    ctx: ExecutionContext,
-  ) {
-    for (const m of batch.messages) {
-      try {
-        const update = JSON.parse(m.body);
-        const msg = getTextMessage(update);
-        await recordMessage(msg, env);
-        ctx.waitUntil(handleUpdate(msg, env));
-        await m.ack();
-      } catch (e) {
-        console.error("queue error", (e as Error).message);
-        await m.retry();
-      }
-    }
-    await batch.ackAll();
   },
 };
