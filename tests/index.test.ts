@@ -668,7 +668,13 @@ describe('cron', () => {
     const spy = vi
       .spyOn(await import('../src/stats'), 'dailySummary')
       .mockResolvedValue(undefined);
-    await (worker as any).scheduled({} as any, env, ctx);
+    const event: ScheduledEvent = {
+      scheduledTime: Date.now(),
+      cron: '* * * * *',
+      noRetry: () => {},
+      waitUntil: () => {},
+    } as ScheduledEvent;
+    await worker.scheduled(event, env, ctx);
     expect(spy).toHaveBeenCalled();
   });
 });
