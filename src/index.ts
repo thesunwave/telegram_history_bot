@@ -1,6 +1,6 @@
 import { Env } from './env';
-import { handleUpdate, recordMessage, getTextMessage } from './update';
 import { dailySummary } from './stats';
+import { handleUpdate, recordMessage, getTextMessage } from './update';
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
