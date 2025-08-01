@@ -43,7 +43,12 @@ export async function recordMessage(msg: any, env: Env) {
   const id = env.COUNTERS_DO.idFromName(String(chatId));
   await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
     method: 'POST',
-    body: JSON.stringify({ chatId, userId, username, day }),
+    body: JSON.stringify({ 
+      chatId: String(chatId), 
+      userId: String(userId), 
+      username, 
+      day 
+    }),
   });
 }
 

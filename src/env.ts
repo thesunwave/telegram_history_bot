@@ -19,12 +19,12 @@ export interface Env {
 export interface DurableObjectId {}
 
 export interface DurableObjectStub {
-  fetch(request: Request): Promise<Response>;
+	fetch(request: Request): Promise<Response>;
 }
 
 export interface DurableObjectNamespace {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
+	idFromName(name: string): DurableObjectId;
+	get(id: DurableObjectId): DurableObjectStub;
 }
 
 export interface StoredMessage {
