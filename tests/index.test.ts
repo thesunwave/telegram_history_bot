@@ -762,7 +762,7 @@ describe('cron', () => {
     const spy = vi
       .spyOn(await import('../src/stats'), 'dailySummary')
       .mockResolvedValue(undefined);
-    const event = {
+    const event: ScheduledEvent = {
       scheduledTime: Date.now(),
       cron: '* * * * *',
       noRetry: () => {},
