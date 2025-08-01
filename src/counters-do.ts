@@ -10,19 +10,24 @@ export interface IncrementPayload {
 export class CountersDO {
   constructor(private state: DurableObjectState, private env: Env) {}
 
-  private validatePayload(rawData: any): string | null {
+  private validatePayload(rawData: unknown): string | null {
+    if (!rawData || typeof rawData !== 'object') {
+      return 'Invalid data format';
+    }
+    
+    const data = rawData as Record<string, unknown>;
     const missingFields: string[] = [];
     
-    if (rawData.chatId == null || (typeof rawData.chatId === 'string' && rawData.chatId.trim() === '')) {
+    if (data.chatId == null || (typeof data.chatId === 'string' && data.chatId.trim() === '')) {
       missingFields.push('chatId');
     }
-    if (rawData.userId == null || (typeof rawData.userId === 'string' && rawData.userId.trim() === '')) {
+    if (data.userId == null || (typeof data.userId === 'string' && data.userId.trim() === '')) {
       missingFields.push('userId');
     }
-    if (rawData.username == null || (typeof rawData.username === 'string' && rawData.username.trim() === '')) {
+    if (data.username == null || (typeof data.username === 'string' && data.username.trim() === '')) {
       missingFields.push('username');
     }
-    if (rawData.day == null || (typeof rawData.day === 'string' && rawData.day.trim() === '')) {
+    if (data.day == null || (typeof data.day === 'string' && data.day.trim() === '')) {
       missingFields.push('day');
     }
     
@@ -33,7 +38,7 @@ export class CountersDO {
     return null;
   }
 
-  incrementCounter({ chatId, userId, username, day }: IncrementPayload): Promise<void> {
+  private incrementCounter({ chatId, userId, username, day }: IncrementPayload): Promise<void> {
     return this.state.blockConcurrencyWhile(async () => {
       const statsKey = `stats:${chatId}:${userId}:${day}`;
       const count = parseInt((await this.env.COUNTERS.get(statsKey)) || '0', 10) + 1;
@@ -69,21 +74,18 @@ export class CountersDO {
     }
 
     try {
-      const rawData = await request.json() as any;
-      
-      if (!rawData || typeof rawData !== 'object') {
-        return new Response('Invalid JSON data', { status: 400 });
-      }
+      const rawData = await request.json() as unknown;
       
       const validationError = this.validatePayload(rawData);
       if (validationError) {
         return new Response(validationError, { status: 400 });
       }
       
-      const chatId = String(rawData.chatId);
-      const userId = String(rawData.userId);
-      const username = String(rawData.username);
-      const day = String(rawData.day);
+      const data = rawData as Record<string, unknown>;
+      const chatId = String(data.chatId);
+      const userId = String(data.userId);
+      const username = String(data.username);
+      const day = String(data.day);
       
       const payload: IncrementPayload = { chatId, userId, username, day };
 

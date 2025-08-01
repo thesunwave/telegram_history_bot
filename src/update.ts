@@ -48,7 +48,6 @@ export async function recordMessage(msg: any, env: Env) {
       day 
     }),
   });
-  await response.text();
 }
 
 export async function handleUpdate(msg: any, env: Env) {
