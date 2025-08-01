@@ -1,7 +1,20 @@
 import { Env, LOG_ID_RADIX, TELEGRAM_LIMIT } from "./env";
 import { chunkText } from "./utils";
 
-// Convert basic markdown to safe MarkdownV2
+/**
+ * Converts basic markdown to safe MarkdownV2 for Telegram messages.
+ * 
+ * This function currently supports bold formatting (i.e., **text**) and escapes
+ * all special MarkdownV2 characters to prevent formatting issues or injection.
+ * 
+ * Limitations:
+ * - Only bold (**text**) is supported; other markdown features (italic, links, etc.) are not handled.
+ * - Nested or overlapping markdown may not be sanitized correctly.
+ * - The function does not validate input for length or other Telegram-specific constraints.
+ *
+ * @param {string} text - The input string containing basic markdown.
+ * @returns {string} The sanitized string safe for use with Telegram MarkdownV2.
+ */
 function sanitizeMarkdown(text: string): string {
   // Use a placeholder-based approach to safely handle markdown
   const BOLD_PLACEHOLDER = '___BOLD_START___';
@@ -9,14 +22,20 @@ function sanitizeMarkdown(text: string): string {
   
   let result = text;
   
-  // First, replace **text** with placeholders
-  result = result.replace(/\*\*(.*?)\*\*/g, `${BOLD_PLACEHOLDER}$1${BOLD_END_PLACEHOLDER}`);
+  // First, replace **text** with placeholders (using non-greedy to handle multiple bold sections)
+  result = result.replace(/\*\*(.+?)\*\*/g, `${BOLD_PLACEHOLDER}$1${BOLD_END_PLACEHOLDER}`);
   
-  // Escape all special MarkdownV2 characters
+  // Escape all special MarkdownV2 characters (fix regex character class)
   result = result.replace(/([_*[\]()~`>#+=|{}.!\\-])/g, '\\$1');
   
+  // Helper function to escape regex special characters
+  const escapeRegExp = (str: string): string => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  
   // Restore bold formatting with proper MarkdownV2 syntax
-  result = result.replace(new RegExp(`${BOLD_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(.*?)${BOLD_END_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), '*$1*');
+  result = result.replace(
+    new RegExp(`${escapeRegExp(BOLD_PLACEHOLDER)}(.*?)${escapeRegExp(BOLD_END_PLACEHOLDER)}`, 'g'),
+    '*$1*'
+  );
   
   return result;
 }
