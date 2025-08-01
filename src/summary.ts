@@ -9,6 +9,7 @@ import { fetchMessages, fetchLastMessages } from "./history";
 import { chunkText, truncateText } from "./utils";
 import { sendMessage } from "./telegram";
 import { ProviderFactory } from "./providers/provider-factory";
+import { ProviderInitializer } from "./providers/provider-init";
 import { SummaryOptions, TelegramMessage, SummaryRequest, ProviderError } from "./providers/ai-provider";
 
 function buildAiOptions(env: Env): SummaryOptions {
@@ -37,6 +38,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     chat: chatId.toString(LOG_ID_RADIX),
     days,
     model: env.SUMMARY_MODEL,
+    providerInitialized: ProviderInitializer.isProviderInitialized(),
   });
 
   const end = Math.floor(Date.now() / 1000);
@@ -63,8 +65,8 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       return;
     }
 
-    // Create provider instance
-    const provider = ProviderFactory.createProvider(env);
+    // Get initialized provider instance
+    const provider = ProviderInitializer.getProvider(env);
     const providerInfo = provider.getProviderInfo();
     
     console.debug("summarize start", {
@@ -171,7 +173,12 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       console.error("summarize error", {
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
+        model: providerInfo.model,
+        providerVersion: providerInfo.version,
+        providerInitialized: ProviderInitializer.isProviderInitialized(),
         error: error.message || String(error),
+        errorType: error.constructor.name,
+        isProviderError: error instanceof ProviderError,
       });
       await sendMessage(
         env,
@@ -243,8 +250,10 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     // Обработка всех необработанных ошибок
     console.error("summariseChat unhandled error", {
       chat: chatId.toString(LOG_ID_RADIX),
-      error: error.message || String(error),
-      stack: error.stack,
+      providerInitialized: ProviderInitializer.isProviderInitialized(),
+      error: (error as any).message || String(error),
+      errorType: (error as any).constructor.name,
+      stack: (error as any).stack,
     });
     try {
       await sendMessage(
@@ -274,6 +283,7 @@ export async function summariseChatMessages(
     chat: chatId.toString(LOG_ID_RADIX),
     count,
     model: env.SUMMARY_MODEL,
+    providerInitialized: ProviderInitializer.isProviderInitialized(),
   });
   try {
     const messages = await fetchLastMessages(env, chatId, count);
@@ -290,8 +300,8 @@ export async function summariseChatMessages(
       return;
     }
 
-    // Create provider instance
-    const provider = ProviderFactory.createProvider(env);
+    // Get initialized provider instance
+    const provider = ProviderInitializer.getProvider(env);
     const providerInfo = provider.getProviderInfo();
     
     console.debug('summariseChatMessages summarize start', {
@@ -330,7 +340,12 @@ export async function summariseChatMessages(
       console.error('summariseChatMessages AI error', {
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
+        model: providerInfo.model,
+        providerVersion: providerInfo.version,
+        providerInitialized: ProviderInitializer.isProviderInitialized(),
         error: (error as any).message || String(error),
+        errorType: (error as any).constructor.name,
+        isProviderError: error instanceof ProviderError,
         stack: (error as any).stack,
       });
       await sendMessage(
@@ -366,7 +381,9 @@ export async function summariseChatMessages(
   } catch (error) {
     console.error('summariseChatMessages unhandled error', {
       chat: chatId.toString(LOG_ID_RADIX),
+      providerInitialized: ProviderInitializer.isProviderInitialized(),
       error: (error as any).message || String(error),
+      errorType: (error as any).constructor.name,
       stack: (error as any).stack,
     });
     try {
