@@ -16,6 +16,7 @@ export interface Env {
   SUMMARY_TEMPERATURE?: number;
   SUMMARY_TOP_P?: number;
   SUMMARY_FREQUENCY_PENALTY?: number;
+  SUMMARY_SEED?: number;
   SUMMARY_PROVIDER?: ProviderType;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
