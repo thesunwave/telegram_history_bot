@@ -6,7 +6,7 @@ Cloudflare Worker that stores Telegram chat messages for 7 days and can produce 
 
 - Webhook for receiving Telegram updates.
 - Stores each message in KV with 7 day TTL.
-- Maintains per-user counters in KV.
+- Aggregates daily stats in D1; today's stats are computed from KV messages.
 - Commands: `/summary`, `/summary_last`, `/top`, `/reset`,
   `/activity_week`, `/activity_month`,
   `/activity_users_week`, `/activity_users_month`, `/help`.
