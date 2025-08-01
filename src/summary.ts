@@ -17,16 +17,24 @@ function filterContentMessages(messages: TelegramMessage[]): TelegramMessage[] {
     const text = msg.text.toLowerCase().trim();
 
     // Игнорируем команды бота
-    if (text.startsWith('/')) return false;
+    if (text.startsWith('/')) {
+      return false;
+    }
 
     // Игнорируем упоминания ботов
-    if (text.includes('@stat_history_bot') || text.includes('@bot')) return false;
+    if (text.includes('@stat_history_bot') || text.includes('@bot')) {
+      return false;
+    }
 
-    // Игнорируем короткие сообщения (вероятно, реакции)
-    if (text.length < 10) return false;
+    // Игнорируем очень короткие сообщения (вероятно, реакции), но только если они меньше 2 символов
+    if (text.length < 2) {
+      return false;
+    }
 
     // Игнорируем сообщения только с эмодзи или символами
-    if (!/[а-яёa-z]/i.test(text)) return false;
+    if (!/[а-яёa-z]/i.test(text)) {
+      return false;
+    }
 
     return true;
   });
