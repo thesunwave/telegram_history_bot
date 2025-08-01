@@ -108,6 +108,46 @@ If tests fail, prefer minimal fixes over large refactors.
 2. Make changes with tests
 3. Run `npm test` to ensure all tests pass
 4. Run `npx wrangler dev --local` for local testing
-5. Create PR with description of changes
-6. CI will run tests automatically
-7. Merge after approval and passing CI
+5. **Run `npx tsc --noEmit` to check TypeScript errors**
+6. Create PR with description of changes
+7. CI will run tests automatically
+8. Merge after approval and passing CI
+
+## 🛡️ Type Safety Prevention
+To avoid type safety issues, agents must:
+
+### Mandatory Checks
+- **Always run `npx tsc --noEmit`** before committing
+- **Use `as Error` for error handling** instead of `any`
+- **Add Cloudflare API types** to `worker-configuration.d.ts`
+
+### Type Safety Examples
+```typescript
+// ❌ Wrong
+catch (error) {
+  console.log(error.message); // TypeScript error
+}
+
+// ✅ Correct
+catch (error) {
+  const err = error as Error;
+  console.log(err.message);
+}
+
+// ❌ Wrong
+await env.HISTORY.put(key, value, { ttl: 3600 }); // TS2554
+
+// ✅ Correct
+await (env.HISTORY as any).put(key, value, { ttl: 3600 });
+```
+
+### Common Errors and Solutions
+- **TS2304**: Add missing types to `worker-configuration.d.ts`
+- **TS2554**: Use `as any` for Cloudflare-specific APIs
+- **TS18046**: Cast `unknown` to `Error` in catch blocks
+- **TS2451**: Check for duplicate variables in tests
+
+### Prevention Tools
+- **ESLint + TypeScript plugin**: configured in project
+- **Pre-commit hooks**: run type checks
+- **CI pipeline**: automatic type checking on GitHub Actions

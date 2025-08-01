@@ -207,10 +207,11 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
           chat: chatId.toString(LOG_ID_RADIX),
         });
       } catch (error) {
+        const err = error as Error;
         console.error("summarize DB insert error", {
           chat: chatId.toString(LOG_ID_RADIX),
-          error: error.message || String(error),
-          stack: error.stack,
+          error: err.message || String(err),
+          stack: err.stack,
         });
         // Продолжаем выполнение, чтобы отправить сообщение пользователю
       }
@@ -231,19 +232,21 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         chat: chatId.toString(LOG_ID_RADIX),
       });
     } catch (error) {
+      const err = error as Error;
       console.error("summarize send message error", {
         chat: chatId.toString(LOG_ID_RADIX),
-        error: error.message || String(error),
-        stack: error.stack,
+        error: err.message || String(err),
+        stack: err.stack,
       });
       throw error; // Пробрасываем ошибку для обработки во внешнем блоке
     }
   } catch (error) {
     // Обработка всех необработанных ошибок
+    const err = error as Error;
     console.error("summariseChat unhandled error", {
       chat: chatId.toString(LOG_ID_RADIX),
-      error: error.message || String(error),
-      stack: error.stack,
+      error: err.message || String(err),
+      stack: err.stack,
     });
     try {
       await sendMessage(
@@ -252,9 +255,10 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         "Произошла непредвиденная ошибка при создании сводки.",
       );
     } catch (sendError) {
+      const sendErr = sendError as Error;
       console.error("summariseChat error notification failed", {
         chat: chatId.toString(LOG_ID_RADIX),
-        error: sendError.message || String(sendError),
+        error: sendErr.message || String(sendErr),
       });
     }
   } finally {
@@ -323,10 +327,11 @@ export async function summariseChatMessages(
         aiResp = await env.AI.run(env.SUMMARY_MODEL, opts);
       }
     } catch (error) {
+      const err = error as Error;
       console.error('summariseChatMessages AI error', {
         chat: chatId.toString(LOG_ID_RADIX),
-        error: (error as any).message || String(error),
-        stack: (error as any).stack,
+        error: err.message || String(err),
+        stack: err.stack,
       });
       await sendMessage(
         env,
@@ -351,20 +356,22 @@ export async function summariseChatMessages(
           )
           .run();
       } catch (error) {
+        const err = error as Error;
         console.error('summariseChatMessages DB insert error', {
           chat: chatId.toString(LOG_ID_RADIX),
-          error: (error as any).message || String(error),
-          stack: (error as any).stack,
+          error: err.message || String(err),
+          stack: err.stack,
         });
       }
     }
 
     await sendMessage(env, chatId, summary);
   } catch (error) {
+    const err = error as Error;
     console.error('summariseChatMessages unhandled error', {
       chat: chatId.toString(LOG_ID_RADIX),
-      error: (error as any).message || String(error),
-      stack: (error as any).stack,
+      error: err.message || String(err),
+      stack: err.stack,
     });
     try {
       await sendMessage(
@@ -373,9 +380,10 @@ export async function summariseChatMessages(
         'Произошла непредвиденная ошибка при создании сводки.',
       );
     } catch (sendError) {
+      const sendErr = sendError as Error;
       console.error('summariseChatMessages error notification failed', {
         chat: chatId.toString(LOG_ID_RADIX),
-        error: (sendError as any).message || String(sendError),
+        error: sendErr.message || String(sendErr),
       });
     }
   } finally {

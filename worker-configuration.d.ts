@@ -24,3 +24,37 @@ interface DurableObjectNamespace {
   idFromName(name: string): DurableObjectId;
   get(id: DurableObjectId): DurableObjectStub;
 }
+
+interface DurableObjectState {
+  storage: DurableObjectStorage;
+}
+
+interface DurableObjectStorage {
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string): Promise<void>;
+  delete(key: string): Promise<void>;
+  list(options?: { prefix?: string }): Promise<Map<string, string>>;
+}
+
+interface KVNamespace {
+  get(key: string): Promise<string | null>;
+  get<T>(key: string, options: { type: 'json' }): Promise<T | null>;
+  put(key: string, value: string | ArrayBuffer | ArrayBufferView | ReadableStream): Promise<void>;
+  delete(key: string): Promise<void>;
+  list(options?: { prefix?: string; cursor?: string }): Promise<{ keys: Array<{ name: string }>; cursor?: string }>;
+}
+
+interface D1Database {
+  prepare(query: string): any;
+}
+
+interface ExecutionContext {
+  waitUntil(promise: Promise<any>): void;
+}
+
+interface ScheduledEvent {
+  scheduledTime: number;
+  cron: string;
+  noRetry(): void;
+  waitUntil(promise: Promise<any>): void;
+}

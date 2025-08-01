@@ -16,17 +16,6 @@ export interface Env {
   SUMMARY_FREQUENCY_PENALTY?: number;
 }
 
-export interface DurableObjectId {}
-
-export interface DurableObjectStub {
-	fetch(request: Request): Promise<Response>;
-}
-
-export interface DurableObjectNamespace {
-	idFromName(name: string): DurableObjectId;
-	get(id: DurableObjectId): DurableObjectStub;
-}
-
 export interface StoredMessage {
   chat: number;
   user: number;

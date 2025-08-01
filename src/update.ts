@@ -36,12 +36,10 @@ export async function recordMessage(msg: any, env: Env) {
     ts,
   };
   const key = `msg:${chatId}:${ts}:${msg.message_id}`;
-  await env.HISTORY.put(key, JSON.stringify(stored), {
-    expirationTtl: 7 * DAY,
-  });
+  await (env.HISTORY as any).put(key, JSON.stringify(stored), { expirationTtl: 7 * DAY });
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
   const id = env.COUNTERS_DO.idFromName(String(chatId));
-  await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
+  const response = await (env.COUNTERS_DO.get(id) as any).fetch('https://do/inc', {
     method: 'POST',
     body: JSON.stringify({ 
       chatId: String(chatId), 
@@ -50,6 +48,7 @@ export async function recordMessage(msg: any, env: Env) {
       day 
     }),
   });
+  await response.text();
 }
 
 export async function handleUpdate(msg: any, env: Env) {

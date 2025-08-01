@@ -8,7 +8,7 @@ export interface IncrementPayload {
 }
 
 export class CountersDO {
-  constructor(private state: any, private env: Env) {}
+  constructor(private state: DurableObjectState, private env: Env) {}
 
   async incrementCounter({ chatId, userId, username, day }: IncrementPayload): Promise<void> {
     const statsKey = `stats:${chatId}:${userId}:${day}`;
@@ -28,10 +28,11 @@ export class CountersDO {
         )
           .bind(chatId, day)
           .run();
-      } catch (e: any) {
+      } catch (e) {
+        const error = e as Error;
         console.error('activity db error', {
-          chat: chatId.toString(36),
-          err: e.message || String(e),
+          chat: chatId,
+          err: error.message || String(error),
         });
       }
     }
@@ -43,7 +44,7 @@ export class CountersDO {
     }
 
     try {
-      const rawData: any = await request.json();
+      const rawData = await request.json() as any;
       
       if (!rawData || typeof rawData !== 'object') {
         return new Response('Invalid JSON data', { status: 400 });
@@ -63,7 +64,8 @@ export class CountersDO {
       await this.incrementCounter(payload);
       return new Response('OK');
     } catch (error) {
-      console.error('Error in CountersDO:', error);
+      const err = error as Error;
+      console.error('Error in CountersDO:', err);
       return new Response('Internal server error', { status: 500 });
     }
   }
