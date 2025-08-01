@@ -36,7 +36,7 @@
   - Add type definitions for ProviderType
   - _Requirements: 1.1, 2.1, 2.2, 2.3_
 
-- [ ] 6. Refactor summary functions to use provider abstraction
+- [x] 6. Refactor summary functions to use provider abstraction
   - Update `summariseChat` function in `src/summary.ts` to use AIProvider interface
   - Update `summariseChatMessages` function to use AIProvider interface
   - Replace direct AI calls with provider.summarize() calls
