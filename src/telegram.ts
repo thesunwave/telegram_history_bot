@@ -15,13 +15,13 @@ function sanitizeMarkdown(text: string): string {
 
   // Then restore intended formatting patterns
   // Bold: **text** -> *text*
-  escaped = escaped.replace(/\\\*\\\*(.*?)\\\*\\\*/g, '*$1*');
+  escaped = escaped.replace(/\\*\\*(.*?)\\*\\*/g, '*$1*');
 
   // Italic: _text_ -> _text_
   escaped = escaped.replace(/\\_(.*?)\\_/g, '_$1_');
 
   // Bold + Italic: ***text*** -> *_text_*
-  escaped = escaped.replace(/\\\*\\\*\\\*(.*?)\\\*\\\*\\\*/g, '*_$1_*');
+  escaped = escaped.replace(/\\*\\*\\*(.*?)\\*\\*\\*/g, '*_$1_*');
 
   return escaped;
 }
