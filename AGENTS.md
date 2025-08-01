@@ -54,6 +54,46 @@ If tests fail, prefer minimal fixes over large refactors.
 7. Use descriptive variable names and JSDoc comments for public APIs.
 8. **DO NOT change quotes style** unless explicitly required to replace ALL quotes in the project.
 
+## 🎯 Code Quality & Best Practices
+
+### Clean Code Principles
+- **DRY** - Don't Repeat Yourself; extract common logic into reusable functions
+- **KISS** - Keep It Simple Stupid; prefer simple, readable solutions
+- **YAGNI** - You Aren't Gonna Need It; don't add complexity for hypothetical future needs
+- **SLAP** - Single Level of Abstraction Principle; one function - one level of abstraction
+
+### Function Design
+- **Single Responsibility**: each function should do one thing well
+- **Small functions**: prefer 20-30 lines max, extract complex logic
+- **Descriptive names**: function names should explain what they do (e.g., `incrementUserCounter` not `handleCounter`)
+- **Early returns**: use guard clauses to reduce nesting
+- **Pure functions**: prefer functions without side effects when possible
+
+### Error Handling
+- **Fail fast**: validate inputs early and throw meaningful errors
+- **Graceful degradation**: handle edge cases without crashing the system
+- **Consistent error format**: use structured error objects with context
+- **Never swallow errors**: always log or propagate errors appropriately
+
+### Code Structure
+- **Type safety**: use proper TypeScript types, avoid `any`
+- **Constants**: extract magic numbers/strings into named constants
+- **Configuration**: move hardcoded values to environment variables or config files
+- **Separation of concerns**: separate business logic from I/O operations
+- **Modular design**: group related functionality into cohesive modules
+
+### Testing
+- **Testable code**: write functions that are easy to test in isolation
+- **Edge cases**: always test boundary conditions and error paths
+- **Mock external dependencies**: use mocks for external services (KV, DB, API)
+- **Descriptive test names**: explain what scenario is being tested
+
+### Documentation
+- **JSDoc for public APIs**: document function purpose, parameters, and return values
+- **Complex logic**: add comments explaining WHY, not WHAT
+- **README updates**: document any new features or breaking changes
+- **Code examples**: provide usage examples for complex functions
+
 ## 🔐 Security & Privacy Rules
 - Do **not** log full Telegram payloads.  
 - Strip PII before saving metrics.  
