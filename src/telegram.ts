@@ -22,18 +22,18 @@ function sanitizeMarkdown(text: string): string {
   
   let result = text;
   
-  // First, replace **text** with placeholders (using non-greedy to handle multiple bold sections)
-  result = result.replace(/\*\*(.+?)\*\*/g, `${BOLD_PLACEHOLDER}$1${BOLD_END_PLACEHOLDER}`);
+  // First, replace **text** with placeholders (using non-greedy to handle multiple bold sections, including empty bold)
+  result = result.replace(/\*\*(.*?)\*\*/g, `${BOLD_PLACEHOLDER}$1${BOLD_END_PLACEHOLDER}`);
   
   // Escape all special MarkdownV2 characters (fix regex character class)
   result = result.replace(/([_*[\]()~`>#+=|{}.!\\-])/g, '\\$1');
   
-  // Helper function to escape regex special characters
-  const escapeRegExp = (str: string): string => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  
-  // Restore bold formatting with proper MarkdownV2 syntax
+  // Restore bold formatting with proper MarkdownV2 syntax (inline regex escaping)
   result = result.replace(
-    new RegExp(`${escapeRegExp(BOLD_PLACEHOLDER)}(.*?)${escapeRegExp(BOLD_END_PLACEHOLDER)}`, 'g'),
+    new RegExp(
+      `${BOLD_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(.*?)${BOLD_END_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+      'g'
+    ),
     '*$1*'
   );
   
