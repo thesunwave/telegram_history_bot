@@ -10,6 +10,29 @@ export interface IncrementPayload {
 export class CountersDO {
   constructor(private state: DurableObjectState, private env: Env) {}
 
+  private validatePayload(rawData: any): string | null {
+    const missingFields: string[] = [];
+    
+    if (rawData.chatId == null || (typeof rawData.chatId === 'string' && rawData.chatId.trim() === '')) {
+      missingFields.push('chatId');
+    }
+    if (rawData.userId == null || (typeof rawData.userId === 'string' && rawData.userId.trim() === '')) {
+      missingFields.push('userId');
+    }
+    if (rawData.username == null || (typeof rawData.username === 'string' && rawData.username.trim() === '')) {
+      missingFields.push('username');
+    }
+    if (rawData.day == null || (typeof rawData.day === 'string' && rawData.day.trim() === '')) {
+      missingFields.push('day');
+    }
+    
+    if (missingFields.length > 0) {
+      return `Missing or invalid required fields: ${missingFields.join(', ')}`;
+    }
+    
+    return null;
+  }
+
   incrementCounter({ chatId, userId, username, day }: IncrementPayload): Promise<void> {
     return this.state.blockConcurrencyWhile(async () => {
       const statsKey = `stats:${chatId}:${userId}:${day}`;
@@ -52,14 +75,9 @@ export class CountersDO {
         return new Response('Invalid JSON data', { status: 400 });
       }
       
-      // Validate required fields before string conversion
-      if (
-        rawData.chatId == null || (typeof rawData.chatId === 'string' && rawData.chatId.trim() === '') ||
-        rawData.userId == null || (typeof rawData.userId === 'string' && rawData.userId.trim() === '') ||
-        rawData.username == null || (typeof rawData.username === 'string' && rawData.username.trim() === '') ||
-        rawData.day == null || (typeof rawData.day === 'string' && rawData.day.trim() === '')
-      ) {
-        return new Response('Missing or invalid required fields', { status: 400 });
+      const validationError = this.validatePayload(rawData);
+      if (validationError) {
+        return new Response(validationError, { status: 400 });
       }
       
       const chatId = String(rawData.chatId);
