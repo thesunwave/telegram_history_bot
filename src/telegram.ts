@@ -1,29 +1,24 @@
 import { Env, LOG_ID_RADIX, TELEGRAM_LIMIT } from "./env";
 import { chunkText } from "./utils";
 
-// Escape special characters for MarkdownV2
-function escapeMarkdownV2(text: string): string {
-  // Characters that need to be escaped in MarkdownV2
-  const specialChars = /[-_*[\]()~`>#+=|{}.!]/g;
-  return text.replace(specialChars, '\\$&');
-}
-
 // Convert basic markdown to safe MarkdownV2
 function sanitizeMarkdown(text: string): string {
-  // First escape all special characters
-  let escaped = escapeMarkdownV2(text);
-
-  // Then restore intended formatting patterns
-  // Bold: **text** -> *text*
-  escaped = escaped.replace(/\\*\\*(.*?)\\*\\*/g, '*$1*');
-
-  // Italic: _text_ -> _text_
-  escaped = escaped.replace(/\\_(.*?)\\_/g, '_$1_');
-
-  // Bold + Italic: ***text*** -> *_text_*
-  escaped = escaped.replace(/\\*\\*\\*(.*?)\\*\\*\\*/g, '*_$1_*');
-
-  return escaped;
+  // Use a placeholder-based approach to safely handle markdown
+  const BOLD_PLACEHOLDER = '___BOLD_START___';
+  const BOLD_END_PLACEHOLDER = '___BOLD_END___';
+  
+  let result = text;
+  
+  // First, replace **text** with placeholders
+  result = result.replace(/\*\*(.*?)\*\*/g, `${BOLD_PLACEHOLDER}$1${BOLD_END_PLACEHOLDER}`);
+  
+  // Escape all special MarkdownV2 characters
+  result = result.replace(/([_*[\]()~`>#+=|{}.!\\-])/g, '\\$1');
+  
+  // Restore bold formatting with proper MarkdownV2 syntax
+  result = result.replace(new RegExp(`${BOLD_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(.*?)${BOLD_END_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), '*$1*');
+  
+  return result;
 }
 
 export async function sendMessage(env: Env, chatId: number, text: string) {
