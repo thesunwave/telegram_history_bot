@@ -22,7 +22,7 @@
   - Write unit tests for OpenAIProvider with mocked fetch calls
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 4.1, 4.4_
 
-- [ ] 4. Create provider factory
+- [x] 4. Create provider factory
   - Create `src/providers/provider-factory.ts` with ProviderFactory class
   - Implement createProvider method that returns correct provider based on SUMMARY_PROVIDER env var
   - Add validation for supported provider types

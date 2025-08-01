@@ -50,7 +50,7 @@ describe('OpenAIProvider', () => {
       delete mockEnv.OPENAI_MODEL;
       const providerWithDefault = new OpenAIProvider(mockEnv);
       const info = providerWithDefault.getProviderInfo();
-      expect(info.model).toBe('gpt-3.5-turbo');
+      expect(info.model).toBe('gpt-4.1-nano');
     });
   });
 
