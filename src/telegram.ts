@@ -8,7 +8,11 @@ export async function sendMessage(env: Env, chatId: number, text: string) {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: part }),
+      body: JSON.stringify({ 
+        chat_id: chatId, 
+        text: part,
+        parse_mode: "Markdown"
+      }),
     });
     if (!res.ok) {
       const err = await res.text();
