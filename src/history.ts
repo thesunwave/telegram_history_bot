@@ -80,7 +80,8 @@ export async function fetchLastMessages(env: Env, chatId: number, count: number)
       });
       for (const k of list.keys) {
         keys.push(k.name);
-        if (keys.length > count) keys.shift();
+        // Fetch extra messages to account for potential filtering
+        if (keys.length > count + 5) keys.shift();
       }
       console.debug('fetchLastMessages page processed', {
         chat: chatId.toString(LOG_ID_RADIX),
@@ -93,7 +94,13 @@ export async function fetchLastMessages(env: Env, chatId: number, count: number)
     );
     const filtered = msgs.filter((m): m is StoredMessage => !!m);
     const sorted = filtered.sort((a, b) => b.ts - a.ts);
-    return sorted;
+    
+    // Filter out command messages and return only the requested count
+    const nonCommandMessages = sorted.filter(msg => !msg.text.startsWith('/'));
+    const result = nonCommandMessages.slice(0, count);
+    
+    // Sort the final result in ascending order (oldest first) for consistent ordering
+    return result.sort((a, b) => a.ts - b.ts);
   } catch (err: any) {
     console.error('fetchLastMessages failed', {
       chat: chatId.toString(LOG_ID_RADIX),
