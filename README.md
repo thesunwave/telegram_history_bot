@@ -6,7 +6,7 @@ Cloudflare Worker that stores Telegram chat messages for 7 days and can produce 
 
 - Webhook for receiving Telegram updates.
 - Stores each message in KV with 7 day TTL.
-- Maintains per-user counters in KV.
+- Maintains per-user counters via Durable Object and KV.
 - Commands: `/summary`, `/summary_last`, `/top`, `/reset`,
   `/activity_week`, `/activity_month`,
   `/activity_users_week`, `/activity_users_month`, `/help`.
@@ -69,4 +69,6 @@ Run `npm install` before `npm test` to ensure dev dependencies like Vitest are a
 
 `setup.sh` creates KV namespaces and the D1 database. Copy the printed IDs into
 `wrangler.jsonc` so the worker can bind to these resources. The cron trigger is
-configured in `wrangler.jsonc` and will be created on deployment.
+configured in `wrangler.jsonc` and will be created on deployment. The Durable
+Object for counters is defined in `wrangler.jsonc` and requires no additional
+setup.
