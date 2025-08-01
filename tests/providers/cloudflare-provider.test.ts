@@ -21,6 +21,7 @@ describe('CloudflareAIProvider', () => {
     mockEnv = {
       AI: mockAI,
       SUMMARY_MODEL: 'test-model',
+      CLOUDFLARE_MODEL: 'test-model',
       SUMMARY_PROMPT: 'Test prompt',
       SUMMARY_SYSTEM: 'Test system',
       // Add other required Env properties as needed
@@ -53,8 +54,8 @@ describe('CloudflareAIProvider', () => {
       frequencyPenalty: 0.1
     };
 
-    it('should summarize using chat model when SUMMARY_MODEL contains "chat"', async () => {
-      mockEnv.SUMMARY_MODEL = 'test-chat-model';
+    it('should summarize using chat model when CLOUDFLARE_MODEL contains "chat"', async () => {
+      (mockEnv as any).CLOUDFLARE_MODEL = 'test-chat-model';
       mockAI.run.mockResolvedValue({ response: 'Test summary' });
 
       const result = await provider.summarize(mockRequest, mockOptions);
@@ -72,8 +73,8 @@ describe('CloudflareAIProvider', () => {
       });
     });
 
-    it('should summarize using completion model when SUMMARY_MODEL does not contain "chat"', async () => {
-      mockEnv.SUMMARY_MODEL = 'test-completion-model';
+    it('should summarize using completion model when CLOUDFLARE_MODEL does not contain "chat"', async () => {
+      (mockEnv as any).CLOUDFLARE_MODEL = 'test-completion-model';
       mockAI.run.mockResolvedValue({ response: 'Test summary' });
 
       const result = await provider.summarize(mockRequest, mockOptions);
@@ -118,7 +119,7 @@ describe('CloudflareAIProvider', () => {
         systemPrompt: undefined
       };
 
-      mockEnv.SUMMARY_MODEL = 'test-chat-model';
+      (mockEnv as any).CLOUDFLARE_MODEL = 'test-chat-model';
       mockAI.run.mockResolvedValue({ response: 'Test summary' });
 
       await provider.summarize(requestWithoutSystem, mockOptions);
@@ -152,11 +153,12 @@ describe('CloudflareAIProvider', () => {
       expect(() => provider.validateConfig()).toThrow('AI binding is required for Cloudflare provider');
     });
 
-    it('should throw error when SUMMARY_MODEL is missing', () => {
+    it('should throw error when CLOUDFLARE_MODEL and SUMMARY_MODEL are missing', () => {
       mockEnv.SUMMARY_MODEL = '';
+      (mockEnv as any).CLOUDFLARE_MODEL = '';
       provider = new CloudflareAIProvider(mockEnv);
 
-      expect(() => provider.validateConfig()).toThrow('SUMMARY_MODEL is required for Cloudflare provider');
+      expect(() => provider.validateConfig()).toThrow('CLOUDFLARE_MODEL or SUMMARY_MODEL is required for Cloudflare provider');
     });
   });
 

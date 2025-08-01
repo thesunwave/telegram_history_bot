@@ -90,6 +90,22 @@ describe('Summary Providers Integration Tests', () => {
       SUMMARY_PROVIDER: undefined,
       OPENAI_API_KEY: undefined,
       OPENAI_MODEL: undefined,
+      // New configuration variables
+      CLOUDFLARE_MODEL: "test-model",
+      CLOUDFLARE_MAX_TOKENS: 400,
+      CLOUDFLARE_TEMPERATURE: 0.2,
+      CLOUDFLARE_TOP_P: 0.95,
+      CLOUDFLARE_FREQUENCY_PENALTY: 0.1,
+      OPENAI_MAX_TOKENS: 500,
+      OPENAI_TEMPERATURE: 0.15,
+      OPENAI_TOP_P: 0.9,
+      OPENAI_FREQUENCY_PENALTY: 0.2,
+      OPENAI_PREMIUM_API_KEY: undefined,
+      OPENAI_PREMIUM_MODEL: undefined,
+      OPENAI_PREMIUM_MAX_TOKENS: 600,
+      OPENAI_PREMIUM_TEMPERATURE: 0.1,
+      OPENAI_PREMIUM_TOP_P: 0.85,
+      OPENAI_PREMIUM_FREQUENCY_PENALTY: 0.3,
     };
     
     env.COUNTERS_DO = createCountersNamespace(env);
@@ -931,6 +947,7 @@ describe('Summary Providers Integration Tests', () => {
 
     it('should work with existing SUMMARY_MODEL configurations', async () => {
       env.SUMMARY_MODEL = 'existing-model';
+      (env as any).CLOUDFLARE_MODEL = undefined; // Clear to test fallback
       // No SUMMARY_PROVIDER set, should default to cloudflare
       
       fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
@@ -968,6 +985,7 @@ describe('Summary Providers Integration Tests', () => {
 
     it('should work with existing chat model configurations', async () => {
       env.SUMMARY_MODEL = 'existing-chat-model';
+      (env as any).CLOUDFLARE_MODEL = undefined; // Clear to test fallback
       // No SUMMARY_PROVIDER set, should default to cloudflare
       
       fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
@@ -1019,6 +1037,11 @@ describe('Summary Providers Integration Tests', () => {
       env.SUMMARY_FREQUENCY_PENALTY = 0.2;
       env.SUMMARY_PROVIDER = 'openai';
       env.OPENAI_API_KEY = 'test-key';
+      // Clear new config variables to test fallback to old ones
+      (env as any).OPENAI_MAX_TOKENS = undefined;
+      (env as any).OPENAI_TEMPERATURE = undefined;
+      (env as any).OPENAI_TOP_P = undefined;
+      (env as any).OPENAI_FREQUENCY_PENALTY = undefined;
       
       const openaiResponse = {
         choices: [{ message: { content: 'Custom params summary' } }],
@@ -1064,7 +1087,7 @@ describe('Summary Providers Integration Tests', () => {
       const requestBody = JSON.parse(openaiCall[1].body);
       
       expect(requestBody.max_tokens).toBe(500);
-      expect(requestBody.temperature).toBe(0.8);
+      expect(requestBody.temperature).toBe(0.8); // Should use SUMMARY_TEMPERATURE as fallback
       expect(requestBody.top_p).toBe(0.95);
       expect(requestBody.frequency_penalty).toBe(0.2);
     });
@@ -1116,7 +1139,7 @@ describe('Summary Providers Integration Tests', () => {
       );
       expect(openaiCall).toBeDefined();
       const requestBody = JSON.parse(openaiCall[1].body);
-      expect(requestBody.model).toBe('gpt-4.1-nano'); // Default model
+      expect(requestBody.model).toBe('gpt-3.5-turbo'); // Default model
     });
 
     it('should maintain existing prompt and system message behavior', async () => {

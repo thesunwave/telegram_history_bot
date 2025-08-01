@@ -43,7 +43,7 @@ describe('ProviderFactory', () => {
 
       const provider = ProviderFactory.createProvider(mockEnv);
 
-      expect(OpenAIProvider).toHaveBeenCalledWith(mockEnv);
+      expect(OpenAIProvider).toHaveBeenCalledWith(mockEnv, 'standard');
       expect(provider).toBeInstanceOf(OpenAIProvider);
     });
 
@@ -69,7 +69,7 @@ describe('ProviderFactory', () => {
 
       const provider = ProviderFactory.createProvider(mockEnv);
 
-      expect(OpenAIProvider).toHaveBeenCalledWith(mockEnv);
+      expect(OpenAIProvider).toHaveBeenCalledWith(mockEnv, 'standard');
       expect(provider).toBeInstanceOf(OpenAIProvider);
     });
 
@@ -113,7 +113,7 @@ describe('ProviderFactory', () => {
     it('should return array of supported provider types', () => {
       const supportedProviders = ProviderFactory.getSupportedProviders();
 
-      expect(supportedProviders).toEqual(['cloudflare', 'openai']);
+      expect(supportedProviders).toEqual(['cloudflare', 'openai', 'openai-premium']);
       expect(Array.isArray(supportedProviders)).toBe(true);
     });
 

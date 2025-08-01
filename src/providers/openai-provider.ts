@@ -37,10 +37,18 @@ export class OpenAIProvider implements AIProvider {
   private apiKey: string;
   private model: string;
   private baseUrl: string = 'https://api.openai.com/v1';
+  private providerType: 'standard' | 'premium';
 
-  constructor(private env: Env) {
-    this.apiKey = (env as any).OPENAI_API_KEY;
-    this.model = (env as any).OPENAI_MODEL || 'gpt-4.1-nano';
+  constructor(private env: Env, providerType: 'standard' | 'premium' = 'standard') {
+    this.providerType = providerType;
+    
+    if (providerType === 'premium') {
+      this.apiKey = (env as any).OPENAI_PREMIUM_API_KEY || (env as any).OPENAI_API_KEY;
+      this.model = (env as any).OPENAI_PREMIUM_MODEL || (env as any).OPENAI_MODEL || 'gpt-4-turbo';
+    } else {
+      this.apiKey = (env as any).OPENAI_API_KEY;
+      this.model = (env as any).OPENAI_MODEL || 'gpt-3.5-turbo';
+    }
   }
 
   async summarize(request: SummaryRequest, options: SummaryOptions): Promise<string> {
@@ -128,13 +136,14 @@ export class OpenAIProvider implements AIProvider {
 
   validateConfig(): void {
     if (!this.apiKey) {
-      throw new Error('OPENAI_API_KEY is required for OpenAI provider');
+      const keyName = this.providerType === 'premium' ? 'OPENAI_PREMIUM_API_KEY' : 'OPENAI_API_KEY';
+      throw new Error(`${keyName} is required for OpenAI ${this.providerType} provider`);
     }
   }
 
   getProviderInfo(): ProviderInfo {
     return {
-      name: 'openai',
+      name: this.providerType === 'premium' ? 'openai-premium' : 'openai',
       model: this.model
     };
   }
