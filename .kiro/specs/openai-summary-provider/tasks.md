@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Create AI provider interfaces and base types
+- [x] 1. Create AI provider interfaces and base types
   - Create `src/providers/ai-provider.ts` with all interfaces (ChatMessage, TelegramMessage, SummaryRequest, SummaryOptions, ProviderInfo, AIProvider)
   - Define MESSAGE_SEPARATOR constant
   - Create ProviderError class for unified error handling
