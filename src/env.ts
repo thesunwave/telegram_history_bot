@@ -1,6 +1,7 @@
 export interface Env {
   HISTORY: KVNamespace;
   COUNTERS: KVNamespace;
+  COUNTERS_DO: DurableObjectNamespace;
   DB: D1Database;
   AI: any;
   TOKEN: string;
@@ -13,6 +14,17 @@ export interface Env {
   SUMMARY_TEMPERATURE?: number;
   SUMMARY_TOP_P?: number;
   SUMMARY_FREQUENCY_PENALTY?: number;
+}
+
+export interface DurableObjectId {}
+
+export interface DurableObjectStub {
+  fetch(request: Request): Promise<Response>;
+}
+
+export interface DurableObjectNamespace {
+  idFromName(name: string): DurableObjectId;
+  get(id: DurableObjectId): DurableObjectStub;
 }
 
 export interface StoredMessage {

@@ -40,28 +40,11 @@ export async function recordMessage(msg: any, env: Env) {
     expirationTtl: 7 * DAY,
   });
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
-  const ckey = `stats:${chatId}:${userId}:${day}`;
-  const count = parseInt((await env.COUNTERS.get(ckey)) || '0') + 1;
-  await env.COUNTERS.put(ckey, String(count));
-  await env.COUNTERS.put(`user:${userId}`, username);
-  const akey = `activity:${chatId}:${day}`;
-  const acnt = parseInt((await env.COUNTERS.get(akey)) || '0') + 1;
-  await env.COUNTERS.put(akey, String(acnt));
-  if (env.DB) {
-    try {
-      await env.DB.prepare(
-        'INSERT INTO activity (chat_id, day, count) VALUES (?, ?, 1) ' +
-          'ON CONFLICT(chat_id, day) DO UPDATE SET count = count + 1',
-      )
-        .bind(chatId, day)
-        .run();
-    } catch (e) {
-      console.error('activity db error', {
-        chat: chatId.toString(36),
-        err: (e as any).message || String(e),
-      });
-    }
-  }
+  const id = env.COUNTERS_DO.idFromName(String(chatId));
+  await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
+    method: 'POST',
+    body: JSON.stringify({ chatId, userId, username, day }),
+  });
 }
 
 export async function handleUpdate(msg: any, env: Env) {
