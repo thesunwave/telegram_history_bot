@@ -1,6 +1,7 @@
 import { Env } from './env';
 import { dailySummary } from './stats';
 import { handleUpdate, recordMessage, getTextMessage } from './update';
+import { CountersDO } from './counters-do';
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -35,3 +36,5 @@ export default {
     await dailySummary(env);
   },
 };
+
+export { CountersDO };

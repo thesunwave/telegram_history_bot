@@ -15,6 +15,11 @@
       "preview_id": "eb2d8e7ad2e74a37bb123e4ca820fbb8"
     }
   ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "COUNTERS_DO", "class_name": "CountersDO" }
+    ]
+  },
   "d1_databases": [
     {
       "binding": "DB",
