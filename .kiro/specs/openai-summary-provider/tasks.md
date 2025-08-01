@@ -30,7 +30,7 @@
   - Write unit tests for factory with different configurations
   - _Requirements: 1.1, 1.2, 1.3, 4.3_
 
-- [ ] 5. Update environment interface and types
+- [x] 5. Update environment interface and types
   - Update `src/env.ts` to include new environment variables (SUMMARY_PROVIDER, OPENAI_API_KEY, OPENAI_MODEL)
   - Update `worker-configuration.d.ts` with new environment variables
   - Add type definitions for ProviderType
