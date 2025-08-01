@@ -3,10 +3,10 @@ import { AIProvider } from "./ai-provider";
 import { CloudflareAIProvider } from "./cloudflare-provider";
 import { OpenAIProvider } from "./openai-provider";
 
-export type ProviderType = 'cloudflare' | 'openai';
+export type ProviderType = 'cloudflare' | 'openai' | 'openai-premium';
 
 export class ProviderFactory {
-  private static readonly SUPPORTED_PROVIDERS: ProviderType[] = ['cloudflare', 'openai'];
+  private static readonly SUPPORTED_PROVIDERS: ProviderType[] = ['cloudflare', 'openai', 'openai-premium'];
   private static readonly DEFAULT_PROVIDER: ProviderType = 'cloudflare';
 
   /**
@@ -24,7 +24,9 @@ export class ProviderFactory {
       case 'cloudflare':
         return new CloudflareAIProvider(env);
       case 'openai':
-        return new OpenAIProvider(env);
+        return new OpenAIProvider(env, 'standard');
+      case 'openai-premium':
+        return new OpenAIProvider(env, 'premium');
       default:
         // This should never happen due to validation, but TypeScript requires it
         throw new Error(`Unsupported provider: ${providerType}`);

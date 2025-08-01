@@ -50,7 +50,7 @@ describe('OpenAIProvider', () => {
       delete mockEnv.OPENAI_MODEL;
       const providerWithDefault = new OpenAIProvider(mockEnv);
       const info = providerWithDefault.getProviderInfo();
-      expect(info.model).toBe('gpt-4.1-nano');
+      expect(info.model).toBe('gpt-3.5-turbo');
     });
   });
 
@@ -261,14 +261,14 @@ describe('OpenAIProvider', () => {
       delete mockEnv.OPENAI_API_KEY;
       const providerWithoutKey = new OpenAIProvider(mockEnv);
 
-      expect(() => providerWithoutKey.validateConfig()).toThrow('OPENAI_API_KEY is required for OpenAI provider');
+      expect(() => providerWithoutKey.validateConfig()).toThrow('OPENAI_API_KEY is required for OpenAI standard provider');
     });
 
     it('should throw error when OPENAI_API_KEY is empty string', () => {
       mockEnv.OPENAI_API_KEY = '';
       const providerWithEmptyKey = new OpenAIProvider(mockEnv);
 
-      expect(() => providerWithEmptyKey.validateConfig()).toThrow('OPENAI_API_KEY is required for OpenAI provider');
+      expect(() => providerWithEmptyKey.validateConfig()).toThrow('OPENAI_API_KEY is required for OpenAI standard provider');
     });
   });
 

@@ -20,7 +20,10 @@ export class CloudflareAIProvider implements AIProvider {
     try {
       let response: any;
       
-      if (this.env.SUMMARY_MODEL.includes('chat')) {
+      // Support both new and old configuration variables for backward compatibility
+      const model = (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL;
+      
+      if (model.includes('chat')) {
         const messages = this.buildChatMessages(request, content);
         const aiOptions = {
           max_tokens: options.maxTokens,
@@ -29,7 +32,7 @@ export class CloudflareAIProvider implements AIProvider {
           ...(options.frequencyPenalty !== undefined && { frequency_penalty: options.frequencyPenalty }),
           messages
         };
-        response = await this.env.AI.run(this.env.SUMMARY_MODEL, aiOptions);
+        response = await this.env.AI.run(model, aiOptions);
       } else {
         const input = `${request.userPrompt}\n${request.limitNote}\n${content}`;
         const aiOptions = {
@@ -39,7 +42,7 @@ export class CloudflareAIProvider implements AIProvider {
           ...(options.frequencyPenalty !== undefined && { frequency_penalty: options.frequencyPenalty }),
           prompt: input
         };
-        response = await this.env.AI.run(this.env.SUMMARY_MODEL, aiOptions);
+        response = await this.env.AI.run(model, aiOptions);
       }
       
       const result = response.response ?? response;
@@ -68,15 +71,17 @@ export class CloudflareAIProvider implements AIProvider {
     if (!this.env.AI) {
       throw new Error('AI binding is required for Cloudflare provider');
     }
-    if (!this.env.SUMMARY_MODEL) {
-      throw new Error('SUMMARY_MODEL is required for Cloudflare provider');
+    // Support both new and old configuration variables for backward compatibility
+    const model = (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL;
+    if (!model) {
+      throw new Error('CLOUDFLARE_MODEL or SUMMARY_MODEL is required for Cloudflare provider');
     }
   }
 
   getProviderInfo(): ProviderInfo {
     return {
       name: 'cloudflare',
-      model: this.env.SUMMARY_MODEL
+      model: (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL
     };
   }
 }
