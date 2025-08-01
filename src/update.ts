@@ -24,6 +24,7 @@ export function getTextMessage(update: any) {
 
 export async function recordMessage(msg: any, env: Env) {
   if (!msg) return;
+  if (msg.from?.is_bot) return;
   const chatId = msg.chat.id;
   const userId = msg.from?.id || 0;
   const username = msg.from?.username || `id${userId}`;
