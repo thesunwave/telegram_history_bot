@@ -1,13 +1,38 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import worker from '../src/index';
+import worker, { CountersDO } from '../src/index';
 import { KVNamespace } from '@miniflare/kv';
 import { MemoryStorage } from '@miniflare/storage-memory';
 import { D1Database } from '@miniflare/d1';
 import { WEEK_DAYS } from '../src/env';
 
+function createCountersNamespace(env: Env) {
+  const objects = new Map<string, { obj: CountersDO; chain: Promise<any> }>();
+  return {
+    idFromName(name: string) {
+      return name as any;
+    },
+    get(id: string) {
+      let entry = objects.get(id);
+      if (!entry) {
+        entry = { obj: new CountersDO({}, env), chain: Promise.resolve() };
+        objects.set(id, entry);
+      }
+      return {
+        fetch: (url: string, init?: RequestInit) => {
+          entry!.chain = entry!.chain.then(() =>
+            entry!.obj.fetch(new Request(url, init)),
+          );
+          return entry!.chain;
+        },
+      } as any;
+    },
+  };
+}
+
 interface Env {
   HISTORY: KVNamespace;
   COUNTERS: KVNamespace;
+  COUNTERS_DO: any;
   DB: D1Database;
   AI: { run: (model: string, opts: any) => Promise<any> };
   TOKEN: string;
@@ -37,6 +62,7 @@ beforeEach(async () => {
   env = {
     HISTORY: history,
     COUNTERS: counters,
+    COUNTERS_DO: {} as any,
     DB: db,
     AI: { run: vi.fn(async () => ({ response: "ok" })) },
     TOKEN: "t",
@@ -45,6 +71,7 @@ beforeEach(async () => {
     SUMMARY_PROMPT: "prompt",
     SUMMARY_CHUNK_SIZE: undefined,
   };
+  env.COUNTERS_DO = createCountersNamespace(env);
 });
 
 afterEach(() => {
@@ -83,6 +110,49 @@ describe("webhook", () => {
     expect(activity).toBe("1");
     const list = await env.COUNTERS.list({ prefix: `stats:1:2:` });
     expect(list.keys[0]?.expiration).toBeUndefined();
+  });
+
+  it('increments counters atomically', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const upd1 = {
+      message: {
+        message_id: 1,
+        text: 'a',
+        chat: { id: 1 },
+        from: { id: 2, username: 'u' },
+        date: now,
+      },
+    };
+    const upd2 = {
+      message: {
+        message_id: 2,
+        text: 'b',
+        chat: { id: 1 },
+        from: { id: 2, username: 'u' },
+        date: now + 1,
+      },
+    };
+    const req1 = new Request('http://localhost/tg/t/webhook', {
+      method: 'POST',
+      headers: {
+        'X-Telegram-Bot-Api-Secret-Token': 's',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(upd1),
+    });
+    const req2 = new Request('http://localhost/tg/t/webhook', {
+      method: 'POST',
+      headers: {
+        'X-Telegram-Bot-Api-Secret-Token': 's',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(upd2),
+    });
+    await Promise.all([worker.fetch(req1, env, ctx), worker.fetch(req2, env, ctx)]);
+    await Promise.all(tasks);
+    const day = new Date(now * 1000).toISOString().slice(0, 10);
+    const cnt = await env.COUNTERS.get(`stats:1:2:${day}`);
+    expect(cnt).toBe('2');
   });
 
   it('ignores messages from bots', async () => {
