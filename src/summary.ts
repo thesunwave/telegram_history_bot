@@ -21,36 +21,48 @@ function buildAiOptions(env: Env): SummaryOptions {
     case 'cloudflare':
       opts = {
         maxTokens: (env as any).CLOUDFLARE_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 400,
-        temperature: (env as any).CLOUDFLARE_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.2,
+        temperature: (env as any).CLOUDFLARE_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
         topP: (env as any).CLOUDFLARE_TOP_P ?? env.SUMMARY_TOP_P ?? 0.95,
       };
       const cloudflareFreqPenalty = (env as any).CLOUDFLARE_FREQUENCY_PENALTY ?? env.SUMMARY_FREQUENCY_PENALTY;
       if (cloudflareFreqPenalty !== undefined) {
         opts.frequencyPenalty = cloudflareFreqPenalty;
       }
+      const cloudflareSeed = (env as any).CLOUDFLARE_SEED ?? env.SUMMARY_SEED;
+      if (cloudflareSeed !== undefined) {
+        opts.seed = cloudflareSeed;
+      }
       break;
       
     case 'openai':
       opts = {
         maxTokens: (env as any).OPENAI_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 500,
-        temperature: (env as any).OPENAI_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.15,
+        temperature: (env as any).OPENAI_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
         topP: (env as any).OPENAI_TOP_P ?? env.SUMMARY_TOP_P ?? 0.9,
       };
       const openaiFreqPenalty = (env as any).OPENAI_FREQUENCY_PENALTY ?? env.SUMMARY_FREQUENCY_PENALTY;
       if (openaiFreqPenalty !== undefined) {
         opts.frequencyPenalty = openaiFreqPenalty;
       }
+      const openaiSeed = (env as any).OPENAI_SEED ?? env.SUMMARY_SEED;
+      if (openaiSeed !== undefined) {
+        opts.seed = openaiSeed;
+      }
       break;
       
     case 'openai-premium':
       opts = {
         maxTokens: (env as any).OPENAI_PREMIUM_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 600,
-        temperature: (env as any).OPENAI_PREMIUM_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.1,
+        temperature: (env as any).OPENAI_PREMIUM_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
         topP: (env as any).OPENAI_PREMIUM_TOP_P ?? env.SUMMARY_TOP_P ?? 0.85,
       };
       const premiumFreqPenalty = (env as any).OPENAI_PREMIUM_FREQUENCY_PENALTY ?? env.SUMMARY_FREQUENCY_PENALTY;
       if (premiumFreqPenalty !== undefined) {
         opts.frequencyPenalty = premiumFreqPenalty;
+      }
+      const premiumSeed = (env as any).OPENAI_PREMIUM_SEED ?? env.SUMMARY_SEED;
+      if (premiumSeed !== undefined) {
+        opts.seed = premiumSeed;
       }
       break;
       
@@ -58,11 +70,14 @@ function buildAiOptions(env: Env): SummaryOptions {
       // Fallback to old behavior for backward compatibility
       opts = {
         maxTokens: env.SUMMARY_MAX_TOKENS ?? 300,
-        temperature: env.SUMMARY_TEMPERATURE ?? 0.1,
+        temperature: env.SUMMARY_TEMPERATURE ?? 0.0,
         topP: env.SUMMARY_TOP_P ?? 0.9,
       };
       if (env.SUMMARY_FREQUENCY_PENALTY !== undefined) {
         opts.frequencyPenalty = env.SUMMARY_FREQUENCY_PENALTY;
+      }
+      if (env.SUMMARY_SEED !== undefined) {
+        opts.seed = env.SUMMARY_SEED;
       }
   }
   

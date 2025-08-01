@@ -23,6 +23,7 @@ export interface SummaryOptions {
   temperature: number;
   topP: number;
   frequencyPenalty?: number;
+  seed?: number;
 }
 
 export interface ProviderInfo {
