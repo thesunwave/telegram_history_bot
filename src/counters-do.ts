@@ -52,19 +52,20 @@ export class CountersDO {
         return new Response('Invalid JSON data', { status: 400 });
       }
       
-      const chatId = String(rawData.chatId ?? '');
-      const userId = String(rawData.userId ?? '');
-      const username = String(rawData.username ?? '');
-      const day = String(rawData.day ?? '');
-      
+      // Validate required fields before string conversion
       if (
-        chatId == null || chatId.trim() === '' ||
-        userId == null || userId.trim() === '' ||
-        username == null || username.trim() === '' ||
-        day == null || day.trim() === ''
+        rawData.chatId == null || (typeof rawData.chatId === 'string' && rawData.chatId.trim() === '') ||
+        rawData.userId == null || (typeof rawData.userId === 'string' && rawData.userId.trim() === '') ||
+        rawData.username == null || (typeof rawData.username === 'string' && rawData.username.trim() === '') ||
+        rawData.day == null || (typeof rawData.day === 'string' && rawData.day.trim() === '')
       ) {
         return new Response('Missing or invalid required fields', { status: 400 });
       }
+      
+      const chatId = String(rawData.chatId);
+      const userId = String(rawData.userId);
+      const username = String(rawData.username);
+      const day = String(rawData.day);
       
       const payload: IncrementPayload = { chatId, userId, username, day };
 
