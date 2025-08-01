@@ -76,13 +76,13 @@ describe("webhook", () => {
     await Promise.all(tasks);
     const msg = await env.HISTORY.get<any>(`msg:1:${now}:1`, { type: "json" });
     expect(msg?.text).toBe("hi");
+    const chatKey = await env.COUNTERS.get('chat:1');
+    expect(chatKey).toBe('1');
+    const userName = await env.COUNTERS.get('user:2');
+    expect(userName).toBe('u');
     const day = new Date(now * 1000).toISOString().slice(0, 10);
     const cnt = await env.COUNTERS.get(`stats:1:2:${day}`);
-    expect(cnt).toBe("1");
-    const activity = await env.COUNTERS.get(`activity:1:${day}`);
-    expect(activity).toBe("1");
-    const list = await env.COUNTERS.list({ prefix: `stats:1:2:` });
-    expect(list.keys[0]?.expiration).toBeUndefined();
+    expect(cnt).toBeNull();
   });
 
   it('ignores messages from bots', async () => {

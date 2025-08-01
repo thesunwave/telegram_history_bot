@@ -1,6 +1,7 @@
 import { Env, DAY, MONTH_DAYS, WEEK_DAYS } from './env';
 import { sendMessage, sendPhoto } from './telegram';
 import { summariseChat } from './summary';
+import { fetchMessages } from './history';
 
 export async function topChat(
   env: Env,
@@ -8,23 +9,14 @@ export async function topChat(
   n: number,
   day: string,
 ) {
-  const prefix = `stats:${chatId}:`;
-  let cursor: string | undefined = undefined;
-  const counts: Record<string, number> = {};
-  do {
-    const list = await env.COUNTERS.list({ prefix, cursor });
-    cursor = list.cursor;
-    const values = await Promise.all(
-      list.keys.map((k) => env.COUNTERS.get(k.name)),
-    );
-    for (let i = 0; i < list.keys.length; i++) {
-      const key = list.keys[i];
-      const [_, chat, user, d] = key.name.split(':');
-      if (d !== day) continue;
-      const c = parseInt(values[i] || '0');
-      counts[user] = (counts[user] || 0) + c;
-    }
-  } while (cursor);
+  const start = Math.floor(Date.parse(`${day}T00:00:00Z`) / 1000);
+  const end = start + DAY;
+  const messages = await fetchMessages(env, chatId, start, end - 1);
+  const counts: Record<number, number> = {};
+  for (const m of messages) {
+    counts[m.user] = (counts[m.user] || 0) + 1;
+    await env.COUNTERS.put(`user:${m.user}`, m.username);
+  }
   const sorted = Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, n);
@@ -42,27 +34,13 @@ export async function topChat(
 }
 
 export async function resetCounters(env: Env, chatId: number) {
-  const prefix = `stats:${chatId}:`;
-  let cursor: string | undefined = undefined;
-  do {
-    const list = await env.COUNTERS.list({ prefix, cursor });
-    cursor = list.cursor;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-  const aPrefix = `activity:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list = await env.COUNTERS.list({ prefix: aPrefix, cursor });
-    cursor = list.cursor;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
+  await env.COUNTERS.delete(`chat:${chatId}`);
   if (env.DB) {
     try {
       await env.DB.prepare('DELETE FROM activity WHERE chat_id = ?')
+        .bind(chatId)
+        .run();
+      await env.DB.prepare('DELETE FROM user_activity WHERE chat_id = ?')
         .bind(chatId)
         .run();
     } catch (e) {
@@ -78,20 +56,58 @@ export async function dailySummary(env: Env) {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const start = Math.floor((today.getTime() - DAY * 1000) / 1000);
+  const end = Math.floor(today.getTime() / 1000);
   const date = new Date(start * 1000).toISOString().slice(0, 10);
-  const prefix = 'stats:';
-  let cursor: string | undefined = undefined;
-  const chats = new Set<number>();
-  do {
-    const list = await env.COUNTERS.list({ prefix, cursor });
-    cursor = list.cursor;
-    for (const key of list.keys) {
-      const [_, chat, , d] = key.name.split(':');
-      if (d === date) chats.add(parseInt(chat));
+  const list = await env.COUNTERS.list({ prefix: 'chat:' });
+  const chats = list.keys.map((k) => parseInt(k.name.split(':')[1]));
+  for (const chatId of chats) {
+    const msgs = await fetchMessages(env, chatId, start, end - 1);
+    if (msgs.length === 0) continue;
+    await summariseChat(env, chatId, 1);
+    await aggregateForChat(env, chatId, msgs, date);
+  }
+}
+
+async function aggregateForChat(
+  env: Env,
+  chatId: number,
+  msgs: { user: number; username: string }[],
+  date: string,
+) {
+  if (!env.DB) return;
+  const perUser: Record<number, number> = {};
+  for (const m of msgs) {
+    perUser[m.user] = (perUser[m.user] || 0) + 1;
+  }
+  const total = msgs.length;
+  try {
+    await env.DB.prepare(
+      'INSERT INTO activity (chat_id, day, count) VALUES (?, ?, ?) ' +
+        'ON CONFLICT(chat_id, day) DO UPDATE SET count = count + ?',
+    )
+      .bind(chatId, date, total, total)
+      .run();
+  } catch (e) {
+    console.error('activity agg db error', {
+      chat: chatId.toString(36),
+      err: (e as any).message || String(e),
+    });
+  }
+  for (const [u, c] of Object.entries(perUser)) {
+    try {
+      await env.DB.prepare(
+        'INSERT INTO user_activity (chat_id, user_id, day, count) VALUES (?, ?, ?, ?) ' +
+          'ON CONFLICT(chat_id, user_id, day) DO UPDATE SET count = count + ?',
+      )
+        .bind(chatId, parseInt(u), date, c, c)
+        .run();
+    } catch (e) {
+      console.error('user_activity agg db error', {
+        chat: chatId.toString(36),
+        user: u,
+        err: (e as any).message || String(e),
+      });
     }
-  } while (cursor);
-  for (const c of chats) {
-    await summariseChat(env, c, 1);
   }
 }
 
@@ -116,9 +132,7 @@ function sanitizeLabel(label: string): string {
 
 function formatActivityText(data: { label: string; value: number }[]): string {
   if (data.length === 0) return 'Нет данных';
-  const text = drawGraph(data);
-  const total = data.reduce((sum, d) => sum + d.value, 0);
-  return total > 0 ? `${text}\nTotal: ${total}` : text;
+  return drawGraph(data);
 }
 
 interface ChartDataset {
@@ -177,8 +191,6 @@ export async function activityChart(
   chatId: number,
   period: 'week' | 'month',
 ) {
-  const prefix = `activity:${chatId}:`;
-  let cursor: string | undefined = undefined;
   const totals: Record<string, number> = {};
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
@@ -187,18 +199,19 @@ export async function activityChart(
     start.getUTCDate() - (period === 'month' ? MONTH_DAYS : WEEK_DAYS),
   );
   const startStr = start.toISOString().slice(0, 10);
+  const todayStr = today.toISOString().slice(0, 10);
   let dbOk = false;
   if (env.DB) {
     try {
       const res = await env.DB.prepare(
-        'SELECT day, count FROM activity WHERE chat_id = ? AND day >= ? ORDER BY day',
+        'SELECT day, count FROM activity WHERE chat_id = ? AND day >= ? AND day < ? ORDER BY day',
       )
-        .bind(chatId, startStr)
+        .bind(chatId, startStr, todayStr)
         .all();
       for (const row of res.results as any[]) {
         totals[row.day] = row.count;
       }
-      dbOk = true;
+      dbOk = (res.results as any[]).length > 0;
     } catch (e) {
       console.error('activity db read error', {
         chat: chatId.toString(36),
@@ -207,20 +220,24 @@ export async function activityChart(
     }
   }
   if (!dbOk) {
-    do {
-      const list = await env.COUNTERS.list({ prefix, cursor });
-      cursor = list.cursor;
-      const values = await Promise.all(
-        list.keys.map((k) => env.COUNTERS.get(k.name)),
-      );
-      for (let i = 0; i < list.keys.length; i++) {
-        const [_, , day] = list.keys[i].name.split(':');
-        if (day >= startStr) {
-          const c = parseInt(values[i] || '0', 10);
-          totals[day] = (totals[day] || 0) + c;
-        }
-      }
-    } while (cursor);
+    const msgs = await fetchMessages(
+      env,
+      chatId,
+      Math.floor(start.getTime() / 1000),
+      Math.floor(Date.now() / 1000),
+    );
+    for (const m of msgs) {
+      const d = new Date(m.ts * 1000).toISOString().slice(0, 10);
+      totals[d] = (totals[d] || 0) + 1;
+    }
+  } else {
+    const todayMsgs = await fetchMessages(
+      env,
+      chatId,
+      Math.floor(today.getTime() / 1000),
+      Math.floor(Date.now() / 1000),
+    );
+    totals[todayStr] = todayMsgs.length + (totals[todayStr] || 0);
   }
 
   let data: { label: string; value: number }[] = [];
@@ -252,8 +269,6 @@ export async function activityByUser(
   chatId: number,
   period: 'week' | 'month',
 ) {
-  const prefix = `stats:${chatId}:`;
-  let cursor: string | undefined = undefined;
   const totals: Record<string, number> = {};
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
@@ -262,21 +277,49 @@ export async function activityByUser(
     start.getUTCDate() - (period === 'month' ? MONTH_DAYS : WEEK_DAYS),
   );
   const startStr = start.toISOString().slice(0, 10);
-  const endStr = today.toISOString().slice(0, 10);
-  do {
-    const list = await env.COUNTERS.list({ prefix, cursor });
-    cursor = list.cursor;
-    const values = await Promise.all(
-      list.keys.map((k) => env.COUNTERS.get(k.name)),
-    );
-    for (let i = 0; i < list.keys.length; i++) {
-      const [_, , user, day] = list.keys[i].name.split(':');
-      if (day >= startStr) {
-        const c = parseInt(values[i] || '0', 10);
-        totals[user] = (totals[user] || 0) + c;
+  const todayStr = today.toISOString().slice(0, 10);
+  let dbOk = false;
+  if (env.DB) {
+    try {
+      const res = await env.DB.prepare(
+        'SELECT user_id, SUM(count) as c FROM user_activity WHERE chat_id = ? AND day >= ? AND day < ? GROUP BY user_id',
+      )
+        .bind(chatId, startStr, todayStr)
+        .all();
+      for (const row of res.results as any[]) {
+        totals[String(row.user_id)] = row.c;
       }
+      dbOk = (res.results as any[]).length > 0;
+    } catch (e) {
+      console.error('user_activity db read error', {
+        chat: chatId.toString(36),
+        err: (e as any).message || String(e),
+      });
     }
-  } while (cursor);
+  }
+  if (!dbOk) {
+    const msgs = await fetchMessages(
+      env,
+      chatId,
+      Math.floor(start.getTime() / 1000),
+      Math.floor(Date.now() / 1000),
+    );
+    for (const m of msgs) {
+      totals[String(m.user)] = (totals[String(m.user)] || 0) + 1;
+      await env.COUNTERS.put(`user:${m.user}`, m.username);
+    }
+  } else {
+    const todays = await fetchMessages(
+      env,
+      chatId,
+      Math.floor(today.getTime() / 1000),
+      Math.floor(Date.now() / 1000),
+    );
+    for (const m of todays) {
+      totals[String(m.user)] = (totals[String(m.user)] || 0) + 1;
+      await env.COUNTERS.put(`user:${m.user}`, m.username);
+    }
+  }
 
   const sorted = Object.entries(totals)
     .sort((a, b) => b[1] - a[1])
@@ -286,7 +329,7 @@ export async function activityByUser(
   );
   const labels = names.map((n, i) => sanitizeLabel(n || `id${sorted[i][0]}`));
   const data = sorted.map(([, c]) => c);
-  const title = `${startStr} - ${endStr}`;
+  const title = `${startStr} - ${todayStr}`;
   const url = createBarChartUrl(labels, data, 'Messages', title);
   await sendPhoto(env, chatId, url);
 }
