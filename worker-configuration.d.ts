@@ -1,3 +1,5 @@
+type ProviderType = 'cloudflare' | 'openai';
+
 interface Env {
   HISTORY: KVNamespace;
   COUNTERS: KVNamespace;
@@ -14,6 +16,9 @@ interface Env {
   SUMMARY_TEMPERATURE?: number;
   SUMMARY_TOP_P?: number;
   SUMMARY_FREQUENCY_PENALTY?: number;
+  SUMMARY_PROVIDER?: ProviderType;
+  OPENAI_API_KEY?: string;
+  OPENAI_MODEL?: string;
 }
 
 interface DurableObjectId {}
