@@ -4,6 +4,7 @@ import { KVNamespace } from '@miniflare/kv';
 import { MemoryStorage } from '@miniflare/storage-memory';
 import { D1Database } from '@miniflare/d1';
 import { WEEK_DAYS } from '../src/env';
+import { ProviderInitializer } from '../src/providers/provider-init';
 
 function createCountersNamespace(env: Env) {
   const objects = new Map<string, { obj: CountersDO; chain: Promise<any> }>();
@@ -43,6 +44,9 @@ interface Env {
   SUMMARY_MODEL: string;
   SUMMARY_PROMPT: string;
   SUMMARY_CHUNK_SIZE?: number;
+  SUMMARY_PROVIDER?: 'cloudflare' | 'openai';
+  OPENAI_API_KEY?: string;
+  OPENAI_MODEL?: string;
 }
 
 let env: Env;
@@ -52,6 +56,7 @@ let tasks: Promise<any>[];
 beforeEach(async () => {
   tasks = [];
   ctx = { waitUntil: (p: Promise<any>) => tasks.push(p) };
+  ProviderInitializer.reset();
   const history = new KVNamespace(new MemoryStorage());
   const counters = new KVNamespace(new MemoryStorage());
   const db = {
@@ -73,6 +78,9 @@ beforeEach(async () => {
     SUMMARY_MODEL: "model",
     SUMMARY_PROMPT: "prompt",
     SUMMARY_CHUNK_SIZE: undefined,
+    SUMMARY_PROVIDER: undefined,
+    OPENAI_API_KEY: undefined,
+    OPENAI_MODEL: undefined,
   };
   env.COUNTERS_DO = createCountersNamespace(env);
 });
