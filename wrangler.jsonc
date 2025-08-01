@@ -60,7 +60,7 @@
   },
   "vars": {
     // Available values: "cloudflare", "openai"
-    "SUMMARY_PROVIDER": "cloudflare",
+    "SUMMARY_PROVIDER": "openai",
     "CLOUDFLARE_MODEL": "@cf/meta/llama-3.1-8b-instruct-fast",
     "CLOUDFLARE_MAX_TOKENS": 500,
     "CLOUDFLARE_TEMPERATURE": 0.1,
