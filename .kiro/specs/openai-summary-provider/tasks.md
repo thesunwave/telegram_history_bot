@@ -6,7 +6,7 @@
   - Create ProviderError class for unified error handling
   - _Requirements: 4.1, 4.3_
 
-- [ ] 2. Implement Cloudflare AI provider wrapper
+- [x] 2. Implement Cloudflare AI provider wrapper
   - Create `src/providers/cloudflare-provider.ts` implementing AIProvider interface
   - Extract existing Cloudflare AI logic from summary.ts into the provider
   - Implement buildChatMessages method for chat models
