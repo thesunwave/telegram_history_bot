@@ -85,6 +85,7 @@ async function aggregateForChat(
       'INSERT INTO activity (chat_id, day, count) VALUES (?, ?, ?) ' +
         'ON CONFLICT(chat_id, day) DO UPDATE SET count = count + ?',
     )
+      // reuse `total` for both the INSERT value and the UPDATE increment
       .bind(chatId, date, total, total)
       .run();
   } catch (e) {
@@ -99,6 +100,7 @@ async function aggregateForChat(
         'INSERT INTO user_activity (chat_id, user_id, day, count) VALUES (?, ?, ?, ?) ' +
           'ON CONFLICT(chat_id, user_id, day) DO UPDATE SET count = count + ?',
       )
+        // upsert: increment existing count or insert new row with the same value
         .bind(chatId, parseInt(u), date, c, c)
         .run();
     } catch (e) {
@@ -237,7 +239,7 @@ export async function activityChart(
       Math.floor(today.getTime() / 1000),
       Math.floor(Date.now() / 1000),
     );
-    totals[todayStr] = todayMsgs.length + (totals[todayStr] || 0);
+    totals[todayStr] = todayMsgs.length;
   }
 
   let data: { label: string; value: number }[] = [];
