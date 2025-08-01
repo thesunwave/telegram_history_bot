@@ -17,6 +17,7 @@ interface OpenAIChatRequest {
   temperature: number;
   top_p: number;
   frequency_penalty?: number;
+  seed?: number;
 }
 
 interface OpenAIChatResponse {
@@ -91,7 +92,8 @@ export class OpenAIProvider implements AIProvider {
       max_tokens: options.maxTokens,
       temperature: options.temperature,
       top_p: options.topP,
-      ...(options.frequencyPenalty !== undefined && { frequency_penalty: options.frequencyPenalty })
+      ...(options.frequencyPenalty !== undefined && { frequency_penalty: options.frequencyPenalty }),
+      ...(options.seed !== undefined && { seed: options.seed })
     };
 
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
