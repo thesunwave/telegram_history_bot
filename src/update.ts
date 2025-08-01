@@ -37,14 +37,17 @@ export async function recordMessage(msg: any, env: Env) {
     ts,
   };
   const key = `msg:${chatId}:${ts}:${msg.message_id}`;
-  await env.HISTORY.put(key, JSON.stringify(stored), {
-    expirationTtl: 7 * DAY,
-  });
+  await (env.HISTORY as any).put(key, JSON.stringify(stored), { expirationTtl: 7 * DAY });
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
   const id = env.COUNTERS_DO.idFromName(String(chatId));
-  await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
+  const response = await (env.COUNTERS_DO.get(id) as any).fetch('https://do/inc', {
     method: 'POST',
-    body: JSON.stringify({ chatId, userId, username, day }),
+    body: JSON.stringify({ 
+      chatId: String(chatId), 
+      userId: String(userId), 
+      username, 
+      day 
+    }),
   });
 }
 

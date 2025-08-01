@@ -188,7 +188,7 @@ describe("webhook", () => {
   });
 
   it("calls AI and sends summary", async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    const fetchMock = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>(async () => new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const now = Math.floor(Date.now() / 1000);
     const first = {
@@ -239,7 +239,7 @@ describe("webhook", () => {
 
   it("supports chat models", async () => {
     env.SUMMARY_MODEL = "model-chat";
-    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    const fetchMock = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>(async () => new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const now = Math.floor(Date.now() / 1000);
     const first = {
@@ -293,7 +293,7 @@ describe("webhook", () => {
   });
 
   it('summarises last N messages', async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    const fetchMock = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>(async () => new Response(null, { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const now = Math.floor(Date.now() / 1000);
     const msgs = ['first', 'second', 'third'];
@@ -338,17 +338,17 @@ describe("webhook", () => {
     });
     await worker.fetch(req2, env, ctx);
     await Promise.all(tasks);
-    const call = (env.AI.run as any).mock.calls.at(-1)[1];
+    const call = (env.AI.run as any).mock.calls[(env.AI.run as any).mock.calls.length - 1][1];
     const text = call.prompt ?? call.messages[1].content;
     const lines = text.split('\n').filter((l: string) => l.startsWith('u:'));
     expect(lines).toHaveLength(2);
-    expect(lines.at(-1)).toContain('third');
+    expect(lines[lines.length - 1]).toContain('third');
     expect(fetchMock).toHaveBeenCalled();
   });
 
   it("summarizes long history in chunks", async () => {
     env.SUMMARY_CHUNK_SIZE = 80;
-    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    const fetchMock = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>(async () => new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const now = Math.floor(Date.now() / 1000);
     const m = {
@@ -396,7 +396,7 @@ describe("webhook", () => {
     expect(fetchMock).toHaveBeenCalled();
   });
   it("shows usernames in /top and handles rename", async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    const fetchMock = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>(async () => new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const now = Math.floor(Date.now() / 1000);
     const first = {
@@ -438,7 +438,10 @@ describe("webhook", () => {
     });
     await worker.fetch(req2, env, ctx);
     await Promise.all(tasks);
-    let body = JSON.parse(fetchMock.mock.calls.at(-1)[1].body);
+    const lastCall1 = fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as any;
+    const url1 = lastCall1?.[0];
+    const init1 = lastCall1?.[1];
+    let body = JSON.parse(init1?.body || '{}');
     expect(body.text).toContain("foo: 1");
     tasks = [];
     const second = {
@@ -480,7 +483,10 @@ describe("webhook", () => {
     });
     await worker.fetch(req4, env, ctx);
     await Promise.all(tasks);
-    body = JSON.parse(fetchMock.mock.calls.at(-1)[1].body);
+    const lastCall2 = fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as any;
+    const url2 = lastCall2?.[0];
+    const init2 = lastCall2?.[1];
+    body = JSON.parse(init2?.body || '{}');
     expect(body.text).toContain("bar: 2");
   });
 
@@ -529,13 +535,17 @@ describe("webhook", () => {
     });
     await worker.fetch(req2, env, ctx);
     await Promise.all(tasks);
-    const msgCall = fetchMock.mock.calls.at(-2);
-    expect(msgCall[0]).toContain('/sendMessage');
-    const text = JSON.parse(msgCall[1].body).text;
+    const msgCall = fetchMock.mock.calls.at(-2) as any;
+    const msgUrl = msgCall?.[0];
+    const msgInit = msgCall?.[1];
+    expect(String(msgUrl)).toContain('/sendMessage');
+    const text = JSON.parse(msgInit?.body || '{}').text;
     expect(text).not.toContain('Total:');
     expect(text.split('\n').length).toBeGreaterThanOrEqual(7);
-    const photoCall = fetchMock.mock.calls.at(-1);
-    expect(photoCall[0]).toContain('/sendPhoto');
+    const lastCall4 = fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as any;
+    const url4 = lastCall4?.[0];
+    const init4 = lastCall4?.[1];
+    expect(String(url4)).toContain('/sendPhoto');
   });
 
   it('shows activity chart by user', async () => {
@@ -587,9 +597,11 @@ describe("webhook", () => {
     });
     await worker.fetch(req2, env, ctx);
     await Promise.all(tasks);
-    const call = fetchMock.mock.calls.at(-1);
-    expect(call[0]).toContain('/sendPhoto');
-    const body = JSON.parse(call[1].body);
+    const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as any;
+    const url = lastCall?.[0];
+    const init = lastCall?.[1];
+    expect(String(url)).toContain('/sendPhoto');
+    const body = JSON.parse(init?.body || '{}');
     expect(body.photo).toContain('quickchart.io');
     const encoded = body.photo.split('?c=')[1];
     const chart = JSON.parse(decodeURIComponent(encoded));
@@ -650,9 +662,12 @@ describe("webhook", () => {
     });
     await worker.fetch(req2, env, ctx);
     await Promise.all(tasks);
-    const call = fetchMock.mock.calls.at(-1);
-    expect(call[0]).toContain('/sendPhoto');
-    const body = JSON.parse(call[1].body);
+    const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as any;
+    expect(lastCall).toBeDefined();
+    const url = lastCall?.[0];
+    const init = lastCall?.[1];
+    expect(String(url)).toContain('/sendPhoto');
+    const body = JSON.parse(init?.body || '{}');
     expect(body.photo).toContain('quickchart.io');
   });
 
@@ -699,8 +714,11 @@ describe("webhook", () => {
     });
     await worker.fetch(req2, env, ctx);
     await Promise.all(tasks);
-    const call = fetchMock.mock.calls.at(-1);
-    const body = JSON.parse(call[1].body);
+    const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as any;
+    expect(lastCall).toBeDefined();
+    const url = lastCall?.[0];
+    const init = lastCall?.[1];
+    const body = JSON.parse(init?.body || '{}');
     const encoded = body.photo.split('?c=')[1];
     const chart = JSON.parse(decodeURIComponent(encoded));
     expect(chart.data.labels[0]).toBe('badname');
@@ -729,10 +747,13 @@ describe("webhook", () => {
     });
     await worker.fetch(req, env, ctx);
     await Promise.all(tasks);
-    const call = fetchMock.mock.calls.at(-1);
-    expect(call[0]).toContain('/sendMessage');
-    const text = JSON.parse(call[1].body).text;
-    expect(text).toContain('/summary');
+    const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as any;
+    expect(lastCall).toBeDefined();
+    const url = lastCall?.[0];
+    const init = lastCall?.[1];
+    expect(String(url)).toContain('/sendMessage');
+    const body = JSON.parse(init?.body || '{}');
+    expect(body.text).toContain('/summary');
   });
 });
 
@@ -746,7 +767,7 @@ describe('cron', () => {
       cron: '* * * * *',
       noRetry: () => {},
       waitUntil: () => {},
-    } as ScheduledEvent;
+    };
     await worker.scheduled(event, env, ctx);
     expect(spy).toHaveBeenCalled();
   });
