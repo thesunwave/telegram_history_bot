@@ -54,5 +54,11 @@
     "logs": {
       "enabled": true
     }
-  }
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["CountersDO"]
+    }
+  ]
 }
