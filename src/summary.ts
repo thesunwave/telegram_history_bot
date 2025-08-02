@@ -12,11 +12,39 @@ import { ProviderFactory } from "./providers/provider-factory";
 import { ProviderInitializer } from "./providers/provider-init";
 import { SummaryOptions, TelegramMessage, SummaryRequest, ProviderError } from "./providers/ai-provider";
 
+function filterContentMessages(messages: TelegramMessage[]): TelegramMessage[] {
+  return messages.filter(msg => {
+    const text = msg.text.toLowerCase().trim();
+
+    // Игнорируем команды бота
+    if (text.startsWith('/')) {
+      return false;
+    }
+
+    // Игнорируем упоминания ботов
+    if (text.includes('@stat_history_bot') || text.includes('@bot')) {
+      return false;
+    }
+
+    // Игнорируем очень короткие сообщения (вероятно, реакции), но только если они меньше 2 символов
+    if (text.length < 2) {
+      return false;
+    }
+
+    // Игнорируем сообщения только с эмодзи или символами
+    if (!/[а-яёa-z]/i.test(text)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 function buildAiOptions(env: Env): SummaryOptions {
   const provider = (env as any).SUMMARY_PROVIDER || 'cloudflare';
-  
+
   let opts: SummaryOptions;
-  
+
   switch (provider) {
     case 'cloudflare':
       opts = {
@@ -33,7 +61,7 @@ function buildAiOptions(env: Env): SummaryOptions {
         opts.seed = cloudflareSeed;
       }
       break;
-      
+
     case 'openai':
       opts = {
         maxTokens: (env as any).OPENAI_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 500,
@@ -49,7 +77,7 @@ function buildAiOptions(env: Env): SummaryOptions {
         opts.seed = openaiSeed;
       }
       break;
-      
+
     case 'openai-premium':
       opts = {
         maxTokens: (env as any).OPENAI_PREMIUM_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 600,
@@ -65,7 +93,7 @@ function buildAiOptions(env: Env): SummaryOptions {
         opts.seed = premiumSeed;
       }
       break;
-      
+
     default:
       // Fallback to old behavior for backward compatibility
       opts = {
@@ -80,7 +108,7 @@ function buildAiOptions(env: Env): SummaryOptions {
         opts.seed = env.SUMMARY_SEED;
       }
   }
-  
+
   return opts;
 }
 
@@ -111,24 +139,31 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
 
   try {
     // Fetch messages
-    const messages = await fetchMessages(env, chatId, start, end);
-    console.debug("summariseChat messages fetched", {
+    const allMessages = await fetchMessages(env, chatId, start, end);
+    const messages = filterContentMessages(allMessages);
+    console.debug("summariseChat messages fetched and filtered", {
       chat: chatId.toString(LOG_ID_RADIX),
-      count: messages.length,
+      totalCount: allMessages.length,
+      filteredCount: messages.length,
     });
 
     if (!messages.length) {
-      console.debug("summariseChat no messages", {
+      console.debug("summariseChat no content messages", {
         chat: chatId.toString(LOG_ID_RADIX),
+        totalMessages: allMessages.length,
       });
-      await sendMessage(env, chatId, "Нет сообщений");
+      if (allMessages.length > 0) {
+        await sendMessage(env, chatId, "В данном периоде содержательных обсуждений не было, только команды бота и системные сообщения.");
+      } else {
+        await sendMessage(env, chatId, "Нет сообщений");
+      }
       return;
     }
 
     // Get initialized provider instance
     const provider = ProviderInitializer.getProvider(env);
     const providerInfo = provider.getProviderInfo();
-    
+
     console.debug("summarize start", {
       chat: chatId.toString(LOG_ID_RADIX),
       days,
@@ -147,7 +182,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
 
     const limitNote = `Ответ не длиннее ${TELEGRAM_LIMIT} символов.`;
     const chunkSize = env.SUMMARY_CHUNK_SIZE ?? DEFAULT_SUMMARY_CHUNK_SIZE;
-    
+
     // Convert messages to TelegramMessage format for chunking
     const content = messages.map((m) => `${m.username}: ${m.text}`).join('\n');
     const parts = chunkText(content, chunkSize);
@@ -167,7 +202,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         model: providerInfo.model,
         messageCount: messagesToSummarize.length,
       });
-      
+
       try {
         const request = createSummaryRequest(messagesToSummarize, env, limitNote);
         const resp = await provider.summarize(request, summaryOptions);
@@ -178,7 +213,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
           provider: providerInfo.name,
           responseLength: resp.length,
         });
-        
+
         return truncateText(resp, TELEGRAM_LIMIT);
       } catch (error: any) {
         console.error("summarize AI error", {
@@ -346,24 +381,31 @@ export async function summariseChatMessages(
     providerInitialized: ProviderInitializer.isProviderInitialized(),
   });
   try {
-    const messages = await fetchLastMessages(env, chatId, count);
-    console.debug('summariseChatMessages messages fetched', {
+    const allMessages = await fetchLastMessages(env, chatId, count);
+    const messages = filterContentMessages(allMessages);
+    console.debug('summariseChatMessages messages fetched and filtered', {
       chat: chatId.toString(LOG_ID_RADIX),
-      count: messages.length,
+      totalCount: allMessages.length,
+      filteredCount: messages.length,
     });
 
     if (!messages.length) {
-      console.debug('summariseChatMessages no messages', {
+      console.debug('summariseChatMessages no content messages', {
         chat: chatId.toString(LOG_ID_RADIX),
+        totalMessages: allMessages.length,
       });
-      await sendMessage(env, chatId, 'Нет сообщений');
+      if (allMessages.length > 0) {
+        await sendMessage(env, chatId, 'В данном периоде содержательных обсуждений не было, только команды бота и системные сообщения.');
+      } else {
+        await sendMessage(env, chatId, 'Нет сообщений');
+      }
       return;
     }
 
     // Get initialized provider instance
     const provider = ProviderInitializer.getProvider(env);
     const providerInfo = provider.getProviderInfo();
-    
+
     console.debug('summariseChatMessages summarize start', {
       chat: chatId.toString(LOG_ID_RADIX),
       provider: providerInfo.name,
@@ -390,7 +432,7 @@ export async function summariseChatMessages(
       const request = createSummaryRequest(messages, env, limitNote);
       const aiResp = await provider.summarize(request, summaryOptions);
       summary = truncateText(aiResp, TELEGRAM_LIMIT);
-      
+
       console.debug('summariseChatMessages AI response received', {
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
