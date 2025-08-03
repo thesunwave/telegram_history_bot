@@ -2,6 +2,7 @@ import { Env, DAY, MAX_LAST_MESSAGES } from './env';
 import { summariseChat, summariseChatMessages } from './summary';
 import { topChat, resetCounters, activityChart, activityByUser } from './stats';
 import { sendMessage } from './telegram';
+import { Logger } from './logger';
 
 const HELP_TEXT = [
   '/summary <days> – сводка за последние N дней (по умолчанию 1)',
@@ -23,8 +24,14 @@ export function getTextMessage(update: any) {
 }
 
 export async function recordMessage(msg: any, env: Env) {
-  if (!msg) return;
-  if (msg.from?.is_bot) return;
+  if (!msg) {
+    Logger.debug(env, 'recordMessage: no message');
+    return;
+  }
+  if (msg.from?.is_bot) {
+    Logger.debug(env, 'recordMessage: bot message, skipping');
+    return;
+  }
   const chatId = msg.chat.id;
   const userId = msg.from?.id || 0;
   const username = msg.from?.username || `id${userId}`;
@@ -37,15 +44,44 @@ export async function recordMessage(msg: any, env: Env) {
     ts,
   };
   const key = `msg:${chatId}:${ts}:${msg.message_id}`;
-  await env.HISTORY.put(key, JSON.stringify(stored), {
-    expirationTtl: 7 * DAY,
+  
+  Logger.debug(env, 'recordMessage: saving to KV', {
+    key,
+    chatId,
+    username,
+    textLength: msg.text?.length || 0,
+    timestamp: ts,
+    messageId: msg.message_id
   });
+  
+  try {
+    await env.HISTORY.put(key, JSON.stringify(stored), {
+      expirationTtl: 7 * DAY,
+    });
+    Logger.debug(env, 'recordMessage: KV save successful', { key });
+  } catch (error: any) {
+    Logger.error('recordMessage: KV save failed', {
+      key,
+      error: error.message || String(error),
+      stack: error.stack
+    });
+  }
+  
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
   const id = env.COUNTERS_DO.idFromName(String(chatId));
-  await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
-    method: 'POST',
-    body: JSON.stringify({ chatId, userId, username, day }),
-  });
+  
+  try {
+    await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
+      method: 'POST',
+      body: JSON.stringify({ chatId, userId, username, day }),
+    });
+    Logger.debug(env, 'recordMessage: counter update successful', { chatId, day });
+  } catch (error: any) {
+    Logger.error('recordMessage: counter update failed', {
+      chatId,
+      error: error.message || String(error)
+    });
+  }
 }
 
 export async function handleUpdate(msg: any, env: Env) {

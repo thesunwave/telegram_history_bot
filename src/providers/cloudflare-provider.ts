@@ -13,7 +13,7 @@ import {
 export class CloudflareAIProvider implements AIProvider {
   constructor(private env: Env) {}
 
-  async summarize(request: SummaryRequest, options: SummaryOptions): Promise<string> {
+  async summarize(request: SummaryRequest, options: SummaryOptions, env?: Env): Promise<string> {
     // Format messages as "username: text"
     const content = request.messages.map(m => `${m.username}: ${m.text}`).join('\n');
     

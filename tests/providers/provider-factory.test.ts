@@ -47,6 +47,15 @@ describe('ProviderFactory', () => {
       expect(provider).toBeInstanceOf(OpenAIProvider);
     });
 
+    it('should create OpenAIProvider with premium when SUMMARY_PROVIDER is "openai-premium"', () => {
+      (mockEnv as any).SUMMARY_PROVIDER = 'openai-premium';
+
+      const provider = ProviderFactory.createProvider(mockEnv);
+
+      expect(OpenAIProvider).toHaveBeenCalledWith(mockEnv, 'premium');
+      expect(provider).toBeInstanceOf(OpenAIProvider);
+    });
+
     it('should create CloudflareAIProvider when SUMMARY_PROVIDER is undefined (default fallback)', () => {
       // SUMMARY_PROVIDER is not set, should default to cloudflare
       const provider = ProviderFactory.createProvider(mockEnv);
@@ -86,7 +95,7 @@ describe('ProviderFactory', () => {
       (mockEnv as any).SUMMARY_PROVIDER = 'unsupported-provider';
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        'Unsupported provider: unsupported-provider. Supported providers: cloudflare, openai'
+        'Unsupported provider: unsupported-provider. Supported providers: cloudflare, openai, openai-premium'
       );
     });
 
@@ -94,7 +103,7 @@ describe('ProviderFactory', () => {
       (mockEnv as any).SUMMARY_PROVIDER = 'anthropic';
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        'Unsupported provider: anthropic. Supported providers: cloudflare, openai'
+        'Unsupported provider: anthropic. Supported providers: cloudflare, openai, openai-premium'
       );
     });
 

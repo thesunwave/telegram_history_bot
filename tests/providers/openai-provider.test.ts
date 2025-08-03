@@ -94,7 +94,7 @@ describe('OpenAIProvider', () => {
         json: () => Promise.resolve(mockOpenAIResponse)
       });
 
-      const result = await provider.summarize(mockRequest, mockOptions);
+      const result = await provider.summarize(mockRequest, mockOptions, undefined);
 
       expect(result).toBe('Test summary from OpenAI');
       expect(mockFetch).toHaveBeenCalledWith('https://api.openai.com/v1/chat/completions', {
@@ -128,7 +128,7 @@ describe('OpenAIProvider', () => {
         json: () => Promise.resolve(mockOpenAIResponse)
       });
 
-      await provider.summarize(requestWithoutSystem, mockOptions);
+      await provider.summarize(requestWithoutSystem, mockOptions, undefined);
 
       expect(mockFetch).toHaveBeenCalledWith('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -162,7 +162,7 @@ describe('OpenAIProvider', () => {
         json: () => Promise.resolve(mockOpenAIResponse)
       });
 
-      await provider.summarize(mockRequest, optionsWithoutFrequencyPenalty);
+      await provider.summarize(mockRequest, optionsWithoutFrequencyPenalty, undefined);
 
       const callArgs = mockFetch.mock.calls[0];
       const requestBody = JSON.parse(callArgs[1].body);
@@ -179,8 +179,8 @@ describe('OpenAIProvider', () => {
         })
       });
 
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow(ProviderError);
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow('Invalid OpenAI API key');
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow(ProviderError);
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow('Invalid OpenAI API key');
     });
 
     it('should handle 429 rate limit error', async () => {
@@ -193,8 +193,8 @@ describe('OpenAIProvider', () => {
         })
       });
 
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow(ProviderError);
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow('OpenAI API rate limit exceeded');
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow(ProviderError);
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow('OpenAI API rate limit exceeded');
     });
 
     it('should handle 500 server error', async () => {
@@ -207,8 +207,8 @@ describe('OpenAIProvider', () => {
         })
       });
 
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow(ProviderError);
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow('OpenAI server error');
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow(ProviderError);
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow('OpenAI server error');
     });
 
     it('should handle other HTTP errors', async () => {
@@ -221,8 +221,8 @@ describe('OpenAIProvider', () => {
         })
       });
 
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow(ProviderError);
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow('OpenAI API error: Invalid request format');
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow(ProviderError);
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow('OpenAI API error: Invalid request format');
     });
 
     it('should handle error response without parseable JSON', async () => {
@@ -233,22 +233,22 @@ describe('OpenAIProvider', () => {
         json: () => Promise.reject(new Error('Invalid JSON'))
       });
 
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow(ProviderError);
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow('OpenAI API error: 400 Bad Request');
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow(ProviderError);
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow('OpenAI API error: 400 Bad Request');
     });
 
     it('should handle network errors', async () => {
       mockFetch.mockRejectedValue(new Error('Network error'));
 
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow(ProviderError);
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow('OpenAI provider error: Network error');
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow(ProviderError);
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow('OpenAI provider error: Network error');
     });
 
     it('should handle fetch throwing non-Error objects', async () => {
       mockFetch.mockRejectedValue('String error');
 
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow(ProviderError);
-      await expect(provider.summarize(mockRequest, mockOptions)).rejects.toThrow('OpenAI provider error: String error');
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow(ProviderError);
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow('OpenAI provider error: String error');
     });
   });
 
