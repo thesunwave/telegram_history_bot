@@ -14,7 +14,7 @@ export async function topChat(
   const counts: Record<string, number> = {};
   do {
     const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = list.cursor;
+    cursor = !list.list_complete ? list.cursor : undefined;
     const values = await Promise.all(
       list.keys.map((k: any) => env.COUNTERS.get(k.name)),
     );
@@ -47,7 +47,7 @@ export async function resetCounters(env: Env, chatId: number) {
   let cursor: string | undefined = undefined;
   do {
     const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = list.cursor;
+    cursor = !list.list_complete ? list.cursor : undefined;
     for (const key of list.keys) {
       await env.COUNTERS.delete(key.name);
     }
@@ -56,7 +56,7 @@ export async function resetCounters(env: Env, chatId: number) {
   cursor = undefined;
   do {
     const list: any = await env.COUNTERS.list({ prefix: aPrefix, cursor });
-    cursor = list.cursor;
+    cursor = !list.list_complete ? list.cursor : undefined;
     for (const key of list.keys) {
       await env.COUNTERS.delete(key.name);
     }
@@ -69,7 +69,7 @@ export async function resetCounters(env: Env, chatId: number) {
     } catch (e) {
       console.error('activity reset db error', {
         chat: chatId.toString(36),
-        err: (e as any).message || String(e),
+        err: (e as Error).message || String(e),
       });
     }
   }
@@ -85,7 +85,7 @@ export async function dailySummary(env: Env) {
   const chats = new Set<number>();
   do {
     const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = list.cursor;
+    cursor = !list.list_complete ? list.cursor : undefined;
     for (const key of list.keys) {
       const [_, chat, , d] = key.name.split(':');
       if (d === date) chats.add(parseInt(chat));
@@ -196,7 +196,7 @@ export async function activityChart(
       )
         .bind(chatId, startStr)
         .all();
-      for (const row of res.results as any[]) {
+      for (const row of res.results as { day: string; count: number }[]) {
         totals[row.day] = row.count;
       }
       dbOk = true;
@@ -210,7 +210,7 @@ export async function activityChart(
   if (!dbOk) {
     do {
       const list: any = await env.COUNTERS.list({ prefix, cursor });
-      cursor = list.cursor;
+      cursor = !list.list_complete ? list.cursor : undefined;
       const values = await Promise.all(
         list.keys.map((k: any) => env.COUNTERS.get(k.name)),
       );
@@ -266,7 +266,7 @@ export async function activityByUser(
   const endStr = today.toISOString().slice(0, 10);
   do {
     const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = list.cursor;
+    cursor = !list.list_complete ? list.cursor : undefined;
     const values = await Promise.all(
       list.keys.map((k: any) => env.COUNTERS.get(k.name)),
     );
