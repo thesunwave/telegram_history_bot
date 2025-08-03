@@ -94,14 +94,14 @@ export async function fetchLastMessages(env: Env, chatId: number, count: number)
       keys.map((k: string) => env.HISTORY.get<StoredMessage>(k, { type: 'json' })),
     );
     const filtered = msgs.filter((m): m is StoredMessage => !!m);
-    const sorted = filtered.sort((a, b) => b.ts - a.ts);
+    const sorted = filtered.sort((a: StoredMessage, b: StoredMessage) => b.ts - a.ts);
     
     // Filter out command messages and return only the requested count
-    const nonCommandMessages = sorted.filter(msg => !msg.text.startsWith('/'));
+    const nonCommandMessages = sorted.filter((msg: StoredMessage) => !msg.text.startsWith('/'));
     const result = nonCommandMessages.slice(0, count);
     
     // Sort the final result in ascending order (oldest first) for consistent ordering
-    return result.sort((a, b) => a.ts - b.ts);
+    return result.sort((a: StoredMessage, b: StoredMessage) => a.ts - b.ts);
   } catch (err: any) {
     Logger.error('fetchLastMessages failed', {
       chat: chatId.toString(LOG_ID_RADIX),

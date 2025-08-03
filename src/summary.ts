@@ -166,11 +166,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     const provider = ProviderInitializer.getProvider(env);
     const providerInfo = provider.getProviderInfo();
 
-<<<<<<< HEAD
-    console.debug("summarize start", {
-=======
     Logger.debug(env, "summarize start", {
->>>>>>> b9c7c8f (feat: add debug logging and improve error handling)
       chat: chatId.toString(LOG_ID_RADIX),
       days,
       provider: providerInfo.name,
@@ -234,15 +230,16 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         });
 
         return truncateText(resp, TELEGRAM_LIMIT);
-      } catch (error: any) {
-        Logger.error("summarize AI error", {
-          chat: chatId.toString(LOG_ID_RADIX),
-          stage,
-          provider: providerInfo.name,
-          error: error.message || String(error),
-          stack: error.stack,
-        });
-        throw error;
+      } catch (error) {
+      const e = error as Error;
+      Logger.error("summarize AI error", {
+        chat: chatId.toString(LOG_ID_RADIX),
+        stage,
+        provider: providerInfo.name,
+        error: e.message || String(e),
+        stack: e.stack,
+      });
+      throw error;
       }
     }
 
@@ -283,15 +280,16 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       } else {
         summary = await summariseMessages(messages, "single");
       }
-    } catch (error: any) {
+    } catch (error) {
+      const e = error as Error;
       Logger.error("summarize error", {
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
         model: providerInfo.model,
         providerVersion: providerInfo.version,
         providerInitialized: ProviderInitializer.isProviderInitialized(),
-        error: error.message || String(error),
-        errorType: error.constructor.name,
+        error: e.message || String(e),
+        errorType: e.constructor.name,
         isProviderError: error instanceof ProviderError,
       });
       await sendMessage(
@@ -329,13 +327,14 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
           chat: chatId.toString(LOG_ID_RADIX),
         });
       } catch (error) {
-        Logger.error("summarize DB insert error", {
-          chat: chatId.toString(LOG_ID_RADIX),
-          error: error.message || String(error),
-          stack: error.stack,
-        });
-        // Продолжаем выполнение, чтобы отправить сообщение пользователю
-      }
+      const e = error as Error;
+      Logger.error("summarize DB insert error", {
+        chat: chatId.toString(LOG_ID_RADIX),
+        error: e.message || String(e),
+        stack: e.stack,
+      });
+      // Продолжаем выполнение, чтобы отправить сообщение пользователю
+    }
     } else {
       Logger.debug(env, "summarize DB not available", {
         chat: chatId.toString(LOG_ID_RADIX),
@@ -353,21 +352,23 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         chat: chatId.toString(LOG_ID_RADIX),
       });
     } catch (error) {
+      const e = error as Error;
       Logger.error("summarize send message error", {
         chat: chatId.toString(LOG_ID_RADIX),
-        error: error.message || String(error),
-        stack: error.stack,
+        error: e.message || String(e),
+        stack: e.stack,
       });
       throw error; // Пробрасываем ошибку для обработки во внешнем блоке
     }
   } catch (error) {
     // Обработка всех необработанных ошибок
+    const e = error as Error;
     Logger.error("summariseChat unhandled error", {
       chat: chatId.toString(LOG_ID_RADIX),
       providerInitialized: ProviderInitializer.isProviderInitialized(),
-      error: (error as any).message || String(error),
-      errorType: (error as any).constructor.name,
-      stack: (error as any).stack,
+      error: e.message || String(e),
+      errorType: e.constructor.name,
+      stack: e.stack,
     });
     try {
       await sendMessage(
@@ -376,9 +377,10 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         "Произошла непредвиденная ошибка при создании сводки.",
       );
     } catch (sendError) {
+      const se = sendError as Error;
       Logger.error("summariseChat error notification failed", {
         chat: chatId.toString(LOG_ID_RADIX),
-        error: sendError.message || String(sendError),
+        error: se.message || String(se),
       });
     }
   } finally {
@@ -401,29 +403,7 @@ export async function summariseChatMessages(
   });
   try {
     const allMessages = await fetchLastMessages(env, chatId, count);
-<<<<<<< HEAD
     const messages = filterContentMessages(allMessages);
-    console.debug('summariseChatMessages messages fetched and filtered', {
-      chat: chatId.toString(LOG_ID_RADIX),
-      totalCount: allMessages.length,
-      filteredCount: messages.length,
-    });
-
-    if (!messages.length) {
-      console.debug('summariseChatMessages no content messages', {
-        chat: chatId.toString(LOG_ID_RADIX),
-        totalMessages: allMessages.length,
-      });
-      if (allMessages.length > 0) {
-        await sendMessage(env, chatId, 'В данном периоде содержательных обсуждений не было, только команды бота и системные сообщения.');
-=======
-
-    // Basic filtering - only remove obvious bot commands and empty messages
-    const messages = allMessages.filter(msg => {
-      const text = msg.text.trim();
-      // Only filter out bot commands and completely empty messages
-      return text.length > 0 && !text.startsWith('/');
-    });
 
     Logger.debug(env, 'summariseChatMessages messages fetched and filtered', {
       chat: chatId.toString(LOG_ID_RADIX),
@@ -439,7 +419,6 @@ export async function summariseChatMessages(
       });
       if (allMessages.length > 0) {
         await sendMessage(env, chatId, 'В данном периоде были только команды бота, содержательных сообщений не найдено.');
->>>>>>> b9c7c8f (feat: add debug logging and improve error handling)
       } else {
         await sendMessage(env, chatId, 'Нет сообщений');
       }
@@ -450,11 +429,7 @@ export async function summariseChatMessages(
     const provider = ProviderInitializer.getProvider(env);
     const providerInfo = provider.getProviderInfo();
 
-<<<<<<< HEAD
-    console.debug('summariseChatMessages summarize start', {
-=======
     Logger.debug(env, 'summariseChatMessages summarize start', {
->>>>>>> b9c7c8f (feat: add debug logging and improve error handling)
       chat: chatId.toString(LOG_ID_RADIX),
       provider: providerInfo.name,
       model: providerInfo.model,
@@ -492,26 +467,23 @@ export async function summariseChatMessages(
       const aiResp = await provider.summarize(request, summaryOptions, env);
       summary = truncateText(aiResp, TELEGRAM_LIMIT);
 
-<<<<<<< HEAD
-      console.debug('summariseChatMessages AI response received', {
-=======
       Logger.debug(env, 'summariseChatMessages AI response received', {
->>>>>>> b9c7c8f (feat: add debug logging and improve error handling)
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
         responseLength: summary.length,
       });
     } catch (error) {
+      const e = error as Error;
       Logger.error('summariseChatMessages AI error', {
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
         model: providerInfo.model,
         providerVersion: providerInfo.version,
         providerInitialized: ProviderInitializer.isProviderInitialized(),
-        error: (error as any).message || String(error),
-        errorType: (error as any).constructor.name,
+        error: e.message || String(e),
+        errorType: e.constructor.name,
         isProviderError: error instanceof ProviderError,
-        stack: (error as any).stack,
+        stack: e.stack,
       });
       await sendMessage(
         env,
@@ -534,22 +506,24 @@ export async function summariseChatMessages(
           )
           .run();
       } catch (error) {
-        Logger.error('summariseChatMessages DB insert error', {
-          chat: chatId.toString(LOG_ID_RADIX),
-          error: (error as any).message || String(error),
-          stack: (error as any).stack,
-        });
-      }
+      const e = error as Error;
+      Logger.error('summariseChatMessages DB insert error', {
+        chat: chatId.toString(LOG_ID_RADIX),
+        error: e.message || String(e),
+        stack: e.stack,
+      });
+    }
     }
 
     await sendMessage(env, chatId, summary);
   } catch (error) {
+    const e = error as Error;
     Logger.error('summariseChatMessages unhandled error', {
       chat: chatId.toString(LOG_ID_RADIX),
       providerInitialized: ProviderInitializer.isProviderInitialized(),
-      error: (error as any).message || String(error),
-      errorType: (error as any).constructor.name,
-      stack: (error as any).stack,
+      error: e.message || String(e),
+      errorType: e.constructor.name,
+      stack: e.stack,
     });
     try {
       await sendMessage(
@@ -558,9 +532,10 @@ export async function summariseChatMessages(
         'Произошла непредвиденная ошибка при создании сводки.',
       );
     } catch (sendError) {
+      const se = sendError as Error;
       Logger.error('summariseChatMessages error notification failed', {
         chat: chatId.toString(LOG_ID_RADIX),
-        error: (sendError as any).message || String(sendError),
+        error: se.message || String(se),
       });
     }
   } finally {
