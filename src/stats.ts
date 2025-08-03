@@ -1,4 +1,5 @@
 import { Env, DAY, MONTH_DAYS, WEEK_DAYS } from './env';
+import type { KVNamespace } from '@cloudflare/workers-types';
 import { sendMessage, sendPhoto } from './telegram';
 import { summariseChat } from './summary';
 
@@ -12,10 +13,10 @@ export async function topChat(
   let cursor: string | undefined = undefined;
   const counts: Record<string, number> = {};
   do {
-    const list = await env.COUNTERS.list({ prefix, cursor });
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
     cursor = list.cursor;
     const values = await Promise.all(
-      list.keys.map((k) => env.COUNTERS.get(k.name)),
+      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
     );
     for (let i = 0; i < list.keys.length; i++) {
       const key = list.keys[i];
@@ -45,7 +46,7 @@ export async function resetCounters(env: Env, chatId: number) {
   const prefix = `stats:${chatId}:`;
   let cursor: string | undefined = undefined;
   do {
-    const list = await env.COUNTERS.list({ prefix, cursor });
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
     cursor = list.cursor;
     for (const key of list.keys) {
       await env.COUNTERS.delete(key.name);
@@ -54,7 +55,7 @@ export async function resetCounters(env: Env, chatId: number) {
   const aPrefix = `activity:${chatId}:`;
   cursor = undefined;
   do {
-    const list = await env.COUNTERS.list({ prefix: aPrefix, cursor });
+    const list: any = await env.COUNTERS.list({ prefix: aPrefix, cursor });
     cursor = list.cursor;
     for (const key of list.keys) {
       await env.COUNTERS.delete(key.name);
@@ -83,7 +84,7 @@ export async function dailySummary(env: Env) {
   let cursor: string | undefined = undefined;
   const chats = new Set<number>();
   do {
-    const list = await env.COUNTERS.list({ prefix, cursor });
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
     cursor = list.cursor;
     for (const key of list.keys) {
       const [_, chat, , d] = key.name.split(':');
@@ -208,10 +209,10 @@ export async function activityChart(
   }
   if (!dbOk) {
     do {
-      const list = await env.COUNTERS.list({ prefix, cursor });
+      const list: any = await env.COUNTERS.list({ prefix, cursor });
       cursor = list.cursor;
       const values = await Promise.all(
-        list.keys.map((k) => env.COUNTERS.get(k.name)),
+        list.keys.map((k: any) => env.COUNTERS.get(k.name)),
       );
       for (let i = 0; i < list.keys.length; i++) {
         const [_, , day] = list.keys[i].name.split(':');
@@ -264,10 +265,10 @@ export async function activityByUser(
   const startStr = start.toISOString().slice(0, 10);
   const endStr = today.toISOString().slice(0, 10);
   do {
-    const list = await env.COUNTERS.list({ prefix, cursor });
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
     cursor = list.cursor;
     const values = await Promise.all(
-      list.keys.map((k) => env.COUNTERS.get(k.name)),
+      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
     );
     for (let i = 0; i < list.keys.length; i++) {
       const [_, , user, day] = list.keys[i].name.split(':');

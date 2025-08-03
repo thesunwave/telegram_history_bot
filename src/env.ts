@@ -1,10 +1,10 @@
 export type ProviderType = 'cloudflare' | 'openai' | 'openai-premium';
 
 export interface Env {
-  HISTORY: KVNamespace;
-  COUNTERS: KVNamespace;
-  COUNTERS_DO: DurableObjectNamespace;
-  DB: D1Database;
+  HISTORY: import("@cloudflare/workers-types").KVNamespace;
+  COUNTERS: import("@cloudflare/workers-types").KVNamespace;
+  COUNTERS_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
+  DB: import("@cloudflare/workers-types").D1Database;
   AI: any;
   TOKEN: string;
   SECRET: string;

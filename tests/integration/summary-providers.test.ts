@@ -4,12 +4,13 @@ import { KVNamespace } from '@miniflare/kv';
 import { MemoryStorage } from '@miniflare/storage-memory';
 import { D1Database } from '@miniflare/d1';
 import { ProviderInitializer } from '../../src/providers/provider-init';
+import type { ExecutionContext, ScheduledEvent } from '@cloudflare/workers-types';
 
 interface Env {
-  HISTORY: KVNamespace;
-  COUNTERS: KVNamespace;
+  HISTORY: any;
+  COUNTERS: any;
   COUNTERS_DO: any;
-  DB: D1Database;
+  DB: any;
   AI: { run: (model: string, opts: any) => Promise<any> };
   TOKEN: string;
   SECRET: string;
@@ -444,7 +445,7 @@ describe('Summary Providers Integration Tests', () => {
       await Promise.all(tasks);
       
       // Verify GPT-4 model was used
-      const openaiCall = fetchMock.mock.calls.find(call => 
+      const openaiCall = fetchMock.mock.calls.find((call: any[]) => 
         call[0].includes('chat/completions')
       );
       expect(openaiCall).toBeDefined();
@@ -802,7 +803,7 @@ describe('Summary Providers Integration Tests', () => {
       await Promise.all(tasks);
       
       // Should call OpenAI API multiple times for chunking
-      const openaiCalls = fetchMock.mock.calls.filter(call => 
+      const openaiCalls = fetchMock.mock.calls.filter((call: any[]) => 
         call[0].includes('chat/completions')
       );
       expect(openaiCalls).toHaveLength(4); // 3 parts + 1 final
@@ -1067,7 +1068,7 @@ describe('Summary Providers Integration Tests', () => {
       await Promise.all(tasks);
       
       // Verify custom parameters were used
-      const openaiCall = fetchMock.mock.calls.find(call => 
+      const openaiCall = fetchMock.mock.calls.find((call: any[]) => 
         call[0].includes('chat/completions')
       );
       expect(openaiCall).toBeDefined();
@@ -1121,7 +1122,7 @@ describe('Summary Providers Integration Tests', () => {
       await Promise.all(tasks);
       
       // Should use default OpenAI model
-      const openaiCall = fetchMock.mock.calls.find(call => 
+      const openaiCall = fetchMock.mock.calls.find((call: any[]) => 
         call[0].includes('chat/completions')
       );
       expect(openaiCall).toBeDefined();
@@ -1172,7 +1173,7 @@ describe('Summary Providers Integration Tests', () => {
       await Promise.all(tasks);
       
       // Verify custom prompts were used
-      const openaiCall = fetchMock.mock.calls.find(call => 
+      const openaiCall = fetchMock.mock.calls.find((call: any[]) => 
         call[0].includes('chat/completions')
       );
       expect(openaiCall).toBeDefined();

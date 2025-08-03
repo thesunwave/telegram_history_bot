@@ -4,9 +4,7 @@ import { handleUpdate, recordMessage, getTextMessage } from './update';
 import { CountersDO } from './counters-do';
 import { ProviderInitializer } from './providers/provider-init';
 import { Logger } from './logger';
-import { ExecutionContext } from '@miniflare/core';
-import { ScheduledEvent } from '@miniflare/core';
-import { ExecutionContext } from '@miniflare/core';
+import type { ExecutionContext, ScheduledEvent } from '@cloudflare/workers-types';
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -36,11 +34,11 @@ export default {
         return new Response('forbidden', { status: 403 });
       const update = await req.json();
       Logger.debug(env, 'webhook received', {
-        updateType: update.message ? 'message' : 'other',
-        chatId: update.message?.chat?.id,
-        messageId: update.message?.message_id,
-        hasText: !!update.message?.text,
-        isBot: update.message?.from?.is_bot
+        updateType: (update as any).message ? 'message' : 'other',
+        chatId: (update as any).message?.chat?.id,
+        messageId: (update as any).message?.message_id,
+        hasText: !!(update as any).message?.text,
+        isBot: (update as any).message?.from?.is_bot
       });
       
       const msg = getTextMessage(update);
