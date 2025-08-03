@@ -340,8 +340,8 @@ describe('webhook', () => {
     const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
     expect(lastCall).toBeDefined();
     expect(lastCall[1]).toBeDefined();
-    expect(lastCall[1].body).toBeDefined();
-    let body = JSON.parse(lastCall[1].body as string);
+    expect(lastCall[1]?.body).toBeDefined();
+    const body = JSON.parse(lastCall[1]?.body as string);
     expect(body.text).toBeTruthy();
     expect(body.text.length).toBeGreaterThan(0);
   });
@@ -393,11 +393,13 @@ describe('webhook', () => {
     expect(response2.status).toBe(200);
     await waitForAllAsync();
     
-    const msgCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 2];
+    const calls = fetchMock.mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    const msgCall = calls[calls.length - 2];
     expect(msgCall).toBeDefined();
     expect(msgCall[1]).toBeDefined();
-    expect(msgCall[1].body).toBeDefined();
-    const text = JSON.parse(msgCall[1].body as string).text;
+    expect(msgCall[1]?.body).toBeDefined();
+    const text = JSON.parse(msgCall[1]?.body as string).text;
     expect(text).not.toContain('Total:');
     expect(text.split('\n').length).toBeGreaterThanOrEqual(7);
     const photoCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
@@ -460,8 +462,8 @@ describe('webhook', () => {
     const lastCall = calls[calls.length - 1];
     expect(lastCall).toBeDefined();
     expect(lastCall[1]).toBeDefined();
-    expect(lastCall[1].body).toBeDefined();
-    const body = JSON.parse(lastCall[1].body as string);
+    expect(lastCall[1]?.body).toBeDefined();
+    const body = JSON.parse(lastCall[1]?.body as string);
     expect(body.photo).toContain('quickchart.io');
     const encoded = body.photo.split('?c=')[1];
     const chart = JSON.parse(decodeURIComponent(encoded));
@@ -521,7 +523,7 @@ describe('webhook', () => {
     const calls = fetchMock.mock.calls;
     const lastCall = calls[calls.length - 1];
     expect(lastCall[0]).toContain('/sendPhoto');
-    const body = JSON.parse(lastCall[1].body);
+    const body = JSON.parse(lastCall[1]?.body as string);
     expect(body.photo).toContain('quickchart.io');
   });
 
@@ -574,7 +576,7 @@ describe('webhook', () => {
     expect(calls.length).toBeGreaterThan(0);
     const lastCall = calls[calls.length - 1];
     expect(lastCall).toHaveLength(2);
-    const body = JSON.parse(lastCall[1].body);
+    const body = JSON.parse(lastCall[1]?.body as string);
     expect(body.photo).toBeDefined();
     const encoded = body.photo.split('?c=')[1];
     const chart = JSON.parse(decodeURIComponent(encoded));
@@ -610,7 +612,7 @@ describe('webhook', () => {
     const lastCall = calls[calls.length - 1];
     expect(lastCall).toHaveLength(2);
     expect(lastCall[0]).toContain('/sendMessage');
-    const text = JSON.parse(lastCall[1].body).text;
+    const text = JSON.parse(lastCall[1]?.body as string).text;
     expect(text).toContain('/summary');
   });
 });

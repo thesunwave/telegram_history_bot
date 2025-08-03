@@ -130,8 +130,9 @@ export class OpenAIProvider implements AIProvider {
       
       try {
         const errorBody = await response.json();
-        if (errorBody.error && errorBody.error.message) {
-          errorMessage = `OpenAI API error: ${errorBody.error.message}`;
+        const errorObj = errorBody as any;
+        if (errorObj.error && errorObj.error.message) {
+          errorMessage = `OpenAI API error: ${errorObj.error.message}`;
         }
       } catch {
         // If we can't parse the error body, use the status text
@@ -153,7 +154,7 @@ export class OpenAIProvider implements AIProvider {
       }
     }
 
-    return await response.json();
+    return (await response.json()) as OpenAIChatResponse;
   }
 
   validateConfig(): void {

@@ -1,7 +1,7 @@
 import { Env, StoredMessage, LOG_ID_RADIX } from './env';
 import { Logger } from './logger';
 
-export async function fetchMessages(env: Env, chatId: number, start: number, end: number) {
+export async function fetchMessages(env: Env, chatId: number, start: number, end: number): Promise<StoredMessage[]> {
   const prefix = `msg:${chatId}:`;
   let cursor: string | undefined = undefined;
   const messages: StoredMessage[] = [];
@@ -36,7 +36,7 @@ export async function fetchMessages(env: Env, chatId: number, start: number, end
         return null;
       });
       const results = await Promise.all(fetches);
-      for (const m of results) if (m) messages.push(m);
+      for (const m of results) if (m !== null && m !== undefined) messages.push(m);
       Logger.debug(env, 'fetchMessages page processed', {
         chat: chatId.toString(LOG_ID_RADIX),
         collected: messages.length,
@@ -58,7 +58,7 @@ export async function fetchMessages(env: Env, chatId: number, start: number, end
   }
 }
 
-export async function fetchLastMessages(env: Env, chatId: number, count: number) {
+export async function fetchLastMessages(env: Env, chatId: number, count: number): Promise<StoredMessage[]> {
   const prefix = `msg:${chatId}:`;
   let cursor: string | undefined = undefined;
   const keys: string[] = [];
@@ -91,13 +91,13 @@ export async function fetchLastMessages(env: Env, chatId: number, count: number)
     } while (cursor);
 
     const msgs = await Promise.all(
-      keys.map((k: string) => env.HISTORY.get<StoredMessage>(k, { type: 'json' })),
+      keys.map((k: string) => env.HISTORY.get<StoredMessage | null>(k, { type: 'json' })),
     );
-    const filtered = msgs.filter((m): m is StoredMessage => !!m);
+    const filtered = msgs.filter((m): m is StoredMessage => m !== null);
     const sorted = filtered.sort((a: StoredMessage, b: StoredMessage) => b.ts - a.ts);
     
     // Filter out command messages and return only the requested count
-    const nonCommandMessages = sorted.filter((msg: StoredMessage) => !msg.text.startsWith('/'));
+    const nonCommandMessages = sorted.filter((msg: StoredMessage) => Boolean(msg.text) && !msg.text!.startsWith('/'));
     const result = nonCommandMessages.slice(0, count);
     
     // Sort the final result in ascending order (oldest first) for consistent ordering

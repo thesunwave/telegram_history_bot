@@ -1,4 +1,5 @@
 import { Env, DAY, MAX_LAST_MESSAGES } from './env';
+import type { KVNamespace } from '@cloudflare/workers-types';
 import { summariseChat, summariseChatMessages } from './summary';
 import { topChat, resetCounters, activityChart, activityByUser } from './stats';
 import { sendMessage } from './telegram';
