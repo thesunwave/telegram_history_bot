@@ -33,7 +33,7 @@ export interface ProviderInfo {
 }
 
 export interface AIProvider {
-  summarize(request: SummaryRequest, options: SummaryOptions): Promise<string>;
+  summarize(request: SummaryRequest, options: SummaryOptions, env?: any): Promise<string>;
   validateConfig(): void;
   getProviderInfo(): ProviderInfo;
 }

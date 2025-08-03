@@ -11,6 +11,7 @@ import { sendMessage } from "./telegram";
 import { ProviderFactory } from "./providers/provider-factory";
 import { ProviderInitializer } from "./providers/provider-init";
 import { SummaryOptions, TelegramMessage, SummaryRequest, ProviderError } from "./providers/ai-provider";
+import { Logger } from "./logger";
 
 function filterContentMessages(messages: TelegramMessage[]): TelegramMessage[] {
   return messages.filter(msg => {
@@ -122,7 +123,7 @@ function createSummaryRequest(messages: TelegramMessage[], env: Env, limitNote: 
 }
 
 export async function summariseChat(env: Env, chatId: number, days: number) {
-  console.debug("summariseChat started", {
+  Logger.debug(env, "summariseChat started", {
     chat: chatId.toString(LOG_ID_RADIX),
     days,
     model: env.SUMMARY_MODEL,
@@ -131,7 +132,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
 
   const end = Math.floor(Date.now() / 1000);
   const start = end - days * DAY;
-  console.debug("summariseChat time range", {
+  Logger.debug(env, "summariseChat time range", {
     chat: chatId.toString(LOG_ID_RADIX),
     start: new Date(start * 1000).toISOString(),
     end: new Date(end * 1000).toISOString(),
@@ -141,16 +142,17 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     // Fetch messages
     const allMessages = await fetchMessages(env, chatId, start, end);
     const messages = filterContentMessages(allMessages);
-    console.debug("summariseChat messages fetched and filtered", {
+    Logger.debug(env, "summariseChat messages fetched and filtered", {
       chat: chatId.toString(LOG_ID_RADIX),
       totalCount: allMessages.length,
       filteredCount: messages.length,
+      removedCount: allMessages.length - messages.length
     });
 
     if (!messages.length) {
-      console.debug("summariseChat no content messages", {
+      Logger.debug(env, "summariseChat no messages after filtering", {
         chat: chatId.toString(LOG_ID_RADIX),
-        totalMessages: allMessages.length,
+        originalCount: allMessages.length
       });
       if (allMessages.length > 0) {
         await sendMessage(env, chatId, "В данном периоде содержательных обсуждений не было, только команды бота и системные сообщения.");
@@ -164,7 +166,11 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     const provider = ProviderInitializer.getProvider(env);
     const providerInfo = provider.getProviderInfo();
 
+<<<<<<< HEAD
     console.debug("summarize start", {
+=======
+    Logger.debug(env, "summarize start", {
+>>>>>>> b9c7c8f (feat: add debug logging and improve error handling)
       chat: chatId.toString(LOG_ID_RADIX),
       days,
       provider: providerInfo.name,
@@ -186,7 +192,20 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     // Convert messages to TelegramMessage format for chunking
     const content = messages.map((m) => `${m.username}: ${m.text}`).join('\n');
     const parts = chunkText(content, chunkSize);
-    console.debug("summarize chunks", {
+
+    // Debug: log sample messages to understand what's being sent to AI
+    Logger.debug(env, "summarize messages sample", {
+      chat: chatId.toString(LOG_ID_RADIX),
+      totalMessages: messages.length,
+      sampleMessages: messages.slice(0, 5).map(m => ({
+        username: m.username,
+        text: m.text.substring(0, 100),
+        textLength: m.text.length
+      })),
+      contentPreview: content.substring(0, 500)
+    });
+
+    Logger.debug(env, "summarize chunks", {
       chat: chatId.toString(LOG_ID_RADIX),
       chunkSize,
       chunks: parts.length,
@@ -195,7 +214,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     const summaryOptions = buildAiOptions(env);
 
     async function summariseMessages(messagesToSummarize: TelegramMessage[], stage: string): Promise<string> {
-      console.debug("summarize AI request", {
+      Logger.debug(env, "summarize AI request", {
         chat: chatId.toString(LOG_ID_RADIX),
         stage,
         provider: providerInfo.name,
@@ -205,9 +224,9 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
 
       try {
         const request = createSummaryRequest(messagesToSummarize, env, limitNote);
-        const resp = await provider.summarize(request, summaryOptions);
+        const resp = await provider.summarize(request, summaryOptions, env);
 
-        console.debug("summarize AI response received", {
+        Logger.debug(env, "summarize AI response received", {
           chat: chatId.toString(LOG_ID_RADIX),
           stage,
           provider: providerInfo.name,
@@ -216,7 +235,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
 
         return truncateText(resp, TELEGRAM_LIMIT);
       } catch (error: any) {
-        console.error("summarize AI error", {
+        Logger.error("summarize AI error", {
           chat: chatId.toString(LOG_ID_RADIX),
           stage,
           provider: providerInfo.name,
@@ -265,7 +284,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         summary = await summariseMessages(messages, "single");
       }
     } catch (error: any) {
-      console.error("summarize error", {
+      Logger.error("summarize error", {
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
         model: providerInfo.model,
@@ -283,7 +302,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       return;
     }
 
-    console.debug("summarize done", {
+    Logger.debug(env, "summarize done", {
       chat: chatId.toString(LOG_ID_RADIX),
       length: summary.length,
     });
@@ -291,7 +310,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     // Save to database
     if (env.DB) {
       try {
-        console.debug("summarize DB insert start", {
+        Logger.debug(env, "summarize DB insert start", {
           chat: chatId.toString(LOG_ID_RADIX),
         });
 
@@ -306,11 +325,11 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
           )
           .run();
 
-        console.debug("summarize DB insert done", {
+        Logger.debug(env, "summarize DB insert done", {
           chat: chatId.toString(LOG_ID_RADIX),
         });
       } catch (error) {
-        console.error("summarize DB insert error", {
+        Logger.error("summarize DB insert error", {
           chat: chatId.toString(LOG_ID_RADIX),
           error: error.message || String(error),
           stack: error.stack,
@@ -318,23 +337,23 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         // Продолжаем выполнение, чтобы отправить сообщение пользователю
       }
     } else {
-      console.debug("summarize DB not available", {
+      Logger.debug(env, "summarize DB not available", {
         chat: chatId.toString(LOG_ID_RADIX),
       });
     }
 
     // Send message to user
     try {
-      console.debug("summarize sending message", {
+      Logger.debug(env, "summarize sending message", {
         chat: chatId.toString(LOG_ID_RADIX),
         summaryLength: summary.length,
       });
       await sendMessage(env, chatId, summary);
-      console.debug("summarize message sent", {
+      Logger.debug(env, "summarize message sent", {
         chat: chatId.toString(LOG_ID_RADIX),
       });
     } catch (error) {
-      console.error("summarize send message error", {
+      Logger.error("summarize send message error", {
         chat: chatId.toString(LOG_ID_RADIX),
         error: error.message || String(error),
         stack: error.stack,
@@ -343,7 +362,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     }
   } catch (error) {
     // Обработка всех необработанных ошибок
-    console.error("summariseChat unhandled error", {
+    Logger.error("summariseChat unhandled error", {
       chat: chatId.toString(LOG_ID_RADIX),
       providerInitialized: ProviderInitializer.isProviderInitialized(),
       error: (error as any).message || String(error),
@@ -357,13 +376,13 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         "Произошла непредвиденная ошибка при создании сводки.",
       );
     } catch (sendError) {
-      console.error("summariseChat error notification failed", {
+      Logger.error("summariseChat error notification failed", {
         chat: chatId.toString(LOG_ID_RADIX),
         error: sendError.message || String(sendError),
       });
     }
   } finally {
-    console.debug("summariseChat finished", {
+    Logger.debug(env, "summariseChat finished", {
       chat: chatId.toString(LOG_ID_RADIX),
     });
   }
@@ -374,7 +393,7 @@ export async function summariseChatMessages(
   chatId: number,
   count: number,
 ) {
-  console.debug('summariseChatMessages started', {
+  Logger.debug(env, 'summariseChatMessages started', {
     chat: chatId.toString(LOG_ID_RADIX),
     count,
     model: env.SUMMARY_MODEL,
@@ -382,6 +401,7 @@ export async function summariseChatMessages(
   });
   try {
     const allMessages = await fetchLastMessages(env, chatId, count);
+<<<<<<< HEAD
     const messages = filterContentMessages(allMessages);
     console.debug('summariseChatMessages messages fetched and filtered', {
       chat: chatId.toString(LOG_ID_RADIX),
@@ -396,6 +416,30 @@ export async function summariseChatMessages(
       });
       if (allMessages.length > 0) {
         await sendMessage(env, chatId, 'В данном периоде содержательных обсуждений не было, только команды бота и системные сообщения.');
+=======
+
+    // Basic filtering - only remove obvious bot commands and empty messages
+    const messages = allMessages.filter(msg => {
+      const text = msg.text.trim();
+      // Only filter out bot commands and completely empty messages
+      return text.length > 0 && !text.startsWith('/');
+    });
+
+    Logger.debug(env, 'summariseChatMessages messages fetched and filtered', {
+      chat: chatId.toString(LOG_ID_RADIX),
+      totalCount: allMessages.length,
+      filteredCount: messages.length,
+      removedCount: allMessages.length - messages.length
+    });
+
+    if (!messages.length) {
+      Logger.debug(env, 'summariseChatMessages no messages after filtering', {
+        chat: chatId.toString(LOG_ID_RADIX),
+        originalCount: allMessages.length
+      });
+      if (allMessages.length > 0) {
+        await sendMessage(env, chatId, 'В данном периоде были только команды бота, содержательных сообщений не найдено.');
+>>>>>>> b9c7c8f (feat: add debug logging and improve error handling)
       } else {
         await sendMessage(env, chatId, 'Нет сообщений');
       }
@@ -406,7 +450,11 @@ export async function summariseChatMessages(
     const provider = ProviderInitializer.getProvider(env);
     const providerInfo = provider.getProviderInfo();
 
+<<<<<<< HEAD
     console.debug('summariseChatMessages summarize start', {
+=======
+    Logger.debug(env, 'summariseChatMessages summarize start', {
+>>>>>>> b9c7c8f (feat: add debug logging and improve error handling)
       chat: chatId.toString(LOG_ID_RADIX),
       provider: providerInfo.name,
       model: providerInfo.model,
@@ -421,7 +469,18 @@ export async function summariseChatMessages(
     const summaryOptions = buildAiOptions(env);
     let summary: string;
 
-    console.debug('summariseChatMessages AI request', {
+    // Debug: log sample messages to understand what's being sent to AI
+    Logger.debug(env, "summariseChatMessages messages sample", {
+      chat: chatId.toString(LOG_ID_RADIX),
+      totalMessages: messages.length,
+      sampleMessages: messages.slice(0, 5).map(m => ({
+        username: m.username,
+        text: m.text.substring(0, 100),
+        textLength: m.text.length
+      }))
+    });
+
+    Logger.debug(env, 'summariseChatMessages AI request', {
       chat: chatId.toString(LOG_ID_RADIX),
       provider: providerInfo.name,
       model: providerInfo.model,
@@ -430,16 +489,20 @@ export async function summariseChatMessages(
 
     try {
       const request = createSummaryRequest(messages, env, limitNote);
-      const aiResp = await provider.summarize(request, summaryOptions);
+      const aiResp = await provider.summarize(request, summaryOptions, env);
       summary = truncateText(aiResp, TELEGRAM_LIMIT);
 
+<<<<<<< HEAD
       console.debug('summariseChatMessages AI response received', {
+=======
+      Logger.debug(env, 'summariseChatMessages AI response received', {
+>>>>>>> b9c7c8f (feat: add debug logging and improve error handling)
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
         responseLength: summary.length,
       });
     } catch (error) {
-      console.error('summariseChatMessages AI error', {
+      Logger.error('summariseChatMessages AI error', {
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
         model: providerInfo.model,
@@ -471,7 +534,7 @@ export async function summariseChatMessages(
           )
           .run();
       } catch (error) {
-        console.error('summariseChatMessages DB insert error', {
+        Logger.error('summariseChatMessages DB insert error', {
           chat: chatId.toString(LOG_ID_RADIX),
           error: (error as any).message || String(error),
           stack: (error as any).stack,
@@ -481,7 +544,7 @@ export async function summariseChatMessages(
 
     await sendMessage(env, chatId, summary);
   } catch (error) {
-    console.error('summariseChatMessages unhandled error', {
+    Logger.error('summariseChatMessages unhandled error', {
       chat: chatId.toString(LOG_ID_RADIX),
       providerInitialized: ProviderInitializer.isProviderInitialized(),
       error: (error as any).message || String(error),
@@ -495,13 +558,13 @@ export async function summariseChatMessages(
         'Произошла непредвиденная ошибка при создании сводки.',
       );
     } catch (sendError) {
-      console.error('summariseChatMessages error notification failed', {
+      Logger.error('summariseChatMessages error notification failed', {
         chat: chatId.toString(LOG_ID_RADIX),
         error: (sendError as any).message || String(sendError),
       });
     }
   } finally {
-    console.debug('summariseChatMessages finished', {
+    Logger.debug(env, 'summariseChatMessages finished', {
       chat: chatId.toString(LOG_ID_RADIX),
     });
   }

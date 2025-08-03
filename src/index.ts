@@ -3,6 +3,10 @@ import { dailySummary } from './stats';
 import { handleUpdate, recordMessage, getTextMessage } from './update';
 import { CountersDO } from './counters-do';
 import { ProviderInitializer } from './providers/provider-init';
+import { Logger } from './logger';
+import { ExecutionContext } from '@miniflare/core';
+import { ScheduledEvent } from '@miniflare/core';
+import { ExecutionContext } from '@miniflare/core';
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -31,7 +35,20 @@ export default {
       if (req.headers.get('X-Telegram-Bot-Api-Secret-Token') !== env.SECRET)
         return new Response('forbidden', { status: 403 });
       const update = await req.json();
+      Logger.debug(env, 'webhook received', {
+        updateType: update.message ? 'message' : 'other',
+        chatId: update.message?.chat?.id,
+        messageId: update.message?.message_id,
+        hasText: !!update.message?.text,
+        isBot: update.message?.from?.is_bot
+      });
+      
       const msg = getTextMessage(update);
+      Logger.debug(env, 'getTextMessage result', {
+        hasMessage: !!msg,
+        text: msg?.text?.substring(0, 50)
+      });
+      
       await recordMessage(msg, env);
       ctx.waitUntil(handleUpdate(msg, env));
       return Response.json({});
@@ -40,6 +57,8 @@ export default {
       await dailySummary(env);
       return Response.json({});
     }
+
+    
     return new Response('Not found', { status: 404 });
   },
   async scheduled(

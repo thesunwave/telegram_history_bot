@@ -1,4 +1,4 @@
-export type ProviderType = 'cloudflare' | 'openai';
+export type ProviderType = 'cloudflare' | 'openai' | 'openai-premium';
 
 export interface Env {
   HISTORY: KVNamespace;
@@ -20,6 +20,7 @@ export interface Env {
   SUMMARY_PROVIDER?: ProviderType;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
+  DEBUG_LOGS?: string;
 }
 
 export interface DurableObjectId {}

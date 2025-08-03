@@ -1,5 +1,6 @@
 import { Env, TELEGRAM_LIMIT } from "../env";
 import { truncateText } from "../utils";
+import { Logger } from "../logger";
 import {
   AIProvider,
   ChatMessage,
@@ -52,9 +53,20 @@ export class OpenAIProvider implements AIProvider {
     }
   }
 
-  async summarize(request: SummaryRequest, options: SummaryOptions): Promise<string> {
+  async summarize(request: SummaryRequest, options: SummaryOptions, env?: Env): Promise<string> {
     // Format messages with author information preserved
     const content = request.messages.map(m => `${m.username}: ${m.text}`).join('\n');
+    
+    // Debug logging
+    if (env) {
+      Logger.debug(env, 'OpenAI provider: request details', {
+        messageCount: request.messages.length,
+        contentLength: content.length,
+        contentPreview: content.substring(0, 500),
+        systemPrompt: request.systemPrompt?.substring(0, 200),
+        userPrompt: request.userPrompt?.substring(0, 200)
+      });
+    }
     
     const messages: ChatMessage[] = [
       { 
@@ -72,6 +84,14 @@ export class OpenAIProvider implements AIProvider {
     try {
       const response = await this.callOpenAI(messages, options);
       const result = response.choices[0].message.content;
+      
+      if (env) {
+        Logger.debug(env, 'OpenAI provider: response details', {
+          responseLength: result.length,
+          responsePreview: result.substring(0, 200)
+        });
+      }
+      
       return truncateText(result, TELEGRAM_LIMIT);
     } catch (error: any) {
       if (error instanceof ProviderError) {

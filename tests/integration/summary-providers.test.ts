@@ -90,28 +90,15 @@ describe('Summary Providers Integration Tests', () => {
       SUMMARY_PROVIDER: undefined,
       OPENAI_API_KEY: undefined,
       OPENAI_MODEL: undefined,
-      // New configuration variables
-      CLOUDFLARE_MODEL: "test-model",
-      CLOUDFLARE_MAX_TOKENS: 400,
-      CLOUDFLARE_TEMPERATURE: 0.2,
-      CLOUDFLARE_TOP_P: 0.95,
-      CLOUDFLARE_FREQUENCY_PENALTY: 0.1,
-      OPENAI_MAX_TOKENS: 500,
-      OPENAI_TEMPERATURE: 0.15,
-      OPENAI_TOP_P: 0.9,
-      OPENAI_FREQUENCY_PENALTY: 0.2,
-      OPENAI_PREMIUM_API_KEY: undefined,
-      OPENAI_PREMIUM_MODEL: undefined,
-      OPENAI_PREMIUM_MAX_TOKENS: 600,
-      OPENAI_PREMIUM_TEMPERATURE: 0.1,
-      OPENAI_PREMIUM_TOP_P: 0.85,
-      OPENAI_PREMIUM_FREQUENCY_PENALTY: 0.3,
+      SUMMARY_MAX_TOKENS: 400,
+      SUMMARY_TEMPERATURE: 0.2,
+      SUMMARY_TOP_P: 0.95,
+      SUMMARY_FREQUENCY_PENALTY: 0.1,
     };
     
     env.COUNTERS_DO = createCountersNamespace(env);
     
-    fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    fetchMock = vi.spyOn(global, 'fetch');
   });
 
   afterEach(() => {
