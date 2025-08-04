@@ -71,7 +71,11 @@ describe('processBatches', () => {
     expect(processor).toHaveBeenCalledTimes(5);
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining('Failed to process item'),
-      expect.any(Error)
+      expect.objectContaining({
+        error: expect.any(String),
+        type: expect.any(String),
+        retryable: expect.any(Boolean)
+      })
     );
   });
 
@@ -145,7 +149,11 @@ describe('processBatches', () => {
     );
     expect(console.error).toHaveBeenCalledWith(
       expect.stringContaining('Failed to process item'),
-      expect.any(Error)
+      expect.objectContaining({
+        error: expect.any(String),
+        type: expect.any(String),
+        retryable: expect.any(Boolean)
+      })
     );
   });
 

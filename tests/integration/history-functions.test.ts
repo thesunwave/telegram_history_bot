@@ -533,14 +533,14 @@ describe('History Functions Integration Tests', () => {
       // Create messages
       await createTestMessages(chatId, 20, oneDayAgo, 3600);
       
-      // Spy on processBatches to verify batch size is used
-      const processBatchesSpy = vi.spyOn(await import('../../src/utils'), 'processBatches');
+      // Spy on processBatchesDetailed to verify batch size is used
+      const processBatchesSpy = vi.spyOn(await import('../../src/utils'), 'processBatchesDetailed');
       
       const result = await fetchMessages(env, chatId, oneDayAgo, now);
       
       expect(result).toHaveLength(20);
       
-      // Verify processBatches was called with custom batch size
+      // Verify processBatchesDetailed was called with custom batch size
       expect(processBatchesSpy).toHaveBeenCalledWith(
         expect.any(Array),
         expect.any(Function),
@@ -561,14 +561,14 @@ describe('History Functions Integration Tests', () => {
       // Create messages
       await createTestMessages(chatId, 10, now - 10000, 1000);
       
-      // Spy on processBatches to verify delay is used
-      const processBatchesSpy = vi.spyOn(await import('../../src/utils'), 'processBatches');
+      // Spy on processBatchesDetailed to verify delay is used
+      const processBatchesSpy = vi.spyOn(await import('../../src/utils'), 'processBatchesDetailed');
       
       const result = await fetchLastMessages(env, chatId, 5);
       
       expect(result).toHaveLength(5);
       
-      // Verify processBatches was called with custom delay
+      // Verify processBatchesDetailed was called with custom delay
       expect(processBatchesSpy).toHaveBeenCalledWith(
         expect.any(Array),
         expect.any(Function),

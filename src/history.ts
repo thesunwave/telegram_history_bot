@@ -1,6 +1,6 @@
 import { Env, StoredMessage, LOG_ID_RADIX, DEFAULT_KV_BATCH_SIZE, DEFAULT_KV_BATCH_DELAY } from './env';
 import { Logger } from './logger';
-import { processBatches } from './utils';
+import { processBatches, processBatchesDetailed, BatchErrorType } from './utils';
 
 export async function fetchMessages(env: Env, chatId: number, start: number, end: number): Promise<StoredMessage[]> {
   const prefix = `msg:${chatId}:`;
@@ -38,8 +38,8 @@ export async function fetchMessages(env: Env, chatId: number, start: number, end
         batchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
       });
 
-      // Process KV requests in batches to avoid API limits
-      const results = await processBatches(
+      // Process KV requests in batches to avoid API limits with enhanced error handling
+      const batchResult = await processBatchesDetailed(
         keysToFetch,
         async (key: { name: string }) => {
           const parts = key.name.split(':');
@@ -56,19 +56,52 @@ export async function fetchMessages(env: Env, chatId: number, start: number, end
         }
       );
 
+      // Log detailed batch processing results
+      if (batchResult.hasApiLimitErrors) {
+        Logger.error('fetchMessages API limit errors detected', {
+          chat: chatId.toString(LOG_ID_RADIX),
+          apiLimitErrors: batchResult.errors.filter(e => e.type === BatchErrorType.API_LIMIT_EXCEEDED).length,
+          totalErrors: batchResult.errors.length,
+          successRate: batchResult.successRate,
+        });
+      }
+
+      if (batchResult.hasCriticalFailures) {
+        Logger.error('fetchMessages critical batch failures detected', {
+          chat: chatId.toString(LOG_ID_RADIX),
+          criticalFailures: batchResult.errors.filter(e => e.batchNumber !== undefined).length,
+          totalErrors: batchResult.errors.length,
+          successRate: batchResult.successRate,
+        });
+      }
+
       // Add successful results to messages array
-      for (const m of results) {
+      for (const m of batchResult.results) {
         if (m !== null && m !== undefined) {
           messages.push(m);
+        }
+      }
+
+      // Check if we should throw an error for critical failures
+      if (batchResult.hasCriticalFailures && batchResult.successRate < 50) {
+        const apiLimitErrors = batchResult.errors.filter(e => e.type === BatchErrorType.API_LIMIT_EXCEEDED);
+        if (apiLimitErrors.length > 0) {
+          throw new Error('API request limits exceeded. Please try again with a shorter time period or contact support if the issue persists.');
+        } else {
+          throw new Error('Critical failures occurred during message fetching. Please try again later.');
         }
       }
       Logger.debug(env, 'fetchMessages page processed', {
         chat: chatId.toString(LOG_ID_RADIX),
         totalKeysInPage: list.keys.length,
         keysMatchingTimeRange: keysToFetch.length,
-        successfulFetches: results.length,
+        successfulFetches: batchResult.results.length,
+        failedFetches: batchResult.totalFailed,
+        successRate: batchResult.successRate,
         totalCollected: messages.length,
         batchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
+        hasApiLimitErrors: batchResult.hasApiLimitErrors,
+        hasCriticalFailures: batchResult.hasCriticalFailures,
       });
     } while (cursor && messages.length < 10000);
     return messages.sort((a, b) => a.ts - b.ts);
@@ -125,8 +158,8 @@ export async function fetchLastMessages(env: Env, chatId: number, count: number)
       batchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
     });
 
-    // Process KV requests in batches to avoid API limits
-    const msgs = await processBatches(
+    // Process KV requests in batches to avoid API limits with enhanced error handling
+    const batchResult = await processBatchesDetailed(
       keys,
       async (k: string) => {
         Logger.debug(env, 'fetchLastMessages get', {
@@ -140,12 +173,48 @@ export async function fetchLastMessages(env: Env, chatId: number, count: number)
         delayBetweenBatches: env.KV_BATCH_DELAY || DEFAULT_KV_BATCH_DELAY,
       }
     );
+
+    // Log detailed batch processing results
+    if (batchResult.hasApiLimitErrors) {
+      Logger.error('fetchLastMessages API limit errors detected', {
+        chat: chatId.toString(LOG_ID_RADIX),
+        apiLimitErrors: batchResult.errors.filter(e => e.type === BatchErrorType.API_LIMIT_EXCEEDED).length,
+        totalErrors: batchResult.errors.length,
+        successRate: batchResult.successRate,
+      });
+    }
+
+    if (batchResult.hasCriticalFailures) {
+      Logger.error('fetchLastMessages critical batch failures detected', {
+        chat: chatId.toString(LOG_ID_RADIX),
+        criticalFailures: batchResult.errors.filter(e => e.batchNumber !== undefined).length,
+        totalErrors: batchResult.errors.length,
+        successRate: batchResult.successRate,
+      });
+    }
+
     Logger.debug(env, 'fetchLastMessages batch processing complete', {
       chat: chatId.toString(LOG_ID_RADIX),
       totalKeys: keys.length,
-      successfulFetches: msgs.filter(m => m !== null).length,
+      successfulFetches: batchResult.results.filter(m => m !== null).length,
+      failedFetches: batchResult.totalFailed,
+      successRate: batchResult.successRate,
       batchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
+      hasApiLimitErrors: batchResult.hasApiLimitErrors,
+      hasCriticalFailures: batchResult.hasCriticalFailures,
     });
+
+    // Check if we should throw an error for critical failures
+    if (batchResult.hasCriticalFailures && batchResult.successRate < 50) {
+      const apiLimitErrors = batchResult.errors.filter(e => e.type === BatchErrorType.API_LIMIT_EXCEEDED);
+      if (apiLimitErrors.length > 0) {
+        throw new Error('API request limits exceeded. Please try requesting fewer messages or contact support if the issue persists.');
+      } else {
+        throw new Error('Critical failures occurred during message fetching. Please try again later.');
+      }
+    }
+
+    const msgs = batchResult.results;
 
     const filtered = msgs.filter((m): m is StoredMessage => m !== null);
     const sorted = filtered.sort((a: StoredMessage, b: StoredMessage) => b.ts - a.ts);
