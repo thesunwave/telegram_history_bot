@@ -181,4 +181,66 @@ describe('processBatches', () => {
     expect(processor).toHaveBeenCalledTimes(4);
     expect(console.error).toHaveBeenCalledTimes(2); // For items 2 and 4
   });
+
+  it('should handle batch size of 10', async () => {
+    const items = Array.from({ length: 25 }, (_, i) => i + 1); // [1, 2, 3, ..., 25]
+    const processor = vi.fn().mockImplementation(async (item: number) => item * 2);
+    const options: BatchProcessorOptions = { batchSize: 10 };
+
+    const results = await processBatches(items, processor, options);
+
+    const expected = items.map(x => x * 2);
+    expect(results).toEqual(expected);
+    expect(processor).toHaveBeenCalledTimes(25);
+    // Should process in 3 batches: 10, 10, 5
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('25 items in 3 batches of size 10')
+    );
+  });
+
+  it('should handle batch size of 50', async () => {
+    const items = Array.from({ length: 120 }, (_, i) => i + 1); // [1, 2, 3, ..., 120]
+    const processor = vi.fn().mockImplementation(async (item: number) => item * 2);
+    const options: BatchProcessorOptions = { batchSize: 50 };
+
+    const results = await processBatches(items, processor, options);
+
+    const expected = items.map(x => x * 2);
+    expect(results).toEqual(expected);
+    expect(processor).toHaveBeenCalledTimes(120);
+    // Should process in 3 batches: 50, 50, 20
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('120 items in 3 batches of size 50')
+    );
+  });
+
+  it('should handle batch size of 100', async () => {
+    const items = Array.from({ length: 250 }, (_, i) => i + 1); // [1, 2, 3, ..., 250]
+    const processor = vi.fn().mockImplementation(async (item: number) => item * 2);
+    const options: BatchProcessorOptions = { batchSize: 100 };
+
+    const results = await processBatches(items, processor, options);
+
+    const expected = items.map(x => x * 2);
+    expect(results).toEqual(expected);
+    expect(processor).toHaveBeenCalledTimes(250);
+    // Should process in 3 batches: 100, 100, 50
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('250 items in 3 batches of size 100')
+    );
+  });
+
+  it('should handle single-item batches correctly', async () => {
+    const items = [42];
+    const processor = vi.fn().mockImplementation(async (item: number) => item * 2);
+    const options: BatchProcessorOptions = { batchSize: 1 };
+
+    const results = await processBatches(items, processor, options);
+
+    expect(results).toEqual([84]);
+    expect(processor).toHaveBeenCalledTimes(1);
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('1 items in 1 batches of size 1')
+    );
+  });
 });
