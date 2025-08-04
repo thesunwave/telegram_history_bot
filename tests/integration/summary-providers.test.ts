@@ -1201,50 +1201,14 @@ describe('Summary Providers Integration Tests', () => {
         })
         .mockResolvedValueOnce(new Response(null, { status: 200 }));
       
-      // Setup messages with different users
-      const now = Math.floor(Date.now() / 1000);
-      const testMessages = [
-        {
-          message: {
-            message_id: 1,
-            text: "First message",
-            chat: { id: 1 },
-            from: { id: 2, username: "alice" },
-            date: now,
-          },
-        },
-        {
-          message: {
-            message_id: 2,
-            text: "Second message",
-            chat: { id: 1 },
-            from: { id: 3, username: "bob" },
-            date: now + 1,
-          },
-        }
-      ];
+      // Setup test messages using the standard function
+      await setupMessages(2);
       
-      // Send test messages
-      for (const message of testMessages) {
-        const req = new Request("http://localhost/tg/test-token/webhook", {
-          method: "POST",
-          headers: {
-            "X-Telegram-Bot-Api-Secret-Token": "test-secret",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(message),
-        });
-        
-        await worker.fetch(req, env, ctx);
-      }
-      await Promise.all(tasks);
-      tasks = [];
-      
-      // Request summary
+      // Request summary of last 2 messages
       const summaryCmd = {
         message: {
           message_id: 10,
-          text: "/summary 1",
+          text: "/summary_last 2",
           chat: { id: 1 },
           from: { id: 10, username: "requester" },
           date: Math.floor(Date.now() / 1000),
@@ -1271,6 +1235,10 @@ describe('Summary Providers Integration Tests', () => {
       const requestBody = JSON.parse(openaiCall[1].body);
       
       const userPrompt = requestBody.messages[1].content;
+      
+      // Verify that both messages are included
+      expect(userPrompt).toContain('user1: Test message 1');
+      expect(userPrompt).toContain('user2: Test message 2');
       
       // Check that placeholders were replaced
       expect(userPrompt).toContain('Чат 1'); // {chatTitle} replaced
