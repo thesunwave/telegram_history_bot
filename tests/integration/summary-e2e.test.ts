@@ -404,7 +404,8 @@ describe('Summary End-to-End Tests', () => {
       
       // Shorter periods should generally be faster (but allow for some variance in test environment)
       // Just verify all completed successfully - timing can be inconsistent in tests
-      expect(results.every(r => r.responseTime > 0)).toBe(true);
+      // Response time can be 0 for very fast operations, so check >= 0
+      expect(results.every(r => r.responseTime >= 0)).toBe(true);
       
       console.log('Response times by period:', results);
     });

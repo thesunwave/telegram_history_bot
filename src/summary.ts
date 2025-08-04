@@ -337,11 +337,26 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         errorType: e.constructor.name,
         isProviderError: error instanceof ProviderError,
       });
-      await sendMessage(
-        env,
-        chatId,
-        "Ошибка при создании сводки. Пожалуйста, попробуйте позже.",
-      );
+
+      // Provide more specific error messages based on error type
+      let userMessage = "Ошибка при создании сводки. Пожалуйста, попробуйте позже.";
+      
+      if (error instanceof ProviderError) {
+        // Provider-specific errors
+        if (e.message.includes('rate limit') || e.message.includes('Too many requests')) {
+          userMessage = "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
+        } else if (e.message.includes('timeout')) {
+          userMessage = "Превышено время ожидания ответа от AI сервиса. Попробуйте сократить период или количество сообщений.";
+        }
+      } else if (e.message.includes('API request limits exceeded')) {
+        // Our custom API limit error from batch processing
+        userMessage = e.message; // Use the specific message we crafted
+      } else if (e.message.includes('Critical failures occurred')) {
+        // Our custom critical failure error
+        userMessage = "Произошли критические ошибки при получении сообщений. Попробуйте позже или сократите период.";
+      }
+
+      await sendMessage(env, chatId, userMessage);
       return;
     }
 
@@ -406,7 +421,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       throw error; // Пробрасываем ошибку для обработки во внешнем блоке
     }
   } catch (error) {
-    // Обработка всех необработанных ошибок
+    // Обработка всех необработанных ошибок с улучшенными сообщениями
     const e = error as Error;
     Logger.error("summariseChat unhandled error", {
       chat: chatId.toString(LOG_ID_RADIX),
@@ -415,18 +430,39 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       errorType: e.constructor.name,
       stack: e.stack,
     });
+
+    // Provide more specific error messages for unhandled errors
+    let userMessage = "Произошла непредвиденная ошибка при создании сводки.";
+    
+    if (e.message.includes('API request limits exceeded')) {
+      userMessage = e.message; // Use our specific API limit message
+    } else if (e.message.includes('Critical failures occurred')) {
+      userMessage = "Произошли критические ошибки при получении сообщений. Попробуйте позже или сократите период.";
+    } else if (e.message.includes('timeout') || e.message.includes('TIMEOUT')) {
+      userMessage = "Превышено время ожидания. Попробуйте сократить период или количество дней.";
+    } else if (e.message.includes('Too many') || e.message.includes('rate limit')) {
+      userMessage = "Превышен лимит запросов. Попробуйте через несколько минут.";
+    }
+
     try {
-      await sendMessage(
-        env,
-        chatId,
-        "Произошла непредвиденная ошибка при создании сводки.",
-      );
+      await sendMessage(env, chatId, userMessage);
     } catch (sendError) {
       const se = sendError as Error;
       Logger.error("summariseChat error notification failed", {
         chat: chatId.toString(LOG_ID_RADIX),
         error: se.message || String(se),
+        originalError: e.message,
       });
+      
+      // Fallback: try to send a simple error message
+      try {
+        await sendMessage(env, chatId, "Ошибка сервиса. Попробуйте позже.");
+      } catch (fallbackError) {
+        Logger.error("summariseChat fallback error notification also failed", {
+          chat: chatId.toString(LOG_ID_RADIX),
+          error: (fallbackError as Error).message,
+        });
+      }
     }
   } finally {
     Logger.debug(env, "summariseChat finished", {
@@ -530,11 +566,26 @@ export async function summariseChatMessages(
         isProviderError: error instanceof ProviderError,
         stack: e.stack,
       });
-      await sendMessage(
-        env,
-        chatId,
-        'Ошибка при создании сводки. Пожалуйста, попробуйте позже.',
-      );
+
+      // Provide more specific error messages based on error type
+      let userMessage = 'Ошибка при создании сводки. Пожалуйста, попробуйте позже.';
+      
+      if (error instanceof ProviderError) {
+        // Provider-specific errors
+        if (e.message.includes('rate limit') || e.message.includes('Too many requests')) {
+          userMessage = 'Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.';
+        } else if (e.message.includes('timeout')) {
+          userMessage = 'Превышено время ожидания ответа от AI сервиса. Попробуйте запросить меньше сообщений.';
+        }
+      } else if (e.message.includes('API request limits exceeded')) {
+        // Our custom API limit error from batch processing
+        userMessage = e.message; // Use the specific message we crafted
+      } else if (e.message.includes('Critical failures occurred')) {
+        // Our custom critical failure error
+        userMessage = 'Произошли критические ошибки при получении сообщений. Попробуйте позже или запросите меньше сообщений.';
+      }
+
+      await sendMessage(env, chatId, userMessage);
       return;
     }
 
@@ -570,18 +621,39 @@ export async function summariseChatMessages(
       errorType: e.constructor.name,
       stack: e.stack,
     });
+
+    // Provide more specific error messages for unhandled errors
+    let userMessage = 'Произошла непредвиденная ошибка при создании сводки.';
+    
+    if (e.message.includes('API request limits exceeded')) {
+      userMessage = e.message; // Use our specific API limit message
+    } else if (e.message.includes('Critical failures occurred')) {
+      userMessage = 'Произошли критические ошибки при получении сообщений. Попробуйте позже или запросите меньше сообщений.';
+    } else if (e.message.includes('timeout') || e.message.includes('TIMEOUT')) {
+      userMessage = 'Превышено время ожидания. Попробуйте запросить меньше сообщений.';
+    } else if (e.message.includes('Too many') || e.message.includes('rate limit')) {
+      userMessage = 'Превышен лимит запросов. Попробуйте через несколько минут.';
+    }
+
     try {
-      await sendMessage(
-        env,
-        chatId,
-        'Произошла непредвиденная ошибка при создании сводки.',
-      );
+      await sendMessage(env, chatId, userMessage);
     } catch (sendError) {
       const se = sendError as Error;
       Logger.error('summariseChatMessages error notification failed', {
         chat: chatId.toString(LOG_ID_RADIX),
         error: se.message || String(se),
+        originalError: e.message,
       });
+      
+      // Fallback: try to send a simple error message
+      try {
+        await sendMessage(env, chatId, 'Ошибка сервиса. Попробуйте позже.');
+      } catch (fallbackError) {
+        Logger.error('summariseChatMessages fallback error notification also failed', {
+          chat: chatId.toString(LOG_ID_RADIX),
+          error: (fallbackError as Error).message,
+        });
+      }
     }
   } finally {
     Logger.debug(env, 'summariseChatMessages finished', {
