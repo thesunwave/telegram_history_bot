@@ -19,7 +19,7 @@
   - Verify batch processing maintains correct order and handles all items
   - _Requirements: 2.2, 3.3_
 
-- [ ] 4. Modify fetchMessages function to use batching
+- [x] 4. Modify fetchMessages function to use batching
   - Replace `Promise.all(fetches)` with `processBatches` call in `fetchMessages` function
   - Maintain existing filtering logic for time range (ts >= start && ts <= end)
   - Preserve existing error handling and logging behavior

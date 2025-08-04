@@ -1,5 +1,6 @@
-import { Env, StoredMessage, LOG_ID_RADIX } from './env';
+import { Env, StoredMessage, LOG_ID_RADIX, DEFAULT_KV_BATCH_SIZE, DEFAULT_KV_BATCH_DELAY } from './env';
 import { Logger } from './logger';
+import { processBatches } from './utils';
 
 export async function fetchMessages(env: Env, chatId: number, start: number, end: number): Promise<StoredMessage[]> {
   const prefix = `msg:${chatId}:`;
@@ -23,23 +24,51 @@ export async function fetchMessages(env: Env, chatId: number, start: number, end
         keys: list.keys.length,
         nextCursor: cursor,
       });
-      const fetches = list.keys.map(async (key: { name: string }) => {
+      // Filter keys that match the time range before processing
+      const keysToFetch = list.keys.filter((key: { name: string }) => {
         const parts = key.name.split(':');
         const ts = parseInt(parts[2]);
-        if (ts >= start && ts <= end) {
+        return ts >= start && ts <= end;
+      });
+
+      Logger.debug(env, 'fetchMessages batch processing', {
+        chat: chatId.toString(LOG_ID_RADIX),
+        totalKeys: list.keys.length,
+        keysToFetch: keysToFetch.length,
+        batchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
+      });
+
+      // Process KV requests in batches to avoid API limits
+      const results = await processBatches(
+        keysToFetch,
+        async (key: { name: string }) => {
+          const parts = key.name.split(':');
+          const ts = parseInt(parts[2]);
           Logger.debug(env, 'fetchMessages get', {
             chat: chatId.toString(LOG_ID_RADIX),
             ts,
           });
           return env.HISTORY.get<StoredMessage>(key.name, { type: 'json' });
+        },
+        {
+          batchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
+          delayBetweenBatches: env.KV_BATCH_DELAY || DEFAULT_KV_BATCH_DELAY,
         }
-        return null;
-      });
-      const results = await Promise.all(fetches);
-      for (const m of results) if (m !== null && m !== undefined) messages.push(m);
+      );
+
+      // Add successful results to messages array
+      for (const m of results) {
+        if (m !== null && m !== undefined) {
+          messages.push(m);
+        }
+      }
       Logger.debug(env, 'fetchMessages page processed', {
         chat: chatId.toString(LOG_ID_RADIX),
-        collected: messages.length,
+        totalKeysInPage: list.keys.length,
+        keysMatchingTimeRange: keysToFetch.length,
+        successfulFetches: results.length,
+        totalCollected: messages.length,
+        batchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
       });
     } while (cursor && messages.length < 10000);
     return messages.sort((a, b) => a.ts - b.ts);
