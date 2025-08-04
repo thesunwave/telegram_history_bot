@@ -26,7 +26,7 @@
   - Add batch-specific logging to track processing metrics
   - _Requirements: 1.1, 1.2, 2.1, 3.3_
 
-- [ ] 5. Modify fetchLastMessages function to use batching
+- [x] 5. Modify fetchLastMessages function to use batching
   - Replace `Promise.all()` with `processBatches` call in `fetchLastMessages` function
   - Maintain existing sorting and filtering behavior for non-command messages
   - Preserve the logic for fetching extra messages to account for filtering
