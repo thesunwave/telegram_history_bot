@@ -119,9 +119,34 @@ export async function fetchLastMessages(env: Env, chatId: number, count: number)
       });
     } while (cursor);
 
-    const msgs = await Promise.all(
-      keys.map((k: string) => env.HISTORY.get<StoredMessage | null>(k, { type: 'json' })),
+    Logger.debug(env, 'fetchLastMessages batch processing', {
+      chat: chatId.toString(LOG_ID_RADIX),
+      totalKeys: keys.length,
+      batchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
+    });
+
+    // Process KV requests in batches to avoid API limits
+    const msgs = await processBatches(
+      keys,
+      async (k: string) => {
+        Logger.debug(env, 'fetchLastMessages get', {
+          chat: chatId.toString(LOG_ID_RADIX),
+          key: k,
+        });
+        return env.HISTORY.get<StoredMessage | null>(k, { type: 'json' });
+      },
+      {
+        batchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
+        delayBetweenBatches: env.KV_BATCH_DELAY || DEFAULT_KV_BATCH_DELAY,
+      }
     );
+    Logger.debug(env, 'fetchLastMessages batch processing complete', {
+      chat: chatId.toString(LOG_ID_RADIX),
+      totalKeys: keys.length,
+      successfulFetches: msgs.filter(m => m !== null).length,
+      batchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
+    });
+
     const filtered = msgs.filter((m): m is StoredMessage => m !== null);
     const sorted = filtered.sort((a: StoredMessage, b: StoredMessage) => b.ts - a.ts);
     
