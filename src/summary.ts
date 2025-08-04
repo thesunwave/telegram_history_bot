@@ -119,16 +119,46 @@ function createSummaryRequest(messages: TelegramMessage[], env: Env, limitNote: 
   const startDate = start ? new Date(start * 1000).toLocaleDateString('ru-RU') : 'неизвестно';
   const endDate = end ? new Date(end * 1000).toLocaleDateString('ru-RU') : 'неизвестно';
   const chatTitle = chatId ? `Чат ${chatId.toString(LOG_ID_RADIX)}` : 'Неизвестный чат';
-  
+
+  // Создаем детальную информацию об участниках
+  const participantStats = participants.map(username => {
+    const messageCount = messages.filter(m => m.username === username).length;
+    return { username, messageCount };
+  }).sort((a, b) => b.messageCount - a.messageCount);
+
+  const participantsInfo = participantStats.length > 0
+    ? `${participantStats.length} чел. (${participantStats.map(p => `${p.username}: ${p.messageCount}`).join(', ')})`
+    : 'нет данных';
+
+  // Создаем информацию о периоде
+  let periodInfo = '';
+  if (start && end) {
+    const startDateTime = new Date(start * 1000);
+    const endDateTime = new Date(end * 1000);
+    const duration = Math.ceil((end - start) / DAY);
+    periodInfo = `${startDate} - ${endDate} (${duration} дн.)`;
+  } else if (messages.length > 0) {
+    // Для случая summariseChatMessages используем временные метки сообщений
+    const firstMsg = messages[0];
+    const lastMsg = messages[messages.length - 1];
+    const firstDate = new Date(firstMsg.ts * 1000).toLocaleDateString('ru-RU');
+    const lastDate = new Date(lastMsg.ts * 1000).toLocaleDateString('ru-RU');
+    const duration = Math.ceil((lastMsg.ts - firstMsg.ts) / DAY);
+    periodInfo = `${firstDate} - ${lastDate}${duration > 0 ? ` (${duration} дн.)` : ' (в тот же день)'}`;
+  } else {
+    periodInfo = 'неизвестно';
+  }
+
   // Заменяем плейсхолдеры в промпте
   let userPrompt = env.SUMMARY_PROMPT;
   userPrompt = userPrompt.replace('{chatTitle}', chatTitle);
   userPrompt = userPrompt.replace('{startDate}', startDate);
   userPrompt = userPrompt.replace('{endDate}', endDate);
   userPrompt = userPrompt.replace('{totalMessages}', messages.length.toString());
-  userPrompt = userPrompt.replace('{participants}', participants.join(', '));
+  userPrompt = userPrompt.replace('{participants}', participantsInfo);
+  userPrompt = userPrompt.replace('{period}', periodInfo);
   userPrompt = userPrompt.replace('{messages}', ''); // Сообщения добавляются отдельно провайдером
-  
+
   return {
     messages,
     systemPrompt: env.SUMMARY_SYSTEM,
@@ -246,15 +276,15 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
 
         return truncateText(resp, TELEGRAM_LIMIT);
       } catch (error) {
-      const e = error as Error;
-      Logger.error("summarize AI error", {
-        chat: chatId.toString(LOG_ID_RADIX),
-        stage,
-        provider: providerInfo.name,
-        error: e.message || String(e),
-        stack: e.stack,
-      });
-      throw error;
+        const e = error as Error;
+        Logger.error("summarize AI error", {
+          chat: chatId.toString(LOG_ID_RADIX),
+          stage,
+          provider: providerInfo.name,
+          error: e.message || String(e),
+          stack: e.stack,
+        });
+        throw error;
       }
     }
 
@@ -342,14 +372,14 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
           chat: chatId.toString(LOG_ID_RADIX),
         });
       } catch (error) {
-      const e = error as Error;
-      Logger.error("summarize DB insert error", {
-        chat: chatId.toString(LOG_ID_RADIX),
-        error: e.message || String(e),
-        stack: e.stack,
-      });
-      // Продолжаем выполнение, чтобы отправить сообщение пользователю
-    }
+        const e = error as Error;
+        Logger.error("summarize DB insert error", {
+          chat: chatId.toString(LOG_ID_RADIX),
+          error: e.message || String(e),
+          stack: e.stack,
+        });
+        // Продолжаем выполнение, чтобы отправить сообщение пользователю
+      }
     } else {
       Logger.debug(env, "summarize DB not available", {
         chat: chatId.toString(LOG_ID_RADIX),
@@ -521,13 +551,13 @@ export async function summariseChatMessages(
           )
           .run();
       } catch (error) {
-      const e = error as Error;
-      Logger.error('summariseChatMessages DB insert error', {
-        chat: chatId.toString(LOG_ID_RADIX),
-        error: e.message || String(e),
-        stack: e.stack,
-      });
-    }
+        const e = error as Error;
+        Logger.error('summariseChatMessages DB insert error', {
+          chat: chatId.toString(LOG_ID_RADIX),
+          error: e.message || String(e),
+          stack: e.stack,
+        });
+      }
     }
 
     await sendMessage(env, chatId, summary);

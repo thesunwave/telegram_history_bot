@@ -1182,6 +1182,76 @@ describe('Summary Providers Integration Tests', () => {
       expect(requestBody.messages[0].content).toContain('Custom system message');
       expect(requestBody.messages[1].content).toContain('Custom summary prompt');
     });
+
+    it('should replace placeholders with actual values in prompts', async () => {
+      env.SUMMARY_PROMPT = 'Summary for {chatTitle} from {period}. Participants: {participants}. Total: {totalMessages} messages.';
+      env.SUMMARY_SYSTEM = 'System message';
+      env.SUMMARY_PROVIDER = 'openai';
+      env.OPENAI_API_KEY = 'test-key';
+      
+      const openaiResponse = {
+        choices: [{ message: { content: 'Placeholder test summary' } }],
+        usage: { prompt_tokens: 60, completion_tokens: 30, total_tokens: 90 }
+      };
+      
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve(openaiResponse)
+        })
+        .mockResolvedValueOnce(new Response(null, { status: 200 }));
+      
+      // Setup test messages using the standard function
+      await setupMessages(2);
+      
+      // Request summary of last 2 messages
+      const summaryCmd = {
+        message: {
+          message_id: 10,
+          text: "/summary_last 2",
+          chat: { id: 1 },
+          from: { id: 10, username: "requester" },
+          date: Math.floor(Date.now() / 1000),
+        },
+      };
+      
+      const req = new Request("http://localhost/tg/test-token/webhook", {
+        method: "POST",
+        headers: {
+          "X-Telegram-Bot-Api-Secret-Token": "test-secret",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(summaryCmd),
+      });
+      
+      await worker.fetch(req, env, ctx);
+      await Promise.all(tasks);
+      
+      // Verify placeholders were replaced
+      const openaiCall = fetchMock.mock.calls.find((call: any[]) => 
+        call[0].includes('chat/completions')
+      );
+      expect(openaiCall).toBeDefined();
+      const requestBody = JSON.parse(openaiCall[1].body);
+      
+      const userPrompt = requestBody.messages[1].content;
+      
+      // Verify that both messages are included
+      expect(userPrompt).toContain('user1: Test message 1');
+      expect(userPrompt).toContain('user2: Test message 2');
+      
+      // Check that placeholders were replaced
+      expect(userPrompt).toContain('Чат 1'); // {chatTitle} replaced
+      expect(userPrompt).toMatch(/\d+ чел\. \([^)]+\)/); // {participants} replaced with stats format
+      expect(userPrompt).toMatch(/Total: \d+ messages/); // {totalMessages} replaced
+      expect(userPrompt).toMatch(/\d{2}\.\d{2}\.\d{4} - \d{2}\.\d{2}\.\d{4} \(\d+ дн\.\)/); // {period} replaced
+      
+      // Check that original placeholders are not present
+      expect(userPrompt).not.toContain('{chatTitle}');
+      expect(userPrompt).not.toContain('{participants}');
+      expect(userPrompt).not.toContain('{totalMessages}');
+      expect(userPrompt).not.toContain('{period}');
+    });
   });
 
   async function setupMessages(count: number = 3) {
