@@ -33,7 +33,7 @@
   - Add batch-specific logging for monitoring
   - _Requirements: 1.1, 1.2, 2.1, 3.3_
 
-- [ ] 6. Write integration tests for modified history functions
+- [x] 6. Write integration tests for modified history functions
   - Test `fetchMessages` with different time ranges (1 day, 7 days, 30 days)
   - Test `fetchLastMessages` with different message counts (10, 50, 100, 500)
   - Verify that sorting and filtering behavior is preserved after batching changes
