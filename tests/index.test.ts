@@ -8,6 +8,13 @@ const { env } = await getPlatformProxy<any>();
 // Установим переменные окружения для тестов
 env.TOKEN = 't';
 env.SECRET = 's';
+env.SUMMARY_PROVIDER = 'cloudflare';
+env.SUMMARY_MODEL = 'test-model';
+
+// Mock AI binding for Cloudflare provider
+env.AI = {
+  run: vi.fn().mockResolvedValue({ response: 'Test summary response' })
+};
 
 let tasks: Promise<any>[] = [];
 let ctx: any;
