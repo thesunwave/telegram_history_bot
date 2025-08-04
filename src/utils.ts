@@ -69,7 +69,7 @@ export async function processBatches<T, R>(
       let batchFailures = 0;
       for (const batchResult of batchResults) {
         if (batchResult.success) {
-          results.push(batchResult.result);
+          results.push(batchResult.result as R);
         } else {
           batchFailures++;
           failedItems++;
