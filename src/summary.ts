@@ -113,11 +113,26 @@ function buildAiOptions(env: Env): SummaryOptions {
   return opts;
 }
 
-function createSummaryRequest(messages: TelegramMessage[], env: Env, limitNote: string): SummaryRequest {
+function createSummaryRequest(messages: TelegramMessage[], env: Env, limitNote: string, chatId?: number, start?: number, end?: number): SummaryRequest {
+  // Собираем информацию для замены плейсхолдеров
+  const participants = [...new Set(messages.map(m => m.username))];
+  const startDate = start ? new Date(start * 1000).toLocaleDateString('ru-RU') : 'неизвестно';
+  const endDate = end ? new Date(end * 1000).toLocaleDateString('ru-RU') : 'неизвестно';
+  const chatTitle = chatId ? `Чат ${chatId.toString(LOG_ID_RADIX)}` : 'Неизвестный чат';
+  
+  // Заменяем плейсхолдеры в промпте
+  let userPrompt = env.SUMMARY_PROMPT;
+  userPrompt = userPrompt.replace('{chatTitle}', chatTitle);
+  userPrompt = userPrompt.replace('{startDate}', startDate);
+  userPrompt = userPrompt.replace('{endDate}', endDate);
+  userPrompt = userPrompt.replace('{totalMessages}', messages.length.toString());
+  userPrompt = userPrompt.replace('{participants}', participants.join(', '));
+  userPrompt = userPrompt.replace('{messages}', ''); // Сообщения добавляются отдельно провайдером
+  
   return {
     messages,
     systemPrompt: env.SUMMARY_SYSTEM,
-    userPrompt: env.SUMMARY_PROMPT,
+    userPrompt,
     limitNote,
   };
 }
@@ -219,7 +234,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       });
 
       try {
-        const request = createSummaryRequest(messagesToSummarize, env, limitNote);
+        const request = createSummaryRequest(messagesToSummarize, env, limitNote, chatId, start, end);
         const resp = await provider.summarize(request, summaryOptions, env);
 
         Logger.debug(env, "summarize AI response received", {
@@ -463,7 +478,7 @@ export async function summariseChatMessages(
     });
 
     try {
-      const request = createSummaryRequest(messages, env, limitNote);
+      const request = createSummaryRequest(messages, env, limitNote, chatId);
       const aiResp = await provider.summarize(request, summaryOptions, env);
       summary = truncateText(aiResp, TELEGRAM_LIMIT);
 
