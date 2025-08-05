@@ -291,7 +291,7 @@ export async function handleUpdate(msg: any, env: Env) {
     await topChat(env, chatId, n, day);
   } else if (msg.text.startsWith('/profanity_top')) {
     const parts = msg.text.split(/\s+/);
-    const count = Math.min(Math.max(parseInt(parts[1] || '5', 10), 1), 20);
+    const count = Math.min(Math.max(parseInt(parts[1] || '10', 10), 1), 20);
     const period = ['today', 'week', 'month'].includes(parts[2]) ? parts[2] : 'today';
     await profanityTopUsers(env, chatId, count, period);
   } else if (msg.text.startsWith('/profanity_words')) {
