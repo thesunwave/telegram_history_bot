@@ -77,14 +77,14 @@
     - Add error handling for chart generation failures
     - _Requirements: 2.3_
 
-- [ ] 6. Add profanity reset functionality
-  - [ ] 6.1 Implement profanity-specific reset command
+- [x] 6. Add profanity reset functionality
+  - [x] 6.1 Implement profanity-specific reset command
     - Add /profanity_reset command handler
     - Clear profanity user counters for chat
     - Clear profanity word counters for chat
     - _Requirements: 4.1, 4.2_
 
-  - [ ] 6.2 Integrate profanity reset with general reset
+  - [x] 6.2 Integrate profanity reset with general reset
     - Modify existing resetCounters function
     - Include profanity counters in general reset
     - _Requirements: 4.3_
