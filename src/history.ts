@@ -144,7 +144,7 @@ export async function fetchMessages(env: Env, chatId: number, start: number, end
     });
     
     // Log overall function performance insight
-    if (finalMetrics) {
+    if (finalMetrics && finalMetrics.duration !== undefined) {
       Logger.logPerformanceInsight(env, 'fetchMessages', {
         duration: finalMetrics.duration,
         itemsProcessed: sortedMessages.length,
@@ -322,7 +322,7 @@ export async function fetchLastMessages(env: Env, chatId: number, count: number)
     });
     
     // Log overall function performance insight
-    if (finalMetrics) {
+    if (finalMetrics && finalMetrics.duration !== undefined) {
       Logger.logPerformanceInsight(env, 'fetchLastMessages', {
         duration: finalMetrics.duration,
         itemsProcessed: keys.length,

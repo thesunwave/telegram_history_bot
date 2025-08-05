@@ -506,7 +506,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       });
       
       // Log overall function performance insight
-      if (finalMetrics) {
+      if (finalMetrics && finalMetrics.duration !== undefined) {
         Logger.logPerformanceInsight(env, 'summariseChat', {
           duration: finalMetrics.duration,
           itemsProcessed: messages.length,
@@ -797,7 +797,7 @@ export async function summariseChatMessages(
     });
     
     // Log overall function performance insight
-    if (finalMetrics) {
+    if (finalMetrics && finalMetrics.duration !== undefined) {
       Logger.logPerformanceInsight(env, 'summariseChatMessages', {
         duration: finalMetrics.duration,
         itemsProcessed: messages.length,
