@@ -21,6 +21,8 @@ export interface Env {
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   DEBUG_LOGS?: string;
+  KV_BATCH_SIZE?: number;
+  KV_BATCH_DELAY?: number;
 }
 
 export interface DurableObjectId {}
@@ -49,3 +51,5 @@ export const DEFAULT_SUMMARY_CHUNK_SIZE = 8000;
 export const MAX_LAST_MESSAGES = 40;
 export const WEEK_DAYS = 6; // lookback days for weekly stats
 export const MONTH_DAYS = 27; // lookback days for monthly stats
+export const DEFAULT_KV_BATCH_SIZE = 50; // Conservative default for KV request batching
+export const DEFAULT_KV_BATCH_DELAY = 0; // No delay between batches by default
