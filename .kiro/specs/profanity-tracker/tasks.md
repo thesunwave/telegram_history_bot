@@ -25,14 +25,14 @@
     - Add TTL management for cached results
     - _Requirements: 3.6, 6.1_
 
-- [ ] 3. Create profanity counter system
-  - [ ] 3.1 Extend Counters DO with profanity tracking
+- [x] 3. Create profanity counter system
+  - [x] 3.1 Extend Counters DO with profanity tracking
     - Add profanity counter increment methods
     - Implement user profanity counters (profanity:chat:user:day)
     - Implement word profanity counters (profanity_words:chat:word:day)
     - _Requirements: 3.3, 4.2_
 
-  - [ ] 3.2 Integrate profanity analysis into message recording
+  - [x] 3.2 Integrate profanity analysis into message recording
     - Modify recordMessage function to call profanity analyzer
     - Add async profanity processing with ctx.waitUntil
     - Implement error handling for AI failures
