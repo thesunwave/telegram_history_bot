@@ -1,6 +1,8 @@
 import { Env } from "./env";
 import { Logger } from "./logger";
 import { hashText } from "./utils";
+import { ProfanityAnalysisResult, AIProvider } from "./providers/ai-provider";
+import { ProviderFactory } from "./providers/provider-factory";
 
 // Core interfaces for profanity detection
 export interface ProfanityWord {
@@ -50,7 +52,7 @@ interface CircuitBreakerState {
 export class ProfanityAnalyzer {
   private static readonly CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
   private static readonly MAX_TEXT_LENGTH = 1000; // Limit analysis to first 1000 characters
-  private static readonly ANALYSIS_TIMEOUT = 50; // 50ms timeout for analysis
+  private static readonly ANALYSIS_TIMEOUT = 5000; // 5 seconds timeout for analysis
   
   // Cache management
   private static readonly MAX_CACHE_SIZE = 50 * 1024 * 1024; // 50MB max cache size
@@ -260,16 +262,11 @@ export class ProfanityAnalyzer {
 
       // Perform AI analysis with timeout and batching
       const aiAnalysisStart = Date.now();
-      const analysisResult = await this.performAIAnalysis(limitedText, env);
+      const profanityResult = await this.performAIAnalysis(limitedText, env);
       timings.aiAnalysis = Date.now() - aiAnalysisStart;
       
       // Record successful AI analysis
       this.recordAISuccess();
-      
-      // Convert AI result to our format
-      const conversionStart = Date.now();
-      const profanityResult = this.convertAIResult(analysisResult, limitedText);
-      timings.resultConversion = Date.now() - conversionStart;
       
       // Cache the result
       const cacheStorageStart = Date.now();
@@ -292,8 +289,7 @@ export class ProfanityAnalyzer {
         performanceBreakdown: {
           textProcessing: ((timings.textLimiting + timings.cacheKeyGeneration) / totalDuration * 100).toFixed(1) + '%',
           cacheOperations: ((timings.cacheRetrieval + timings.cacheStorage) / totalDuration * 100).toFixed(1) + '%',
-          aiAnalysis: (timings.aiAnalysis / totalDuration * 100).toFixed(1) + '%',
-          resultProcessing: (timings.resultConversion / totalDuration * 100).toFixed(1) + '%'
+          aiAnalysis: (timings.aiAnalysis / totalDuration * 100).toFixed(1) + '%'
         }
       });
 
@@ -303,7 +299,6 @@ export class ProfanityAnalyzer {
         duration: totalDuration,
         fromCache: false,
         aiAnalysisTime: timings.aiAnalysis,
-        conversionTime: timings.resultConversion,
         memoryCacheStats: {
           entries: this.cacheEntries.size,
           size: this.currentCacheSize
@@ -620,11 +615,13 @@ If no profanity is found, return {"words": [], "totalCount": 0}. Only include ac
     } catch (error) {
       const duration = Date.now() - startTime;
       if (error instanceof Error && error.message === 'Analysis timeout') {
-        Logger.error('Profanity AI analysis: timeout', { 
+        Logger.error('Profanity AI analysis: timeout exceeded - this indicates AI API is slow or unavailable', { 
           textLength: text.length, 
           duration,
-          timeout: ProfanityAnalyzer.ANALYSIS_TIMEOUT,
-          circuitBreakerFailures: this.circuitBreakerState.failures
+          timeoutThreshold: ProfanityAnalyzer.ANALYSIS_TIMEOUT,
+          circuitBreakerFailures: this.circuitBreakerState.failures,
+          timeoutRatio: (duration / ProfanityAnalyzer.ANALYSIS_TIMEOUT * 100).toFixed(1) + '%',
+          recommendation: 'Check AI provider status or increase timeout if this persists'
         });
       } else {
         Logger.error('Profanity AI analysis: failed', {
@@ -751,84 +748,6 @@ If no profanity is found in a text, return {"words": [], "totalCount": 0}. Only 
       // Reject all batch requests
       batch.forEach(request => request.reject(error));
     }
-  }
-
-  private async callAIProvider(text: string, env: Env): Promise<ProfanityAnalysisResult> {
-    try {
-      Logger.debug(env, 'Profanity AI provider: calling', {
-        provider: this.aiProvider.constructor.name,
-        textLength: text.length
-      });
-      
-      const result = await this.aiProvider.analyzeProfanity(text, env);
-      
-      Logger.debug(env, 'Profanity AI provider: success', {
-        provider: this.aiProvider.constructor.name,
-        hasProfanity: result.hasProfanity,
-        wordsFound: result.words.length
-      });
-      
-      return result;
-    } catch (error) {
-      Logger.error('Profanity AI provider: failed', {
-        provider: this.aiProvider.constructor.name,
-        textLength: text.length,
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
-      });
-      throw error;
-    }
-  }
-
-  private convertAIResult(aiResult: ProfanityAnalysisResult, originalText: string): ProfanityResult {
-    const startTime = Date.now();
-    const words: ProfanityWord[] = [];
-    
-    Logger.debug({} as any, 'Profanity analysis: converting AI result', {
-      aiWordsCount: aiResult.words.length,
-      hasProfanity: aiResult.hasProfanity,
-      textLength: originalText.length
-    });
-    
-    for (const aiWord of aiResult.words) {
-      // Find positions of the word in the original text
-      const positions = this.findWordPositions(originalText, aiWord.word);
-      
-      Logger.debug({} as any, 'Profanity analysis: word position search', {
-        word: aiWord.word.substring(0, 3) + '***', // Censor in debug logs
-        baseForm: aiWord.baseForm.substring(0, 3) + '***',
-        confidence: aiWord.confidence,
-        positionsFound: positions.length,
-        positions: positions.slice(0, 5) // Limit positions in debug log
-      });
-      
-      if (positions.length > 0) {
-        words.push({
-          original: aiWord.word,
-          baseForm: aiWord.baseForm,
-          positions
-        });
-      }
-    }
-    
-    const totalCount = words.reduce((sum, word) => sum + word.positions.length, 0);
-    const duration = Date.now() - startTime;
-    
-    Logger.debug({} as any, 'Profanity analysis: AI result conversion completed', {
-      duration,
-      inputWordsCount: aiResult.words.length,
-      outputWordsCount: words.length,
-      totalOccurrences: totalCount,
-      wordsWithPositions: words.map(w => ({
-        baseForm: w.baseForm.substring(0, 3) + '***',
-        occurrences: w.positions.length
-      }))
-    });
-    
-    return {
-      words,
-      totalCount
-    };
   }
 
   private findWordPositions(text: string, word: string): number[] {
