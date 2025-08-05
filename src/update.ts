@@ -136,7 +136,7 @@ async function analyzeProfanityAsync(
     // Create AI provider and profanity analyzer
     const providerStart = Date.now();
     const aiProvider = ProviderFactory.createProvider(env);
-    const profanityAnalyzer = new ProfanityAnalyzer();
+    const profanityAnalyzer = new ProfanityAnalyzer(aiProvider);
     timings.providerCreation = Date.now() - providerStart;
     
     Logger.debug(env, 'Profanity analysis: provider and analyzer created', {
