@@ -52,7 +52,7 @@ interface CircuitBreakerState {
 export class ProfanityAnalyzer {
   private static readonly CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
   private static readonly MAX_TEXT_LENGTH = 1000; // Limit analysis to first 1000 characters
-  private static readonly ANALYSIS_TIMEOUT = 5000; // 5 seconds timeout for analysis
+  private static readonly ANALYSIS_TIMEOUT = 10000; // 10 seconds timeout for analysis
   
   // Cache management
   private static readonly MAX_CACHE_SIZE = 50 * 1024 * 1024; // 50MB max cache size
@@ -93,8 +93,11 @@ export class ProfanityAnalyzer {
     words?: Record<string, number>;
   }> = [];
   private counterBatchTimeout: NodeJS.Timeout | null = null;
+  private aiProvider: AIProvider | null = null;
 
-  constructor() {}
+  constructor(aiProvider?: AIProvider) {
+    this.aiProvider = aiProvider || null;
+  }
 
   private isCircuitBreakerOpen(): boolean {
     const now = Date.now();
@@ -171,10 +174,16 @@ export class ProfanityAnalyzer {
     });
   }
 
-  async analyzeMessage(text: string, env: Env): Promise<ProfanityResult> {
+  async analyzeMessage(text: string, env: Env, aiProvider?: AIProvider): Promise<ProfanityResult> {
     const startTime = Date.now();
     const textLength = text.length;
     const timings: Record<string, number> = {};
+    
+    // Determine which provider to use
+    const provider = this.aiProvider || aiProvider;
+    if (!provider) {
+      throw new Error('AIProvider is required for profanity analysis. Pass it to constructor or analyzeMessage method.');
+    }
     
     try {
       Logger.debug(env, 'Profanity analysis: detailed process started', {
@@ -262,7 +271,7 @@ export class ProfanityAnalyzer {
 
       // Perform AI analysis with timeout and batching
       const aiAnalysisStart = Date.now();
-      const profanityResult = await this.performAIAnalysis(limitedText, env);
+      const profanityResult = await this.performAIAnalysis(limitedText, env, provider);
       timings.aiAnalysis = Date.now() - aiAnalysisStart;
       
       // Record successful AI analysis
@@ -527,88 +536,58 @@ export class ProfanityAnalyzer {
     });
   }
 
-  private async performAIAnalysis(text: string, env: Env): Promise<ProfanityResult> {
+  private async performAIAnalysis(text: string, env: Env, aiProvider: AIProvider): Promise<ProfanityResult> {
     // Check if we should use batching
     if (ProfanityAnalyzer.BATCH_SIZE > 1) {
-      return await this.performBatchAIAnalysis(text, env);
+      return await this.performBatchAIAnalysis(text, env, aiProvider);
     }
 
-    return await this.performSingleAIAnalysis(text, env);
+    return await this.performSingleAIAnalysis(text, env, aiProvider);
   }
 
-  private async performSingleAIAnalysis(text: string, env: Env): Promise<ProfanityResult> {
+  private async performSingleAIAnalysis(text: string, env: Env, aiProvider: AIProvider): Promise<ProfanityResult> {
     const startTime = Date.now();
     
-    const prompt = `Analyze the following text for profanity and inappropriate language. Return a JSON object with:
-1. "words": an array of objects, each containing:
-   - "word": the profane word found
-   - "severity": severity level ("low", "medium", "high")
-   - "category": category of profanity ("general", "sexual", "violence", "discriminatory", "religious")
-   - "position": character position in the text
-2. "totalCount": total number of profane words found
-
-Text: "${text}"
-
-Example response format:
-{
-  "words": [
-    {"word": "damn", "severity": "low", "category": "general", "position": 15}
-  ],
-  "totalCount": 1
-}
-
-If no profanity is found, return {"words": [], "totalCount": 0}. Only include actual profanity, not mild language or common expressions. Be accurate and conservative in detection.`;
-
-    const messages = [
-      { role: 'system' as const, content: 'You are a profanity detection system. Analyze text and return structured JSON data about any profanity found. Be accurate and conservative in detection.' },
-      { role: 'user' as const, content: prompt }
-    ];
-
     // Create a timeout promise
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('Analysis timeout')), ProfanityAnalyzer.ANALYSIS_TIMEOUT);
     });
 
     try {
-      Logger.debug(env, 'Profanity AI analysis: starting', {
+      Logger.debug(env, 'Profanity AI analysis: starting with provider', {
         textLength: text.length,
-        timeout: ProfanityAnalyzer.ANALYSIS_TIMEOUT
+        timeout: ProfanityAnalyzer.ANALYSIS_TIMEOUT,
+        provider: aiProvider.getProviderInfo().name
       });
 
       // Race between AI analysis and timeout
       const analysisPromise = Promise.race([
-        env.AI.run('@cf/meta/llama-2-7b-chat-int8', { messages }),
+        aiProvider.analyzeProfanity(text, env),
         timeoutPromise
       ]);
 
-      const response = await analysisPromise;
+      const analysisResult = await analysisPromise;
       
-      if (!response || typeof response.response !== 'string') {
-        throw new Error('Invalid AI response format');
-      }
-
-      const result = JSON.parse(response.response);
-      if (!result || !Array.isArray(result.words) || typeof result.totalCount !== 'number') {
-        throw new Error('Invalid response structure');
-      }
-
-      // Convert to ProfanityWord format
-      const profanityWords: ProfanityWord[] = result.words.map((word: any) => ({
-        original: word.word,
-        baseForm: word.word, // For now, use word as base form
-        positions: [word.position || 0]
+      // Convert ProfanityAnalysisResult to ProfanityResult format
+      const profanityWords: ProfanityWord[] = analysisResult.words.map((word: any) => ({
+        original: word.word || word.original || word,
+        baseForm: word.baseForm || word.word || word.original || word,
+        positions: word.positions || (word.position !== undefined ? [word.position] : [0])
       }));
 
       const finalResult: ProfanityResult = {
         words: profanityWords,
-        totalCount: result.totalCount
+        totalCount: analysisResult.words.length
       };
       
       const duration = Date.now() - startTime;
-      Logger.debug(env, 'Profanity AI analysis: completed', {
+      Logger.debug(env, 'Profanity AI analysis: completed via provider', {
         duration,
+        provider: aiProvider.getProviderInfo().name,
         wordsFound: finalResult.totalCount,
-        uniqueWords: finalResult.words.length
+        uniqueWords: finalResult.words.length,
+        performanceRating: duration < 1000 ? 'excellent' : duration < 3000 ? 'good' : duration < 7000 ? 'acceptable' : 'slow',
+        timeoutUtilization: (duration / ProfanityAnalyzer.ANALYSIS_TIMEOUT * 100).toFixed(1) + '%'
       });
       
       return finalResult;
@@ -618,15 +597,17 @@ If no profanity is found, return {"words": [], "totalCount": 0}. Only include ac
         Logger.error('Profanity AI analysis: timeout exceeded - this indicates AI API is slow or unavailable', { 
           textLength: text.length, 
           duration,
+          provider: aiProvider.getProviderInfo().name,
           timeoutThreshold: ProfanityAnalyzer.ANALYSIS_TIMEOUT,
           circuitBreakerFailures: this.circuitBreakerState.failures,
           timeoutRatio: (duration / ProfanityAnalyzer.ANALYSIS_TIMEOUT * 100).toFixed(1) + '%',
           recommendation: 'Check AI provider status or increase timeout if this persists'
         });
       } else {
-        Logger.error('Profanity AI analysis: failed', {
+        Logger.error('Profanity AI analysis: failed via provider', {
           textLength: text.length,
           duration,
+          provider: aiProvider.getProviderInfo().name,
           error: error instanceof Error ? error.message : String(error),
           circuitBreakerFailures: this.circuitBreakerState.failures
         });
@@ -635,7 +616,7 @@ If no profanity is found, return {"words": [], "totalCount": 0}. Only include ac
     }
   }
 
-  private performBatchAIAnalysis(text: string, env: Env): Promise<ProfanityResult> {
+  private performBatchAIAnalysis(text: string, env: Env, aiProvider: AIProvider): Promise<ProfanityResult> {
     return new Promise((resolve, reject) => {
       const request: BatchRequest = {
         text,
@@ -648,7 +629,7 @@ If no profanity is found, return {"words": [], "totalCount": 0}. Only include ac
       // Start batch timeout if not already running
       if (!this.batchTimeout) {
         this.batchTimeout = setTimeout(() => {
-          this.processBatch(env);
+          this.processBatch(env, aiProvider);
         }, ProfanityAnalyzer.BATCH_TIMEOUT);
       }
 
@@ -658,93 +639,69 @@ If no profanity is found, return {"words": [], "totalCount": 0}. Only include ac
           clearTimeout(this.batchTimeout);
           this.batchTimeout = null;
         }
-        this.processBatch(env);
+        this.processBatch(env, aiProvider);
       }
     });
   }
 
-  private async processBatch(env: Env): Promise<void> {
+  private async processBatch(env: Env, aiProvider: AIProvider): Promise<void> {
     if (this.batchQueue.length === 0) return;
 
     const batch = this.batchQueue.splice(0, ProfanityAnalyzer.BATCH_SIZE);
     this.batchTimeout = null;
 
     try {
-      Logger.log('Processing AI analysis batch', {
+      Logger.log('Processing AI analysis batch via provider', {
         batchSize: batch.length,
-        totalQueued: this.batchQueue.length
+        totalQueued: this.batchQueue.length,
+        provider: aiProvider.getProviderInfo().name
       });
 
-      const batchPrompt = `Analyze the following texts for profanity and inappropriate language. Return a JSON array where each element corresponds to one text input. Each element should have:
-1. "words": an array of objects, each containing:
-   - "word": the profane word found
-   - "severity": severity level ("low", "medium", "high")
-   - "category": category of profanity ("general", "sexual", "violence", "discriminatory", "religious")
-   - "position": character position in the text
-2. "totalCount": total number of profane words found
+      // For batch processing, we'll process each text individually through the provider
+      // This is simpler than trying to extend all providers to support batch analysis
+      const results: ProfanityResult[] = [];
+      
+      for (let i = 0; i < batch.length; i++) {
+        try {
+          const analysisResult = await Promise.race([
+            aiProvider.analyzeProfanity(batch[i].text, env),
+            new Promise<never>((_, reject) => 
+              setTimeout(() => reject(new Error('AI analysis timeout')), ProfanityAnalyzer.ANALYSIS_TIMEOUT)
+            )
+          ]);
+          
+          // Convert ProfanityAnalysisResult to ProfanityResult format
+          const profanityWords: ProfanityWord[] = analysisResult.words.map((word: any) => ({
+            original: word.word || word.original || word,
+            baseForm: word.baseForm || word.word || word.original || word,
+            positions: word.positions || (word.position !== undefined ? [word.position] : [0])
+          }));
 
-Texts to analyze (separated by [TEXT_SEPARATOR]):
-${batch.map((req, index) => `[TEXT_${index}]: "${req.text}"`).join('\n[TEXT_SEPARATOR]\n')}
-
-Example response format:
-[
-  {
-    "words": [
-      {"word": "damn", "severity": "low", "category": "general", "position": 15}
-    ],
-    "totalCount": 1
-  },
-  {
-    "words": [],
-    "totalCount": 0
-  }
-]
-
-If no profanity is found in a text, return {"words": [], "totalCount": 0}. Only include actual profanity, not mild language or common expressions. Be accurate and conservative in detection.`;
-
-      const messages = [
-        { role: 'system' as const, content: 'You are a profanity detection system. Analyze multiple texts and return structured JSON data about any profanity found. Be accurate and conservative in detection.' },
-        { role: 'user' as const, content: batchPrompt }
-      ];
-
-      const response = await Promise.race([
-        env.AI.run('@cf/meta/llama-2-7b-chat-int8', { messages }),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('AI analysis timeout')), ProfanityAnalyzer.ANALYSIS_TIMEOUT)
-        )
-      ]);
-
-      if (!response || typeof response.response !== 'string') {
-        throw new Error('Invalid AI response format');
-      }
-
-      const results = JSON.parse(response.response);
-      if (!Array.isArray(results) || results.length !== batch.length) {
-        throw new Error('Invalid batch response structure');
+          results.push({
+            words: profanityWords,
+            totalCount: analysisResult.words.length
+          });
+        } catch (error) {
+          Logger.error('Batch item analysis failed', { 
+            itemIndex: i, 
+            textLength: batch[i].text.length,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          results.push({ words: [], totalCount: 0 });
+        }
       }
 
       // Resolve all batch requests
       batch.forEach((request, index) => {
-        const result = results[index];
-        if (result && Array.isArray(result.words) && typeof result.totalCount === 'number') {
-          // Convert to ProfanityWord format
-          const profanityWords: ProfanityWord[] = result.words.map((word: any) => ({
-            original: word.word,
-            baseForm: word.word, // For now, use word as base form
-            positions: [word.position || 0]
-          }));
-          
-          request.resolve({
-            words: profanityWords,
-            totalCount: result.totalCount
-          });
-        } else {
-          request.reject(new Error('Invalid result format for batch item'));
-        }
+        request.resolve(results[index]);
       });
 
     } catch (error) {
-      Logger.error('Batch AI analysis failed', { error, batchSize: batch.length });
+      Logger.error('Batch AI analysis failed via provider', { 
+        error: error instanceof Error ? error.message : String(error), 
+        batchSize: batch.length,
+        provider: aiProvider.getProviderInfo().name
+      });
       // Reject all batch requests
       batch.forEach(request => request.reject(error));
     }
