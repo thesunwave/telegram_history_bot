@@ -64,14 +64,14 @@
     - Handle users with no profanity data
     - _Requirements: 5.1, 5.2, 5.3_
 
-- [ ] 5. Implement profanity charts and visualization
-  - [ ] 5.1 Create profanity activity charts
+- [x] 5. Implement profanity charts and visualization
+  - [x] 5.1 Create profanity activity charts
     - Add /profanity_chart_week command
     - Add /profanity_chart_month command
     - Implement ASCII chart fallback for small datasets
     - _Requirements: 2.1, 2.2, 2.4_
 
-  - [ ] 5.2 Integrate with QuickChart API for profanity graphs
+  - [x] 5.2 Integrate with QuickChart API for profanity graphs
     - Create chart configuration for profanity data
     - Implement chart URL generation
     - Add error handling for chart generation failures
