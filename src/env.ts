@@ -18,6 +18,8 @@ export interface Env {
   SUMMARY_FREQUENCY_PENALTY?: number;
   SUMMARY_SEED?: number;
   SUMMARY_PROVIDER?: ProviderType;
+  PROFANITY_SYSTEM_PROMPT?: string;
+  PROFANITY_USER_PROMPT?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   DEBUG_LOGS?: string;
