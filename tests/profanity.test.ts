@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ProfanityAnalyzer, generateCacheKey, ProfanityResult, ProfanityAnalysisResult } from '../src/profanity';
+import { ProfanityAnalyzer, generateCacheKey, ProfanityResult } from '../src/profanity';
+import { ProfanityAnalysisResult } from '../src/providers/ai-provider';
 import { hashText } from '../src/utils';
 import { AIProvider } from '../src/providers/ai-provider';
 import { Env } from '../src/env';
@@ -8,6 +9,14 @@ import { Env } from '../src/env';
 class MockAIProvider implements AIProvider {
   async summarize(): Promise<string> {
     return 'mock summary';
+  }
+  
+  async analyzeProfanity(text: string, env?: any): Promise<ProfanityAnalysisResult> {
+    // Mock implementation that returns no profanity
+    return {
+      hasProfanity: false,
+      words: []
+    };
   }
   
   validateConfig(): void {}
@@ -31,6 +40,8 @@ const createMockEnv = (): Env => ({
   SECRET: 'test-secret',
   SUMMARY_MODEL: 'test-model',
   SUMMARY_PROMPT: 'test-prompt',
+  PROFANITY_SYSTEM_PROMPT: 'test-profanity-system-prompt',
+  PROFANITY_USER_PROMPT: 'test-profanity-user-prompt',
 });
 
 describe('Profanity Analysis Infrastructure', () => {

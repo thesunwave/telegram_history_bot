@@ -1,6 +1,6 @@
 import { Env } from "./env";
 import { Logger } from "./logger";
-import { AIProvider, ProviderError } from "./providers/ai-provider";
+import { AIProvider, ProfanityAnalysisResult } from "./providers/ai-provider";
 import { hashText } from "./utils";
 
 // Core interfaces for profanity detection
@@ -15,14 +15,7 @@ export interface ProfanityResult {
   totalCount: number;
 }
 
-export interface ProfanityAnalysisResult {
-  hasProfanity: boolean;
-  words: Array<{
-    word: string;
-    baseForm: string;
-    confidence: number;
-  }>;
-}
+
 
 // Cache key generation
 export function generateCacheKey(text: string): string {
@@ -141,9 +134,12 @@ export class ProfanityAnalyzer {
   }
 
   private async callAIProvider(text: string, env: Env): Promise<ProfanityAnalysisResult> {
-    // This will be implemented in the next task when we extend AI providers
-    // For now, return a placeholder implementation
-    throw new Error('AI provider integration not yet implemented');
+    try {
+      return await this.aiProvider.analyzeProfanity(text, env);
+    } catch (error) {
+      Logger.error('AI provider profanity analysis failed', error);
+      throw error;
+    }
   }
 
   private convertAIResult(aiResult: ProfanityAnalysisResult, originalText: string): ProfanityResult {
