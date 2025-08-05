@@ -109,19 +109,66 @@ export class CountersDO {
   }
 
   private async incrementProfanityCounters({ chatId, userId, username, day, count, words }: ProfanityIncrementPayload) {
-    // Store username for later retrieval
-    await this.env.COUNTERS.put(`${USER_PREFIX}:${userId}`, username);
+    try {
+      console.log('Profanity counters: starting update', {
+        chatId: chatId.toString(36),
+        userId: userId.toString(36),
+        username,
+        day,
+        count,
+        wordsCount: words.length
+      });
 
-    // Increment user profanity counter: profanity:chat:user:day
-    const userProfanityKey = `${PROFANITY_USER_PREFIX}:${chatId}:${userId}:${day}`;
-    const currentUserCount = parseInt((await this.env.COUNTERS.get(userProfanityKey)) || '0', 10);
-    await this.env.COUNTERS.put(userProfanityKey, String(currentUserCount + count));
+      // Store username for later retrieval
+      await this.env.COUNTERS.put(`${USER_PREFIX}:${userId}`, username);
 
-    // Increment word profanity counters: profanity_words:chat:word:day
-    for (const word of words) {
-      const wordKey = `${PROFANITY_WORDS_PREFIX}:${chatId}:${word.baseForm}:${day}`;
-      const currentWordCount = parseInt((await this.env.COUNTERS.get(wordKey)) || '0', 10);
-      await this.env.COUNTERS.put(wordKey, String(currentWordCount + word.count));
+      // Increment user profanity counter: profanity:chat:user:day
+      const userProfanityKey = `${PROFANITY_USER_PREFIX}:${chatId}:${userId}:${day}`;
+      const currentUserCount = parseInt((await this.env.COUNTERS.get(userProfanityKey)) || '0', 10);
+      const newUserCount = currentUserCount + count;
+      await this.env.COUNTERS.put(userProfanityKey, String(newUserCount));
+
+      console.log('Profanity counters: user counter updated', {
+        chatId: chatId.toString(36),
+        userId: userId.toString(36),
+        previousCount: currentUserCount,
+        increment: count,
+        newCount: newUserCount
+      });
+
+      // Increment word profanity counters: profanity_words:chat:word:day
+      let wordsUpdated = 0;
+      for (const word of words) {
+        const wordKey = `${PROFANITY_WORDS_PREFIX}:${chatId}:${word.baseForm}:${day}`;
+        const currentWordCount = parseInt((await this.env.COUNTERS.get(wordKey)) || '0', 10);
+        const newWordCount = currentWordCount + word.count;
+        await this.env.COUNTERS.put(wordKey, String(newWordCount));
+        wordsUpdated++;
+
+        console.log('Profanity counters: word counter updated', {
+          chatId: chatId.toString(36),
+          baseForm: word.baseForm.substring(0, 3) + '***', // Censor word in logs
+          previousCount: currentWordCount,
+          increment: word.count,
+          newCount: newWordCount
+        });
+      }
+
+      console.log('Profanity counters: update completed successfully', {
+        chatId: chatId.toString(36),
+        userId: userId.toString(36),
+        totalWordsIncrement: count,
+        uniqueWordsUpdated: wordsUpdated
+      });
+
+    } catch (error: any) {
+      console.error('Profanity counters: update failed', {
+        chatId: chatId.toString(36),
+        userId: userId.toString(36),
+        error: error.message || String(error),
+        stack: error.stack
+      });
+      throw error;
     }
   }
 }

@@ -1,5 +1,6 @@
 import { Env, TELEGRAM_LIMIT } from "../env";
 import { truncateText } from "../utils";
+import { Logger } from "../logger";
 import {
   AIProvider,
   ChatMessage,
@@ -81,8 +82,19 @@ export class CloudflareAIProvider implements AIProvider {
   }
 
   async analyzeProfanity(text: string, env?: any): Promise<ProfanityAnalysisResult> {
+    const startTime = Date.now();
+    const model = (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL;
+    
     try {
-      const model = (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL;
+      if (env) {
+        Logger.debug(env, 'Cloudflare profanity analysis: starting', {
+          provider: 'cloudflare',
+          model,
+          textLength: text.length,
+          isChatModel: model.includes('chat')
+        });
+      }
+
       const { systemPrompt, userPrompt } = getProfanityPrompts(env || this.env);
       
       let response: any;
@@ -114,8 +126,43 @@ export class CloudflareAIProvider implements AIProvider {
       }
       
       const result = response.response ?? response;
-      return this.parseProfanityResponse(result);
+      
+      if (env) {
+        Logger.debug(env, 'Cloudflare profanity analysis: raw response received', {
+          provider: 'cloudflare',
+          responseLength: typeof result === 'string' ? result.length : 0,
+          responseType: typeof result
+        });
+      }
+      
+      const parsedResult = this.parseProfanityResponse(result);
+      
+      const duration = Date.now() - startTime;
+      if (env) {
+        Logger.debug(env, 'Cloudflare profanity analysis: completed successfully', {
+          provider: 'cloudflare',
+          duration,
+          hasProfanity: parsedResult.hasProfanity,
+          wordsFound: parsedResult.words.length
+        });
+      }
+      
+      return parsedResult;
     } catch (error: any) {
+      const duration = Date.now() - startTime;
+      
+      if (env) {
+        Logger.error('Cloudflare profanity analysis: failed', {
+          provider: 'cloudflare',
+          model,
+          textLength: text.length,
+          duration,
+          error: error.message || String(error),
+          errorType: error.constructor.name,
+          stack: error.stack
+        });
+      }
+
       throw new ProviderError(
         `Cloudflare AI profanity analysis error: ${error.message || String(error)}`,
         'cloudflare',
@@ -158,6 +205,12 @@ export class CloudflareAIProvider implements AIProvider {
       
       return parsed as ProfanityAnalysisResult;
     } catch (error) {
+      Logger.error('Cloudflare profanity analysis: response parsing failed', {
+        provider: 'cloudflare',
+        rawResponse: response.substring(0, 200) + (response.length > 200 ? '...' : ''),
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
       // Return safe fallback on parsing error
       return {
         hasProfanity: false,

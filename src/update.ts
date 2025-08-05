@@ -113,30 +113,57 @@ async function analyzeProfanityAsync(
   username: string, 
   day: string
 ): Promise<void> {
+  const startTime = Date.now();
+  const timings: Record<string, number> = {};
+  
   try {
-    Logger.debug(env, 'Starting profanity analysis', {
-      chatId,
-      userId,
-      textLength: msg.text?.length || 0
+    Logger.debug(env, 'Profanity analysis: starting background processing with detailed tracking', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
+      username,
+      textLength: msg.text?.length || 0,
+      messageId: msg.message_id,
+      timestamp: new Date().toISOString(),
+      day
     });
 
     // Create AI provider and profanity analyzer
+    const providerStart = Date.now();
     const aiProvider = ProviderFactory.createProvider(env);
     const profanityAnalyzer = new ProfanityAnalyzer(aiProvider);
+    timings.providerCreation = Date.now() - providerStart;
+    
+    Logger.debug(env, 'Profanity analysis: provider and analyzer created', {
+      chatId: chatId.toString(36),
+      providerType: aiProvider.constructor.name,
+      creationTime: timings.providerCreation
+    });
     
     // Analyze message for profanity
+    const analysisStart = Date.now();
     const profanityResult = await profanityAnalyzer.analyzeMessage(msg.text, env);
+    timings.analysis = Date.now() - analysisStart;
+    
+    Logger.debug(env, 'Profanity analysis: analysis phase completed', {
+      chatId: chatId.toString(36),
+      analysisTime: timings.analysis,
+      wordsFound: profanityResult.totalCount,
+      uniqueWords: profanityResult.words.length
+    });
     
     // If profanity was found, update counters
     if (profanityResult.totalCount > 0) {
-      Logger.debug(env, 'Profanity detected, updating counters', {
-        chatId,
-        userId,
+      Logger.log('Profanity detection: words found, processing for counter update', {
+        chatId: chatId.toString(36),
+        userId: userId.toString(36),
+        username,
         totalCount: profanityResult.totalCount,
-        wordsCount: profanityResult.words.length
+        uniqueWords: profanityResult.words.length,
+        analysisTime: timings.analysis
       });
 
       // Group words by base form and count occurrences
+      const groupingStart = Date.now();
       const wordCounts = new Map<string, number>();
       for (const word of profanityResult.words) {
         const currentCount = wordCounts.get(word.baseForm) || 0;
@@ -148,10 +175,21 @@ async function analyzeProfanityAsync(
         baseForm,
         count
       }));
+      timings.wordGrouping = Date.now() - groupingStart;
+
+      Logger.debug(env, 'Profanity analysis: word grouping completed', {
+        chatId: chatId.toString(36),
+        groupingTime: timings.wordGrouping,
+        originalWords: profanityResult.words.length,
+        groupedWords: words.length,
+        totalOccurrences: profanityResult.totalCount,
+        words: words.map(w => ({ baseForm: w.baseForm.substring(0, 3) + '***', count: w.count }))
+      });
 
       // Update profanity counters
+      const counterUpdateStart = Date.now();
       const id = env.COUNTERS_DO.idFromName(String(chatId));
-      await env.COUNTERS_DO.get(id).fetch('https://do/profanity', {
+      const response = await env.COUNTERS_DO.get(id).fetch('https://do/profanity', {
         method: 'POST',
         body: JSON.stringify({
           chatId,
@@ -162,25 +200,72 @@ async function analyzeProfanityAsync(
           words
         }),
       });
+      timings.counterUpdate = Date.now() - counterUpdateStart;
 
-      Logger.debug(env, 'Profanity counters updated successfully', {
-        chatId,
-        userId,
-        totalCount: profanityResult.totalCount,
-        uniqueWords: words.length
-      });
+      if (response.ok) {
+        const totalDuration = Date.now() - startTime;
+        timings.total = totalDuration;
+        
+        Logger.log('Profanity counters: update successful with performance metrics', {
+          chatId: chatId.toString(36),
+          userId: userId.toString(36),
+          totalCount: profanityResult.totalCount,
+          uniqueWords: words.length,
+          timings,
+          performanceBreakdown: {
+            analysis: (timings.analysis / totalDuration * 100).toFixed(1) + '%',
+            wordProcessing: (timings.wordGrouping / totalDuration * 100).toFixed(1) + '%',
+            counterUpdate: (timings.counterUpdate / totalDuration * 100).toFixed(1) + '%',
+            overhead: ((totalDuration - timings.analysis - timings.wordGrouping - timings.counterUpdate) / totalDuration * 100).toFixed(1) + '%'
+          }
+        });
+      } else {
+        const responseText = await response.text().catch(() => 'Unable to read response');
+        throw new Error(`Counter update failed with status: ${response.status}, response: ${responseText}`);
+      }
     } else {
-      Logger.debug(env, 'No profanity detected', { chatId, userId });
+      const totalDuration = Date.now() - startTime;
+      timings.total = totalDuration;
+      
+      Logger.debug(env, 'Profanity analysis: no profanity detected with timing details', { 
+        chatId: chatId.toString(36), 
+        userId: userId.toString(36),
+        timings,
+        textLength: msg.text?.length || 0,
+        analysisEfficiency: timings.analysis < 100 ? 'excellent' : timings.analysis < 500 ? 'good' : 'slow'
+      });
     }
   } catch (error: any) {
+    const totalDuration = Date.now() - startTime;
+    timings.total = totalDuration;
+    
     // Log error but don't throw - profanity analysis failures shouldn't break message processing
-    Logger.error('Profanity analysis failed', {
-      chatId,
-      userId,
+    Logger.error('Profanity analysis: background processing failed with detailed context', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
+      username,
+      messageId: msg.message_id,
+      textLength: msg.text?.length || 0,
+      timings,
       error: error.message || String(error),
-      stack: error.stack
+      stack: error.stack,
+      errorPhase: this.determineBackgroundErrorPhase(timings),
+      partialResults: {
+        providerCreated: !!timings.providerCreation,
+        analysisStarted: !!timings.analysis,
+        wordGroupingCompleted: !!timings.wordGrouping,
+        counterUpdateAttempted: !!timings.counterUpdate
+      }
     });
   }
+}
+
+function determineBackgroundErrorPhase(timings: Record<string, number>): string {
+  if (timings.counterUpdate) return 'counter-update';
+  if (timings.wordGrouping) return 'word-grouping';
+  if (timings.analysis) return 'analysis';
+  if (timings.providerCreation) return 'provider-creation';
+  return 'initialization';
 }
 
 export async function handleUpdate(msg: any, env: Env) {
