@@ -8,7 +8,9 @@ import {
   SummaryOptions,
   ProviderInfo,
   ProviderError,
+  ProfanityAnalysisResult,
   MESSAGE_SEPARATOR,
+  getProfanityPrompts,
 } from "./ai-provider";
 
 interface OpenAIChatRequest {
@@ -161,6 +163,132 @@ export class OpenAIProvider implements AIProvider {
     if (!this.apiKey) {
       const keyName = this.providerType === 'premium' ? 'OPENAI_PREMIUM_API_KEY' : 'OPENAI_API_KEY';
       throw new Error(`${keyName} is required for OpenAI ${this.providerType} provider`);
+    }
+  }
+
+  async analyzeProfanity(text: string, env?: any): Promise<ProfanityAnalysisResult> {
+    const startTime = Date.now();
+    
+    try {
+      if (env) {
+        Logger.debug(env, 'OpenAI profanity analysis: starting', {
+          provider: 'openai',
+          model: this.model,
+          textLength: text.length,
+          providerType: this.providerType
+        });
+      }
+
+      const { systemPrompt, userPrompt } = getProfanityPrompts(env);
+      const messages: ChatMessage[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `${userPrompt}\n${text}` }
+      ];
+
+      const options: SummaryOptions = {
+        maxTokens: 500,
+        temperature: 0.1,
+        topP: 0.9
+      };
+
+      const response = await this.callOpenAI(messages, options);
+      const result = response.choices[0].message.content.trim();
+      
+      if (env) {
+        Logger.debug(env, 'OpenAI profanity analysis: raw response received', {
+          provider: 'openai',
+          responseLength: result.length,
+          tokensUsed: response.usage?.total_tokens || 0
+        });
+      }
+      
+      // Parse JSON response
+      const parsedResult = this.parseProfanityResponse(result);
+      
+      const duration = Date.now() - startTime;
+      if (env) {
+        Logger.debug(env, 'OpenAI profanity analysis: completed successfully', {
+          provider: 'openai',
+          duration,
+          hasProfanity: parsedResult.hasProfanity,
+          wordsFound: parsedResult.words.length,
+          tokensUsed: response.usage?.total_tokens || 0
+        });
+      }
+      
+      return parsedResult;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      
+      if (env) {
+        Logger.error('OpenAI profanity analysis: failed', {
+          provider: 'openai',
+          model: this.model,
+          providerType: this.providerType,
+          textLength: text.length,
+          duration,
+          error: error.message || String(error),
+          errorType: error.constructor.name,
+          stack: error.stack
+        });
+      }
+
+      if (error instanceof ProviderError) {
+        throw error;
+      }
+      throw new ProviderError(
+        `OpenAI profanity analysis error: ${error.message || String(error)}`,
+        'openai',
+        error
+      );
+    }
+  }
+
+  private parseProfanityResponse(response: string): ProfanityAnalysisResult {
+    try {
+      // Clean up response - remove any markdown formatting or extra text
+      let cleanResponse = response.trim();
+      
+      // Find JSON content between curly braces
+      const jsonMatch = cleanResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanResponse = jsonMatch[0];
+      }
+      
+      const parsed = JSON.parse(cleanResponse);
+      
+      // Validate response structure
+      if (typeof parsed.hasProfanity !== 'boolean') {
+        throw new Error('Invalid response: hasProfanity must be boolean');
+      }
+      
+      if (!Array.isArray(parsed.words)) {
+        throw new Error('Invalid response: words must be array');
+      }
+      
+      // Validate each word entry
+      for (const word of parsed.words) {
+        if (typeof word.word !== 'string' || typeof word.baseForm !== 'string') {
+          throw new Error('Invalid response: word entries must have string word and baseForm');
+        }
+        if (typeof word.confidence !== 'number' || word.confidence < 0 || word.confidence > 1) {
+          throw new Error('Invalid response: confidence must be number between 0 and 1');
+        }
+      }
+      
+      return parsed as ProfanityAnalysisResult;
+    } catch (error) {
+      Logger.error('OpenAI profanity analysis: response parsing failed', {
+        provider: 'openai',
+        rawResponse: response.substring(0, 200) + (response.length > 200 ? '...' : ''),
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
+      // Return safe fallback on parsing error
+      return {
+        hasProfanity: false,
+        words: []
+      };
     }
   }
 
