@@ -584,7 +584,7 @@ describe('Summary Providers Integration Tests', () => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/sendMessage'),
         expect.objectContaining({
-          body: expect.stringContaining('Ошибка при создании сводки')
+          body: expect.stringContaining('Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.')
         })
       );
     });
