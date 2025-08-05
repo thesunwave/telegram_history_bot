@@ -622,7 +622,7 @@ export async function profanityWordsStats(
     const lines = [`Топ матерных слов ${periodText}:`];
     for (let i = 0; i < topWords.length; i++) {
       const word = topWords[i];
-      lines.push(`${i + 1}. ${word.censored}: ${word.count}`);
+      lines.push(`${i + 1}. ${word.word}: ${word.count}`);
     }
     
     const text = lines.join('\n');
