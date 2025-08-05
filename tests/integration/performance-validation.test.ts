@@ -30,7 +30,7 @@ describe('Performance Validation and Optimization', () => {
     apiRequestCounter = 0;
     
     env = {
-      HISTORY: history,
+      HISTORY: history as any,
       COUNTERS: {} as any,
       COUNTERS_DO: {} as any,
       DB: {} as any,

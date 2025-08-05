@@ -27,7 +27,7 @@ describe('Error Handling Integration Tests', () => {
     const history = new KVNamespace(new MemoryStorage());
     
     env = {
-      HISTORY: history,
+      HISTORY: history as any,
       COUNTERS: {} as any,
       COUNTERS_DO: {} as any,
       DB: {} as any,
