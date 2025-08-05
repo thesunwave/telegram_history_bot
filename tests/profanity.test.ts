@@ -1,58 +1,47 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ProfanityAnalyzer, generateCacheKey, ProfanityResult } from '../src/profanity';
-import { ProfanityAnalysisResult } from '../src/providers/ai-provider';
+import { ProfanityAnalyzer, ProfanityResult } from '../src/profanity';
 import { hashText } from '../src/utils';
-import { AIProvider } from '../src/providers/ai-provider';
 import { Env } from '../src/env';
 
-// Mock AI Provider
-class MockAIProvider implements AIProvider {
-  async summarize(): Promise<string> {
-    return 'mock summary';
-  }
-  
-  async analyzeProfanity(text: string, env?: any): Promise<ProfanityAnalysisResult> {
-    // Mock implementation that returns no profanity
-    return {
-      hasProfanity: false,
-      words: []
-    };
-  }
-  
-  validateConfig(): void {}
-  
-  getProviderInfo() {
-    return { name: 'mock', model: 'mock-model' };
-  }
+// Helper function to generate cache key for testing
+function generateCacheKey(text: string): string {
+  const textHash = hashText(text);
+  return `profanity_cache:${textHash}`;
 }
 
-// Mock environment
-const createMockEnv = (): Env => ({
-  COUNTERS: {
-    get: vi.fn().mockResolvedValue(null),
-    put: vi.fn().mockResolvedValue(undefined),
-  } as any,
-  HISTORY: {} as any,
-  COUNTERS_DO: {} as any,
-  DB: {} as any,
-  AI: {} as any,
-  TOKEN: 'test-token',
-  SECRET: 'test-secret',
-  SUMMARY_MODEL: 'test-model',
-  SUMMARY_PROMPT: 'test-prompt',
-  PROFANITY_SYSTEM_PROMPT: 'test-profanity-system-prompt',
-  PROFANITY_USER_PROMPT: 'test-profanity-user-prompt',
-});
+// Mock environment setup
+const createMockEnv = (): Env => {
+  const mockAI = {
+    run: vi.fn()
+  };
+  
+  return {
+    COUNTERS: {
+      get: vi.fn().mockResolvedValue(null),
+      put: vi.fn().mockResolvedValue(undefined),
+    } as any,
+    HISTORY: {} as any,
+    COUNTERS_DO: {} as any,
+    DB: {} as any,
+    AI: mockAI as any,
+    TOKEN: 'test-token',
+    SECRET: 'test-secret',
+    SUMMARY_MODEL: 'test-model',
+    SUMMARY_PROMPT: 'test-prompt',
+    PROFANITY_SYSTEM_PROMPT: 'test-profanity-system-prompt',
+    PROFANITY_USER_PROMPT: 'test-profanity-user-prompt',
+  };
+};
+
+
 
 describe('Profanity Analysis Infrastructure', () => {
   let mockEnv: Env;
-  let mockAIProvider: MockAIProvider;
   let profanityAnalyzer: ProfanityAnalyzer;
 
   beforeEach(() => {
     mockEnv = createMockEnv();
-    mockAIProvider = new MockAIProvider();
-    profanityAnalyzer = new ProfanityAnalyzer(mockAIProvider);
+    profanityAnalyzer = new ProfanityAnalyzer();
     vi.clearAllMocks();
   });
 
@@ -249,5 +238,150 @@ describe('Profanity Analysis Infrastructure', () => {
         totalCount: 0
       });
     });
+  });
+});
+
+describe('Circuit Breaker', () => {
+  let mockEnv: any;
+
+  beforeEach(() => {
+    mockEnv = createMockEnv();
+    vi.clearAllMocks();
+  });
+
+  it('should open circuit after multiple failures', async () => {
+    // Configure AI to always fail
+    vi.mocked(mockEnv.AI.run).mockRejectedValue(new Error('AI service unavailable'));
+    
+    const analyzer = new ProfanityAnalyzer();
+    
+    // Mock cache miss for all requests
+    vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+    
+    // Trigger 5 failures to open the circuit
+    for (let i = 0; i < 5; i++) {
+      const result = await analyzer.analyzeMessage('test message', mockEnv);
+      expect(result.words).toEqual([]);
+      expect(result.totalCount).toBe(0);
+    }
+    
+    // Reset AI to working state
+    vi.mocked(mockEnv.AI.run).mockResolvedValue({ response: JSON.stringify({ words: [], totalCount: 0 }) });
+    
+    // Next request should be blocked by circuit breaker
+    const result = await analyzer.analyzeMessage('test message', mockEnv);
+    expect(result.words).toEqual([]);
+    expect(result.totalCount).toBe(0);
+    
+    // Verify that AI was called 5 times (initial failures), then circuit opened
+    expect(mockEnv.AI.run).toHaveBeenCalledTimes(5);
+  });
+
+  it('should close circuit after timeout period', async () => {
+    // Configure AI to fail initially
+    vi.mocked(mockEnv.AI.run).mockRejectedValue(new Error('AI service unavailable'));
+    
+    const analyzer = new ProfanityAnalyzer();
+    
+    // Mock cache miss for all requests
+    vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+    
+    // Trigger failures to open circuit
+    for (let i = 0; i < 5; i++) {
+      await analyzer.analyzeMessage('test message', mockEnv);
+    }
+    
+    // Mock time passage (circuit breaker timeout is 60 seconds)
+    const originalNow = Date.now;
+    Date.now = vi.fn(() => originalNow() + 61000); // 61 seconds later
+    
+    // Fix AI
+    vi.mocked(mockEnv.AI.run).mockResolvedValue({ response: JSON.stringify({ words: [], totalCount: 0 }) });
+    
+    // Circuit should be closed now and allow requests
+    const result = await analyzer.analyzeMessage('test message', mockEnv);
+    expect(result.words).toEqual([]);
+    expect(result.totalCount).toBe(0);
+    
+    // Verify that AI was called again (circuit is now closed)
+    expect(mockEnv.AI.run).toHaveBeenCalledTimes(5); // 5 initial failures, circuit opens, then 1 success after circuit closed
+    
+    // Restore original Date.now
+    Date.now = originalNow;
+  });
+
+  it('should reset failure count after successful period', async () => {
+    // Configure AI to fail initially
+    vi.mocked(mockEnv.AI.run).mockRejectedValue(new Error('AI service unavailable'));
+    
+    const analyzer = new ProfanityAnalyzer();
+    
+    // Mock cache miss for all requests
+    vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+    
+    // Trigger 3 failures (below threshold)
+    for (let i = 0; i < 3; i++) {
+      await analyzer.analyzeMessage('test message', mockEnv);
+    }
+    
+    // Fix AI and make successful request
+    vi.mocked(mockEnv.AI.run).mockResolvedValue({ response: JSON.stringify({ words: [], totalCount: 0 }) });
+    
+    await analyzer.analyzeMessage('test message', mockEnv);
+    
+    // Mock time passage (reset timeout is 5 minutes)
+    const originalNow = Date.now;
+    Date.now = vi.fn(() => originalNow() + 301000); // 5 minutes + 1 second later
+    
+    // Make another successful request to trigger reset
+    await analyzer.analyzeMessage('test message', mockEnv);
+    
+    // Now trigger more failures - should need 5 failures again to open circuit
+    vi.mocked(mockEnv.AI.run).mockRejectedValue(new Error('AI service unavailable'));
+    
+    for (let i = 0; i < 4; i++) {
+      const result = await analyzer.analyzeMessage('test message', mockEnv);
+      expect(result.words).toEqual([]);
+      expect(result.totalCount).toBe(0);
+    }
+    
+    // Circuit should still be closed after 4 failures (reset worked)
+    vi.mocked(mockEnv.AI.run).mockResolvedValue({ response: JSON.stringify({ words: [], totalCount: 0 }) });
+    const result = await analyzer.analyzeMessage('test message', mockEnv);
+    expect(result.words).toEqual([]);
+    expect(result.totalCount).toBe(0);
+    
+    // Restore original Date.now
+    Date.now = originalNow;
+  });
+
+  it('should handle timeout errors as failures', async () => {
+    // Configure AI to timeout (simulate by making it hang)
+    vi.mocked(mockEnv.AI.run).mockImplementation(() => 
+      new Promise(resolve => setTimeout(() => resolve({ response: JSON.stringify({ words: [], totalCount: 0 }) }), 200))
+    );
+    
+    const analyzer = new ProfanityAnalyzer();
+    
+    // Mock cache miss for all requests
+    vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+    
+    // Trigger timeouts to open circuit (each call will timeout)
+    for (let i = 0; i < 5; i++) {
+      const result = await analyzer.analyzeMessage('test message', mockEnv);
+      expect(result.words).toEqual([]);
+      expect(result.totalCount).toBe(0);
+    }
+    
+    // Reset AI to working state
+    vi.mocked(mockEnv.AI.run).mockResolvedValue({ response: JSON.stringify({ words: [], totalCount: 0 }) });
+    
+    // Next request should be blocked by circuit breaker
+    const result = await analyzer.analyzeMessage('test message', mockEnv);
+    expect(result.words).toEqual([]);
+    expect(result.totalCount).toBe(0);
+    
+    // Verify that AI was not called for the last request (circuit is open)
+    expect(mockEnv.AI.run).toHaveBeenCalledTimes(5); // Only the initial 5 failing calls
   });
 });

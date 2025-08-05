@@ -66,6 +66,8 @@ export class CountersDO {
         return new Response('error', { status: 500 });
       }
       return new Response('ok');
+    } else if (endpoint === '/batch') {
+      return await this.processBatchRequest(request);
     }
     
     return new Response('Not found', { status: 404 });
@@ -169,6 +171,100 @@ export class CountersDO {
         stack: error.stack
       });
       throw error;
+    }
+  }
+
+  private async processBatchRequest(request: Request): Promise<Response> {
+    try {
+      const { items } = await request.json() as { 
+        items: Array<{ 
+          type: 'activity' | 'profanity'; 
+          chatId: number; 
+          userId: number; 
+          username?: string; 
+          day: string; 
+          count?: number; 
+          words?: Array<{ baseForm: string; count: number }>;
+        }> 
+      };
+
+      if (!Array.isArray(items) || items.length === 0) {
+        return new Response('Invalid batch format', { status: 400 });
+      }
+
+      const updates: Record<string, string> = {};
+      const userUpdates: Record<string, string> = {};
+
+      // Process all items in batch
+      for (const item of items) {
+        if (item.type === 'activity') {
+          const statsKey = `${STATS_PREFIX}:${item.chatId}:${item.userId}:${item.day}`;
+          const currentCount = parseInt((await this.env.COUNTERS.get(statsKey)) || '0', 10);
+          updates[statsKey] = String(currentCount + 1);
+          
+          if (item.username) {
+            userUpdates[`${USER_PREFIX}:${item.userId}`] = item.username;
+          }
+
+          const activityKey = `${ACTIVITY_PREFIX}:${item.chatId}:${item.day}`;
+          const currentActivityCount = parseInt((await this.env.COUNTERS.get(activityKey)) || '0', 10);
+          updates[activityKey] = String(currentActivityCount + 1);
+
+        } else if (item.type === 'profanity') {
+          if (!item.count || !item.words) continue;
+
+          if (item.username) {
+            userUpdates[`${USER_PREFIX}:${item.userId}`] = item.username;
+          }
+
+          // User profanity counter
+          const userProfanityKey = `${PROFANITY_USER_PREFIX}:${item.chatId}:${item.userId}:${item.day}`;
+          const currentUserCount = parseInt((await this.env.COUNTERS.get(userProfanityKey)) || '0', 10);
+          updates[userProfanityKey] = String(currentUserCount + item.count);
+
+          // Word profanity counters
+          for (const word of item.words) {
+            const wordKey = `${PROFANITY_WORDS_PREFIX}:${item.chatId}:${word.baseForm}:${item.day}`;
+            const currentWordCount = parseInt((await this.env.COUNTERS.get(wordKey)) || '0', 10);
+            updates[wordKey] = String(currentWordCount + word.count);
+          }
+        }
+      }
+
+      // Batch write all updates
+      const allUpdates = { ...updates, ...userUpdates };
+      await Promise.all(
+        Object.entries(allUpdates).map(([key, value]) => this.env.COUNTERS.put(key, value))
+      );
+
+      // Process database updates for activity items
+      if (this.env.DB) {
+        const activityItems = items.filter(item => item.type === 'activity');
+        if (activityItems.length > 0) {
+          const stmt = this.env.DB.prepare(
+            'INSERT INTO activity (chat_id, day, count) VALUES (?, ?, 1) ' +
+            'ON CONFLICT(chat_id, day) DO UPDATE SET count = count + 1'
+          );
+          
+          const dbPromises = activityItems.map(item => 
+            stmt.bind(item.chatId, item.day).run()
+          );
+          
+          try {
+            await Promise.all(dbPromises);
+          } catch (e: any) {
+            console.error('activity db batch error', e.message || String(e));
+          }
+        }
+      }
+
+      return new Response(JSON.stringify({ success: true, processed: items.length }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+    } catch (error) {
+      console.error('Batch processing error', error);
+      return new Response('Invalid batch request', { status: 400 });
     }
   }
 }
