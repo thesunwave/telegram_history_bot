@@ -11,7 +11,7 @@ import { sendMessage } from "./telegram";
 import { ProviderFactory } from "./providers/provider-factory";
 import { ProviderInitializer } from "./providers/provider-init";
 import { SummaryOptions, TelegramMessage, SummaryRequest, ProviderError } from "./providers/ai-provider";
-import { Logger } from "./logger";
+import { Logger, PerformanceTracker } from "./logger";
 
 function filterContentMessages(messages: TelegramMessage[]): TelegramMessage[] {
   return messages.filter(msg => {
@@ -168,11 +168,16 @@ function createSummaryRequest(messages: TelegramMessage[], env: Env, limitNote: 
 }
 
 export async function summariseChat(env: Env, chatId: number, days: number) {
+  const trackerId = PerformanceTracker.start('summariseChat', chatId.toString(LOG_ID_RADIX), { days });
+  let allMessages: any[] = [];
+  let messages: any[] = [];
+  
   Logger.debug(env, "summariseChat started", {
     chat: chatId.toString(LOG_ID_RADIX),
     days,
     model: env.SUMMARY_MODEL,
     providerInitialized: ProviderInitializer.isProviderInitialized(),
+    trackerId
   });
 
   const end = Math.floor(Date.now() / 1000);
@@ -184,14 +189,35 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
   });
 
   try {
-    // Fetch messages
-    const allMessages = await fetchMessages(env, chatId, start, end);
-    const messages = filterContentMessages(allMessages);
+    // Fetch messages with performance tracking
+    const fetchStartTime = Date.now();
+    allMessages = await fetchMessages(env, chatId, start, end);
+    const fetchDuration = Date.now() - fetchStartTime;
+    
+    messages = filterContentMessages(allMessages);
+    
     Logger.debug(env, "summariseChat messages fetched and filtered", {
       chat: chatId.toString(LOG_ID_RADIX),
       totalCount: allMessages.length,
       filteredCount: messages.length,
-      removedCount: allMessages.length - messages.length
+      removedCount: allMessages.length - messages.length,
+      fetchDuration
+    });
+
+    // Log API request pattern for message fetching
+    Logger.logApiRequestPattern(env, 'fetchMessages', {
+      requestCount: allMessages.length,
+      duration: fetchDuration,
+      successRate: 100, // We got results, so consider it successful
+      chatId: chatId.toString(LOG_ID_RADIX)
+    });
+
+    // Log performance insight for message fetching
+    Logger.logPerformanceInsight(env, 'summariseChat', {
+      duration: fetchDuration,
+      itemsProcessed: allMessages.length,
+      chatId: chatId.toString(LOG_ID_RADIX),
+      stage: 'message_fetch'
     });
 
     if (!messages.length) {
@@ -199,6 +225,13 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         chat: chatId.toString(LOG_ID_RADIX),
         originalCount: allMessages.length
       });
+      
+      const metrics = PerformanceTracker.end(trackerId, { 
+        result: 'no_messages', 
+        totalMessages: allMessages.length,
+        filteredMessages: 0 
+      });
+      
       if (allMessages.length > 0) {
         await sendMessage(env, chatId, "В данном периоде содержательных обсуждений не было, только команды бота и системные сообщения.");
       } else {
@@ -255,6 +288,8 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     const summaryOptions = buildAiOptions(env);
 
     async function summariseMessages(messagesToSummarize: TelegramMessage[], stage: string): Promise<string> {
+      const aiStartTime = Date.now();
+      
       Logger.debug(env, "summarize AI request", {
         chat: chatId.toString(LOG_ID_RADIX),
         stage,
@@ -266,24 +301,56 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       try {
         const request = createSummaryRequest(messagesToSummarize, env, limitNote, chatId, start, end);
         const resp = await provider.summarize(request, summaryOptions, env);
+        const aiDuration = Date.now() - aiStartTime;
 
         Logger.debug(env, "summarize AI response received", {
           chat: chatId.toString(LOG_ID_RADIX),
           stage,
           provider: providerInfo.name,
           responseLength: resp.length,
+          aiDuration
+        });
+
+        // Log AI request pattern
+        Logger.logApiRequestPattern(env, `AI_${stage}`, {
+          requestCount: 1,
+          duration: aiDuration,
+          successRate: 100,
+          chatId: chatId.toString(LOG_ID_RADIX)
+        });
+
+        // Log AI performance insight
+        Logger.logPerformanceInsight(env, 'summariseChat', {
+          duration: aiDuration,
+          itemsProcessed: messagesToSummarize.length,
+          chatId: chatId.toString(LOG_ID_RADIX),
+          stage: `ai_${stage}`,
+          insights: aiDuration > 10000 ? ['SLOW_AI_RESPONSE'] : []
         });
 
         return truncateText(resp, TELEGRAM_LIMIT);
       } catch (error) {
+        const aiDuration = Date.now() - aiStartTime;
         const e = error as Error;
+        
         Logger.error("summarize AI error", {
           chat: chatId.toString(LOG_ID_RADIX),
           stage,
           provider: providerInfo.name,
           error: e.message || String(e),
           stack: e.stack,
+          aiDuration
         });
+
+        // Log failed AI request pattern
+        Logger.logApiRequestPattern(env, `AI_${stage}_FAILED`, {
+          requestCount: 1,
+          duration: aiDuration,
+          successRate: 0,
+          errorTypes: [e.constructor.name],
+          chatId: chatId.toString(LOG_ID_RADIX)
+        });
+
         throw error;
       }
     }
@@ -310,6 +377,8 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     }
 
     let summary = "";
+    const summaryStartTime = Date.now();
+    
     try {
       if (parts.length > 1) {
         const partials = [] as string[];
@@ -325,6 +394,21 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       } else {
         summary = await summariseMessages(messages, "single");
       }
+      
+      const summaryDuration = Date.now() - summaryStartTime;
+      
+      // Log overall summary performance
+      Logger.logPerformanceInsight(env, 'summariseChat', {
+        duration: summaryDuration,
+        itemsProcessed: messages.length,
+        chatId: chatId.toString(LOG_ID_RADIX),
+        stage: 'ai_summary_complete',
+        insights: [
+          parts.length > 1 ? 'MULTI_PART_SUMMARY' : 'SINGLE_PART_SUMMARY',
+          `${parts.length}_CHUNKS`
+        ]
+      });
+      
     } catch (error) {
       const e = error as Error;
       Logger.error("summarize error", {
@@ -411,6 +495,31 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       Logger.debug(env, "summarize message sent", {
         chat: chatId.toString(LOG_ID_RADIX),
       });
+      
+      // Track successful completion
+      const finalMetrics = PerformanceTracker.end(trackerId, { 
+        result: 'success',
+        totalMessages: allMessages.length,
+        filteredMessages: messages.length,
+        summaryLength: summary.length,
+        chunks: parts.length
+      });
+      
+      // Log overall function performance insight
+      if (finalMetrics) {
+        Logger.logPerformanceInsight(env, 'summariseChat', {
+          duration: finalMetrics.duration,
+          itemsProcessed: messages.length,
+          chatId: chatId.toString(LOG_ID_RADIX),
+          stage: 'complete',
+          insights: [
+            `${days}_DAYS`,
+            `${parts.length}_CHUNKS`,
+            finalMetrics.duration > 30000 ? 'SLOW_OVERALL' : 'NORMAL_SPEED'
+          ]
+        });
+      }
+      
     } catch (error) {
       const e = error as Error;
       Logger.error("summarize send message error", {
@@ -465,9 +574,8 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       }
     }
   } finally {
-    Logger.debug(env, "summariseChat finished", {
-      chat: chatId.toString(LOG_ID_RADIX),
-    });
+    // Cleanup any remaining performance trackers
+    PerformanceTracker.cleanup();
   }
 }
 
@@ -476,21 +584,47 @@ export async function summariseChatMessages(
   chatId: number,
   count: number,
 ) {
+  const trackerId = PerformanceTracker.start('summariseChatMessages', chatId.toString(LOG_ID_RADIX), { count });
+  let allMessages: any[] = [];
+  let messages: any[] = [];
+  
   Logger.debug(env, 'summariseChatMessages started', {
     chat: chatId.toString(LOG_ID_RADIX),
     count,
     model: env.SUMMARY_MODEL,
     providerInitialized: ProviderInitializer.isProviderInitialized(),
+    trackerId
   });
   try {
-    const allMessages = await fetchLastMessages(env, chatId, count);
-    const messages = filterContentMessages(allMessages);
+    // Fetch messages with performance tracking
+    const fetchStartTime = Date.now();
+    allMessages = await fetchLastMessages(env, chatId, count);
+    const fetchDuration = Date.now() - fetchStartTime;
+    
+    messages = filterContentMessages(allMessages);
 
     Logger.debug(env, 'summariseChatMessages messages fetched and filtered', {
       chat: chatId.toString(LOG_ID_RADIX),
       totalCount: allMessages.length,
       filteredCount: messages.length,
-      removedCount: allMessages.length - messages.length
+      removedCount: allMessages.length - messages.length,
+      fetchDuration
+    });
+
+    // Log API request pattern for message fetching
+    Logger.logApiRequestPattern(env, 'fetchLastMessages', {
+      requestCount: allMessages.length,
+      duration: fetchDuration,
+      successRate: 100, // We got results, so consider it successful
+      chatId: chatId.toString(LOG_ID_RADIX)
+    });
+
+    // Log performance insight for message fetching
+    Logger.logPerformanceInsight(env, 'summariseChatMessages', {
+      duration: fetchDuration,
+      itemsProcessed: allMessages.length,
+      chatId: chatId.toString(LOG_ID_RADIX),
+      stage: 'message_fetch'
     });
 
     if (!messages.length) {
@@ -498,6 +632,13 @@ export async function summariseChatMessages(
         chat: chatId.toString(LOG_ID_RADIX),
         originalCount: allMessages.length
       });
+      
+      const metrics = PerformanceTracker.end(trackerId, { 
+        result: 'no_messages', 
+        totalMessages: allMessages.length,
+        filteredMessages: 0 
+      });
+      
       if (allMessages.length > 0) {
         await sendMessage(env, chatId, 'В данном периоде были только команды бота, содержательных сообщений не найдено.');
       } else {
@@ -536,6 +677,8 @@ export async function summariseChatMessages(
       }))
     });
 
+    const aiStartTime = Date.now();
+    
     Logger.debug(env, 'summariseChatMessages AI request', {
       chat: chatId.toString(LOG_ID_RADIX),
       provider: providerInfo.name,
@@ -547,14 +690,36 @@ export async function summariseChatMessages(
       const request = createSummaryRequest(messages, env, limitNote, chatId);
       const aiResp = await provider.summarize(request, summaryOptions, env);
       summary = truncateText(aiResp, TELEGRAM_LIMIT);
+      const aiDuration = Date.now() - aiStartTime;
 
       Logger.debug(env, 'summariseChatMessages AI response received', {
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
         responseLength: summary.length,
+        aiDuration
       });
+
+      // Log AI request pattern
+      Logger.logApiRequestPattern(env, 'AI_single', {
+        requestCount: 1,
+        duration: aiDuration,
+        successRate: 100,
+        chatId: chatId.toString(LOG_ID_RADIX)
+      });
+
+      // Log AI performance insight
+      Logger.logPerformanceInsight(env, 'summariseChatMessages', {
+        duration: aiDuration,
+        itemsProcessed: messages.length,
+        chatId: chatId.toString(LOG_ID_RADIX),
+        stage: 'ai_single',
+        insights: aiDuration > 10000 ? ['SLOW_AI_RESPONSE'] : []
+      });
+      
     } catch (error) {
+      const aiDuration = Date.now() - aiStartTime;
       const e = error as Error;
+      
       Logger.error('summariseChatMessages AI error', {
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
@@ -565,6 +730,16 @@ export async function summariseChatMessages(
         errorType: e.constructor.name,
         isProviderError: error instanceof ProviderError,
         stack: e.stack,
+        aiDuration
+      });
+
+      // Log failed AI request pattern
+      Logger.logApiRequestPattern(env, 'AI_single_FAILED', {
+        requestCount: 1,
+        duration: aiDuration,
+        successRate: 0,
+        errorTypes: [e.constructor.name],
+        chatId: chatId.toString(LOG_ID_RADIX)
       });
 
       // Provide more specific error messages based on error type
@@ -612,6 +787,29 @@ export async function summariseChatMessages(
     }
 
     await sendMessage(env, chatId, summary);
+    
+    // Track successful completion
+    const finalMetrics = PerformanceTracker.end(trackerId, { 
+      result: 'success',
+      totalMessages: allMessages.length,
+      filteredMessages: messages.length,
+      summaryLength: summary.length
+    });
+    
+    // Log overall function performance insight
+    if (finalMetrics) {
+      Logger.logPerformanceInsight(env, 'summariseChatMessages', {
+        duration: finalMetrics.duration,
+        itemsProcessed: messages.length,
+        chatId: chatId.toString(LOG_ID_RADIX),
+        stage: 'complete',
+        insights: [
+          `${count}_MESSAGES_REQUESTED`,
+          finalMetrics.duration > 15000 ? 'SLOW_OVERALL' : 'NORMAL_SPEED'
+        ]
+      });
+    }
+    
   } catch (error) {
     const e = error as Error;
     Logger.error('summariseChatMessages unhandled error', {
@@ -656,8 +854,7 @@ export async function summariseChatMessages(
       }
     }
   } finally {
-    Logger.debug(env, 'summariseChatMessages finished', {
-      chat: chatId.toString(LOG_ID_RADIX),
-    });
+    // Cleanup any remaining performance trackers
+    PerformanceTracker.cleanup();
   }
 }
