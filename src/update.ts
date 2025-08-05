@@ -1,7 +1,7 @@
 import { Env, DAY, MAX_LAST_MESSAGES } from './env';
 import type { KVNamespace, ExecutionContext } from '@cloudflare/workers-types';
 import { summariseChat, summariseChatMessages } from './summary';
-import { topChat, resetCounters, activityChart, activityByUser, profanityTopUsers, profanityWordsStats, myProfanityStats, profanityChart } from './stats';
+import { topChat, resetCounters, activityChart, activityByUser, profanityTopUsers, profanityWordsStats, myProfanityStats, profanityChart, resetProfanityCounters } from './stats';
 import { sendMessage } from './telegram';
 import { Logger } from './logger';
 import { ProfanityAnalyzer } from './profanity';
@@ -23,6 +23,7 @@ const HELP_TEXT = [
   '/my_profanity <period> – ваша статистика мата (опционально: today, week, month)',
   '/profanity_chart_week – график мата за неделю',
   '/profanity_chart_month – график мата за месяц',
+  '/profanity_reset – сбросить только счетчики мата для чата',
   '/reset – сбросить счетчики для чата',
   '/activity_week – график активности за неделю',
   '/activity_month – график активности за месяц',
@@ -216,6 +217,9 @@ export async function handleUpdate(msg: any, env: Env) {
     await profanityChart(env, chatId, 'week');
   } else if (msg.text.startsWith('/profanity_chart_month')) {
     await profanityChart(env, chatId, 'month');
+  } else if (msg.text.startsWith('/profanity_reset')) {
+    await resetProfanityCounters(env, chatId);
+    await sendMessage(env, chatId, 'Счетчики матерной лексики сброшены');
   } else if (msg.text.startsWith('/reset')) {
     await resetCounters(env, chatId);
     await sendMessage(env, chatId, 'Counters reset');
