@@ -18,9 +18,15 @@ const HELP_TEXT = [
   '/summary <days> – сводка за последние N дней (по умолчанию 1)',
   '/summary_last <n> – сводка последних N сообщений (по умолчанию 1, макс 40)',
   '/top <n> – топ N активных пользователей за сегодня (по умолчанию 5)',
-  '/profanity_top <n> <period> – топ N матершинников (по умолчанию 5, today)',
-  '/profanity_words <n> <period> – топ N матерных слов (по умолчанию 10, today)',
-  '/my_profanity <period> – ваша статистика мата (опционально: today, week, month)',
+  '/profanity_top [n] [period] – топ N матершинников',
+  '  Примеры: /profanity_top, /profanity_top 10, /profanity_top 5 week',
+  '  n: 1-20 (по умолчанию 5), period: today|week|month (по умолчанию today)',
+  '/profanity_words [n] [period] – топ N матерных слов',
+  '  Примеры: /profanity_words, /profanity_words 15, /profanity_words 20 month',
+  '  n: 1-20 (по умолчанию 10), period: today|week|month (по умолчанию today)',
+  '/my_profanity [period] – ваша статистика мата',
+  '  Примеры: /my_profanity, /my_profanity week, /my_profanity month',
+  '  period: today|week|month (по умолчанию показывает все периоды)',
   '/profanity_chart_week – график мата за неделю',
   '/profanity_chart_month – график мата за месяц',
   '/profanity_reset – сбросить только счетчики мата для чата',
@@ -130,7 +136,7 @@ async function analyzeProfanityAsync(
     // Create AI provider and profanity analyzer
     const providerStart = Date.now();
     const aiProvider = ProviderFactory.createProvider(env);
-    const profanityAnalyzer = new ProfanityAnalyzer(aiProvider);
+    const profanityAnalyzer = new ProfanityAnalyzer();
     timings.providerCreation = Date.now() - providerStart;
     
     Logger.debug(env, 'Profanity analysis: provider and analyzer created', {
@@ -249,7 +255,7 @@ async function analyzeProfanityAsync(
       timings,
       error: error.message || String(error),
       stack: error.stack,
-      errorPhase: this.determineBackgroundErrorPhase(timings),
+      errorPhase: determineBackgroundErrorPhase(timings),
       partialResults: {
         providerCreated: !!timings.providerCreation,
         analysisStarted: !!timings.analysis,
@@ -285,17 +291,17 @@ export async function handleUpdate(msg: any, env: Env) {
     await topChat(env, chatId, n, day);
   } else if (msg.text.startsWith('/profanity_top')) {
     const parts = msg.text.split(/\s+/);
-    const count = parseInt(parts[1] || '5', 10);
-    const period = parts[2] || 'today';
+    const count = Math.min(Math.max(parseInt(parts[1] || '5', 10), 1), 20);
+    const period = ['today', 'week', 'month'].includes(parts[2]) ? parts[2] : 'today';
     await profanityTopUsers(env, chatId, count, period);
   } else if (msg.text.startsWith('/profanity_words')) {
     const parts = msg.text.split(/\s+/);
-    const count = parseInt(parts[1] || '10', 10);
-    const period = parts[2] || 'today';
+    const count = Math.min(Math.max(parseInt(parts[1] || '10', 10), 1), 20);
+    const period = ['today', 'week', 'month'].includes(parts[2]) ? parts[2] : 'today';
     await profanityWordsStats(env, chatId, count, period);
   } else if (msg.text.startsWith('/my_profanity')) {
     const parts = msg.text.split(/\s+/);
-    const period = parts[1]; // Optional period parameter
+    const period = ['today', 'week', 'month'].includes(parts[1]) ? parts[1] : undefined;
     const userId = msg.from?.id || 0;
     await myProfanityStats(env, chatId, userId, period);
   } else if (msg.text.startsWith('/profanity_chart_week')) {
