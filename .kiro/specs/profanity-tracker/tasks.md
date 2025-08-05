@@ -38,27 +38,27 @@
     - Implement error handling for AI failures
     - _Requirements: 3.3, 3.5, 6.1_
 
-- [ ] 4. Implement profanity statistics and commands
-  - [ ] 4.1 Create profanity statistics functions
+- [x] 4. Implement profanity statistics and commands
+  - [x] 4.1 Create profanity statistics functions
     - Implement getTopUsers function for profanity rankings
     - Implement getTopWords function for word statistics
     - Implement getUserStats function for personal statistics
     - Add period filtering (today, week, month)
     - _Requirements: 1.1, 1.2, 1.3, 5.1, 5.2, 8.2, 8.3_
 
-  - [ ] 4.2 Add profanity top users command (/profanity_top)
+  - [x] 4.2 Add profanity top users command (/profanity_top)
     - Parse command parameters (count, period)
     - Fetch and format user statistics
     - Handle empty data cases
     - _Requirements: 1.1, 1.2, 1.3, 1.4_
 
-  - [ ] 4.3 Add profanity words statistics command (/profanity_words)
+  - [x] 4.3 Add profanity words statistics command (/profanity_words)
     - Parse command parameters (count, period)
     - Implement word grouping by base forms
     - Add word censoring for display
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
 
-  - [ ] 4.4 Add personal profanity statistics command (/my_profanity)
+  - [x] 4.4 Add personal profanity statistics command (/my_profanity)
     - Implement user-specific statistics retrieval
     - Format statistics for different periods
     - Handle users with no profanity data

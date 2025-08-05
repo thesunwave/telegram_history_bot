@@ -1,7 +1,7 @@
 import { Env, DAY, MAX_LAST_MESSAGES } from './env';
-import type { KVNamespace } from '@cloudflare/workers-types';
+import type { KVNamespace, ExecutionContext } from '@cloudflare/workers-types';
 import { summariseChat, summariseChatMessages } from './summary';
-import { topChat, resetCounters, activityChart, activityByUser } from './stats';
+import { topChat, resetCounters, activityChart, activityByUser, profanityTopUsers, profanityWordsStats, myProfanityStats } from './stats';
 import { sendMessage } from './telegram';
 import { Logger } from './logger';
 import { ProfanityAnalyzer } from './profanity';
@@ -18,6 +18,9 @@ const HELP_TEXT = [
   '/summary <days> – сводка за последние N дней (по умолчанию 1)',
   '/summary_last <n> – сводка последних N сообщений (по умолчанию 1, макс 40)',
   '/top <n> – топ N активных пользователей за сегодня (по умолчанию 5)',
+  '/profanity_top <n> <period> – топ N матершинников (по умолчанию 5, today)',
+  '/profanity_words <n> <period> – топ N матерных слов (по умолчанию 10, today)',
+  '/my_profanity <period> – ваша статистика мата (опционально: today, week, month)',
   '/reset – сбросить счетчики для чата',
   '/activity_week – график активности за неделю',
   '/activity_month – график активности за месяц',
@@ -192,6 +195,21 @@ export async function handleUpdate(msg: any, env: Env) {
   } else if (msg.text.startsWith('/top')) {
     const n = parseInt(msg.text.split(' ')[1] || '5');
     await topChat(env, chatId, n, day);
+  } else if (msg.text.startsWith('/profanity_top')) {
+    const parts = msg.text.split(/\s+/);
+    const count = parseInt(parts[1] || '5', 10);
+    const period = parts[2] || 'today';
+    await profanityTopUsers(env, chatId, count, period);
+  } else if (msg.text.startsWith('/profanity_words')) {
+    const parts = msg.text.split(/\s+/);
+    const count = parseInt(parts[1] || '10', 10);
+    const period = parts[2] || 'today';
+    await profanityWordsStats(env, chatId, count, period);
+  } else if (msg.text.startsWith('/my_profanity')) {
+    const parts = msg.text.split(/\s+/);
+    const period = parts[1]; // Optional period parameter
+    const userId = msg.from?.id || 0;
+    await myProfanityStats(env, chatId, userId, period);
   } else if (msg.text.startsWith('/reset')) {
     await resetCounters(env, chatId);
     await sendMessage(env, chatId, 'Counters reset');
