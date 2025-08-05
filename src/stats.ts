@@ -707,3 +707,99 @@ export async function myProfanityStats(
     await sendMessage(env, chatId, 'Ошибка при получении вашей статистики');
   }
 }
+
+// Profanity chart functionality
+export async function profanityChart(
+  env: Env,
+  chatId: number,
+  period: 'week' | 'month',
+) {
+  const prefix = `profanity:${chatId}:`;
+  let cursor: string | undefined = undefined;
+  const dailyTotals: Record<string, number> = {};
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const start = new Date(today);
+  start.setUTCDate(
+    start.getUTCDate() - (period === 'month' ? MONTH_DAYS : WEEK_DAYS),
+  );
+  const startStr = start.toISOString().slice(0, 10);
+
+  // Collect profanity data from KV storage
+  do {
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    const values = await Promise.all(
+      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
+    );
+    for (let i = 0; i < list.keys.length; i++) {
+      const [_, chat, user, day] = list.keys[i].name.split(':');
+      if (day >= startStr) {
+        const count = parseInt(values[i] || '0', 10);
+        dailyTotals[day] = (dailyTotals[day] || 0) + count;
+      }
+    }
+  } while (cursor);
+
+  let data: { label: string; value: number }[] = [];
+  
+  if (period === 'week') {
+    // Show daily data for the week
+    const labels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today.getTime() - i * DAY * 1000);
+      const key = d.toISOString().slice(0, 10);
+      data.push({ label: labels[d.getUTCDay()], value: dailyTotals[key] || 0 });
+    }
+  } else {
+    // Show weekly data for the month
+    const weeks = [0, 0, 0, 0];
+    for (const day in dailyTotals) {
+      const diff = Math.floor(
+        (today.getTime() - new Date(day).getTime()) / (DAY * 1000),
+      );
+      const idx = 3 - Math.floor(diff / 7);
+      if (idx >= 0 && idx < 4) weeks[idx] += dailyTotals[day];
+    }
+    for (let i = 0; i < 4; i++)
+      data.push({ label: `W${i + 1}`, value: weeks[i] });
+  }
+
+  // Format text output with ASCII chart
+  const periodText = period === 'week' ? 'за неделю' : 'за месяц';
+  const title = `Статистика мата ${periodText}`;
+  const textOutput = formatProfanityActivityText(data, title);
+  await sendMessage(env, chatId, textOutput);
+
+  // Try to generate QuickChart image if there's data
+  const hasData = data.some(d => d.value > 0);
+  if (hasData) {
+    try {
+      const labels = data.map(d => d.label);
+      const values = data.map(d => d.value);
+      const chartTitle = `Матерная лексика ${periodText}`;
+      const url = createBarChartUrl(labels, values, 'Количество', chartTitle);
+      await sendPhoto(env, chatId, url);
+    } catch (error: any) {
+      console.error('profanity chart generation error', {
+        chatId,
+        period,
+        error: error.message || String(error)
+      });
+      // Chart generation failure is not critical, text chart was already sent
+    }
+  }
+}
+
+// Helper function to format profanity activity text with ASCII chart
+function formatProfanityActivityText(data: { label: string; value: number }[], title: string): string {
+  if (data.length === 0) return 'Нет данных о матерной лексике';
+  
+  const hasData = data.some(d => d.value > 0);
+  if (!hasData) return 'Нет данных о матерной лексике';
+  
+  const text = drawGraph(data);
+  const total = data.reduce((sum, d) => sum + d.value, 0);
+  
+  return `${title}\n${text}\nВсего: ${total}`;
+}
