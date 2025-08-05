@@ -1,6 +1,5 @@
 import { Env } from "./env";
 import { Logger } from "./logger";
-import { AIProvider, ProfanityAnalysisResult } from "./providers/ai-provider";
 import { hashText } from "./utils";
 
 // Core interfaces for profanity detection
@@ -23,13 +22,152 @@ export function generateCacheKey(text: string): string {
   return `profanity_cache:${textHash}`;
 }
 
+// Cache entry with metadata for LRU
+interface CacheEntry {
+  result: ProfanityResult;
+  timestamp: number;
+  size: number;
+  accessCount: number;
+  lastAccess: number;
+}
+
+// Batching support for AI requests
+interface BatchRequest {
+  text: string;
+  resolve: (result: ProfanityResult) => void;
+  reject: (error: any) => void;
+}
+
+// Circuit breaker state for tracking AI failures
+interface CircuitBreakerState {
+  failures: number;
+  lastFailureTime: number;
+  isOpen: boolean;
+  lastSuccessTime: number;
+}
+
 // Main profanity analyzer class
 export class ProfanityAnalyzer {
   private static readonly CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
   private static readonly MAX_TEXT_LENGTH = 1000; // Limit analysis to first 1000 characters
   private static readonly ANALYSIS_TIMEOUT = 50; // 50ms timeout for analysis
+  
+  // Cache management
+  private static readonly MAX_CACHE_SIZE = 50 * 1024 * 1024; // 50MB max cache size
+  private static readonly MAX_CACHE_ENTRIES = 10000; // Max 10k entries
+  private static readonly CACHE_CLEANUP_THRESHOLD = 0.8; // Cleanup when 80% full
+  
+  // Batching configuration
+  private static readonly BATCH_SIZE = 5; // Max 5 messages per batch
+  private static readonly BATCH_TIMEOUT = 10; // 10ms batch timeout
+  
+  // Circuit breaker configuration
+  private static readonly CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5; // Open circuit after 5 failures
+  private static readonly CIRCUIT_BREAKER_TIMEOUT = 60 * 1000; // 1 minute timeout when circuit is open
+  private static readonly CIRCUIT_BREAKER_RESET_TIMEOUT = 5 * 60 * 1000; // Reset failure count after 5 minutes of success
+  
+  private static readonly COUNTER_BATCH_SIZE = 25;
+  private static readonly COUNTER_BATCH_TIMEOUT_MS = 50;
+  
+  private circuitBreakerState: CircuitBreakerState = {
+    failures: 0,
+    lastFailureTime: 0,
+    isOpen: false,
+    lastSuccessTime: Date.now()
+  };
+  
+  // Batching state
+  private batchQueue: BatchRequest[] = [];
+  private batchTimeout: NodeJS.Timeout | null = null;
+  private currentCacheSize = 0;
+  private cacheEntries = new Map<string, CacheEntry>();
+  private counterBatchQueue: Array<{
+    type: 'activity' | 'profanity';
+    chatId: number;
+    userId: number;
+    username: string;
+    day: string;
+    count: number;
+    words?: Record<string, number>;
+  }> = [];
+  private counterBatchTimeout: NodeJS.Timeout | null = null;
 
-  constructor(private aiProvider: AIProvider) {}
+  constructor() {}
+
+  private isCircuitBreakerOpen(): boolean {
+    const now = Date.now();
+    
+    // If circuit is open, check if timeout has passed
+    if (this.circuitBreakerState.isOpen) {
+      if (now - this.circuitBreakerState.lastFailureTime > ProfanityAnalyzer.CIRCUIT_BREAKER_TIMEOUT) {
+        // Try to close the circuit (half-open state)
+        this.circuitBreakerState.isOpen = false;
+        Logger.log('Profanity circuit breaker: attempting to close circuit', {
+          failureCount: this.circuitBreakerState.failures,
+          timeoutDuration: ProfanityAnalyzer.CIRCUIT_BREAKER_TIMEOUT,
+          timeSinceLastFailure: now - this.circuitBreakerState.lastFailureTime
+        });
+        return false;
+      }
+      return true;
+    }
+    
+    // Check if we should open the circuit due to too many failures
+    if (this.circuitBreakerState.failures >= ProfanityAnalyzer.CIRCUIT_BREAKER_FAILURE_THRESHOLD) {
+      this.circuitBreakerState.isOpen = true;
+      Logger.log('Profanity circuit breaker: opening circuit due to failures', {
+        failureCount: this.circuitBreakerState.failures,
+        threshold: ProfanityAnalyzer.CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+        timeoutDuration: ProfanityAnalyzer.CIRCUIT_BREAKER_TIMEOUT
+      });
+      return true;
+    }
+    
+    return false;
+  }
+
+  private recordAISuccess(): void {
+    const now = Date.now();
+    const wasOpen = this.circuitBreakerState.isOpen;
+    const previousLastSuccessTime = this.circuitBreakerState.lastSuccessTime;
+    
+    // Reset circuit breaker state on success
+    this.circuitBreakerState.isOpen = false;
+    this.circuitBreakerState.lastSuccessTime = now;
+    
+    // Reset failure count if enough time has passed since last success
+    if (now - previousLastSuccessTime > ProfanityAnalyzer.CIRCUIT_BREAKER_RESET_TIMEOUT) {
+      const previousFailures = this.circuitBreakerState.failures;
+      this.circuitBreakerState.failures = 0;
+      
+      if (previousFailures > 0) {
+        Logger.log('Profanity circuit breaker: reset failure count after successful period', {
+          previousFailures,
+          resetTimeout: ProfanityAnalyzer.CIRCUIT_BREAKER_RESET_TIMEOUT,
+          timeSinceLastSuccess: now - previousLastSuccessTime
+        });
+      }
+    }
+    
+    if (wasOpen) {
+      Logger.log('Profanity circuit breaker: circuit closed after successful request', {
+        previousFailures: this.circuitBreakerState.failures,
+        recoveryTime: now - this.circuitBreakerState.lastFailureTime
+      });
+    }
+  }
+
+  private recordAIFailure(): void {
+    const now = Date.now();
+    this.circuitBreakerState.failures++;
+    this.circuitBreakerState.lastFailureTime = now;
+    
+    Logger.log('Profanity circuit breaker: recorded AI failure', {
+      failureCount: this.circuitBreakerState.failures,
+      threshold: ProfanityAnalyzer.CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+      willOpenCircuit: this.circuitBreakerState.failures >= ProfanityAnalyzer.CIRCUIT_BREAKER_FAILURE_THRESHOLD
+    });
+  }
 
   async analyzeMessage(text: string, env: Env): Promise<ProfanityResult> {
     const startTime = Date.now();
@@ -43,7 +181,10 @@ export class ProfanityAnalyzer {
         maxLength: ProfanityAnalyzer.MAX_TEXT_LENGTH,
         timeout: ProfanityAnalyzer.ANALYSIS_TIMEOUT,
         cacheEnabled: true,
-        cacheTTL: ProfanityAnalyzer.CACHE_TTL
+        cacheTTL: ProfanityAnalyzer.CACHE_TTL,
+        batchingEnabled: true,
+        maxBatchSize: ProfanityAnalyzer.BATCH_SIZE,
+        batchTimeout: ProfanityAnalyzer.BATCH_TIMEOUT
       });
 
       // Limit text length for performance
@@ -82,12 +223,17 @@ export class ProfanityAnalyzer {
           totalDuration,
           timings,
           wordsFound: cachedResult.totalCount,
-          cacheEfficiency: 'high'
+          cacheEfficiency: 'high',
+          memoryCacheStats: {
+            entries: this.cacheEntries.size,
+            size: this.currentCacheSize
+          }
         });
         Logger.log('Profanity detection event: cache hit', {
           wordsFound: cachedResult.totalCount,
           duration: totalDuration,
-          cacheRetrievalTime: timings.cacheRetrieval
+          cacheRetrievalTime: timings.cacheRetrieval,
+          fromMemory: this.cacheEntries.has(cacheKey)
         });
         return cachedResult;
       }
@@ -97,10 +243,28 @@ export class ProfanityAnalyzer {
         cacheRetrievalTime: timings.cacheRetrieval
       });
 
-      // Perform AI analysis with timeout
+      // Check circuit breaker before AI analysis
+      if (this.isCircuitBreakerOpen()) {
+        Logger.log('Profanity analysis: skipped due to circuit breaker', {
+          failureCount: this.circuitBreakerState.failures,
+          timeSinceLastFailure: Date.now() - this.circuitBreakerState.lastFailureTime,
+          circuitTimeout: ProfanityAnalyzer.CIRCUIT_BREAKER_TIMEOUT
+        });
+        
+        // Return empty result when circuit is open
+        return {
+          words: [],
+          totalCount: 0
+        };
+      }
+
+      // Perform AI analysis with timeout and batching
       const aiAnalysisStart = Date.now();
       const analysisResult = await this.performAIAnalysis(limitedText, env);
       timings.aiAnalysis = Date.now() - aiAnalysisStart;
+      
+      // Record successful AI analysis
+      this.recordAISuccess();
       
       // Convert AI result to our format
       const conversionStart = Date.now();
@@ -121,6 +285,10 @@ export class ProfanityAnalyzer {
         uniqueWords: profanityResult.words.length,
         cacheKey: cacheKey.substring(0, 20) + '...',
         timings,
+        memoryCacheStats: {
+          entries: this.cacheEntries.size,
+          size: this.currentCacheSize
+        },
         performanceBreakdown: {
           textProcessing: ((timings.textLimiting + timings.cacheKeyGeneration) / totalDuration * 100).toFixed(1) + '%',
           cacheOperations: ((timings.cacheRetrieval + timings.cacheStorage) / totalDuration * 100).toFixed(1) + '%',
@@ -135,7 +303,11 @@ export class ProfanityAnalyzer {
         duration: totalDuration,
         fromCache: false,
         aiAnalysisTime: timings.aiAnalysis,
-        conversionTime: timings.resultConversion
+        conversionTime: timings.resultConversion,
+        memoryCacheStats: {
+          entries: this.cacheEntries.size,
+          size: this.currentCacheSize
+        }
       });
       
       return profanityResult;
@@ -144,14 +316,29 @@ export class ProfanityAnalyzer {
       const totalDuration = Date.now() - startTime;
       timings.total = totalDuration;
       
+      // Record AI failure if error occurred during AI analysis phase
+      const errorPhase = this.determineErrorPhase(timings);
+      if (errorPhase === 'ai-analysis') {
+        this.recordAIFailure();
+      }
+      
       Logger.error('Profanity analysis: failed with detailed error context', {
         textLength,
         duration: totalDuration,
         timings,
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
-        errorPhase: this.determineErrorPhase(timings),
-        partialTimings: timings
+        errorPhase,
+        partialTimings: timings,
+        circuitBreakerState: {
+          failures: this.circuitBreakerState.failures,
+          isOpen: this.circuitBreakerState.isOpen,
+          timeSinceLastFailure: Date.now() - this.circuitBreakerState.lastFailureTime
+        },
+        memoryCacheStats: {
+          entries: this.cacheEntries.size,
+          size: this.currentCacheSize
+        }
       });
       
       // Return empty result on error to not block message processing
@@ -163,9 +350,16 @@ export class ProfanityAnalyzer {
   }
 
   private determineErrorPhase(timings: Record<string, number>): string {
-    if (timings.aiAnalysis) return 'ai-analysis';
-    if (timings.cacheRetrieval) return 'cache-retrieval';
-    if (timings.textLimiting) return 'text-processing';
+    // If we have cache retrieval timing, we got past cache check
+    if (timings.cacheRetrieval !== undefined) {
+      // If we don't have AI analysis timing, error occurred during AI analysis
+      if (timings.aiAnalysis === undefined) {
+        return 'ai-analysis';
+      }
+      // If we have AI analysis timing, error occurred after AI analysis
+      return 'result-processing';
+    }
+    if (timings.textLimiting !== undefined) return 'text-processing';
     return 'initialization';
   }
 
@@ -244,6 +438,7 @@ export class ProfanityAnalyzer {
       const serializedResult = JSON.stringify(result);
       const serializationTime = Date.now() - storageStart;
       
+      // Store in KV storage
       const putStart = Date.now();
       await env.COUNTERS.put(
         cacheKey, 
@@ -251,6 +446,25 @@ export class ProfanityAnalyzer {
         { expirationTtl: ProfanityAnalyzer.CACHE_TTL }
       );
       const putTime = Date.now() - putStart;
+      
+      // Store in memory cache
+      const entry: CacheEntry = {
+        result,
+        timestamp: Date.now(),
+        size: serializedResult.length,
+        accessCount: 1,
+        lastAccess: Date.now()
+      };
+      
+      this.cacheEntries.set(cacheKey, entry);
+      this.currentCacheSize += entry.size;
+      
+      // Check if cleanup is needed
+      if (this.currentCacheSize > ProfanityAnalyzer.MAX_CACHE_SIZE * ProfanityAnalyzer.CACHE_CLEANUP_THRESHOLD ||
+          this.cacheEntries.size > ProfanityAnalyzer.MAX_CACHE_ENTRIES * ProfanityAnalyzer.CACHE_CLEANUP_THRESHOLD) {
+        this.performLRUCleanup();
+      }
+      
       const totalStorageTime = Date.now() - storageStart;
       
       Logger.debug(env, 'Profanity cache: stored result with detailed metrics', { 
@@ -262,7 +476,9 @@ export class ProfanityAnalyzer {
         serializationTime,
         putTime,
         totalStorageTime,
-        storageEfficiency: totalStorageTime < 20 ? 'excellent' : totalStorageTime < 100 ? 'good' : 'slow'
+        storageEfficiency: totalStorageTime < 20 ? 'excellent' : totalStorageTime < 100 ? 'good' : 'slow',
+        memoryCacheSize: this.currentCacheSize,
+        memoryCacheEntries: this.cacheEntries.size
       });
     } catch (error) {
       const totalStorageTime = Date.now() - storageStart;
@@ -278,9 +494,81 @@ export class ProfanityAnalyzer {
     }
   }
 
-  private async performAIAnalysis(text: string, env: Env): Promise<ProfanityAnalysisResult> {
+  private performLRUCleanup(): void {
+    const startTime = Date.now();
+    const initialSize = this.cacheEntries.size;
+    const initialBytes = this.currentCacheSize;
+    
+    // Sort entries by access pattern (least recently used first)
+    const entries = Array.from(this.cacheEntries.entries());
+    entries.sort(([, a], [, b]) => {
+      // Priority: access count (lower first), then last access time (older first)
+      if (a.accessCount !== b.accessCount) {
+        return a.accessCount - b.accessCount;
+      }
+      return a.lastAccess - b.lastAccess;
+    });
+    
+    // Remove 20% of entries
+    const toRemove = Math.ceil(entries.length * 0.2);
+    const removedEntries = entries.slice(0, toRemove);
+    
+    for (const [key, entry] of removedEntries) {
+      this.cacheEntries.delete(key);
+      this.currentCacheSize -= entry.size;
+    }
+    
+    const cleanupTime = Date.now() - startTime;
+    
+    Logger.debug({} as any, 'Profanity cache: LRU cleanup completed', {
+      initialEntries: initialSize,
+      initialBytes,
+      removedEntries: removedEntries.length,
+      removedBytes: removedEntries.reduce((sum, [, entry]) => sum + entry.size, 0),
+      finalEntries: this.cacheEntries.size,
+      finalBytes: this.currentCacheSize,
+      cleanupTime,
+      efficiency: cleanupTime < 10 ? 'excellent' : cleanupTime < 50 ? 'good' : 'slow'
+    });
+  }
+
+  private async performAIAnalysis(text: string, env: Env): Promise<ProfanityResult> {
+    // Check if we should use batching
+    if (ProfanityAnalyzer.BATCH_SIZE > 1) {
+      return await this.performBatchAIAnalysis(text, env);
+    }
+
+    return await this.performSingleAIAnalysis(text, env);
+  }
+
+  private async performSingleAIAnalysis(text: string, env: Env): Promise<ProfanityResult> {
     const startTime = Date.now();
     
+    const prompt = `Analyze the following text for profanity and inappropriate language. Return a JSON object with:
+1. "words": an array of objects, each containing:
+   - "word": the profane word found
+   - "severity": severity level ("low", "medium", "high")
+   - "category": category of profanity ("general", "sexual", "violence", "discriminatory", "religious")
+   - "position": character position in the text
+2. "totalCount": total number of profane words found
+
+Text: "${text}"
+
+Example response format:
+{
+  "words": [
+    {"word": "damn", "severity": "low", "category": "general", "position": 15}
+  ],
+  "totalCount": 1
+}
+
+If no profanity is found, return {"words": [], "totalCount": 0}. Only include actual profanity, not mild language or common expressions. Be accurate and conservative in detection.`;
+
+    const messages = [
+      { role: 'system' as const, content: 'You are a profanity detection system. Analyze text and return structured JSON data about any profanity found. Be accurate and conservative in detection.' },
+      { role: 'user' as const, content: prompt }
+    ];
+
     // Create a timeout promise
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('Analysis timeout')), ProfanityAnalyzer.ANALYSIS_TIMEOUT);
@@ -293,33 +581,175 @@ export class ProfanityAnalyzer {
       });
 
       // Race between AI analysis and timeout
-      const analysisPromise = this.callAIProvider(text, env);
-      const result = await Promise.race([analysisPromise, timeoutPromise]);
+      const analysisPromise = Promise.race([
+        env.AI.run('@cf/meta/llama-2-7b-chat-int8', { messages }),
+        timeoutPromise
+      ]);
+
+      const response = await analysisPromise;
+      
+      if (!response || typeof response.response !== 'string') {
+        throw new Error('Invalid AI response format');
+      }
+
+      const result = JSON.parse(response.response);
+      if (!result || !Array.isArray(result.words) || typeof result.totalCount !== 'number') {
+        throw new Error('Invalid response structure');
+      }
+
+      // Convert to ProfanityWord format
+      const profanityWords: ProfanityWord[] = result.words.map((word: any) => ({
+        original: word.word,
+        baseForm: word.word, // For now, use word as base form
+        positions: [word.position || 0]
+      }));
+
+      const finalResult: ProfanityResult = {
+        words: profanityWords,
+        totalCount: result.totalCount
+      };
       
       const duration = Date.now() - startTime;
       Logger.debug(env, 'Profanity AI analysis: completed', {
         duration,
-        wordsFound: result.words.length,
-        hasProfanity: result.hasProfanity
+        wordsFound: finalResult.totalCount,
+        uniqueWords: finalResult.words.length
       });
       
-      return result;
+      return finalResult;
     } catch (error) {
       const duration = Date.now() - startTime;
       if (error instanceof Error && error.message === 'Analysis timeout') {
         Logger.error('Profanity AI analysis: timeout', { 
           textLength: text.length, 
           duration,
-          timeout: ProfanityAnalyzer.ANALYSIS_TIMEOUT
+          timeout: ProfanityAnalyzer.ANALYSIS_TIMEOUT,
+          circuitBreakerFailures: this.circuitBreakerState.failures
         });
       } else {
         Logger.error('Profanity AI analysis: failed', {
           textLength: text.length,
           duration,
-          error: error instanceof Error ? error.message : String(error)
+          error: error instanceof Error ? error.message : String(error),
+          circuitBreakerFailures: this.circuitBreakerState.failures
         });
       }
       throw error;
+    }
+  }
+
+  private performBatchAIAnalysis(text: string, env: Env): Promise<ProfanityResult> {
+    return new Promise((resolve, reject) => {
+      const request: BatchRequest = {
+        text,
+        resolve,
+        reject
+      };
+
+      this.batchQueue.push(request);
+
+      // Start batch timeout if not already running
+      if (!this.batchTimeout) {
+        this.batchTimeout = setTimeout(() => {
+          this.processBatch(env);
+        }, ProfanityAnalyzer.BATCH_TIMEOUT);
+      }
+
+      // Process batch immediately if we've reached the batch size
+      if (this.batchQueue.length >= ProfanityAnalyzer.BATCH_SIZE) {
+        if (this.batchTimeout) {
+          clearTimeout(this.batchTimeout);
+          this.batchTimeout = null;
+        }
+        this.processBatch(env);
+      }
+    });
+  }
+
+  private async processBatch(env: Env): Promise<void> {
+    if (this.batchQueue.length === 0) return;
+
+    const batch = this.batchQueue.splice(0, ProfanityAnalyzer.BATCH_SIZE);
+    this.batchTimeout = null;
+
+    try {
+      Logger.log('Processing AI analysis batch', {
+        batchSize: batch.length,
+        totalQueued: this.batchQueue.length
+      });
+
+      const batchPrompt = `Analyze the following texts for profanity and inappropriate language. Return a JSON array where each element corresponds to one text input. Each element should have:
+1. "words": an array of objects, each containing:
+   - "word": the profane word found
+   - "severity": severity level ("low", "medium", "high")
+   - "category": category of profanity ("general", "sexual", "violence", "discriminatory", "religious")
+   - "position": character position in the text
+2. "totalCount": total number of profane words found
+
+Texts to analyze (separated by [TEXT_SEPARATOR]):
+${batch.map((req, index) => `[TEXT_${index}]: "${req.text}"`).join('\n[TEXT_SEPARATOR]\n')}
+
+Example response format:
+[
+  {
+    "words": [
+      {"word": "damn", "severity": "low", "category": "general", "position": 15}
+    ],
+    "totalCount": 1
+  },
+  {
+    "words": [],
+    "totalCount": 0
+  }
+]
+
+If no profanity is found in a text, return {"words": [], "totalCount": 0}. Only include actual profanity, not mild language or common expressions. Be accurate and conservative in detection.`;
+
+      const messages = [
+        { role: 'system' as const, content: 'You are a profanity detection system. Analyze multiple texts and return structured JSON data about any profanity found. Be accurate and conservative in detection.' },
+        { role: 'user' as const, content: batchPrompt }
+      ];
+
+      const response = await Promise.race([
+        env.AI.run('@cf/meta/llama-2-7b-chat-int8', { messages }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('AI analysis timeout')), ProfanityAnalyzer.ANALYSIS_TIMEOUT)
+        )
+      ]);
+
+      if (!response || typeof response.response !== 'string') {
+        throw new Error('Invalid AI response format');
+      }
+
+      const results = JSON.parse(response.response);
+      if (!Array.isArray(results) || results.length !== batch.length) {
+        throw new Error('Invalid batch response structure');
+      }
+
+      // Resolve all batch requests
+      batch.forEach((request, index) => {
+        const result = results[index];
+        if (result && Array.isArray(result.words) && typeof result.totalCount === 'number') {
+          // Convert to ProfanityWord format
+          const profanityWords: ProfanityWord[] = result.words.map((word: any) => ({
+            original: word.word,
+            baseForm: word.word, // For now, use word as base form
+            positions: [word.position || 0]
+          }));
+          
+          request.resolve({
+            words: profanityWords,
+            totalCount: result.totalCount
+          });
+        } else {
+          request.reject(new Error('Invalid result format for batch item'));
+        }
+      });
+
+    } catch (error) {
+      Logger.error('Batch AI analysis failed', { error, batchSize: batch.length });
+      // Reject all batch requests
+      batch.forEach(request => request.reject(error));
     }
   }
 
