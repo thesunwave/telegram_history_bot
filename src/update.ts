@@ -4,6 +4,15 @@ import { summariseChat, summariseChatMessages } from './summary';
 import { topChat, resetCounters, activityChart, activityByUser } from './stats';
 import { sendMessage } from './telegram';
 import { Logger } from './logger';
+import { ProfanityAnalyzer } from './profanity';
+import { ProviderFactory } from './providers/provider-factory';
+
+function isTestEnvironment(env: Env): boolean {
+  // Check if we're in a test environment by looking for test-specific values
+  return env.TOKEN === 'test-token' || 
+         env.OPENAI_API_KEY === 'test-openai-key' ||
+         (typeof process !== 'undefined' && process.env.NODE_ENV === 'test');
+}
 
 const HELP_TEXT = [
   '/summary <days> – сводка за последние N дней (по умолчанию 1)',
@@ -24,7 +33,7 @@ export function getTextMessage(update: any) {
   return msg;
 }
 
-export async function recordMessage(msg: any, env: Env) {
+export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) {
   if (!msg) {
     Logger.debug(env, 'recordMessage: no message');
     return;
@@ -81,6 +90,89 @@ export async function recordMessage(msg: any, env: Env) {
     Logger.error('recordMessage: counter update failed', {
       chatId,
       error: error.message || String(error)
+    });
+  }
+
+  // Perform profanity analysis in background if message has text, ctx is available, and not in test mode
+  if (msg.text && ctx && !isTestEnvironment(env)) {
+    ctx.waitUntil(analyzeProfanityAsync(msg, env, chatId, userId, username, day));
+  }
+}
+
+async function analyzeProfanityAsync(
+  msg: any, 
+  env: Env, 
+  chatId: number, 
+  userId: number, 
+  username: string, 
+  day: string
+): Promise<void> {
+  try {
+    Logger.debug(env, 'Starting profanity analysis', {
+      chatId,
+      userId,
+      textLength: msg.text?.length || 0
+    });
+
+    // Create AI provider and profanity analyzer
+    const aiProvider = ProviderFactory.createProvider(env);
+    const profanityAnalyzer = new ProfanityAnalyzer(aiProvider);
+    
+    // Analyze message for profanity
+    const profanityResult = await profanityAnalyzer.analyzeMessage(msg.text, env);
+    
+    // If profanity was found, update counters
+    if (profanityResult.totalCount > 0) {
+      Logger.debug(env, 'Profanity detected, updating counters', {
+        chatId,
+        userId,
+        totalCount: profanityResult.totalCount,
+        wordsCount: profanityResult.words.length
+      });
+
+      // Group words by base form and count occurrences
+      const wordCounts = new Map<string, number>();
+      for (const word of profanityResult.words) {
+        const currentCount = wordCounts.get(word.baseForm) || 0;
+        wordCounts.set(word.baseForm, currentCount + word.positions.length);
+      }
+
+      // Convert to array format expected by Counters DO
+      const words = Array.from(wordCounts.entries()).map(([baseForm, count]) => ({
+        baseForm,
+        count
+      }));
+
+      // Update profanity counters
+      const id = env.COUNTERS_DO.idFromName(String(chatId));
+      await env.COUNTERS_DO.get(id).fetch('https://do/profanity', {
+        method: 'POST',
+        body: JSON.stringify({
+          chatId,
+          userId,
+          username,
+          day,
+          count: profanityResult.totalCount,
+          words
+        }),
+      });
+
+      Logger.debug(env, 'Profanity counters updated successfully', {
+        chatId,
+        userId,
+        totalCount: profanityResult.totalCount,
+        uniqueWords: words.length
+      });
+    } else {
+      Logger.debug(env, 'No profanity detected', { chatId, userId });
+    }
+  } catch (error: any) {
+    // Log error but don't throw - profanity analysis failures shouldn't break message processing
+    Logger.error('Profanity analysis failed', {
+      chatId,
+      userId,
+      error: error.message || String(error),
+      stack: error.stack
     });
   }
 }

@@ -47,7 +47,7 @@ export default {
         text: msg?.text?.substring(0, 50)
       });
       
-      await recordMessage(msg, env);
+      await recordMessage(msg, env, ctx);
       ctx.waitUntil(handleUpdate(msg, env));
       return Response.json({});
     }
