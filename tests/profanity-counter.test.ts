@@ -23,7 +23,7 @@ describe('Profanity Counter System', () => {
           mockKV.delete(key);
           return Promise.resolve();
         }),
-        list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true }))
+        list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
       } as any,
       HISTORY: {} as any,
       COUNTERS_DO: {} as any,
@@ -59,7 +59,7 @@ describe('Profanity Counter System', () => {
       const request = new Request('https://test.com/profanity', {
         method: 'POST',
         body: JSON.stringify(payload)
-      });
+      }) as any;
 
       const response = await countersDO.fetch(request);
       expect(response.status).toBe(200);
@@ -77,7 +77,7 @@ describe('Profanity Counter System', () => {
       const request = new Request('https://test.com/profanity', {
         method: 'POST',
         body: JSON.stringify(invalidPayload)
-      });
+      }) as any;
 
       const response = await countersDO.fetch(request);
       expect(response.status).toBe(400);
@@ -101,7 +101,7 @@ describe('Profanity Counter System', () => {
       const request = new Request('https://test.com/profanity', {
         method: 'POST',
         body: JSON.stringify(payload)
-      });
+      }) as any;
 
       await countersDO.fetch(request);
 
@@ -109,11 +109,11 @@ describe('Profanity Counter System', () => {
       expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
         'user:456',
         'testuser'
-      );
+      ) as any;
       expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
         'profanity:123:456:2025-01-01',
         '3'
-      );
+      ) as any;
     });
 
     it('should increment word profanity counters', async () => {
@@ -132,7 +132,7 @@ describe('Profanity Counter System', () => {
       const request = new Request('https://test.com/profanity', {
         method: 'POST',
         body: JSON.stringify(payload)
-      });
+      }) as any;
 
       await countersDO.fetch(request);
 
@@ -140,11 +140,11 @@ describe('Profanity Counter System', () => {
       expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
         'profanity_words:123:word1:2025-01-01',
         '2'
-      );
+      ) as any;
       expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
         'profanity_words:123:word2:2025-01-01',
         '1'
-      );
+      ) as any;
     });
 
     it('should accumulate existing counters', async () => {
@@ -154,9 +154,9 @@ describe('Profanity Counter System', () => {
         ['profanity_words:123:word1:2025-01-01', '3']
       ]);
       
-      mockEnv.COUNTERS.get = vi.fn((key: string) => 
+      mockEnv.COUNTERS.get = vi.fn().mockImplementation((key: string) => 
         Promise.resolve(mockKV.get(key) || null)
-      );
+      ) as any;
 
       const payload: ProfanityIncrementPayload = {
         chatId: 123,
@@ -173,7 +173,7 @@ describe('Profanity Counter System', () => {
       const request = new Request('https://test.com/profanity', {
         method: 'POST',
         body: JSON.stringify(payload)
-      });
+      }) as any;
 
       await countersDO.fetch(request);
 
@@ -181,15 +181,15 @@ describe('Profanity Counter System', () => {
       expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
         'profanity:123:456:2025-01-01',
         '7' // 5 + 2
-      );
+      ) as any;
       expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
         'profanity_words:123:word1:2025-01-01',
         '4' // 3 + 1
-      );
+      ) as any;
       expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
         'profanity_words:123:word3:2025-01-01',
         '1' // new word
-      );
+      ) as any;
     });
   });
 
@@ -205,7 +205,7 @@ describe('Profanity Counter System', () => {
       const request = new Request('https://test.com/inc', {
         method: 'POST',
         body: JSON.stringify(payload)
-      });
+      }) as any;
 
       const response = await countersDO.fetch(request);
       expect(response.status).toBe(200);
@@ -224,7 +224,7 @@ describe('Profanity Counter System', () => {
       const request = new Request('https://test.com/profanity', {
         method: 'POST',
         body: JSON.stringify(payload)
-      });
+      }) as any;
 
       const response = await countersDO.fetch(request);
       expect(response.status).toBe(200);
@@ -234,7 +234,7 @@ describe('Profanity Counter System', () => {
       const request = new Request('https://test.com/unknown', {
         method: 'POST',
         body: JSON.stringify({})
-      });
+      }) as any;
 
       const response = await countersDO.fetch(request);
       expect(response.status).toBe(404);
@@ -243,7 +243,7 @@ describe('Profanity Counter System', () => {
     it('should return 405 for non-POST methods', async () => {
       const request = new Request('https://test.com/profanity', {
         method: 'GET'
-      });
+      }) as any;
 
       const response = await countersDO.fetch(request);
       expect(response.status).toBe(405);
@@ -273,7 +273,7 @@ describe('Profanity Counter System', () => {
       ]);
 
       // Mock the list method to return keys based on prefix
-      mockEnv.COUNTERS.list = vi.fn((options: any) => {
+      mockEnv.COUNTERS.list = vi.fn().mockImplementation((options: any) => {
         const prefix = options.prefix;
         const matchingKeys = Array.from(mockKV.keys())
           .filter(key => key.startsWith(prefix))
@@ -281,18 +281,18 @@ describe('Profanity Counter System', () => {
         
         return Promise.resolve({
           keys: matchingKeys,
-          list_complete: true
-        });
-      });
+          list_complete: true, cacheStatus: null
+        }) as any;
+      }) as any;
 
-      mockEnv.COUNTERS.get = vi.fn((key: string) => 
+      mockEnv.COUNTERS.get = vi.fn().mockImplementation((key: string) => 
         Promise.resolve(mockKV.get(key) || null)
-      );
+      ) as any;
 
       mockEnv.COUNTERS.delete = vi.fn((key: string) => {
         mockKV.delete(key);
         return Promise.resolve();
-      });
+      }) as any;
 
       // Call resetProfanityCounters
       await resetProfanityCounters(mockEnv, 123);
@@ -316,9 +316,10 @@ describe('Profanity Counter System', () => {
 
     it('should handle empty profanity data gracefully', async () => {
       // Mock empty list responses
-      mockEnv.COUNTERS.list = vi.fn(() => Promise.resolve({
+      mockEnv.COUNTERS.list = vi.fn().mockImplementation(() => Promise.resolve({
         keys: [],
-        list_complete: true
+        list_complete: true,
+        cacheStatus: null
       }));
 
       // Should not throw an error
@@ -349,7 +350,7 @@ describe('Profanity Counter System', () => {
       ]);
 
       // Mock the list method to return keys based on prefix
-      mockEnv.COUNTERS.list = vi.fn((options: any) => {
+      mockEnv.COUNTERS.list = vi.fn().mockImplementation((options: any) => {
         const prefix = options.prefix;
         const matchingKeys = Array.from(mockKV.keys())
           .filter(key => key.startsWith(prefix))
@@ -357,18 +358,18 @@ describe('Profanity Counter System', () => {
         
         return Promise.resolve({
           keys: matchingKeys,
-          list_complete: true
-        });
-      });
+          list_complete: true, cacheStatus: null
+        }) as any;
+      }) as any;
 
-      mockEnv.COUNTERS.get = vi.fn((key: string) => 
+      mockEnv.COUNTERS.get = vi.fn().mockImplementation((key: string) => 
         Promise.resolve(mockKV.get(key) || null)
-      );
+      ) as any;
 
       mockEnv.COUNTERS.delete = vi.fn((key: string) => {
         mockKV.delete(key);
         return Promise.resolve();
-      });
+      }) as any;
 
       // Call general resetCounters
       await resetCounters(mockEnv, 123);

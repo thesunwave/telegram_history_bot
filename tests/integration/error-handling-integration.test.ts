@@ -45,7 +45,8 @@ describe('Error Handling Integration Tests', () => {
     mockProviderInitializer.getProvider.mockReturnValue({
       summarize: vi.fn().mockResolvedValue('Test summary'),
       getProviderInfo: () => ({ name: 'test', model: 'test-model' }),
-      validateConfig: vi.fn()
+      validateConfig: vi.fn(),
+      analyzeProfanity: vi.fn().mockResolvedValue({ hasProfanity: false, words: [] })
     });
     mockSendMessage.mockResolvedValue(undefined);
   });
@@ -124,7 +125,8 @@ describe('Error Handling Integration Tests', () => {
       const mockProvider = {
         summarize: vi.fn().mockRejectedValue(new Error('Too many requests to AI service')),
         getProviderInfo: () => ({ name: 'test', model: 'test-model' }),
-        validateConfig: vi.fn()
+        validateConfig: vi.fn(),
+        analyzeProfanity: vi.fn().mockResolvedValue({ hasProfanity: false, words: [] })
       };
       mockProviderInitializer.getProvider.mockReturnValue(mockProvider);
 
@@ -150,7 +152,8 @@ describe('Error Handling Integration Tests', () => {
       const mockProvider = {
         summarize: vi.fn().mockRejectedValue(new Error('Request timeout occurred')),
         getProviderInfo: () => ({ name: 'test', model: 'test-model' }),
-        validateConfig: vi.fn()
+        validateConfig: vi.fn(),
+        analyzeProfanity: vi.fn().mockResolvedValue({ hasProfanity: false, words: [] })
       };
       mockProviderInitializer.getProvider.mockReturnValue(mockProvider);
 
@@ -309,7 +312,8 @@ describe('Error Handling Integration Tests', () => {
       const mockProvider = {
         summarize: vi.fn().mockRejectedValue(new Error('API request limits exceeded. Please try requesting fewer messages or contact support if the issue persists.')),
         getProviderInfo: () => ({ name: 'test', model: 'test-model' }),
-        validateConfig: vi.fn()
+        validateConfig: vi.fn(),
+        analyzeProfanity: vi.fn().mockResolvedValue({ hasProfanity: false, words: [] })
       };
       mockProviderInitializer.getProvider.mockReturnValue(mockProvider);
 
