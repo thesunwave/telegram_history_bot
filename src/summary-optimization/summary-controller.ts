@@ -6,6 +6,7 @@ import { SummaryController, ProcessingSession, ProcessingStrategy, SummaryOptimi
 import { OptimizedStrategySelector } from './strategy-selector';
 import { loadOptimizationConfig } from './config';
 import { DirectProcessor } from './direct-processor';
+import { HierarchicalProcessor } from './hierarchical-processor';
 import { Env, DAY, LOG_ID_RADIX } from '../env';
 import { Logger, PerformanceTracker } from '../logger';
 import { fetchMessages, fetchLastMessages } from '../history';
@@ -261,12 +262,8 @@ export class OptimizedSummaryController implements SummaryController {
           break;
         
         case 'hierarchical':
-          // Will be implemented in Task 4
-          Logger.debug(this.env, 'processOptimized: Hierarchical processing not yet implemented, falling back to direct', {
-            sessionId: session.sessionId
-          });
-          const fallbackProcessor = new DirectProcessor();
-          result = await fallbackProcessor.process(messages, this.env);
+          const hierarchicalProcessor = new HierarchicalProcessor();
+          result = await hierarchicalProcessor.process(messages, this.env);
           break;
         
         case 'parallel':
@@ -388,12 +385,8 @@ export class OptimizedSummaryController implements SummaryController {
           break;
         
         case 'hierarchical':
-          // Will be implemented in Task 4
-          Logger.debug(this.env, 'processOptimizedMessages: Hierarchical processing not yet implemented, falling back to direct', {
-            sessionId: session.sessionId
-          });
-          const fallbackProcessor = new DirectProcessor();
-          result = await fallbackProcessor.process(messages, this.env);
+          const hierarchicalProcessor = new HierarchicalProcessor();
+          result = await hierarchicalProcessor.process(messages, this.env);
           break;
         
         case 'parallel':
