@@ -50,14 +50,14 @@ interface CircuitBreakerState {
 
 // Main profanity analyzer class
 export class ProfanityAnalyzer {
-  private static readonly CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
+  private static readonly CACHE_TTL = 4 * 60 * 60; // 4 hours in seconds (reduced from 24h)
   private static readonly MAX_TEXT_LENGTH = 1000; // Limit analysis to first 1000 characters
   private static readonly ANALYSIS_TIMEOUT = 10000; // 10 seconds timeout for analysis
   
-  // Cache management
-  private static readonly MAX_CACHE_SIZE = 50 * 1024 * 1024; // 50MB max cache size
-  private static readonly MAX_CACHE_ENTRIES = 10000; // Max 10k entries
-  private static readonly CACHE_CLEANUP_THRESHOLD = 0.8; // Cleanup when 80% full
+  // Cache management - more aggressive limits
+  private static readonly MAX_CACHE_SIZE = 10 * 1024 * 1024; // 10MB max cache size (reduced from 50MB)
+  private static readonly MAX_CACHE_ENTRIES = 5000; // Max 5k entries (reduced from 10k)
+  private static readonly CACHE_CLEANUP_THRESHOLD = 0.7; // Cleanup when 70% full (more aggressive)
   
   // Batching configuration
   private static readonly BATCH_SIZE = 5; // Max 5 messages per batch
@@ -418,7 +418,7 @@ export class ProfanityAnalyzer {
         Logger.debug(env, 'Profanity cache: miss with timing', { 
           cacheKey: cacheKey.substring(0, 20) + '...',
           retrievalTime,
-          reason: 'key-not-found'
+          reason: 'key-not-found-or-empty-result'
         });
       }
     } catch (error) {
@@ -436,6 +436,16 @@ export class ProfanityAnalyzer {
   }
 
   private async cacheResult(cacheKey: string, result: ProfanityResult, env: Env): Promise<void> {
+    // Don't cache empty results - no point in storing clean text analysis
+    if (result.totalCount === 0 || result.words.length === 0) {
+      Logger.debug(env, 'Profanity cache: skipping empty result', { 
+        cacheKey: cacheKey.substring(0, 20) + '...',
+        reason: 'no-profanity-found',
+        wordsFound: result.totalCount
+      });
+      return;
+    }
+
     const storageStart = Date.now();
     
     try {
