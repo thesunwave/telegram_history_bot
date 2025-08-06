@@ -3,9 +3,9 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ContextOptimizer, createContextOptimizer } from '../context-optimizer';
-import { SummaryOptimizationConfig } from '../types';
-import { TelegramMessage } from '../../providers/ai-provider';
+import { ContextOptimizer, createContextOptimizer } from '../../src/summary-optimization/context-optimizer';
+import { SummaryOptimizationConfig } from '../../src/summary-optimization/types';
+import { TelegramMessage } from '../../src/providers/ai-provider';
 
 describe('ContextOptimizer', () => {
   let optimizer: ContextOptimizer;
