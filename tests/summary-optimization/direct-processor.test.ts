@@ -3,25 +3,38 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { DirectProcessor } from '../direct-processor';
-import { TelegramMessage } from '../../providers/ai-provider';
-import { Env } from '../../env';
-import { ProviderFactory } from '../../providers/provider-factory';
-import { loadOptimizationConfig } from '../config';
-import { ContextOptimizer } from '../context-optimizer';
+import { DirectProcessor } from '../../src/summary-optimization/direct-processor';
+import { Env } from '../../src/env';
+import { TelegramMessage } from '../../src/providers/ai-provider';
 
 // Mock modules
-vi.mock('../../providers/provider-factory');
-vi.mock('../config');
-vi.mock('../context-optimizer');
-vi.mock('../../logger', () => ({
+vi.mock('../../src/summary-optimization/config', () => ({
+  loadOptimizationConfig: vi.fn()
+}));
+vi.mock('../../src/providers/provider-factory', () => ({
+  ProviderFactory: {
+    createProvider: vi.fn()
+  }
+}));
+vi.mock('../../src/summary-optimization/context-optimizer', () => ({
+  ContextOptimizer: vi.fn()
+}));
+
+const { loadOptimizationConfig } = await import('../../src/summary-optimization/config');
+const { ProviderFactory } = await import('../../src/providers/provider-factory');
+const { ContextOptimizer } = await import('../../src/summary-optimization/context-optimizer');
+vi.mock('../../src/logger', () => ({
   Logger: {
     debug: vi.fn(),
-    error: vi.fn()
+    error: vi.fn(),
+    log: vi.fn(),
+    logApiRequestPattern: vi.fn(),
+    logPerformanceInsight: vi.fn()
   },
   PerformanceTracker: {
     start: vi.fn(() => 'test-tracker-id'),
     end: vi.fn(),
+    getActiveTrackers: vi.fn(),
     cleanup: vi.fn()
   }
 }));
@@ -48,13 +61,19 @@ describe('DirectProcessor', () => {
       COUNTERS: {} as any,
       MESSAGE_FETCHER: {} as any,
       MESSAGE_AGGREGATOR: {} as any,
+      HISTORY: {} as any,
+      COUNTERS_DO: {} as any,
+      DB: {} as any,
+      AI: {} as any,
       SUMMARY_PROMPT: 'Test prompt {period} {participants} {totalMessages}',
       SUMMARY_SYSTEM: 'Test system prompt',
       SUMMARY_MODEL: 'test-model',
       SUMMARY_MAX_TOKENS: 500,
       SUMMARY_TEMPERATURE: 0.7,
-      SUMMARY_TOP_P: 0.9
-    } as Env;
+      SUMMARY_TOP_P: 0.9,
+      TOKEN: 'test-token',
+      SECRET: 'test-secret'
+    } as unknown as Env;
 
     // Setup mock messages
     mockMessages = [
@@ -255,9 +274,9 @@ describe('DirectProcessor', () => {
     });
 
     it('should track performance metrics', async () => {
-      const { PerformanceTracker } = await import('../../logger');
-      
-      await processor.process(mockMessages, mockEnv);
+      const { PerformanceTracker } = await import('../../src/logger')
+       
+       await processor.process(mockMessages, mockEnv);
 
       expect(PerformanceTracker.start).toHaveBeenCalledWith(
         'directProcessor',
@@ -277,7 +296,7 @@ describe('DirectProcessor', () => {
     });
 
     it('should track performance metrics on error', async () => {
-      const { PerformanceTracker } = await import('../../logger');
+      const { PerformanceTracker } = await import('../../src/logger');
       const error = new Error('Test error');
       mockProvider.summarize.mockRejectedValue(error);
 
@@ -295,9 +314,9 @@ describe('DirectProcessor', () => {
     });
 
     it('should log debug information during processing', async () => {
-      const { Logger } = await import('../../logger');
-      
-      await processor.process(mockMessages, mockEnv);
+      const { Logger } = await import('../../src/logger')
+       
+       await processor.process(mockMessages, mockEnv);
 
       expect(Logger.debug).toHaveBeenCalledWith(
         mockEnv,

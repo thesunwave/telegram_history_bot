@@ -3,25 +3,39 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { HierarchicalProcessor } from '../hierarchical-processor';
-import { TelegramMessage } from '../../providers/ai-provider';
-import { Env } from '../../env';
-import { ProviderFactory } from '../../providers/provider-factory';
-import { loadOptimizationConfig } from '../config';
-import { ContextOptimizer } from '../context-optimizer';
+import { HierarchicalProcessor } from '../../src/summary-optimization/hierarchical-processor';
+import { TelegramMessage } from '../../src/providers/ai-provider';
+import { Env } from '../../src/env';
+import { Logger, PerformanceTracker } from '../../src/logger';
 
 // Mock modules
-vi.mock('../../providers/provider-factory');
-vi.mock('../config');
-vi.mock('../context-optimizer');
-vi.mock('../../logger', () => ({
+vi.mock('../../src/summary-optimization/config', () => ({
+  loadOptimizationConfig: vi.fn()
+}));
+vi.mock('../../src/providers/provider-factory', () => ({
+  ProviderFactory: {
+    createProvider: vi.fn()
+  }
+}));
+vi.mock('../../src/summary-optimization/context-optimizer', () => ({
+  ContextOptimizer: vi.fn()
+}));
+
+const { loadOptimizationConfig } = await import('../../src/summary-optimization/config');
+const { ProviderFactory } = await import('../../src/providers/provider-factory');
+const { ContextOptimizer } = await import('../../src/summary-optimization/context-optimizer');
+vi.mock('../../src/logger', () => ({
   Logger: {
     debug: vi.fn(),
-    error: vi.fn()
+    error: vi.fn(),
+    log: vi.fn(),
+    logApiRequestPattern: vi.fn(),
+    logPerformanceInsight: vi.fn()
   },
   PerformanceTracker: {
     start: vi.fn(() => 'test-tracker-id'),
     end: vi.fn(),
+    getActiveTrackers: vi.fn(),
     cleanup: vi.fn()
   }
 }));
@@ -46,6 +60,9 @@ describe('HierarchicalProcessor', () => {
       TELEGRAM_BOT_TOKEN: 'test-token',
       KV_NAMESPACE: {} as any,
       COUNTERS: {} as any,
+      COUNTERS_DO: {} as any,
+      DB: {} as any,
+      AI: {} as any,
       MESSAGE_FETCHER: {} as any,
       MESSAGE_AGGREGATOR: {} as any,
       SUMMARY_PROMPT: 'Test final prompt {period} {participants} {totalMessages}',
@@ -53,8 +70,11 @@ describe('HierarchicalProcessor', () => {
       SUMMARY_MODEL: 'test-model',
       SUMMARY_MAX_TOKENS: 500,
       SUMMARY_TEMPERATURE: 0.7,
-      SUMMARY_TOP_P: 0.9
-    } as Env;
+      SUMMARY_TOP_P: 0.9,
+      HISTORY: {} as any,
+      TOKEN: 'test-token',
+      SECRET: 'test-secret'
+    } as unknown as Env;
 
     // Setup mock messages (large volume for hierarchical processing)
     mockMessages = [];
@@ -248,9 +268,9 @@ describe('HierarchicalProcessor', () => {
     });
 
     it('should track performance metrics', async () => {
-      const { PerformanceTracker } = await import('../../logger');
-      
-      await processor.process(mockMessages, mockEnv);
+      const { PerformanceTracker } = await import('../../src/logger')
+       
+       await processor.process(mockMessages, mockEnv);
 
       expect(PerformanceTracker.start).toHaveBeenCalledWith(
         'hierarchicalProcessor',
@@ -271,9 +291,9 @@ describe('HierarchicalProcessor', () => {
     });
 
     it('should log detailed debug information', async () => {
-      const { Logger } = await import('../../logger');
-      
-      await processor.process(mockMessages, mockEnv);
+      const { Logger } = await import('../../src/logger')
+       
+       await processor.process(mockMessages, mockEnv);
 
       // Should log chunking info
       expect(Logger.debug).toHaveBeenCalledWith(
@@ -384,7 +404,7 @@ describe('HierarchicalProcessor', () => {
       await expect(processor.process(mockMessages, mockEnv))
         .rejects.toThrow('Final processing failed');
 
-      const { PerformanceTracker } = await import('../../logger');
+      const { PerformanceTracker } = await import('../../src/logger');
       expect(PerformanceTracker.end).toHaveBeenCalledWith(
         'test-tracker-id',
         expect.objectContaining({
