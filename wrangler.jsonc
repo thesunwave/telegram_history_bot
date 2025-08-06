@@ -58,6 +58,12 @@
   "ai": {
     "binding": "AI"
   },
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "criminal-code-index"
+    }
+  ],
   "vars": {
     // Available values: "cloudflare", "openai"
     "SUMMARY_PROVIDER": "openai",
