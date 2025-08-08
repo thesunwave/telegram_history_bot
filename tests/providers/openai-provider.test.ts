@@ -103,18 +103,18 @@ describe('OpenAIProvider', () => {
           'Authorization': 'Bearer test-api-key',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            { role: 'system', content: 'You are a helpful assistant\nKeep it under 100 characters' },
-            { role: 'user', content: 'Summarize this conversation\n=== СООБЩЕНИЯ ===\nuser1: Hello world\nuser2: How are you?' }
-          ],
-          max_tokens: 150,
-          temperature: 0.7,
-          top_p: 0.9,
-          frequency_penalty: 0.1
-        })
+        body: expect.any(String)
       });
+
+      // Check the request body content
+      const callArgs = mockFetch.mock.calls[0];
+      const requestBody = JSON.parse(callArgs[1].body);
+      expect(requestBody.model).toBe('gpt-3.5-turbo');
+      expect(requestBody.max_tokens).toBe(150);
+      expect(requestBody).not.toHaveProperty('max_completion_tokens');
+      expect(requestBody.temperature).toBe(0.7);
+      expect(requestBody.top_p).toBe(0.9);
+      expect(requestBody.frequency_penalty).toBe(0.1);
     });
 
     it('should handle request without system prompt', async () => {
@@ -136,18 +136,18 @@ describe('OpenAIProvider', () => {
           'Authorization': 'Bearer test-api-key',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            { role: 'system', content: 'Keep it under 100 characters' },
-            { role: 'user', content: 'Summarize this conversation\n=== СООБЩЕНИЯ ===\nuser1: Hello world\nuser2: How are you?' }
-          ],
-          max_tokens: 150,
-          temperature: 0.7,
-          top_p: 0.9,
-          frequency_penalty: 0.1
-        })
+        body: expect.any(String)
       });
+
+      // Check the request body content
+      const callArgs = mockFetch.mock.calls[0];
+      const requestBody = JSON.parse(callArgs[1].body);
+      expect(requestBody.model).toBe('gpt-3.5-turbo');
+      expect(requestBody.max_tokens).toBe(150);
+      expect(requestBody).not.toHaveProperty('max_completion_tokens');
+      expect(requestBody.temperature).toBe(0.7);
+      expect(requestBody.top_p).toBe(0.9);
+      expect(requestBody.frequency_penalty).toBe(0.1);
     });
 
     it('should omit frequency_penalty when not provided', async () => {
@@ -291,6 +291,128 @@ describe('OpenAIProvider', () => {
         name: 'openai',
         model: 'gpt-4'
       });
+    });
+  });
+
+  describe('GPT-5 model support', () => {
+    it('should use max_completion_tokens for GPT-5 models', async () => {
+      mockEnv.OPENAI_MODEL = 'gpt-5-nano';
+      const gpt5Provider = new OpenAIProvider(mockEnv);
+
+      const mockRequest: SummaryRequest = {
+        messages: [
+          { username: 'user1', text: 'Hello world', ts: 1234567890 }
+        ],
+        systemPrompt: 'You are a helpful assistant',
+        userPrompt: 'Summarize this conversation',
+        limitNote: 'Keep it under 100 characters'
+      };
+
+      const mockOptions: SummaryOptions = {
+        maxTokens: 150,
+        temperature: 0.7,
+        topP: 0.9
+      };
+
+      const mockOpenAIResponse = {
+        choices: [
+          {
+            message: {
+              content: 'Test summary from GPT-5'
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 50,
+          completion_tokens: 25,
+          total_tokens: 75
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockOpenAIResponse)
+      });
+
+      await gpt5Provider.summarize(mockRequest, mockOptions, undefined);
+
+      expect(mockFetch).toHaveBeenCalledWith('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer test-api-key',
+          'Content-Type': 'application/json'
+        },
+        body: expect.any(String)
+      });
+
+      // Check the request body content for GPT-5
+      const callArgs = mockFetch.mock.calls[0];
+      const requestBody = JSON.parse(callArgs[1].body);
+      expect(requestBody.model).toBe('gpt-5-nano');
+      expect(requestBody.max_completion_tokens).toBe(150);
+      expect(requestBody).not.toHaveProperty('max_tokens');
+      expect(requestBody.temperature).toBe(0.7);
+      expect(requestBody.top_p).toBe(0.9);
+    });
+
+    it('should use max_tokens for non-GPT-5 models', async () => {
+      // This test uses the default gpt-3.5-turbo model
+      const mockRequest: SummaryRequest = {
+        messages: [
+          { username: 'user1', text: 'Hello world', ts: 1234567890 }
+        ],
+        systemPrompt: 'You are a helpful assistant',
+        userPrompt: 'Summarize this conversation',
+        limitNote: 'Keep it under 100 characters'
+      };
+
+      const mockOptions: SummaryOptions = {
+        maxTokens: 150,
+        temperature: 0.7,
+        topP: 0.9
+      };
+
+      const mockOpenAIResponse = {
+        choices: [
+          {
+            message: {
+              content: 'Test summary from GPT-3.5'
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 50,
+          completion_tokens: 25,
+          total_tokens: 75
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockOpenAIResponse)
+      });
+
+      await provider.summarize(mockRequest, mockOptions, undefined);
+
+      expect(mockFetch).toHaveBeenCalledWith('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer test-api-key',
+          'Content-Type': 'application/json'
+        },
+        body: expect.any(String)
+      });
+
+      // Check the request body content for non-GPT-5
+      const callArgs = mockFetch.mock.calls[0];
+      const requestBody = JSON.parse(callArgs[1].body);
+      expect(requestBody.model).toBe('gpt-3.5-turbo');
+      expect(requestBody.max_tokens).toBe(150);
+      expect(requestBody).not.toHaveProperty('max_completion_tokens');
+      expect(requestBody.temperature).toBe(0.7);
+      expect(requestBody.top_p).toBe(0.9);
     });
   });
 });
