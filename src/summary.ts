@@ -61,6 +61,10 @@ function buildAiOptions(env: Env): SummaryOptions {
       if (cloudflareSeed !== undefined) {
         opts.seed = cloudflareSeed;
       }
+      const cloudflarePresencePenalty = (env as any).CLOUDFLARE_PRESENCE_PENALTY;
+      if (cloudflarePresencePenalty !== undefined) {
+        opts.presencePenalty = cloudflarePresencePenalty;
+      }
       break;
 
     case 'openai':
@@ -77,6 +81,18 @@ function buildAiOptions(env: Env): SummaryOptions {
       if (openaiSeed !== undefined) {
         opts.seed = openaiSeed;
       }
+      const openaiPresencePenalty = (env as any).OPENAI_PRESENCE_PENALTY;
+      if (openaiPresencePenalty !== undefined) {
+        opts.presencePenalty = openaiPresencePenalty;
+      }
+      const openaiVerbosity = (env as any).OPENAI_VERBOSITY;
+      if (openaiVerbosity !== undefined) {
+        opts.verbosity = openaiVerbosity;
+      }
+      const openaiReasoningEffort = (env as any).OPENAI_REASONING_EFFORT;
+      if (openaiReasoningEffort !== undefined) {
+        opts.reasoningEffort = openaiReasoningEffort;
+      }
       break;
 
     case 'openai-premium':
@@ -92,6 +108,18 @@ function buildAiOptions(env: Env): SummaryOptions {
       const premiumSeed = (env as any).OPENAI_PREMIUM_SEED ?? env.SUMMARY_SEED;
       if (premiumSeed !== undefined) {
         opts.seed = premiumSeed;
+      }
+      const premiumPresencePenalty = (env as any).OPENAI_PREMIUM_PRESENCE_PENALTY;
+      if (premiumPresencePenalty !== undefined) {
+        opts.presencePenalty = premiumPresencePenalty;
+      }
+      const premiumVerbosity = (env as any).OPENAI_PREMIUM_VERBOSITY;
+      if (premiumVerbosity !== undefined) {
+        opts.verbosity = premiumVerbosity;
+      }
+      const premiumReasoningEffort = (env as any).OPENAI_PREMIUM_REASONING_EFFORT;
+      if (premiumReasoningEffort !== undefined) {
+        opts.reasoningEffort = premiumReasoningEffort;
       }
       break;
 
