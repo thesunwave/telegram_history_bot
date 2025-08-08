@@ -112,13 +112,18 @@ export class CountersDO {
 
   private async incrementProfanityCounters({ chatId, userId, username, day, count, words }: ProfanityIncrementPayload) {
     try {
-      console.log('Profanity counters: starting update', {
+      // КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ: кто и когда увеличивает счетчик профанити
+      const stack = new Error().stack;
+      console.log('🚨 PROFANITY COUNTER INCREMENT DETECTED 🚨', {
         chatId: chatId.toString(36),
         userId: userId.toString(36),
         username,
         day,
         count,
-        wordsCount: words.length
+        wordsCount: words.length,
+        timestamp: new Date().toISOString(),
+        words: words.map(w => ({ baseForm: w.baseForm.substring(0, 3) + '***', count: w.count })),
+        stackTrace: stack?.split('\n').slice(0, 5) // Первые 5 строк стека
       });
 
       // Store username for later retrieval
