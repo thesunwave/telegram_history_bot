@@ -25,6 +25,9 @@ interface OpenAIChatRequest {
   seed?: number;
   verbosity?: 'low' | 'medium' | 'high';
   reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
+  response_format?: {
+    type: 'json_object' | 'text';
+  };
 }
 
 interface OpenAIChatResponse {
@@ -54,36 +57,36 @@ export class OpenAIProvider implements AIProvider {
 
   private allowedParamsFor(model: string) {
     const modelLower = model.toLowerCase();
-    
+
     if (modelLower.includes('gpt-5-nano')) {
-      return { 
-        temperature: false, 
-        top_p: false, 
-        presence_penalty: false, 
-        frequency_penalty: false, 
-        verbosity: true, 
-        reasoning_effort: true 
+      return {
+        temperature: false,
+        top_p: false,
+        presence_penalty: false,
+        frequency_penalty: false,
+        verbosity: true,
+        reasoning_effort: true
       };
     }
-    
+
     if (modelLower.includes('gpt-5') || modelLower.includes('gpt5')) {
-      return { 
-        temperature: true, 
-        top_p: true, 
-        presence_penalty: true, 
-        frequency_penalty: true, 
-        verbosity: true, 
-        reasoning_effort: true 
+      return {
+        temperature: true,
+        top_p: true,
+        presence_penalty: true,
+        frequency_penalty: true,
+        verbosity: true,
+        reasoning_effort: true
       };
     }
-    
-    return { 
-      temperature: true, 
-      top_p: true, 
-      presence_penalty: true, 
-      frequency_penalty: true, 
-      verbosity: false, 
-      reasoning_effort: false 
+
+    return {
+      temperature: true,
+      top_p: true,
+      presence_penalty: true,
+      frequency_penalty: true,
+      verbosity: false,
+      reasoning_effort: false
     };
   }
 
@@ -151,7 +154,7 @@ export class OpenAIProvider implements AIProvider {
     }
   }
 
-  private async callOpenAI(messages: ChatMessage[], options: SummaryOptions): Promise<OpenAIChatResponse> {
+  private async callOpenAI(messages: ChatMessage[], options: SummaryOptions, forceJsonResponse?: boolean): Promise<OpenAIChatResponse> {
     const isGPT5 = this.isGPT5Model(this.model);
     const allowedParams = this.allowedParamsFor(this.model);
 
@@ -171,11 +174,11 @@ export class OpenAIProvider implements AIProvider {
     if (allowedParams.temperature) {
       requestBody.temperature = options.temperature;
     }
-    
+
     if (allowedParams.top_p) {
       requestBody.top_p = options.topP;
     }
-    
+
     if (allowedParams.frequency_penalty && options.frequencyPenalty !== undefined) {
       requestBody.frequency_penalty = options.frequencyPenalty;
     }
@@ -187,7 +190,7 @@ export class OpenAIProvider implements AIProvider {
     if (allowedParams.verbosity && options.verbosity !== undefined) {
       requestBody.verbosity = options.verbosity;
     }
-    
+
     if (allowedParams.reasoning_effort && options.reasoningEffort !== undefined) {
       requestBody.reasoning_effort = options.reasoningEffort;
     }
@@ -195,6 +198,11 @@ export class OpenAIProvider implements AIProvider {
     // Always include seed if provided
     if (options.seed !== undefined) {
       requestBody.seed = options.seed;
+    }
+
+    // Force JSON response format if requested
+    if (forceJsonResponse) {
+      requestBody.response_format = { type: 'json_object' };
     }
 
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -215,7 +223,7 @@ export class OpenAIProvider implements AIProvider {
         const errorObj = errorBody as any;
         if (errorObj.error && errorObj.error.message) {
           errorMessage = `OpenAI API error: ${errorObj.error.message}`;
-          
+
           // Extract parameter name for 400 errors (parameter compatibility issues)
           if (response.status === 400 && errorObj.error.param) {
             errorParam = errorObj.error.param;
@@ -283,7 +291,7 @@ export class OpenAIProvider implements AIProvider {
         topP: 0.9
       };
 
-      const response = await this.callOpenAI(messages, options);
+      const response = await this.callOpenAI(messages, options, true);
       const result = response.choices[0].message.content?.trim() || '';
 
       if (env) {
@@ -304,7 +312,7 @@ export class OpenAIProvider implements AIProvider {
             finishReason: response.choices[0].finish_reason
           });
         }
-        
+
         return {
           hasProfanity: true,
           words: [{
@@ -365,7 +373,7 @@ export class OpenAIProvider implements AIProvider {
           provider: 'openai',
           rawResponse: response
         });
-        
+
         // Empty response likely means profanity was detected and filtered
         // Return conservative result indicating potential profanity
         return {
@@ -421,7 +429,7 @@ export class OpenAIProvider implements AIProvider {
         Logger.warn('OpenAI profanity analysis: treating empty response as filtered profanity', {
           provider: 'openai'
         });
-        
+
         return {
           hasProfanity: true,
           words: [{
