@@ -9,9 +9,9 @@ import { ProviderFactory } from './providers/provider-factory';
 
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
-  return env.TOKEN === 'test-token' || 
-         env.OPENAI_API_KEY === 'test-openai-key' ||
-         (typeof process !== 'undefined' && process.env.NODE_ENV === 'test');
+  return env.TOKEN === 'test-token' ||
+    env.OPENAI_API_KEY === 'test-openai-key' ||
+    (typeof process !== 'undefined' && process.env.NODE_ENV === 'test');
 }
 
 const HELP_TEXT = [
@@ -66,7 +66,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     ts,
   };
   const key = `msg:${chatId}:${ts}:${msg.message_id}`;
-  
+
   Logger.debug(env, 'recordMessage: saving to KV', {
     key,
     chatId,
@@ -75,7 +75,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     timestamp: ts,
     messageId: msg.message_id
   });
-  
+
   try {
     await env.HISTORY.put(key, JSON.stringify(stored), {
       expirationTtl: 7 * DAY,
@@ -88,10 +88,10 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       stack: error.stack
     });
   }
-  
+
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
   const id = env.COUNTERS_DO.idFromName(String(chatId));
-  
+
   try {
     await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
       method: 'POST',
@@ -105,23 +105,56 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     });
   }
 
-  // Perform profanity analysis in background if message has text, ctx is available, and not in test mode
-  if (msg.text && ctx && !isTestEnvironment(env)) {
+  // Perform profanity analysis in background if message has text, ctx is available, not in test mode, and not a command
+  if (msg.text && ctx && !isTestEnvironment(env) && !msg.text.startsWith('/')) {
+    Logger.debug(env, 'recordMessage: scheduling profanity analysis', {
+      chatId,
+      userId,
+      username,
+      textPreview: msg.text.substring(0, 50),
+      isCommand: msg.text.startsWith('/'),
+      day
+    });
     ctx.waitUntil(analyzeProfanityAsync(msg, env, chatId, userId, username, day));
+  } else {
+    Logger.debug(env, 'recordMessage: skipping profanity analysis', {
+      chatId,
+      userId,
+      username,
+      hasText: !!msg.text,
+      hasCtx: !!ctx,
+      isTestEnv: isTestEnvironment(env),
+      isCommand: msg.text?.startsWith('/'),
+      textPreview: msg.text?.substring(0, 50),
+      day
+    });
   }
 }
 
 async function analyzeProfanityAsync(
-  msg: any, 
-  env: Env, 
-  chatId: number, 
-  userId: number, 
-  username: string, 
+  msg: any,
+  env: Env,
+  chatId: number,
+  userId: number,
+  username: string,
   day: string
 ): Promise<void> {
   const startTime = Date.now();
   const timings: Record<string, number> = {};
-  
+
+  // КРИТИЧЕСКАЯ ПРОВЕРКА: команды НЕ должны попадать сюда!
+  if (msg.text?.startsWith('/')) {
+    Logger.error('CRITICAL: Command reached profanity analysis - this should never happen!', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
+      username,
+      command: msg.text,
+      messageId: msg.message_id,
+      day
+    });
+    return; // Немедленный выход для команд
+  }
+
   try {
     Logger.debug(env, 'Profanity analysis: starting background processing with detailed tracking', {
       chatId: chatId.toString(36),
@@ -130,7 +163,10 @@ async function analyzeProfanityAsync(
       textLength: msg.text?.length || 0,
       messageId: msg.message_id,
       timestamp: new Date().toISOString(),
-      day
+      day,
+      textPreview: msg.text?.substring(0, 100),
+      isCommand: msg.text?.startsWith('/'),
+      fullText: msg.text // Временно для отладки
     });
 
     // Create AI provider and profanity analyzer
@@ -138,25 +174,25 @@ async function analyzeProfanityAsync(
     const aiProvider = ProviderFactory.createProvider(env);
     const profanityAnalyzer = new ProfanityAnalyzer(aiProvider);
     timings.providerCreation = Date.now() - providerStart;
-    
+
     Logger.debug(env, 'Profanity analysis: provider and analyzer created', {
       chatId: chatId.toString(36),
       providerType: aiProvider.constructor.name,
       creationTime: timings.providerCreation
     });
-    
+
     // Analyze message for profanity
     const analysisStart = Date.now();
     const profanityResult = await profanityAnalyzer.analyzeMessage(msg.text, env);
     timings.analysis = Date.now() - analysisStart;
-    
+
     Logger.debug(env, 'Profanity analysis: analysis phase completed', {
       chatId: chatId.toString(36),
       analysisTime: timings.analysis,
       wordsFound: profanityResult.totalCount,
       uniqueWords: profanityResult.words.length
     });
-    
+
     // If profanity was found, update counters
     if (profanityResult.totalCount > 0) {
       Logger.log('Profanity detection: words found, processing for counter update', {
@@ -211,7 +247,7 @@ async function analyzeProfanityAsync(
       if (response.ok) {
         const totalDuration = Date.now() - startTime;
         timings.total = totalDuration;
-        
+
         Logger.log('Profanity counters: update successful with performance metrics', {
           chatId: chatId.toString(36),
           userId: userId.toString(36),
@@ -232,9 +268,9 @@ async function analyzeProfanityAsync(
     } else {
       const totalDuration = Date.now() - startTime;
       timings.total = totalDuration;
-      
-      Logger.debug(env, 'Profanity analysis: no profanity detected with timing details', { 
-        chatId: chatId.toString(36), 
+
+      Logger.debug(env, 'Profanity analysis: no profanity detected with timing details', {
+        chatId: chatId.toString(36),
         userId: userId.toString(36),
         timings,
         textLength: msg.text?.length || 0,
@@ -244,7 +280,7 @@ async function analyzeProfanityAsync(
   } catch (error: any) {
     const totalDuration = Date.now() - startTime;
     timings.total = totalDuration;
-    
+
     // Log error but don't throw - profanity analysis failures shouldn't break message processing
     Logger.error('Profanity analysis: background processing failed with detailed context', {
       chatId: chatId.toString(36),
