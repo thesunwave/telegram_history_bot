@@ -266,7 +266,8 @@ export class OpenAIProvider implements AIProvider {
           provider: 'openai',
           model: this.model,
           textLength: text.length,
-          providerType: this.providerType
+          providerType: this.providerType,
+          textPreview: text.substring(0, 100) + (text.length > 100 ? '...' : '')
         });
       }
 
@@ -283,14 +284,35 @@ export class OpenAIProvider implements AIProvider {
       };
 
       const response = await this.callOpenAI(messages, options);
-      const result = response.choices[0].message.content.trim();
+      const result = response.choices[0].message.content?.trim() || '';
 
       if (env) {
         Logger.debug(env, 'OpenAI profanity analysis: raw response received', {
           provider: 'openai',
           responseLength: result.length,
-          tokensUsed: response.usage?.total_tokens || 0
+          tokensUsed: response.usage?.total_tokens || 0,
+          finishReason: response.choices[0].finish_reason,
+          isEmpty: result === ''
         });
+      }
+
+      // Check if response was filtered by OpenAI
+      if (response.choices[0].finish_reason === 'content_filter') {
+        if (env) {
+          Logger.warn('OpenAI profanity analysis: content filtered by OpenAI', {
+            provider: 'openai',
+            finishReason: response.choices[0].finish_reason
+          });
+        }
+        
+        return {
+          hasProfanity: true,
+          words: [{
+            word: '[content_filtered]',
+            baseForm: '[content_filtered]',
+            confidence: 0.9
+          }]
+        };
       }
 
       // Parse JSON response
@@ -337,6 +359,25 @@ export class OpenAIProvider implements AIProvider {
 
   private parseProfanityResponse(response: string): ProfanityAnalysisResult {
     try {
+      // Handle empty response - OpenAI may return empty response when content is filtered
+      if (!response || response.trim() === '') {
+        Logger.warn('OpenAI profanity analysis: empty response received (likely content filtered)', {
+          provider: 'openai',
+          rawResponse: response
+        });
+        
+        // Empty response likely means profanity was detected and filtered
+        // Return conservative result indicating potential profanity
+        return {
+          hasProfanity: true,
+          words: [{
+            word: '[filtered]',
+            baseForm: '[filtered]',
+            confidence: 0.8
+          }]
+        };
+      }
+
       // Clean up response - remove any markdown formatting or extra text
       let cleanResponse = response.trim();
 
@@ -371,11 +412,27 @@ export class OpenAIProvider implements AIProvider {
     } catch (error) {
       Logger.error('OpenAI profanity analysis: response parsing failed', {
         provider: 'openai',
-        rawResponse: response.substring(0, 200) + (response.length > 200 ? '...' : ''),
+        rawResponse: response,
         error: error instanceof Error ? error.message : String(error)
       });
 
-      // Return safe fallback on parsing error
+      // If parsing failed and response is empty, assume profanity was filtered
+      if (!response || response.trim() === '') {
+        Logger.warn('OpenAI profanity analysis: treating empty response as filtered profanity', {
+          provider: 'openai'
+        });
+        
+        return {
+          hasProfanity: true,
+          words: [{
+            word: '[filtered]',
+            baseForm: '[filtered]',
+            confidence: 0.7
+          }]
+        };
+      }
+
+      // Return safe fallback on other parsing errors
       return {
         hasProfanity: false,
         words: []

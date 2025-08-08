@@ -294,6 +294,183 @@ describe('OpenAIProvider', () => {
     });
   });
 
+  describe('analyzeProfanity', () => {
+    const mockProfanityResponse = {
+      choices: [
+        {
+          message: {
+            content: '{"hasProfanity": true, "words": [{"word": "тест", "baseForm": "тест", "confidence": 0.9}]}'
+          },
+          finish_reason: 'stop'
+        }
+      ],
+      usage: {
+        prompt_tokens: 30,
+        completion_tokens: 20,
+        total_tokens: 50
+      }
+    };
+
+    it('should successfully analyze profanity with valid JSON response', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockProfanityResponse)
+      });
+
+      const result = await provider.analyzeProfanity('тест текст', mockEnv);
+
+      expect(result).toEqual({
+        hasProfanity: true,
+        words: [
+          {
+            word: 'тест',
+            baseForm: 'тест',
+            confidence: 0.9
+          }
+        ]
+      });
+    });
+
+    it('should handle empty response as filtered profanity', async () => {
+      const emptyResponse = {
+        choices: [
+          {
+            message: {
+              content: ''
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 30,
+          completion_tokens: 0,
+          total_tokens: 30
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(emptyResponse)
+      });
+
+      const result = await provider.analyzeProfanity('матерное слово', mockEnv);
+
+      expect(result).toEqual({
+        hasProfanity: true,
+        words: [
+          {
+            word: '[filtered]',
+            baseForm: '[filtered]',
+            confidence: 0.8
+          }
+        ]
+      });
+    });
+
+    it('should handle content_filter finish reason', async () => {
+      const filteredResponse = {
+        choices: [
+          {
+            message: {
+              content: ''
+            },
+            finish_reason: 'content_filter'
+          }
+        ],
+        usage: {
+          prompt_tokens: 30,
+          completion_tokens: 0,
+          total_tokens: 30
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(filteredResponse)
+      });
+
+      const result = await provider.analyzeProfanity('матерное слово', mockEnv);
+
+      expect(result).toEqual({
+        hasProfanity: true,
+        words: [
+          {
+            word: '[content_filtered]',
+            baseForm: '[content_filtered]',
+            confidence: 0.9
+          }
+        ]
+      });
+    });
+
+    it('should handle malformed JSON response', async () => {
+      const malformedResponse = {
+        choices: [
+          {
+            message: {
+              content: '{"hasProfanity": true, "words": [invalid json'
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 30,
+          completion_tokens: 10,
+          total_tokens: 40
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(malformedResponse)
+      });
+
+      const result = await provider.analyzeProfanity('тест текст', mockEnv);
+
+      expect(result).toEqual({
+        hasProfanity: false,
+        words: []
+      });
+    });
+
+    it('should handle network errors in profanity analysis', async () => {
+      mockFetch.mockRejectedValue(new Error('Network error'));
+
+      await expect(provider.analyzeProfanity('тест текст', mockEnv)).rejects.toThrow(ProviderError);
+      await expect(provider.analyzeProfanity('тест текст', mockEnv)).rejects.toThrow('OpenAI profanity analysis error: Network error');
+    });
+
+    it('should handle clean text response', async () => {
+      const cleanResponse = {
+        choices: [
+          {
+            message: {
+              content: '{"hasProfanity": false, "words": []}'
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 30,
+          completion_tokens: 10,
+          total_tokens: 40
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(cleanResponse)
+      });
+
+      const result = await provider.analyzeProfanity('чистый текст', mockEnv);
+
+      expect(result).toEqual({
+        hasProfanity: false,
+        words: []
+      });
+    });
+  });
+
   describe('GPT-5 model support', () => {
     it('should use max_completion_tokens for GPT-5 models', async () => {
       mockEnv.OPENAI_MODEL = 'gpt-5-nano';
