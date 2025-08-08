@@ -27,6 +27,25 @@ export interface Env {
   DEBUG_LOGS?: string;
   KV_BATCH_SIZE?: number;
   KV_BATCH_DELAY?: number;
+
+  // Optimized summary system configuration
+  SUMMARY_OPT_ENABLED?: string | boolean;
+  SUMMARY_OPT_PARALLEL_ENABLED?: string | boolean;
+  SUMMARY_OPT_MIN_MESSAGES_THRESHOLD?: string | number;
+  SUMMARY_OPT_MAX_WORKERS?: string | number;
+  SUMMARY_OPT_WORKER_BATCH_SIZE?: string | number;
+  SUMMARY_OPT_WORKER_TIMEOUT?: string | number;
+  SUMMARY_OPT_MAX_TOKENS_PER_REQUEST?: string | number;
+  SUMMARY_OPT_PREPROCESSING_MAX_TOKENS?: string | number;
+  SUMMARY_OPT_FINAL_MAX_TOKENS?: string | number;
+  SUMMARY_OPT_TOKEN_ESTIMATION_FACTOR?: string | number;
+  SUMMARY_OPT_HIERARCHICAL_ENABLED?: string | boolean;
+  SUMMARY_OPT_CHUNK_SIZE_THRESHOLD?: string | number;
+  SUMMARY_OPT_PREPROCESSING_PROMPT?: string;
+  SUMMARY_OPT_MAX_PREPROCESSING_CHUNKS?: string | number;
+  SUMMARY_OPT_ENABLE_DETAILED_METRICS?: string | boolean;
+  SUMMARY_OPT_LOG_PERFORMANCE_INSIGHTS?: string | boolean;
+  SUMMARY_OPT_TRACK_TOKEN_USAGE?: string | boolean;
 }
 
 export interface DurableObjectId {}

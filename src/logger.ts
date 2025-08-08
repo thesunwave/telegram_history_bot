@@ -30,14 +30,16 @@ export class PerformanceTracker {
 
     this.activeTrackers.set(trackerId, metrics);
 
-    console.log(
-      `[PERF_TRACKER] Started tracking ${functionName}${chatId ? ` for chat ${chatId}` : ""}`,
-      {
-        trackerId,
-        startTime: new Date(metrics.startTime).toISOString(),
-        additionalData,
-      },
-    );
+    if (process.env.NODE_ENV !== "test") {
+      console.log(
+        `[PERF_TRACKER] Started tracking ${functionName}${chatId ? ` for chat ${chatId}` : ""}`,
+        {
+          trackerId,
+          startTime: new Date(metrics.startTime).toISOString(),
+          additionalData,
+        },
+      );
+    }
 
     return trackerId;
   }
@@ -61,16 +63,18 @@ export class PerformanceTracker {
       metrics.additionalData = { ...metrics.additionalData, ...additionalData };
     }
 
-    console.log(
-      `[PERF_TRACKER] Completed ${metrics.functionName}${metrics.chatId ? ` for chat ${metrics.chatId}` : ""} in ${metrics.duration}ms`,
-      {
-        trackerId,
-        duration: metrics.duration,
-        startTime: new Date(metrics.startTime).toISOString(),
-        endTime: new Date(metrics.endTime).toISOString(),
-        additionalData: metrics.additionalData,
-      },
-    );
+    if (process.env.NODE_ENV !== "test") {
+      console.log(
+        `[PERF_TRACKER] Completed ${metrics.functionName}${metrics.chatId ? ` for chat ${metrics.chatId}` : ""} in ${metrics.duration}ms`,
+        {
+          trackerId,
+          duration: metrics.duration,
+          startTime: new Date(metrics.startTime).toISOString(),
+          endTime: new Date(metrics.endTime).toISOString(),
+          additionalData: metrics.additionalData,
+        },
+      );
+    }
 
     this.activeTrackers.delete(trackerId);
     return metrics;
@@ -165,6 +169,7 @@ export class Logger {
       chatId?: string;
     },
   ): void {
+    if (!this.isDebugEnabled(env)) return;
     console.log(`[API_PATTERN] ${operation}`, {
       timestamp: new Date().toISOString(),
       operation,
@@ -200,6 +205,7 @@ export class Logger {
       insights?: string[];
     },
   ): void {
+    if (!this.isDebugEnabled(env)) return;
     const insights = data.insights || [];
 
     // Add automatic insights based on performance data
