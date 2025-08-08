@@ -1252,6 +1252,59 @@ describe('Summary Providers Integration Tests', () => {
       expect(userPrompt).not.toContain('{totalMessages}');
       expect(userPrompt).not.toContain('{period}');
     });
+
+    it('should use max_completion_tokens for GPT-5 models', async () => {
+      env.SUMMARY_PROVIDER = 'openai';
+      env.OPENAI_API_KEY = 'test-key';
+      env.OPENAI_MODEL = 'gpt-5-nano'; // GPT-5 model
+      
+      const openaiResponse = {
+        choices: [{ message: { content: 'GPT-5 summary' } }],
+        usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 }
+      };
+      
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve(openaiResponse)
+        })
+        .mockResolvedValueOnce(new Response(null, { status: 200 }));
+      
+      await setupMessages(2);
+      
+      const summaryCmd = {
+        message: {
+          message_id: 10,
+          text: "/summary 1",
+          chat: { id: 1 },
+          from: { id: 10, username: "requester" },
+          date: Math.floor(Date.now() / 1000),
+        },
+      };
+      
+      const req = new Request("http://localhost/tg/test-token/webhook", {
+        method: "POST",
+        headers: {
+          "X-Telegram-Bot-Api-Secret-Token": "test-secret",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(summaryCmd),
+      });
+      
+      await worker.fetch(req, env, ctx);
+      await Promise.all(tasks);
+      
+      // Verify GPT-5 uses max_completion_tokens
+      const openaiCall = fetchMock.mock.calls.find((call: any[]) => 
+        call[0].includes('chat/completions')
+      );
+      expect(openaiCall).toBeDefined();
+      const requestBody = JSON.parse(openaiCall[1].body);
+      
+      expect(requestBody.model).toBe('gpt-5-nano');
+      expect(requestBody.max_completion_tokens).toBeDefined();
+      expect(requestBody).not.toHaveProperty('max_tokens');
+    });
   });
 
   async function setupMessages(count: number = 3) {

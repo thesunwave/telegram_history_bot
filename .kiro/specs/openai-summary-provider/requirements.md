@@ -33,7 +33,7 @@
 
 #### Acceptance Criteria
 
-1. WHEN используется OpenAI провайдер THEN система SHALL применять те же параметры генерации (temperature, max_tokens, top_p) что и для Cloudflare AI
+1. WHEN используется OpenAI провайдер THEN система SHALL применять те же параметры генерации (temperature, max_tokens/max_completion_tokens в зависимости от модели, top_p) что и для Cloudflare AI
 2. WHEN происходит саммаризация через OpenAI THEN результат SHALL иметь тот же формат и структуру что и при использовании Cloudflare AI
 3. WHEN используется OpenAI провайдер THEN система SHALL поддерживать все существующие функции: саммаризация по дням, саммаризация последних сообщений, чанкинг больших текстов
 

@@ -180,7 +180,7 @@ export class OpenAIProvider implements AIProvider {
     const requestBody: OpenAIChatRequest = {
       model: this.model,
       messages,
-      max_tokens: options.maxTokens,
+      ...(this.isGPT5Model(this.model) ? { max_completion_tokens: options.maxTokens } : { max_tokens: options.maxTokens }),
       temperature: options.temperature,
       top_p: options.topP,
       ...(options.frequencyPenalty !== undefined && { frequency_penalty: options.frequencyPenalty })
@@ -269,7 +269,8 @@ export interface Env {
 interface OpenAIChatRequest {
   model: string;
   messages: ChatMessage[];
-  max_tokens: number;
+  max_tokens?: number;
+  max_completion_tokens?: number;
   temperature: number;
   top_p: number;
   frequency_penalty?: number;
