@@ -1,9 +1,10 @@
-export type ProviderType = 'cloudflare' | 'openai' | 'openai-premium';
+export type ProviderType = "cloudflare" | "openai" | "openai-premium";
 
 export interface Env {
   HISTORY: import("@cloudflare/workers-types").KVNamespace;
   COUNTERS: import("@cloudflare/workers-types").KVNamespace;
   COUNTERS_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
+  MESSAGE_FETCHER_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
   DB: import("@cloudflare/workers-types").D1Database;
   AI: any;
   TOKEN: string;
