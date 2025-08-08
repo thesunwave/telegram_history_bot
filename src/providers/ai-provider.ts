@@ -23,7 +23,10 @@ export interface SummaryOptions {
   temperature: number;
   topP: number;
   frequencyPenalty?: number;
+  presencePenalty?: number;
   seed?: number;
+  verbosity?: 'low' | 'medium' | 'high';
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
 }
 
 export interface ProviderInfo {

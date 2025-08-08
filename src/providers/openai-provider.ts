@@ -18,10 +18,13 @@ interface OpenAIChatRequest {
   messages: ChatMessage[];
   max_tokens?: number;
   max_completion_tokens?: number;
-  temperature: number;
-  top_p: number;
+  temperature?: number;
+  top_p?: number;
   frequency_penalty?: number;
+  presence_penalty?: number;
   seed?: number;
+  verbosity?: 'low' | 'medium' | 'high';
+  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
 }
 
 interface OpenAIChatResponse {
@@ -49,7 +52,42 @@ export class OpenAIProvider implements AIProvider {
     return model.toLowerCase().includes('gpt-5') || model.toLowerCase().includes('gpt5');
   }
 
-  constructor(private env: Env, providerType: 'standard' | 'premium' = 'standard') {
+  private allowedParamsFor(model: string) {
+    const modelLower = model.toLowerCase();
+    
+    if (modelLower.includes('gpt-5-nano')) {
+      return { 
+        temperature: false, 
+        top_p: false, 
+        presence_penalty: false, 
+        frequency_penalty: false, 
+        verbosity: true, 
+        reasoning_effort: true 
+      };
+    }
+    
+    if (modelLower.includes('gpt-5') || modelLower.includes('gpt5')) {
+      return { 
+        temperature: true, 
+        top_p: true, 
+        presence_penalty: true, 
+        frequency_penalty: true, 
+        verbosity: true, 
+        reasoning_effort: true 
+      };
+    }
+    
+    return { 
+      temperature: true, 
+      top_p: true, 
+      presence_penalty: true, 
+      frequency_penalty: true, 
+      verbosity: false, 
+      reasoning_effort: false 
+    };
+  }
+
+  constructor(env: Env, providerType: 'standard' | 'premium' = 'standard') {
     this.providerType = providerType;
 
     if (providerType === 'premium') {
@@ -115,14 +153,11 @@ export class OpenAIProvider implements AIProvider {
 
   private async callOpenAI(messages: ChatMessage[], options: SummaryOptions): Promise<OpenAIChatResponse> {
     const isGPT5 = this.isGPT5Model(this.model);
+    const allowedParams = this.allowedParamsFor(this.model);
 
     const requestBody: OpenAIChatRequest = {
       model: this.model,
-      messages,
-      temperature: options.temperature,
-      top_p: options.topP,
-      ...(options.frequencyPenalty !== undefined && { frequency_penalty: options.frequencyPenalty }),
-      ...(options.seed !== undefined && { seed: options.seed })
+      messages
     };
 
     // Use appropriate token parameter based on model generation
@@ -130,6 +165,36 @@ export class OpenAIProvider implements AIProvider {
       requestBody.max_completion_tokens = options.maxTokens;
     } else {
       requestBody.max_tokens = options.maxTokens;
+    }
+
+    // Add sampling parameters only if supported by the model
+    if (allowedParams.temperature) {
+      requestBody.temperature = options.temperature;
+    }
+    
+    if (allowedParams.top_p) {
+      requestBody.top_p = options.topP;
+    }
+    
+    if (allowedParams.frequency_penalty && options.frequencyPenalty !== undefined) {
+      requestBody.frequency_penalty = options.frequencyPenalty;
+    }
+    if (allowedParams.presence_penalty && options.presencePenalty !== undefined) {
+      requestBody.presence_penalty = options.presencePenalty;
+    }
+
+    // Add GPT-5 specific parameters if supported
+    if (allowedParams.verbosity && options.verbosity !== undefined) {
+      requestBody.verbosity = options.verbosity;
+    }
+    
+    if (allowedParams.reasoning_effort && options.reasoningEffort !== undefined) {
+      requestBody.reasoning_effort = options.reasoningEffort;
+    }
+
+    // Always include seed if provided
+    if (options.seed !== undefined) {
+      requestBody.seed = options.seed;
     }
 
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -143,12 +208,18 @@ export class OpenAIProvider implements AIProvider {
 
     if (!response.ok) {
       let errorMessage = `OpenAI API error: ${response.status} ${response.statusText}`;
+      let errorParam: string | undefined;
 
       try {
         const errorBody = await response.json();
         const errorObj = errorBody as any;
         if (errorObj.error && errorObj.error.message) {
           errorMessage = `OpenAI API error: ${errorObj.error.message}`;
+          
+          // Extract parameter name for 400 errors (parameter compatibility issues)
+          if (response.status === 400 && errorObj.error.param) {
+            errorParam = errorObj.error.param;
+          }
         }
       } catch {
         // If we can't parse the error body, use the status text
@@ -156,6 +227,12 @@ export class OpenAIProvider implements AIProvider {
 
       // Handle specific error codes
       switch (response.status) {
+        case 400:
+          if (errorParam) {
+            console.warn(`OpenAI parameter compatibility issue: parameter '${errorParam}' not allowed for model '${this.model}'`);
+            throw new ProviderError(`OpenAI API parameter error: ${errorMessage} (parameter: ${errorParam})`, 'openai');
+          }
+          throw new ProviderError(errorMessage, 'openai');
         case 401:
           throw new ProviderError('Invalid OpenAI API key', 'openai');
         case 429:

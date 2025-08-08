@@ -352,8 +352,8 @@ describe('OpenAIProvider', () => {
       expect(requestBody.model).toBe('gpt-5-nano');
       expect(requestBody.max_completion_tokens).toBe(150);
       expect(requestBody).not.toHaveProperty('max_tokens');
-      expect(requestBody.temperature).toBe(0.7);
-      expect(requestBody.top_p).toBe(0.9);
+      expect(requestBody).not.toHaveProperty('temperature'); // GPT-5-nano doesn't support sampling params
+      expect(requestBody).not.toHaveProperty('top_p');
     });
 
     it('should use max_tokens for non-GPT-5 models', async () => {
@@ -413,6 +413,296 @@ describe('OpenAIProvider', () => {
       expect(requestBody).not.toHaveProperty('max_completion_tokens');
       expect(requestBody.temperature).toBe(0.7);
       expect(requestBody.top_p).toBe(0.9);
+    });
+
+    it('should use default temperature (1) for GPT-5-nano model', async () => {
+      mockEnv.OPENAI_MODEL = 'gpt-5-nano';
+      const gpt5NanoProvider = new OpenAIProvider(mockEnv);
+
+      const mockRequest: SummaryRequest = {
+        messages: [
+          { username: 'user1', text: 'Hello world', ts: 1234567890 }
+        ],
+        systemPrompt: 'You are a helpful assistant',
+        userPrompt: 'Summarize this conversation',
+        limitNote: 'Keep it under 100 characters'
+      };
+
+      const mockOptions: SummaryOptions = {
+        maxTokens: 150,
+        temperature: 0.1, // This should be ignored for GPT-5-nano
+        topP: 0.9
+      };
+
+      const mockOpenAIResponse = {
+        choices: [
+          {
+            message: {
+              content: 'Test summary from GPT-5-nano'
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 50,
+          completion_tokens: 25,
+          total_tokens: 75
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockOpenAIResponse)
+      });
+
+      await gpt5NanoProvider.summarize(mockRequest, mockOptions, undefined);
+
+      // Check that sampling parameters are excluded for GPT-5-nano
+      const callArgs = mockFetch.mock.calls[0];
+      const requestBody = JSON.parse(callArgs[1].body);
+      expect(requestBody.model).toBe('gpt-5-nano');
+      expect(requestBody).not.toHaveProperty('temperature');
+      expect(requestBody).not.toHaveProperty('top_p');
+      expect(requestBody).not.toHaveProperty('frequency_penalty');
+      expect(requestBody).not.toHaveProperty('presence_penalty');
+    });
+
+    it('should allow custom temperature for other GPT-5 models', async () => {
+      mockEnv.OPENAI_MODEL = 'gpt-5-turbo';
+      const gpt5TurboProvider = new OpenAIProvider(mockEnv);
+
+      const mockRequest: SummaryRequest = {
+        messages: [
+          { username: 'user1', text: 'Hello world', ts: 1234567890 }
+        ],
+        systemPrompt: 'You are a helpful assistant',
+        userPrompt: 'Summarize this conversation',
+        limitNote: 'Keep it under 100 characters'
+      };
+
+      const mockOptions: SummaryOptions = {
+        maxTokens: 150,
+        temperature: 0.3,
+        topP: 0.9
+      };
+
+      const mockOpenAIResponse = {
+        choices: [
+          {
+            message: {
+              content: 'Test summary from GPT-5-turbo'
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 50,
+          completion_tokens: 25,
+          total_tokens: 75
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockOpenAIResponse)
+      });
+
+      await gpt5TurboProvider.summarize(mockRequest, mockOptions, undefined);
+
+      // Check that custom temperature is preserved for other GPT-5 models
+      const callArgs = mockFetch.mock.calls[0];
+      const requestBody = JSON.parse(callArgs[1].body);
+      expect(requestBody.model).toBe('gpt-5-turbo');
+      expect(requestBody.temperature).toBe(0.3); // Should preserve custom temperature
+      expect(requestBody.top_p).toBe(0.9);
+    });
+
+    it('should include GPT-5 specific parameters when supported', async () => {
+      mockEnv.OPENAI_MODEL = 'gpt-5-turbo';
+      const gpt5Provider = new OpenAIProvider(mockEnv);
+
+      const mockRequest: SummaryRequest = {
+        messages: [
+          { username: 'user1', text: 'Hello world', ts: 1234567890 }
+        ],
+        systemPrompt: 'You are a helpful assistant',
+        userPrompt: 'Summarize this conversation',
+        limitNote: 'Keep it under 100 characters'
+      };
+
+      const mockOptions: SummaryOptions = {
+        maxTokens: 150,
+        temperature: 0.7,
+        topP: 0.9,
+        frequencyPenalty: 0.1,
+        presencePenalty: 0.2,
+        verbosity: 'low',
+        reasoningEffort: 'medium'
+      };
+
+      const mockOpenAIResponse = {
+        choices: [
+          {
+            message: {
+              content: 'Test summary with reasoning'
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 50,
+          completion_tokens: 25,
+          total_tokens: 75
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockOpenAIResponse)
+      });
+
+      await gpt5Provider.summarize(mockRequest, mockOptions, undefined);
+
+      const callArgs = mockFetch.mock.calls[0];
+      const requestBody = JSON.parse(callArgs[1].body);
+      expect(requestBody.model).toBe('gpt-5-turbo');
+      expect(requestBody.max_completion_tokens).toBe(150);
+      expect(requestBody.temperature).toBe(0.7);
+      expect(requestBody.top_p).toBe(0.9);
+      expect(requestBody.frequency_penalty).toBe(0.1);
+      expect(requestBody.presence_penalty).toBe(0.2);
+      expect(requestBody.verbosity).toBe('low');
+      expect(requestBody.reasoning_effort).toBe('medium');
+    });
+
+    it('should exclude GPT-5 parameters for non-GPT-5 models', async () => {
+      // Using default gpt-3.5-turbo model
+      const mockRequest: SummaryRequest = {
+        messages: [
+          { username: 'user1', text: 'Hello world', ts: 1234567890 }
+        ],
+        systemPrompt: 'You are a helpful assistant',
+        userPrompt: 'Summarize this conversation',
+        limitNote: 'Keep it under 100 characters'
+      };
+
+      const mockOptions: SummaryOptions = {
+        maxTokens: 150,
+        temperature: 0.7,
+        topP: 0.9,
+        verbosity: 'low', // Should be ignored for non-GPT-5
+        reasoningEffort: 'medium' // Should be ignored for non-GPT-5
+      };
+
+      const mockOpenAIResponse = {
+        choices: [
+          {
+            message: {
+              content: 'Test summary'
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 50,
+          completion_tokens: 25,
+          total_tokens: 75
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockOpenAIResponse)
+      });
+
+      await provider.summarize(mockRequest, mockOptions, undefined);
+
+      const callArgs = mockFetch.mock.calls[0];
+      const requestBody = JSON.parse(callArgs[1].body);
+      expect(requestBody.model).toBe('gpt-3.5-turbo');
+      expect(requestBody.max_tokens).toBe(150);
+      expect(requestBody.temperature).toBe(0.7);
+      expect(requestBody.top_p).toBe(0.9);
+      expect(requestBody).not.toHaveProperty('verbosity');
+      expect(requestBody).not.toHaveProperty('reasoning_effort');
+    });
+
+    it('should handle presence_penalty parameter correctly', async () => {
+      const mockRequest: SummaryRequest = {
+        messages: [
+          { username: 'user1', text: 'Hello world', ts: 1234567890 }
+        ],
+        systemPrompt: 'You are a helpful assistant',
+        userPrompt: 'Summarize this conversation',
+        limitNote: 'Keep it under 100 characters'
+      };
+
+      const mockOptions: SummaryOptions = {
+        maxTokens: 150,
+        temperature: 0.7,
+        topP: 0.9,
+        presencePenalty: 0.5
+      };
+
+      const mockOpenAIResponse = {
+        choices: [
+          {
+            message: {
+              content: 'Test summary with presence penalty'
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 50,
+          completion_tokens: 25,
+          total_tokens: 75
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockOpenAIResponse)
+      });
+
+      await provider.summarize(mockRequest, mockOptions, undefined);
+
+      const callArgs = mockFetch.mock.calls[0];
+      const requestBody = JSON.parse(callArgs[1].body);
+      expect(requestBody.model).toBe('gpt-3.5-turbo');
+      expect(requestBody.presence_penalty).toBe(0.5);
+    });
+
+    it('should handle 400 errors with parameter information', async () => {
+      const mockRequest: SummaryRequest = {
+        messages: [
+          { username: 'user1', text: 'Hello world', ts: 1234567890 }
+        ],
+        systemPrompt: 'You are a helpful assistant',
+        userPrompt: 'Summarize this conversation',
+        limitNote: 'Keep it under 100 characters'
+      };
+
+      const mockOptions: SummaryOptions = {
+        maxTokens: 150,
+        temperature: 0.7,
+        topP: 0.9
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        json: () => Promise.resolve({
+          error: { 
+            message: 'Parameter temperature is not allowed for this model',
+            param: 'temperature'
+          }
+        })
+      });
+
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow(ProviderError);
+      await expect(provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow('parameter: temperature');
     });
   });
 });
