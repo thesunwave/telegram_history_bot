@@ -99,6 +99,36 @@
     "PROFANITY_USER_PROMPT": "Проанализируй следующий текст на наличие матерной лексики:\n\nТЕКСТ ДЛЯ АНАЛИЗА:",
     "SUMMARY_SEED": 12345,
     "DEBUG_LOGS": true,
+
+    // ========================================
+    // 🚀 OPTIMIZED SUMMARY SYSTEM CONFIG
+    // ========================================
+    // Feature flag to enable/disable optimized system
+    "SUMMARY_OPT_ENABLED": true,
+
+    // Parallel processing configuration
+    "SUMMARY_OPT_PARALLEL_ENABLED": true,
+    "SUMMARY_OPT_MIN_MESSAGES_THRESHOLD": 100,
+    "SUMMARY_OPT_MAX_WORKERS": 5,
+    "SUMMARY_OPT_WORKER_BATCH_SIZE": 50,
+    "SUMMARY_OPT_WORKER_TIMEOUT": 30000,
+
+    // Context management configuration
+    "SUMMARY_OPT_MAX_TOKENS_PER_REQUEST": 120000,
+    "SUMMARY_OPT_PREPROCESSING_MAX_TOKENS": 60000,
+    "SUMMARY_OPT_FINAL_MAX_TOKENS": 120000,
+    "SUMMARY_OPT_TOKEN_ESTIMATION_FACTOR": 4,
+
+    // Hierarchical processing configuration
+    "SUMMARY_OPT_HIERARCHICAL_ENABLED": true,
+    "SUMMARY_OPT_CHUNK_SIZE_THRESHOLD": 80000,
+    "SUMMARY_OPT_PREPROCESSING_PROMPT": "Создай краткую сводку основных тем и событий из следующих сообщений:",
+    "SUMMARY_OPT_MAX_PREPROCESSING_CHUNKS": 10,
+
+    // Monitoring configuration
+    "SUMMARY_OPT_ENABLE_DETAILED_METRICS": true,
+    "SUMMARY_OPT_LOG_PERFORMANCE_INSIGHTS": true,
+    "SUMMARY_OPT_TRACK_TOKEN_USAGE": true,
   },
   "triggers": {
     "crons": ["59 23 * * *"],

@@ -554,7 +554,9 @@ describe("Summary End-to-End Tests", () => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("/sendMessage"),
         expect.objectContaining({
-          body: expect.stringContaining("содержательных обсуждений не было"),
+          body: expect.stringContaining(
+            "Нет сообщений для суммаризации в указанном периоде",
+          ),
         }),
       );
     });

@@ -31,3 +31,39 @@ export function createMockEnv(overrides: Partial<Env> = {}): Env {
 
   return { ...defaultEnv, ...overrides };
 }
+
+/**
+ * Disables all console logging to prevent infinite recursion in tests
+ */
+export function disableConsoleLogging() {
+  const noop = () => {};
+  console.log = noop;
+  console.debug = noop;
+  console.info = noop;
+  console.warn = noop;
+  console.error = noop;
+}
+
+/**
+ * Restores original console logging functions
+ */
+export function restoreConsoleLogging() {
+  const originalConsole = console.constructor.prototype;
+  console.log = originalConsole.log;
+  console.debug = originalConsole.debug;
+  console.info = originalConsole.info;
+  console.warn = originalConsole.warn;
+  console.error = originalConsole.error;
+}
+
+/**
+ * Creates a safe mock environment with logging disabled
+ */
+export function createSafeMockEnv(overrides: Partial<Env> = {}): Env {
+  const env = createMockEnv({
+    DEBUG_LOGS: "false",
+    ...overrides,
+  });
+
+  return env;
+}

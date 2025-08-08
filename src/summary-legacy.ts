@@ -74,10 +74,6 @@ function buildAiOptions(env: Env): SummaryOptions {
       if (cloudflareSeed !== undefined) {
         opts.seed = cloudflareSeed;
       }
-      const cloudflarePresencePenalty = (env as any).CLOUDFLARE_PRESENCE_PENALTY;
-      if (cloudflarePresencePenalty !== undefined) {
-        opts.presencePenalty = cloudflarePresencePenalty;
-      }
       break;
 
     case "openai":
@@ -96,18 +92,6 @@ function buildAiOptions(env: Env): SummaryOptions {
       const openaiSeed = (env as any).OPENAI_SEED ?? env.SUMMARY_SEED;
       if (openaiSeed !== undefined) {
         opts.seed = openaiSeed;
-      }
-      const openaiPresencePenalty = (env as any).OPENAI_PRESENCE_PENALTY;
-      if (openaiPresencePenalty !== undefined) {
-        opts.presencePenalty = openaiPresencePenalty;
-      }
-      const openaiVerbosity = (env as any).OPENAI_VERBOSITY;
-      if (openaiVerbosity !== undefined) {
-        opts.verbosity = openaiVerbosity;
-      }
-      const openaiReasoningEffort = (env as any).OPENAI_REASONING_EFFORT;
-      if (openaiReasoningEffort !== undefined) {
-        opts.reasoningEffort = openaiReasoningEffort;
       }
       break;
 
@@ -132,18 +116,6 @@ function buildAiOptions(env: Env): SummaryOptions {
       const premiumSeed = (env as any).OPENAI_PREMIUM_SEED ?? env.SUMMARY_SEED;
       if (premiumSeed !== undefined) {
         opts.seed = premiumSeed;
-      }
-      const premiumPresencePenalty = (env as any).OPENAI_PREMIUM_PRESENCE_PENALTY;
-      if (premiumPresencePenalty !== undefined) {
-        opts.presencePenalty = premiumPresencePenalty;
-      }
-      const premiumVerbosity = (env as any).OPENAI_PREMIUM_VERBOSITY;
-      if (premiumVerbosity !== undefined) {
-        opts.verbosity = premiumVerbosity;
-      }
-      const premiumReasoningEffort = (env as any).OPENAI_PREMIUM_REASONING_EFFORT;
-      if (premiumReasoningEffort !== undefined) {
-        opts.reasoningEffort = premiumReasoningEffort;
       }
       break;
 
@@ -240,14 +212,7 @@ function createSummaryRequest(
   };
 }
 
-/**
- * Legacy implementation of summariseChat (kept for fallback)
- */
-export async function summariseChatLegacy(
-  env: Env,
-  chatId: number,
-  days: number,
-) {
+export async function summariseChat(env: Env, chatId: number, days: number) {
   const trackerId = PerformanceTracker.start(
     "summariseChat",
     chatId.toString(LOG_ID_RADIX),
@@ -691,10 +656,7 @@ export async function summariseChatLegacy(
   }
 }
 
-/**
- * Legacy implementation of summariseChatMessages (kept for fallback)
- */
-export async function summariseChatMessagesLegacy(
+export async function summariseChatMessages(
   env: Env,
   chatId: number,
   count: number,
@@ -994,103 +956,4 @@ export async function summariseChatMessagesLegacy(
     // Cleanup any remaining performance trackers
     PerformanceTracker.cleanup();
   }
-}
-
-/**
- * Helper function for environment variable parsing
- */
-function getEnvBoolean(env: Env, key: string, defaultValue: boolean): boolean {
-  const value = (env as any)[key];
-  if (typeof value === "string") {
-    return value.toLowerCase() === "true" || value === "1";
-  }
-  return typeof value === "boolean" ? value : defaultValue;
-}
-
-/**
- * Helper function to try optimized system first, then fallback to legacy
- */
-async function tryOptimizedSummary(
-  env: Env,
-  type: "chat" | "messages",
-  args: [number, number],
-  legacyFallback: (env: Env, ...args: any[]) => Promise<void>,
-): Promise<void> {
-  const [chatId, param] = args;
-
-  // Feature flag check - can be controlled via environment variable
-  const useOptimized = getEnvBoolean(env, "SUMMARY_OPT_ENABLED", true);
-
-  if (!useOptimized) {
-    Logger.debug(env, "Optimized summary disabled by feature flag", {
-      chatId: chatId.toString(LOG_ID_RADIX),
-      type,
-      param,
-    });
-    return legacyFallback(env, chatId, param);
-  }
-
-  try {
-    // Try optimized system first
-    Logger.debug(env, "Attempting optimized summary", {
-      chatId: chatId.toString(LOG_ID_RADIX),
-      type,
-      param,
-    });
-
-    const config = loadOptimizationConfig(env);
-    const controller = new OptimizedSummaryController(env);
-
-    let result: string;
-    if (type === "chat") {
-      result = await controller.summarizeChat(chatId, param);
-    } else {
-      result = await controller.summarizeChatMessages(chatId, param);
-    }
-
-    // Send the result
-    await sendMessage(env, chatId, result);
-
-    Logger.debug(env, "Optimized summary completed successfully", {
-      chatId: chatId.toString(LOG_ID_RADIX),
-      type,
-      param,
-      resultLength: result.length,
-    });
-  } catch (error) {
-    const e = error as Error;
-    Logger.error("Optimized summary failed, falling back to legacy", {
-      chatId: chatId.toString(LOG_ID_RADIX),
-      type,
-      param,
-      error: e.message,
-      stack: e.stack,
-    });
-
-    // Fallback to legacy system
-    return legacyFallback(env, chatId, param);
-  }
-}
-
-/**
- * Main summariseChat function with optimized system integration
- */
-export async function summariseChat(env: Env, chatId: number, days: number) {
-  return tryOptimizedSummary(env, "chat", [chatId, days], summariseChatLegacy);
-}
-
-/**
- * Main summariseChatMessages function with optimized system integration
- */
-export async function summariseChatMessages(
-  env: Env,
-  chatId: number,
-  count: number,
-) {
-  return tryOptimizedSummary(
-    env,
-    "messages",
-    [chatId, count],
-    summariseChatMessagesLegacy,
-  );
 }
