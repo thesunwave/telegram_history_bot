@@ -50,6 +50,10 @@
         "name": "MESSAGE_FETCHER_DO",
         "class_name": "MessageFetcherDO",
       },
+      {
+        "name": "MESSAGE_AGGREGATOR_DO",
+        "class_name": "MessageAggregatorDO",
+      },
     ],
   },
   "d1_databases": [
@@ -118,6 +122,10 @@
     {
       "tag": "v2",
       "new_classes": ["MessageFetcherDO"],
+    },
+    {
+      "tag": "v3",
+      "new_classes": ["MessageAggregatorDO"],
     },
   ],
   // ========================================
