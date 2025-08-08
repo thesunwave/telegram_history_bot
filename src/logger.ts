@@ -101,6 +101,14 @@ export class Logger {
     }
   }
 
+  static warn(message: string, data?: any): void {
+    if (data) {
+      console.warn(message, data);
+    } else {
+      console.warn(message);
+    }
+  }
+
   static error(message: string, data?: any): void {
     if (data) {
       console.error(message, data);
