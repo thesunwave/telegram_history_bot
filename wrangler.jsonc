@@ -67,7 +67,7 @@
     "CLOUDFLARE_TOP_P": 0.95,
     "CLOUDFLARE_FREQUENCY_PENALTY": 0.1,
     "CLOUDFLARE_PRESENCE_PENALTY": 0.05,   // Lower value for Cloudflare models
-    "OPENAI_MODEL": "gpt-5-nano",
+    "OPENAI_MODEL": "gpt-4.1-nano",
     "OPENAI_MAX_TOKENS": 1000,
     "OPENAI_TEMPERATURE": 0.1,
     "OPENAI_TOP_P": 0.9,
