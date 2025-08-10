@@ -210,6 +210,8 @@ describe("Summary End-to-End Tests", () => {
     it("should handle /summary 7 command with 2000 messages and verify batching limits", async () => {
       // Set a smaller batch size to test batching behavior
       env.KV_BATCH_SIZE = 25;
+      env.LARGE_DATASET_BATCH_DELAY = 0;
+      env.VERY_LARGE_DATASET_BATCH_DELAY = 0;
 
       fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
 
@@ -277,6 +279,8 @@ describe("Summary End-to-End Tests", () => {
     it("should not exceed API request limits during processing", async () => {
       // Set conservative batch size
       env.KV_BATCH_SIZE = 20;
+      env.LARGE_DATASET_BATCH_DELAY = 0;
+      env.VERY_LARGE_DATASET_BATCH_DELAY = 0;
 
       fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
 

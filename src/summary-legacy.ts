@@ -6,6 +6,7 @@ import {
   DEFAULT_SUMMARY_CHUNK_SIZE,
 } from "./env";
 import { fetchMessages, fetchLastMessages } from "./history";
+import { fetchMessagesHybrid } from "./history-optimized";
 import { chunkText, truncateText } from "./utils";
 import { sendMessage } from "./telegram";
 import { ProviderFactory } from "./providers/provider-factory";
@@ -238,9 +239,9 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
   });
 
   try {
-    // Fetch messages with performance tracking
+    // Fetch messages with performance tracking using optimized method
     const fetchStartTime = Date.now();
-    allMessages = await fetchMessages(env, chatId, start, end);
+    allMessages = await fetchMessagesHybrid(env, chatId, start, end);
     const fetchDuration = Date.now() - fetchStartTime;
 
     messages = filterContentMessages(allMessages);

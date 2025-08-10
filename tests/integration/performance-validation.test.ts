@@ -125,6 +125,8 @@ describe("Performance Validation and Optimization", () => {
         // Reset API counter
         apiRequestCounter = 0;
         env.KV_BATCH_SIZE = batchSize;
+        env.LARGE_DATASET_BATCH_DELAY = 0;
+        env.VERY_LARGE_DATASET_BATCH_DELAY = 0;
 
         try {
           const { result, metrics } = await measurePerformance(
@@ -208,6 +210,8 @@ describe("Performance Validation and Optimization", () => {
         // Reset API counter
         apiRequestCounter = 0;
         env.KV_BATCH_SIZE = batchSize;
+        env.LARGE_DATASET_BATCH_DELAY = 0;
+        env.VERY_LARGE_DATASET_BATCH_DELAY = 0;
 
         try {
           const { result, metrics } = await measurePerformance(
@@ -281,6 +285,8 @@ describe("Performance Validation and Optimization", () => {
 
       // Test with default batch size
       env.KV_BATCH_SIZE = DEFAULT_KV_BATCH_SIZE;
+      env.LARGE_DATASET_BATCH_DELAY = 0;
+      env.VERY_LARGE_DATASET_BATCH_DELAY = 0;
 
       const { result, metrics } = await measurePerformance(
         () => fetchMessages(env, chatId, oneDayAgo, now),
@@ -311,6 +317,8 @@ describe("Performance Validation and Optimization", () => {
 
       // Test with default batch size
       env.KV_BATCH_SIZE = DEFAULT_KV_BATCH_SIZE;
+      env.LARGE_DATASET_BATCH_DELAY = 0;
+      env.VERY_LARGE_DATASET_BATCH_DELAY = 0;
 
       const { result, metrics } = await measurePerformance(
         () => fetchMessages(env, chatId, threeDaysAgo, now),
@@ -417,6 +425,8 @@ describe("Performance Validation and Optimization", () => {
 
           apiRequestCounter = 0;
           env.KV_BATCH_SIZE = batchSize;
+          env.LARGE_DATASET_BATCH_DELAY = 0;
+          env.VERY_LARGE_DATASET_BATCH_DELAY = 0;
 
           try {
             const { result, metrics } = await measurePerformance(
@@ -508,6 +518,8 @@ describe("Performance Validation and Optimization", () => {
       for (const batchSize of batchSizes) {
         apiRequestCounter = 0;
         env.KV_BATCH_SIZE = batchSize;
+        env.LARGE_DATASET_BATCH_DELAY = 0;
+        env.VERY_LARGE_DATASET_BATCH_DELAY = 0;
 
         await fetchLastMessages(env, chatId, 100);
 
@@ -575,6 +587,8 @@ describe("Performance Validation and Optimization", () => {
         // Reset counter and measure
         apiRequestCounter = 0;
         env.KV_BATCH_SIZE = DEFAULT_KV_BATCH_SIZE;
+        env.LARGE_DATASET_BATCH_DELAY = 0;
+        env.VERY_LARGE_DATASET_BATCH_DELAY = 0;
 
         const messages = await fetchMessages(
           env,
@@ -647,6 +661,8 @@ describe("Performance Validation and Optimization", () => {
       for (const batchSize of batchSizes) {
         apiRequestCounter = 0;
         env.KV_BATCH_SIZE = batchSize;
+        env.LARGE_DATASET_BATCH_DELAY = 0;
+        env.VERY_LARGE_DATASET_BATCH_DELAY = 0;
 
         const messages = await fetchLastMessages(env, chatId, 500);
 

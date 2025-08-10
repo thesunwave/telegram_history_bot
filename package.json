@@ -7,7 +7,9 @@
 		"start": "wrangler dev",
 		"dev": "wrangler dev",
 		"cf-typegen": "wrangler types",
-		"test": "vitest run"
+		"test": "vitest run",
+		"test:race-conditions": "vitest run tests/race-condition.test.ts --reporter=verbose",
+		"test:all": "npm test && npm run test:race-conditions"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20250810.0",
