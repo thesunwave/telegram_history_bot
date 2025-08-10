@@ -10,10 +10,12 @@ import { hashText } from './utils';
 export class DayBlockManager {
   private env: any;
   private storage: DurableObjectStorage;
+  private state: DurableObjectState;
 
   constructor(state: DurableObjectState, env: any) {
     this.env = env;
     this.storage = state.storage;
+    this.state = state;
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -22,7 +24,8 @@ export class DayBlockManager {
       const method = request.method;
 
       if (method === 'POST' && url.pathname === '/add-message') {
-        return await this.handleAddMessage(request);
+        // Serialize concurrent writes within this DO instance to avoid version conflicts
+        return await this.state.blockConcurrencyWhile(() => this.handleAddMessage(request));
       }
 
       if (method === 'GET' && url.pathname === '/get-block') {
