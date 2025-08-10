@@ -518,7 +518,7 @@ export class OptimizedSummaryController implements SummaryController {
     } else {
       await legacySummariseChatMessages(this.env, chatId, value);
     }
-    
+
     // Throw a special error to indicate that the message was already sent
     // This prevents the caller from trying to send another message
     throw new Error("LEGACY_MESSAGE_SENT");
@@ -596,6 +596,9 @@ export class OptimizedSummaryController implements SummaryController {
     messages: TelegramMessage[],
   ): TelegramMessage[] {
     return messages.filter((msg) => {
+      if (!msg.text || typeof msg.text !== 'string') {
+        return false;
+      }
       const text = msg.text.toLowerCase().trim();
 
       // Ignore bot commands

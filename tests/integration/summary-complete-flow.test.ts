@@ -493,11 +493,11 @@ describe("Complete Optimized Summary Flow", () => {
       ]);
 
       // Chat 123 should succeed with optimized
-      // Check if message was sent (either by optimized or legacy system)
-      expect(sendMessage).toHaveBeenCalled();
-      const lastCall = vi.mocked(sendMessage).mock.calls[vi.mocked(sendMessage).mock.calls.length - 1];
-      expect(lastCall[0]).toBe(mockEnv);
-      expect(lastCall[1]).toBe(123);
+      expect(sendMessage).toHaveBeenCalledWith(
+        mockEnv,
+        123,
+        "Успешная сводка чата 123",
+      );
 
       // Chat 456 should fallback to legacy
       expect(mockEnv.AI.run).toHaveBeenCalled();
@@ -580,14 +580,20 @@ describe("Complete Optimized Summary Flow", () => {
       const { fetchMessages } = await import("../../src/history");
       vi.mocked(fetchMessages).mockResolvedValue([]);
 
+      // Configure optimized system to handle empty set gracefully
+      optimizedChatSpy.mockResolvedValue("Нет сообщений за выбранный период");
+
       const { sendMessage } = await import("../../src/telegram");
 
       // With optimized system enabled
       await summariseChat(mockEnv, 123, 7);
 
       // Should handle empty case through optimized system
-      // Should handle empty case through optimized system
-      expect(sendMessage).toHaveBeenCalledWith(mockEnv, 123, expect.stringMatching(/нет сообщений|no messages|empty/i));
+      expect(sendMessage).toHaveBeenCalledWith(
+        mockEnv,
+        123,
+        expect.stringMatching(/нет сообщений|no messages|empty/i),
+      );
     });
 
     it("should handle filtered message edge cases", async () => {
