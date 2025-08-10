@@ -32,31 +32,39 @@
     {
       "binding": "HISTORY",
       "id": "2c2400074dd346fa9d19830f893189df",
-      "preview_id": "2c2400074dd346fa9d19830f893189df"
+      "preview_id": "2c2400074dd346fa9d19830f893189df",
     },
     {
       "binding": "COUNTERS",
       "id": "eb2d8e7ad2e74a37bb123e4ca820fbb8",
-      "preview_id": "eb2d8e7ad2e74a37bb123e4ca820fbb8"
-    }
+      "preview_id": "eb2d8e7ad2e74a37bb123e4ca820fbb8",
+    },
   ],
   "durable_objects": {
     "bindings": [
       {
         "name": "COUNTERS_DO",
-        "class_name": "CountersDO"
-      }
-    ]
+        "class_name": "CountersDO",
+      },
+      {
+        "name": "MESSAGE_FETCHER_DO",
+        "class_name": "MessageFetcherDO",
+      },
+      {
+        "name": "MESSAGE_AGGREGATOR_DO",
+        "class_name": "MessageAggregatorDO",
+      },
+    ],
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "summaries",
-      "database_id": "34682d13-30ec-409f-97e2-e751603e4dcd"
-    }
+      "database_id": "34682d13-30ec-409f-97e2-e751603e4dcd",
+    },
   ],
   "ai": {
-    "binding": "AI"
+    "binding": "AI",
   },
   "vars": {
     // Available values: "cloudflare", "openai"
@@ -90,32 +98,66 @@
     "PROFANITY_SYSTEM_PROMPT": "Ты эксперт по анализу русского языка. Твоя задача — определить наличие матерной (экспрессивно-обсценной) лексики в переданном тексте. # Инструкции 1. Анализируй только текст, написанный на русском языке; 2. Выделяй именно матерные слова, а не просто грубые или невежливые выражения; 3. Обязательно учитывай контекст: слово считается матерным только в определённых значениях; 4. Для каждого найденного матерного слова укажи его базовую (словарную) форму; 5. Игнорируй слова, которые только похожи на мат, но по смыслу таковыми не являются; 6. Не анализируй слова на других языках. Начни с краткого чек-листа (3–7 пунктов) концептуальных шагов, которые будут выполнены перед анализом. # Формат ответа Возвращай строго структуру JSON без дополнительных комментариев: { “hasProfanity”: boolean, “words”: [ { “word”: “найденное_слово_в_тексте”, “baseForm”: “базовая_форма_слова”, “confidence”: число_от_0_до_1 } ] } Если матерных слов не найдено, всегда возвращай: {“hasProfanity”: false, “words”: []}",
     "PROFANITY_USER_PROMPT": "Проанализируй следующий текст на наличие матерной лексики:\n\nТЕКСТ ДЛЯ АНАЛИЗА:",
     "SUMMARY_SEED": 12345,
-    "DEBUG_LOGS": true
+    "DEBUG_LOGS": true,
+
+    // ========================================
+    // 🚀 OPTIMIZED SUMMARY SYSTEM CONFIG
+    // ========================================
+    // Feature flag to enable/disable optimized system
+    "SUMMARY_OPT_ENABLED": true,
+
+    // Parallel processing configuration
+    "SUMMARY_OPT_PARALLEL_ENABLED": true,
+    "SUMMARY_OPT_MIN_MESSAGES_THRESHOLD": 100,
+    "SUMMARY_OPT_MAX_WORKERS": 5,
+    "SUMMARY_OPT_WORKER_BATCH_SIZE": 50,
+    "SUMMARY_OPT_WORKER_TIMEOUT": 30000,
+
+    // Context management configuration
+    "SUMMARY_OPT_MAX_TOKENS_PER_REQUEST": 120000,
+    "SUMMARY_OPT_PREPROCESSING_MAX_TOKENS": 60000,
+    "SUMMARY_OPT_FINAL_MAX_TOKENS": 120000,
+    "SUMMARY_OPT_TOKEN_ESTIMATION_FACTOR": 4,
+
+    // Hierarchical processing configuration
+    "SUMMARY_OPT_HIERARCHICAL_ENABLED": true,
+    "SUMMARY_OPT_CHUNK_SIZE_THRESHOLD": 80000,
+    "SUMMARY_OPT_PREPROCESSING_PROMPT": "Создай краткую сводку основных тем и событий из следующих сообщений:",
+    "SUMMARY_OPT_MAX_PREPROCESSING_CHUNKS": 10,
+
+    // Monitoring configuration
+    "SUMMARY_OPT_ENABLE_DETAILED_METRICS": true,
+    "SUMMARY_OPT_LOG_PERFORMANCE_INSIGHTS": true,
+    "SUMMARY_OPT_TRACK_TOKEN_USAGE": true,
   },
   "triggers": {
-    "crons": [
-      "59 23 * * *"
-    ]
+    "crons": ["59 23 * * *"],
   },
   "analytics_engine_datasets": [
     {
       "binding": "ANALYTICS",
-      "dataset": "telegram_history_bot_analytics"
-    }
+      "dataset": "telegram_history_bot_analytics",
+    },
   ],
   "observability": {
     "logs": {
-      "enabled": true
-    }
+      "enabled": true,
+    },
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": [
-        "CountersDO"
-      ]
-    }
-  ]
+      "new_classes": ["CountersDO"],
+    },
+    {
+      "tag": "v2",
+      "new_classes": ["MessageFetcherDO"],
+    },
+    {
+      "tag": "v3",
+      "new_classes": ["MessageAggregatorDO"],
+    },
+  ],
   // ========================================
   // � ПРИМЕРЫ ОПЕРЕКЛЮЧЕНИЯ ПРОВАЙДЕРОВ
   // ========================================

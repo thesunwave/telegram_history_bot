@@ -1,14 +1,24 @@
-import { Env, StoredMessage, LOG_ID_RADIX, DEFAULT_KV_BATCH_SIZE, DEFAULT_KV_BATCH_DELAY } from './env';
+import {
+  Env,
+  StoredMessage,
+  LOG_ID_RADIX,
+  DEFAULT_KV_BATCH_SIZE,
+  DEFAULT_KV_BATCH_DELAY,
+  LARGE_DATASET_BATCH_SIZE,
+  LARGE_DATASET_BATCH_DELAY,
+  VERY_LARGE_DATASET_BATCH_SIZE,
+  VERY_LARGE_DATASET_BATCH_DELAY
+} from './env';
 import { Logger, PerformanceTracker } from './logger';
 import { processBatches, processBatchesDetailed, BatchErrorType } from './utils';
 
 export async function fetchMessages(env: Env, chatId: number, start: number, end: number): Promise<StoredMessage[]> {
-  const trackerId = PerformanceTracker.start('fetchMessages', chatId.toString(LOG_ID_RADIX), { 
+  const trackerId = PerformanceTracker.start('fetchMessages', chatId.toString(LOG_ID_RADIX), {
     start: new Date(start * 1000).toISOString(),
     end: new Date(end * 1000).toISOString(),
     timeRangeDays: Math.ceil((end - start) / (24 * 60 * 60))
   });
-  
+
   const prefix = `msg:${chatId}:`;
   let cursor: string | undefined = undefined;
   const messages: StoredMessage[] = [];
@@ -45,6 +55,37 @@ export async function fetchMessages(env: Env, chatId: number, start: number, end
         batchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
       });
 
+      // Adaptive batch configuration for large datasets to prevent API limits
+      const totalKeys = keysToFetch.length;
+      const timeRangeDays = Math.ceil((end - start) / (24 * 60 * 60));
+
+      // Use smaller batches and longer delays for large datasets
+      let adaptiveBatchSize = env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE;
+      let adaptiveDelay = env.KV_BATCH_DELAY || DEFAULT_KV_BATCH_DELAY;
+
+      if (totalKeys > 500) {
+        // For large datasets (>500 messages), use conservative settings
+        adaptiveBatchSize = Math.min(adaptiveBatchSize, env.LARGE_DATASET_BATCH_SIZE || LARGE_DATASET_BATCH_SIZE);
+        adaptiveDelay = Math.max(adaptiveDelay, env.LARGE_DATASET_BATCH_DELAY !== undefined ? env.LARGE_DATASET_BATCH_DELAY : LARGE_DATASET_BATCH_DELAY);
+      }
+
+      if (totalKeys > 800) {
+        // For very large datasets (>800 messages), be even more conservative
+        adaptiveBatchSize = Math.min(adaptiveBatchSize, env.VERY_LARGE_DATASET_BATCH_SIZE || VERY_LARGE_DATASET_BATCH_SIZE);
+        adaptiveDelay = Math.max(adaptiveDelay, env.VERY_LARGE_DATASET_BATCH_DELAY !== undefined ? env.VERY_LARGE_DATASET_BATCH_DELAY : VERY_LARGE_DATASET_BATCH_DELAY);
+      }
+
+      Logger.debug(env, 'fetchMessages adaptive batch config', {
+        chat: chatId.toString(LOG_ID_RADIX),
+        totalKeys,
+        timeRangeDays,
+        originalBatchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
+        adaptiveBatchSize,
+        originalDelay: env.KV_BATCH_DELAY || DEFAULT_KV_BATCH_DELAY,
+        adaptiveDelay,
+        estimatedDuration: Math.ceil(totalKeys / adaptiveBatchSize) * adaptiveDelay
+      });
+
       // Process KV requests in batches to avoid API limits with enhanced error handling
       const batchResult = await processBatchesDetailed(
         keysToFetch,
@@ -58,8 +99,8 @@ export async function fetchMessages(env: Env, chatId: number, start: number, end
           return env.HISTORY.get<StoredMessage>(key.name, { type: 'json' });
         },
         {
-          batchSize: env.KV_BATCH_SIZE || DEFAULT_KV_BATCH_SIZE,
-          delayBetweenBatches: env.KV_BATCH_DELAY || DEFAULT_KV_BATCH_DELAY,
+          batchSize: adaptiveBatchSize,
+          delayBetweenBatches: adaptiveDelay,
         }
       );
 
@@ -109,11 +150,29 @@ export async function fetchMessages(env: Env, chatId: number, start: number, end
         }
       }
 
+      // Enhanced error handling with specific guidance
+      if (batchResult.hasApiLimitErrors && batchResult.metrics.apiLimitErrors > totalKeys * 0.2) {
+        // If more than 20% of requests hit API limits, this is a systemic issue
+        Logger.error('fetchMessages: Systemic API limit errors detected', {
+          chat: chatId.toString(LOG_ID_RADIX),
+          apiLimitErrors: batchResult.metrics.apiLimitErrors,
+          totalKeys,
+          timeRangeDays,
+          successRate: batchResult.successRate,
+          recommendation: 'Consider reducing time range or using smaller batch sizes'
+        });
+
+        // Only throw if success rate is very low
+        if (batchResult.successRate < 30) {
+          throw new Error('Too many API requests by single worker invocation.');
+        }
+      }
+
       // Check if we should throw an error for critical failures
       if (batchResult.hasCriticalFailures && batchResult.successRate < 50) {
         const apiLimitErrors = batchResult.errors.filter(e => e.type === BatchErrorType.API_LIMIT_EXCEEDED);
         if (apiLimitErrors.length > 0) {
-          throw new Error('API request limits exceeded. Please try again with a shorter time period or contact support if the issue persists.');
+          throw new Error('Too many API requests by single worker invocation.');
         } else {
           throw new Error('Critical failures occurred during message fetching. Please try again later.');
         }
@@ -135,14 +194,14 @@ export async function fetchMessages(env: Env, chatId: number, start: number, end
       });
     } while (cursor && messages.length < 10000);
     const sortedMessages = messages.sort((a, b) => a.ts - b.ts);
-    
+
     // Track successful completion
-    const finalMetrics = PerformanceTracker.end(trackerId, { 
+    const finalMetrics = PerformanceTracker.end(trackerId, {
       result: 'success',
       messagesFound: sortedMessages.length,
       timeRangeDays: Math.ceil((end - start) / (24 * 60 * 60))
     });
-    
+
     // Log overall function performance insight
     if (finalMetrics && finalMetrics.duration !== undefined) {
       Logger.logPerformanceInsight(env, 'fetchMessages', {
@@ -156,16 +215,16 @@ export async function fetchMessages(env: Env, chatId: number, start: number, end
         ]
       });
     }
-    
+
     return sortedMessages;
   } catch (err: any) {
     // Track error completion
-    const finalMetrics = PerformanceTracker.end(trackerId, { 
+    const finalMetrics = PerformanceTracker.end(trackerId, {
       result: 'error',
       errorType: err.constructor?.name || 'Unknown',
       messagesFound: messages.length
     });
-    
+
     Logger.error('fetchMessages failed', {
       chat: chatId.toString(LOG_ID_RADIX),
       error: err.message || String(err),
@@ -183,7 +242,7 @@ export async function fetchMessages(env: Env, chatId: number, start: number, end
 
 export async function fetchLastMessages(env: Env, chatId: number, count: number): Promise<StoredMessage[]> {
   const trackerId = PerformanceTracker.start('fetchLastMessages', chatId.toString(LOG_ID_RADIX), { count });
-  
+
   const prefix = `msg:${chatId}:`;
   let cursor: string | undefined = undefined;
   const keys: string[] = [];
@@ -305,22 +364,22 @@ export async function fetchLastMessages(env: Env, chatId: number, count: number)
 
     const filtered = msgs.filter((m): m is StoredMessage => m !== null);
     const sorted = filtered.sort((a: StoredMessage, b: StoredMessage) => b.ts - a.ts);
-    
+
     // Filter out command messages and return only the requested count
     const nonCommandMessages = sorted.filter((msg: StoredMessage) => Boolean(msg.text) && !msg.text!.startsWith('/'));
     const result = nonCommandMessages.slice(0, count);
-    
+
     // Sort the final result in ascending order (oldest first) for consistent ordering
     const sortedResult = result.sort((a: StoredMessage, b: StoredMessage) => a.ts - b.ts);
-    
+
     // Track successful completion
-    const finalMetrics = PerformanceTracker.end(trackerId, { 
+    const finalMetrics = PerformanceTracker.end(trackerId, {
       result: 'success',
       messagesRequested: count,
       messagesFound: sortedResult.length,
       keysProcessed: keys.length
     });
-    
+
     // Log overall function performance insight
     if (finalMetrics && finalMetrics.duration !== undefined) {
       Logger.logPerformanceInsight(env, 'fetchLastMessages', {
@@ -335,16 +394,16 @@ export async function fetchLastMessages(env: Env, chatId: number, count: number)
         ]
       });
     }
-    
+
     return sortedResult;
   } catch (err: any) {
     // Track error completion
-    const finalMetrics = PerformanceTracker.end(trackerId, { 
+    const finalMetrics = PerformanceTracker.end(trackerId, {
       result: 'error',
       errorType: err.constructor?.name || 'Unknown',
       keysProcessed: keys.length
     });
-    
+
     Logger.error('fetchLastMessages failed', {
       chat: chatId.toString(LOG_ID_RADIX),
       error: err.message || String(err),

@@ -6,24 +6,37 @@ import {
   DEFAULT_SUMMARY_CHUNK_SIZE,
 } from "./env";
 import { fetchMessages, fetchLastMessages } from "./history";
+import { fetchMessagesHybrid } from "./history-optimized";
 import { chunkText, truncateText } from "./utils";
 import { sendMessage } from "./telegram";
 import { ProviderFactory } from "./providers/provider-factory";
 import { ProviderInitializer } from "./providers/provider-init";
-import { SummaryOptions, TelegramMessage, SummaryRequest, ProviderError } from "./providers/ai-provider";
+import {
+  SummaryOptions,
+  TelegramMessage,
+  SummaryRequest,
+  ProviderError,
+} from "./providers/ai-provider";
 import { Logger, PerformanceTracker } from "./logger";
+import {
+  OptimizedSummaryController,
+  loadOptimizationConfig,
+} from "./summary-optimization";
 
 function filterContentMessages(messages: TelegramMessage[]): TelegramMessage[] {
-  return messages.filter(msg => {
+  return messages.filter((msg) => {
+    if (!msg.text || typeof msg.text !== 'string') {
+      return false;
+    }
     const text = msg.text.toLowerCase().trim();
 
     // Игнорируем команды бота
-    if (text.startsWith('/')) {
+    if (text.startsWith("/")) {
       return false;
     }
 
     // Игнорируем упоминания ботов
-    if (text.includes('@stat_history_bot') || text.includes('@bot')) {
+    if (text.includes("@stat_history_bot") || text.includes("@bot")) {
       return false;
     }
 
@@ -42,18 +55,22 @@ function filterContentMessages(messages: TelegramMessage[]): TelegramMessage[] {
 }
 
 function buildAiOptions(env: Env): SummaryOptions {
-  const provider = (env as any).SUMMARY_PROVIDER || 'cloudflare';
+  const provider = (env as any).SUMMARY_PROVIDER || "cloudflare";
 
   let opts: SummaryOptions;
 
   switch (provider) {
-    case 'cloudflare':
+    case "cloudflare":
       opts = {
-        maxTokens: (env as any).CLOUDFLARE_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 400,
-        temperature: (env as any).CLOUDFLARE_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
+        maxTokens:
+          (env as any).CLOUDFLARE_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 400,
+        temperature:
+          (env as any).CLOUDFLARE_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
         topP: (env as any).CLOUDFLARE_TOP_P ?? env.SUMMARY_TOP_P ?? 0.95,
       };
-      const cloudflareFreqPenalty = (env as any).CLOUDFLARE_FREQUENCY_PENALTY ?? env.SUMMARY_FREQUENCY_PENALTY;
+      const cloudflareFreqPenalty =
+        (env as any).CLOUDFLARE_FREQUENCY_PENALTY ??
+        env.SUMMARY_FREQUENCY_PENALTY;
       if (cloudflareFreqPenalty !== undefined) {
         opts.frequencyPenalty = cloudflareFreqPenalty;
       }
@@ -67,13 +84,16 @@ function buildAiOptions(env: Env): SummaryOptions {
       }
       break;
 
-    case 'openai':
+    case "openai":
       opts = {
-        maxTokens: (env as any).OPENAI_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 500,
-        temperature: (env as any).OPENAI_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
+        maxTokens:
+          (env as any).OPENAI_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 500,
+        temperature:
+          (env as any).OPENAI_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
         topP: (env as any).OPENAI_TOP_P ?? env.SUMMARY_TOP_P ?? 0.9,
       };
-      const openaiFreqPenalty = (env as any).OPENAI_FREQUENCY_PENALTY ?? env.SUMMARY_FREQUENCY_PENALTY;
+      const openaiFreqPenalty =
+        (env as any).OPENAI_FREQUENCY_PENALTY ?? env.SUMMARY_FREQUENCY_PENALTY;
       if (openaiFreqPenalty !== undefined) {
         opts.frequencyPenalty = openaiFreqPenalty;
       }
@@ -95,13 +115,21 @@ function buildAiOptions(env: Env): SummaryOptions {
       }
       break;
 
-    case 'openai-premium':
+    case "openai-premium":
       opts = {
-        maxTokens: (env as any).OPENAI_PREMIUM_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 600,
-        temperature: (env as any).OPENAI_PREMIUM_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
+        maxTokens:
+          (env as any).OPENAI_PREMIUM_MAX_TOKENS ??
+          env.SUMMARY_MAX_TOKENS ??
+          600,
+        temperature:
+          (env as any).OPENAI_PREMIUM_TEMPERATURE ??
+          env.SUMMARY_TEMPERATURE ??
+          0.0,
         topP: (env as any).OPENAI_PREMIUM_TOP_P ?? env.SUMMARY_TOP_P ?? 0.85,
       };
-      const premiumFreqPenalty = (env as any).OPENAI_PREMIUM_FREQUENCY_PENALTY ?? env.SUMMARY_FREQUENCY_PENALTY;
+      const premiumFreqPenalty =
+        (env as any).OPENAI_PREMIUM_FREQUENCY_PENALTY ??
+        env.SUMMARY_FREQUENCY_PENALTY;
       if (premiumFreqPenalty !== undefined) {
         opts.frequencyPenalty = premiumFreqPenalty;
       }
@@ -141,25 +169,43 @@ function buildAiOptions(env: Env): SummaryOptions {
   return opts;
 }
 
-function createSummaryRequest(messages: TelegramMessage[], env: Env, limitNote: string, chatId?: number, start?: number, end?: number): SummaryRequest {
+function createSummaryRequest(
+  messages: TelegramMessage[],
+  env: Env,
+  limitNote: string,
+  chatId?: number,
+  start?: number,
+  end?: number,
+): SummaryRequest {
   // Собираем информацию для замены плейсхолдеров
-  const participants = [...new Set(messages.map(m => m.username))];
-  const startDate = start ? new Date(start * 1000).toLocaleDateString('ru-RU') : 'неизвестно';
-  const endDate = end ? new Date(end * 1000).toLocaleDateString('ru-RU') : 'неизвестно';
-  const chatTitle = chatId ? `Чат ${chatId.toString(LOG_ID_RADIX)}` : 'Неизвестный чат';
+  const participants = [...new Set(messages.map((m) => m.username))];
+  const startDate = start
+    ? new Date(start * 1000).toLocaleDateString("ru-RU")
+    : "неизвестно";
+  const endDate = end
+    ? new Date(end * 1000).toLocaleDateString("ru-RU")
+    : "неизвестно";
+  const chatTitle = chatId
+    ? `Чат ${chatId.toString(LOG_ID_RADIX)}`
+    : "Неизвестный чат";
 
   // Создаем детальную информацию об участниках
-  const participantStats = participants.map(username => {
-    const messageCount = messages.filter(m => m.username === username).length;
-    return { username, messageCount };
-  }).sort((a, b) => b.messageCount - a.messageCount);
+  const participantStats = participants
+    .map((username) => {
+      const messageCount = messages.filter(
+        (m) => m.username === username,
+      ).length;
+      return { username, messageCount };
+    })
+    .sort((a, b) => b.messageCount - a.messageCount);
 
-  const participantsInfo = participantStats.length > 0
-    ? `${participantStats.length} чел. (${participantStats.map(p => `${p.username}: ${p.messageCount}`).join(', ')})`
-    : 'нет данных';
+  const participantsInfo =
+    participantStats.length > 0
+      ? `${participantStats.length} чел. (${participantStats.map((p) => `${p.username}: ${p.messageCount}`).join(", ")})`
+      : "нет данных";
 
   // Создаем информацию о периоде
-  let periodInfo = '';
+  let periodInfo = "";
   if (start && end) {
     const startDateTime = new Date(start * 1000);
     const endDateTime = new Date(end * 1000);
@@ -169,23 +215,26 @@ function createSummaryRequest(messages: TelegramMessage[], env: Env, limitNote: 
     // Для случая summariseChatMessages используем временные метки сообщений
     const firstMsg = messages[0];
     const lastMsg = messages[messages.length - 1];
-    const firstDate = new Date(firstMsg.ts * 1000).toLocaleDateString('ru-RU');
-    const lastDate = new Date(lastMsg.ts * 1000).toLocaleDateString('ru-RU');
+    const firstDate = new Date(firstMsg.ts * 1000).toLocaleDateString("ru-RU");
+    const lastDate = new Date(lastMsg.ts * 1000).toLocaleDateString("ru-RU");
     const duration = Math.ceil((lastMsg.ts - firstMsg.ts) / DAY);
-    periodInfo = `${firstDate} - ${lastDate}${duration > 0 ? ` (${duration} дн.)` : ' (в тот же день)'}`;
+    periodInfo = `${firstDate} - ${lastDate}${duration > 0 ? ` (${duration} дн.)` : " (в тот же день)"}`;
   } else {
-    periodInfo = 'неизвестно';
+    periodInfo = "неизвестно";
   }
 
   // Заменяем плейсхолдеры в промпте
   let userPrompt = env.SUMMARY_PROMPT;
-  userPrompt = userPrompt.replace('{chatTitle}', chatTitle);
-  userPrompt = userPrompt.replace('{startDate}', startDate);
-  userPrompt = userPrompt.replace('{endDate}', endDate);
-  userPrompt = userPrompt.replace('{totalMessages}', messages.length.toString());
-  userPrompt = userPrompt.replace('{participants}', participantsInfo);
-  userPrompt = userPrompt.replace('{period}', periodInfo);
-  userPrompt = userPrompt.replace('{messages}', ''); // Сообщения добавляются отдельно провайдером
+  userPrompt = userPrompt.replace("{chatTitle}", chatTitle);
+  userPrompt = userPrompt.replace("{startDate}", startDate);
+  userPrompt = userPrompt.replace("{endDate}", endDate);
+  userPrompt = userPrompt.replace(
+    "{totalMessages}",
+    messages.length.toString(),
+  );
+  userPrompt = userPrompt.replace("{participants}", participantsInfo);
+  userPrompt = userPrompt.replace("{period}", periodInfo);
+  userPrompt = userPrompt.replace("{messages}", ""); // Сообщения добавляются отдельно провайдером
 
   return {
     messages,
@@ -195,17 +244,28 @@ function createSummaryRequest(messages: TelegramMessage[], env: Env, limitNote: 
   };
 }
 
-export async function summariseChat(env: Env, chatId: number, days: number) {
-  const trackerId = PerformanceTracker.start('summariseChat', chatId.toString(LOG_ID_RADIX), { days });
+/**
+ * Legacy implementation of summariseChat (kept for fallback)
+ */
+export async function summariseChatLegacy(
+  env: Env,
+  chatId: number,
+  days: number,
+) {
+  const trackerId = PerformanceTracker.start(
+    "summariseChat",
+    chatId.toString(LOG_ID_RADIX),
+    { days },
+  );
   let allMessages: any[] = [];
   let messages: any[] = [];
-  
+
   Logger.debug(env, "summariseChat started", {
     chat: chatId.toString(LOG_ID_RADIX),
     days,
     model: env.SUMMARY_MODEL,
     providerInitialized: ProviderInitializer.isProviderInitialized(),
-    trackerId
+    trackerId,
   });
 
   const end = Math.floor(Date.now() / 1000);
@@ -217,51 +277,55 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
   });
 
   try {
-    // Fetch messages with performance tracking
+    // Fetch messages with performance tracking using optimized method
     const fetchStartTime = Date.now();
-    allMessages = await fetchMessages(env, chatId, start, end);
+    allMessages = await fetchMessagesHybrid(env, chatId, start, end);
     const fetchDuration = Date.now() - fetchStartTime;
-    
+
     messages = filterContentMessages(allMessages);
-    
+
     Logger.debug(env, "summariseChat messages fetched and filtered", {
       chat: chatId.toString(LOG_ID_RADIX),
       totalCount: allMessages.length,
       filteredCount: messages.length,
       removedCount: allMessages.length - messages.length,
-      fetchDuration
+      fetchDuration,
     });
 
     // Log API request pattern for message fetching
-    Logger.logApiRequestPattern(env, 'fetchMessages', {
+    Logger.logApiRequestPattern(env, "fetchMessages", {
       requestCount: allMessages.length,
       duration: fetchDuration,
       successRate: 100, // We got results, so consider it successful
-      chatId: chatId.toString(LOG_ID_RADIX)
+      chatId: chatId.toString(LOG_ID_RADIX),
     });
 
     // Log performance insight for message fetching
-    Logger.logPerformanceInsight(env, 'summariseChat', {
+    Logger.logPerformanceInsight(env, "summariseChat", {
       duration: fetchDuration,
       itemsProcessed: allMessages.length,
       chatId: chatId.toString(LOG_ID_RADIX),
-      stage: 'message_fetch'
+      stage: "message_fetch",
     });
 
     if (!messages.length) {
       Logger.debug(env, "summariseChat no messages after filtering", {
         chat: chatId.toString(LOG_ID_RADIX),
-        originalCount: allMessages.length
+        originalCount: allMessages.length,
       });
-      
-      const metrics = PerformanceTracker.end(trackerId, { 
-        result: 'no_messages', 
+
+      const metrics = PerformanceTracker.end(trackerId, {
+        result: "no_messages",
         totalMessages: allMessages.length,
-        filteredMessages: 0 
+        filteredMessages: 0,
       });
-      
+
       if (allMessages.length > 0) {
-        await sendMessage(env, chatId, "В данном периоде содержательных обсуждений не было, только команды бота и системные сообщения.");
+        await sendMessage(
+          env,
+          chatId,
+          "В данном периоде содержательных обсуждений не было, только команды бота и системные сообщения.",
+        );
       } else {
         await sendMessage(env, chatId, "Нет сообщений");
       }
@@ -292,19 +356,19 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     const chunkSize = env.SUMMARY_CHUNK_SIZE ?? DEFAULT_SUMMARY_CHUNK_SIZE;
 
     // Convert messages to TelegramMessage format for chunking
-    const content = messages.map((m) => `${m.username}: ${m.text}`).join('\n');
+    const content = messages.map((m) => `${m.username}: ${m.text}`).join("\n");
     const parts = chunkText(content, chunkSize);
 
     // Debug: log sample messages to understand what's being sent to AI
     Logger.debug(env, "summarize messages sample", {
       chat: chatId.toString(LOG_ID_RADIX),
       totalMessages: messages.length,
-      sampleMessages: messages.slice(0, 5).map(m => ({
+      sampleMessages: messages.slice(0, 5).map((m) => ({
         username: m.username,
         text: m.text.substring(0, 100),
-        textLength: m.text.length
+        textLength: m.text.length,
       })),
-      contentPreview: content.substring(0, 500)
+      contentPreview: content.substring(0, 500),
     });
 
     Logger.debug(env, "summarize chunks", {
@@ -315,9 +379,12 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
 
     const summaryOptions = buildAiOptions(env);
 
-    async function summariseMessages(messagesToSummarize: TelegramMessage[], stage: string): Promise<string> {
+    async function summariseMessages(
+      messagesToSummarize: TelegramMessage[],
+      stage: string,
+    ): Promise<string> {
       const aiStartTime = Date.now();
-      
+
       Logger.debug(env, "summarize AI request", {
         chat: chatId.toString(LOG_ID_RADIX),
         stage,
@@ -327,7 +394,14 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       });
 
       try {
-        const request = createSummaryRequest(messagesToSummarize, env, limitNote, chatId, start, end);
+        const request = createSummaryRequest(
+          messagesToSummarize,
+          env,
+          limitNote,
+          chatId,
+          start,
+          end,
+        );
         const resp = await provider.summarize(request, summaryOptions, env);
         const aiDuration = Date.now() - aiStartTime;
 
@@ -336,7 +410,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
           stage,
           provider: providerInfo.name,
           responseLength: resp.length,
-          aiDuration
+          aiDuration,
         });
 
         // Log AI request pattern
@@ -344,30 +418,30 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
           requestCount: 1,
           duration: aiDuration,
           successRate: 100,
-          chatId: chatId.toString(LOG_ID_RADIX)
+          chatId: chatId.toString(LOG_ID_RADIX),
         });
 
         // Log AI performance insight
-        Logger.logPerformanceInsight(env, 'summariseChat', {
+        Logger.logPerformanceInsight(env, "summariseChat", {
           duration: aiDuration,
           itemsProcessed: messagesToSummarize.length,
           chatId: chatId.toString(LOG_ID_RADIX),
           stage: `ai_${stage}`,
-          insights: aiDuration > 10000 ? ['SLOW_AI_RESPONSE'] : []
+          insights: aiDuration > 10000 ? ["SLOW_AI_RESPONSE"] : [],
         });
 
         return truncateText(resp, TELEGRAM_LIMIT);
       } catch (error) {
         const aiDuration = Date.now() - aiStartTime;
         const e = error as Error;
-        
+
         Logger.error("summarize AI error", {
           chat: chatId.toString(LOG_ID_RADIX),
           stage,
           provider: providerInfo.name,
           error: e.message || String(e),
           stack: e.stack,
-          aiDuration
+          aiDuration,
         });
 
         // Log failed AI request pattern
@@ -376,7 +450,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
           duration: aiDuration,
           successRate: 0,
           errorTypes: [e.constructor.name],
-          chatId: chatId.toString(LOG_ID_RADIX)
+          chatId: chatId.toString(LOG_ID_RADIX),
         });
 
         throw error;
@@ -385,9 +459,9 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
 
     // Helper function to convert text chunks back to TelegramMessage format for provider
     function createMessagesFromText(text: string): TelegramMessage[] {
-      const lines = text.split('\n');
+      const lines = text.split("\n");
       return lines.map((line, index) => {
-        const colonIndex = line.indexOf(': ');
+        const colonIndex = line.indexOf(": ");
         if (colonIndex > 0) {
           return {
             username: line.substring(0, colonIndex),
@@ -396,7 +470,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
           };
         } else {
           return {
-            username: 'unknown',
+            username: "unknown",
             text: line,
             ts: Math.floor(Date.now() / 1000) + index,
           };
@@ -406,14 +480,17 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
 
     let summary = "";
     const summaryStartTime = Date.now();
-    
+
     try {
       if (parts.length > 1) {
         const partials = [] as string[];
         for (let i = 0; i < parts.length; i++) {
           const partMessages = createMessagesFromText(parts[i]);
           partials.push(
-            await summariseMessages(partMessages, `part-${i + 1}/${parts.length}`),
+            await summariseMessages(
+              partMessages,
+              `part-${i + 1}/${parts.length}`,
+            ),
           );
         }
         // Create final summary from partial summaries
@@ -422,21 +499,20 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       } else {
         summary = await summariseMessages(messages, "single");
       }
-      
+
       const summaryDuration = Date.now() - summaryStartTime;
-      
+
       // Log overall summary performance
-      Logger.logPerformanceInsight(env, 'summariseChat', {
+      Logger.logPerformanceInsight(env, "summariseChat", {
         duration: summaryDuration,
         itemsProcessed: messages.length,
         chatId: chatId.toString(LOG_ID_RADIX),
-        stage: 'ai_summary_complete',
+        stage: "ai_summary_complete",
         insights: [
-          parts.length > 1 ? 'MULTI_PART_SUMMARY' : 'SINGLE_PART_SUMMARY',
-          `${parts.length}_CHUNKS`
-        ]
+          parts.length > 1 ? "MULTI_PART_SUMMARY" : "SINGLE_PART_SUMMARY",
+          `${parts.length}_CHUNKS`,
+        ],
       });
-      
     } catch (error) {
       const e = error as Error;
       Logger.error("summarize error", {
@@ -451,21 +527,29 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       });
 
       // Provide more specific error messages based on error type
-      let userMessage = "Ошибка при создании сводки. Пожалуйста, попробуйте позже.";
-      
+      let userMessage =
+        "Ошибка при создании сводки. Пожалуйста, попробуйте позже.";
+
       if (error instanceof ProviderError) {
         // Provider-specific errors
-        if (e.message.includes('rate limit') || e.message.includes('Too many requests')) {
-          userMessage = "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
-        } else if (e.message.includes('timeout')) {
-          userMessage = "Превышено время ожидания ответа от AI сервиса. Попробуйте сократить период или количество сообщений.";
+        if (/rate limit|too many requests/i.test(e.message)) {
+          userMessage =
+            "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
+        } else if (/timeout/i.test(e.message)) {
+          userMessage =
+            "Превышено время ожидания ответа от AI сервиса. Попробуйте сократить период или количество сообщений.";
         }
-      } else if (e.message.includes('API request limits exceeded')) {
+      } else if (e.message.includes("API request limits exceeded")) {
         // Our custom API limit error from batch processing
         userMessage = e.message; // Use the specific message we crafted
-      } else if (e.message.includes('Critical failures occurred')) {
+      } else if (e.message.includes("Critical failures occurred")) {
         // Our custom critical failure error
-        userMessage = "Произошли критические ошибки при получении сообщений. Попробуйте позже или сократите период.";
+        userMessage =
+          "Произошли критические ошибки при получении сообщений. Попробуйте позже или сократите период.";
+      } else if (/rate limit|too many requests/i.test(e.message)) {
+        // Handle generic rate limit errors as well (case-insensitive)
+        userMessage =
+          "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
       }
 
       await sendMessage(env, chatId, userMessage);
@@ -478,14 +562,14 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     });
 
     // Save to database
-    if (env.DB) {
+    if (env.DB && typeof env.DB.prepare === 'function') {
       try {
         Logger.debug(env, "summarize DB insert start", {
           chat: chatId.toString(LOG_ID_RADIX),
         });
 
         await env.DB.prepare(
-          'INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)',
+          "INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)",
         )
           .bind(
             chatId,
@@ -523,31 +607,30 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       Logger.debug(env, "summarize message sent", {
         chat: chatId.toString(LOG_ID_RADIX),
       });
-      
+
       // Track successful completion
-      const finalMetrics = PerformanceTracker.end(trackerId, { 
-        result: 'success',
+      const finalMetrics = PerformanceTracker.end(trackerId, {
+        result: "success",
         totalMessages: allMessages.length,
         filteredMessages: messages.length,
         summaryLength: summary.length,
-        chunks: parts.length
+        chunks: parts.length,
       });
-      
+
       // Log overall function performance insight
       if (finalMetrics && finalMetrics.duration !== undefined) {
-        Logger.logPerformanceInsight(env, 'summariseChat', {
+        Logger.logPerformanceInsight(env, "summariseChat", {
           duration: finalMetrics.duration,
           itemsProcessed: messages.length,
           chatId: chatId.toString(LOG_ID_RADIX),
-          stage: 'complete',
+          stage: "complete",
           insights: [
             `${days}_DAYS`,
             `${parts.length}_CHUNKS`,
-            finalMetrics.duration > 30000 ? 'SLOW_OVERALL' : 'NORMAL_SPEED'
-          ]
+            finalMetrics.duration > 30000 ? "SLOW_OVERALL" : "NORMAL_SPEED",
+          ],
         });
       }
-      
     } catch (error) {
       const e = error as Error;
       Logger.error("summarize send message error", {
@@ -570,15 +653,21 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
 
     // Provide more specific error messages for unhandled errors
     let userMessage = "Произошла непредвиденная ошибка при создании сводки.";
-    
-    if (e.message.includes('API request limits exceeded')) {
+
+    if (e.message.includes("API request limits exceeded")) {
       userMessage = e.message; // Use our specific API limit message
-    } else if (e.message.includes('Critical failures occurred')) {
-      userMessage = "Произошли критические ошибки при получении сообщений. Попробуйте позже или сократите период.";
-    } else if (e.message.includes('timeout') || e.message.includes('TIMEOUT')) {
-      userMessage = "Превышено время ожидания. Попробуйте сократить период или количество дней.";
-    } else if (e.message.includes('Too many') || e.message.includes('rate limit')) {
-      userMessage = "Превышен лимит запросов. Попробуйте через несколько минут.";
+    } else if (e.message.includes("Critical failures occurred")) {
+      userMessage =
+        "Произошли критические ошибки при получении сообщений. Попробуйте позже или сократите период.";
+    } else if (e.message.includes("timeout") || e.message.includes("TIMEOUT")) {
+      userMessage =
+        "Превышено время ожидания. Попробуйте сократить период или количество дней.";
+    } else if (
+      e.message.includes("Too many") ||
+      e.message.includes("rate limit")
+    ) {
+      userMessage =
+        "Превышен лимит запросов. Попробуйте через несколько минут.";
     }
 
     try {
@@ -590,7 +679,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         error: se.message || String(se),
         originalError: e.message,
       });
-      
+
       // Fallback: try to send a simple error message
       try {
         await sendMessage(env, chatId, "Ошибка сервиса. Попробуйте позже.");
@@ -607,70 +696,81 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
   }
 }
 
-export async function summariseChatMessages(
+/**
+ * Legacy implementation of summariseChatMessages (kept for fallback)
+ */
+export async function summariseChatMessagesLegacy(
   env: Env,
   chatId: number,
   count: number,
 ) {
-  const trackerId = PerformanceTracker.start('summariseChatMessages', chatId.toString(LOG_ID_RADIX), { count });
+  const trackerId = PerformanceTracker.start(
+    "summariseChatMessages",
+    chatId.toString(LOG_ID_RADIX),
+    { count },
+  );
   let allMessages: any[] = [];
   let messages: any[] = [];
-  
-  Logger.debug(env, 'summariseChatMessages started', {
+
+  Logger.debug(env, "summariseChatMessages started", {
     chat: chatId.toString(LOG_ID_RADIX),
     count,
     model: env.SUMMARY_MODEL,
     providerInitialized: ProviderInitializer.isProviderInitialized(),
-    trackerId
+    trackerId,
   });
   try {
     // Fetch messages with performance tracking
     const fetchStartTime = Date.now();
     allMessages = await fetchLastMessages(env, chatId, count);
     const fetchDuration = Date.now() - fetchStartTime;
-    
+
     messages = filterContentMessages(allMessages);
 
-    Logger.debug(env, 'summariseChatMessages messages fetched and filtered', {
+    Logger.debug(env, "summariseChatMessages messages fetched and filtered", {
       chat: chatId.toString(LOG_ID_RADIX),
       totalCount: allMessages.length,
       filteredCount: messages.length,
       removedCount: allMessages.length - messages.length,
-      fetchDuration
+      fetchDuration,
     });
 
     // Log API request pattern for message fetching
-    Logger.logApiRequestPattern(env, 'fetchLastMessages', {
+    Logger.logApiRequestPattern(env, "fetchLastMessages", {
       requestCount: allMessages.length,
       duration: fetchDuration,
       successRate: 100, // We got results, so consider it successful
-      chatId: chatId.toString(LOG_ID_RADIX)
+      chatId: chatId.toString(LOG_ID_RADIX),
     });
 
     // Log performance insight for message fetching
-    Logger.logPerformanceInsight(env, 'summariseChatMessages', {
+    Logger.logPerformanceInsight(env, "summariseChatMessages", {
       duration: fetchDuration,
       itemsProcessed: allMessages.length,
       chatId: chatId.toString(LOG_ID_RADIX),
-      stage: 'message_fetch'
+      stage: "message_fetch",
     });
 
     if (!messages.length) {
-      Logger.debug(env, 'summariseChatMessages no messages after filtering', {
+      Logger.debug(env, "summariseChatMessages no messages after filtering", {
         chat: chatId.toString(LOG_ID_RADIX),
-        originalCount: allMessages.length
+        originalCount: allMessages.length,
       });
-      
-      const metrics = PerformanceTracker.end(trackerId, { 
-        result: 'no_messages', 
+
+      const metrics = PerformanceTracker.end(trackerId, {
+        result: "no_messages",
         totalMessages: allMessages.length,
-        filteredMessages: 0 
+        filteredMessages: 0,
       });
-      
+
       if (allMessages.length > 0) {
-        await sendMessage(env, chatId, 'В данном периоде были только команды бота, содержательных сообщений не найдено.');
+        await sendMessage(
+          env,
+          chatId,
+          "В данном периоде были только команды бота, содержательных сообщений не найдено.",
+        );
       } else {
-        await sendMessage(env, chatId, 'Нет сообщений');
+        await sendMessage(env, chatId, "Нет сообщений");
       }
       return;
     }
@@ -679,7 +779,7 @@ export async function summariseChatMessages(
     const provider = ProviderInitializer.getProvider(env);
     const providerInfo = provider.getProviderInfo();
 
-    Logger.debug(env, 'summariseChatMessages summarize start', {
+    Logger.debug(env, "summariseChatMessages summarize start", {
       chat: chatId.toString(LOG_ID_RADIX),
       provider: providerInfo.name,
       model: providerInfo.model,
@@ -698,16 +798,16 @@ export async function summariseChatMessages(
     Logger.debug(env, "summariseChatMessages messages sample", {
       chat: chatId.toString(LOG_ID_RADIX),
       totalMessages: messages.length,
-      sampleMessages: messages.slice(0, 5).map(m => ({
+      sampleMessages: messages.slice(0, 5).map((m) => ({
         username: m.username,
         text: m.text.substring(0, 100),
-        textLength: m.text.length
-      }))
+        textLength: m.text.length,
+      })),
     });
 
     const aiStartTime = Date.now();
-    
-    Logger.debug(env, 'summariseChatMessages AI request', {
+
+    Logger.debug(env, "summariseChatMessages AI request", {
       chat: chatId.toString(LOG_ID_RADIX),
       provider: providerInfo.name,
       model: providerInfo.model,
@@ -720,35 +820,34 @@ export async function summariseChatMessages(
       summary = truncateText(aiResp, TELEGRAM_LIMIT);
       const aiDuration = Date.now() - aiStartTime;
 
-      Logger.debug(env, 'summariseChatMessages AI response received', {
+      Logger.debug(env, "summariseChatMessages AI response received", {
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
         responseLength: summary.length,
-        aiDuration
+        aiDuration,
       });
 
       // Log AI request pattern
-      Logger.logApiRequestPattern(env, 'AI_single', {
+      Logger.logApiRequestPattern(env, "AI_single", {
         requestCount: 1,
         duration: aiDuration,
         successRate: 100,
-        chatId: chatId.toString(LOG_ID_RADIX)
+        chatId: chatId.toString(LOG_ID_RADIX),
       });
 
       // Log AI performance insight
-      Logger.logPerformanceInsight(env, 'summariseChatMessages', {
+      Logger.logPerformanceInsight(env, "summariseChatMessages", {
         duration: aiDuration,
         itemsProcessed: messages.length,
         chatId: chatId.toString(LOG_ID_RADIX),
-        stage: 'ai_single',
-        insights: aiDuration > 10000 ? ['SLOW_AI_RESPONSE'] : []
+        stage: "ai_single",
+        insights: aiDuration > 10000 ? ["SLOW_AI_RESPONSE"] : [],
       });
-      
     } catch (error) {
       const aiDuration = Date.now() - aiStartTime;
       const e = error as Error;
-      
-      Logger.error('summariseChatMessages AI error', {
+
+      Logger.error("summariseChatMessages AI error", {
         chat: chatId.toString(LOG_ID_RADIX),
         provider: providerInfo.name,
         model: providerInfo.model,
@@ -758,44 +857,52 @@ export async function summariseChatMessages(
         errorType: e.constructor.name,
         isProviderError: error instanceof ProviderError,
         stack: e.stack,
-        aiDuration
+        aiDuration,
       });
 
       // Log failed AI request pattern
-      Logger.logApiRequestPattern(env, 'AI_single_FAILED', {
+      Logger.logApiRequestPattern(env, "AI_single_FAILED", {
         requestCount: 1,
         duration: aiDuration,
         successRate: 0,
         errorTypes: [e.constructor.name],
-        chatId: chatId.toString(LOG_ID_RADIX)
+        chatId: chatId.toString(LOG_ID_RADIX),
       });
 
       // Provide more specific error messages based on error type
-      let userMessage = 'Ошибка при создании сводки. Пожалуйста, попробуйте позже.';
-      
+      let userMessage =
+        "Ошибка при создании сводки. Пожалуйста, попробуйте позже.";
+
       if (error instanceof ProviderError) {
         // Provider-specific errors
-        if (e.message.includes('rate limit') || e.message.includes('Too many requests')) {
-          userMessage = 'Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.';
-        } else if (e.message.includes('timeout')) {
-          userMessage = 'Превышено время ожидания ответа от AI сервиса. Попробуйте запросить меньше сообщений.';
+        if (/rate limit|too many requests/i.test(e.message)) {
+          userMessage =
+            "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
+        } else if (/timeout/i.test(e.message)) {
+          userMessage =
+            "Превышено время ожидания ответа от AI сервиса. Попробуйте запросить меньше сообщений.";
         }
-      } else if (e.message.includes('API request limits exceeded')) {
+      } else if (e.message.includes("API request limits exceeded")) {
         // Our custom API limit error from batch processing
         userMessage = e.message; // Use the specific message we crafted
-      } else if (e.message.includes('Critical failures occurred')) {
+      } else if (e.message.includes("Critical failures occurred")) {
         // Our custom critical failure error
-        userMessage = 'Произошли критические ошибки при получении сообщений. Попробуйте позже или запросите меньше сообщений.';
+        userMessage =
+          "Произошли критические ошибки при получении сообщений. Попробуйте позже или запросите меньше сообщений.";
+      } else if (/rate limit|too many requests/i.test(e.message)) {
+        // Handle generic rate limit errors as well (case-insensitive)
+        userMessage =
+          "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
       }
 
       await sendMessage(env, chatId, userMessage);
       return;
     }
 
-    if (env.DB) {
+    if (env.DB && typeof env.DB.prepare === 'function') {
       try {
         await env.DB.prepare(
-          'INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)',
+          "INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)",
         )
           .bind(
             chatId,
@@ -806,7 +913,7 @@ export async function summariseChatMessages(
           .run();
       } catch (error) {
         const e = error as Error;
-        Logger.error('summariseChatMessages DB insert error', {
+        Logger.error("summariseChatMessages DB insert error", {
           chat: chatId.toString(LOG_ID_RADIX),
           error: e.message || String(e),
           stack: e.stack,
@@ -815,32 +922,31 @@ export async function summariseChatMessages(
     }
 
     await sendMessage(env, chatId, summary);
-    
+
     // Track successful completion
-    const finalMetrics = PerformanceTracker.end(trackerId, { 
-      result: 'success',
+    const finalMetrics = PerformanceTracker.end(trackerId, {
+      result: "success",
       totalMessages: allMessages.length,
       filteredMessages: messages.length,
-      summaryLength: summary.length
+      summaryLength: summary.length,
     });
-    
+
     // Log overall function performance insight
     if (finalMetrics && finalMetrics.duration !== undefined) {
-      Logger.logPerformanceInsight(env, 'summariseChatMessages', {
+      Logger.logPerformanceInsight(env, "summariseChatMessages", {
         duration: finalMetrics.duration,
         itemsProcessed: messages.length,
         chatId: chatId.toString(LOG_ID_RADIX),
-        stage: 'complete',
+        stage: "complete",
         insights: [
           `${count}_MESSAGES_REQUESTED`,
-          finalMetrics.duration > 15000 ? 'SLOW_OVERALL' : 'NORMAL_SPEED'
-        ]
+          finalMetrics.duration > 15000 ? "SLOW_OVERALL" : "NORMAL_SPEED",
+        ],
       });
     }
-    
   } catch (error) {
     const e = error as Error;
-    Logger.error('summariseChatMessages unhandled error', {
+    Logger.error("summariseChatMessages unhandled error", {
       chat: chatId.toString(LOG_ID_RADIX),
       providerInitialized: ProviderInitializer.isProviderInitialized(),
       error: e.message || String(e),
@@ -849,40 +955,164 @@ export async function summariseChatMessages(
     });
 
     // Provide more specific error messages for unhandled errors
-    let userMessage = 'Произошла непредвиденная ошибка при создании сводки.';
-    
-    if (e.message.includes('API request limits exceeded')) {
+    let userMessage = "Произошла непредвиденная ошибка при создании сводки.";
+
+    if (e.message.includes("API request limits exceeded")) {
       userMessage = e.message; // Use our specific API limit message
-    } else if (e.message.includes('Critical failures occurred')) {
-      userMessage = 'Произошли критические ошибки при получении сообщений. Попробуйте позже или запросите меньше сообщений.';
-    } else if (e.message.includes('timeout') || e.message.includes('TIMEOUT')) {
-      userMessage = 'Превышено время ожидания. Попробуйте запросить меньше сообщений.';
-    } else if (e.message.includes('Too many') || e.message.includes('rate limit')) {
-      userMessage = 'Превышен лимит запросов. Попробуйте через несколько минут.';
+    } else if (e.message.includes("Critical failures occurred")) {
+      userMessage =
+        "Произошли критические ошибки при получении сообщений. Попробуйте позже или запросите меньше сообщений.";
+    } else if (e.message.includes("timeout") || e.message.includes("TIMEOUT")) {
+      userMessage =
+        "Превышено время ожидания. Попробуйте запросить меньше сообщений.";
+    } else if (
+      e.message.includes("Too many") ||
+      e.message.includes("rate limit")
+    ) {
+      userMessage =
+        "Превышен лимит запросов. Попробуйте через несколько минут.";
     }
 
     try {
       await sendMessage(env, chatId, userMessage);
     } catch (sendError) {
       const se = sendError as Error;
-      Logger.error('summariseChatMessages error notification failed', {
+      Logger.error("summariseChatMessages error notification failed", {
         chat: chatId.toString(LOG_ID_RADIX),
         error: se.message || String(se),
         originalError: e.message,
       });
-      
+
       // Fallback: try to send a simple error message
       try {
-        await sendMessage(env, chatId, 'Ошибка сервиса. Попробуйте позже.');
+        await sendMessage(env, chatId, "Ошибка сервиса. Попробуйте позже.");
       } catch (fallbackError) {
-        Logger.error('summariseChatMessages fallback error notification also failed', {
-          chat: chatId.toString(LOG_ID_RADIX),
-          error: (fallbackError as Error).message,
-        });
+        Logger.error(
+          "summariseChatMessages fallback error notification also failed",
+          {
+            chat: chatId.toString(LOG_ID_RADIX),
+            error: (fallbackError as Error).message,
+          },
+        );
       }
     }
   } finally {
     // Cleanup any remaining performance trackers
     PerformanceTracker.cleanup();
   }
+}
+
+/**
+ * Helper function for environment variable parsing
+ */
+function getEnvBoolean(env: Env, key: string, defaultValue: boolean): boolean {
+  const value = (env as any)[key];
+  if (typeof value === "string") {
+    return value.toLowerCase() === "true" || value === "1";
+  }
+  return typeof value === "boolean" ? value : defaultValue;
+}
+
+/**
+ * Helper function to try optimized system first, then fallback to legacy
+ */
+async function tryOptimizedSummary(
+  env: Env,
+  type: "chat" | "messages",
+  args: [number, number],
+  legacyFallback: (env: Env, ...args: any[]) => Promise<void>,
+): Promise<void> {
+  const [chatId, param] = args;
+
+  // Feature flag check - can be controlled via environment variable
+  const useOptimized = getEnvBoolean(env, "SUMMARY_OPT_ENABLED", true);
+
+  if (!useOptimized) {
+    Logger.debug(env, "Optimized summary disabled by feature flag", {
+      chatId: chatId.toString(LOG_ID_RADIX),
+      type,
+      param,
+    });
+    return legacyFallback(env, chatId, param);
+  }
+
+  try {
+    // Try optimized system first
+    Logger.debug(env, "Attempting optimized summary", {
+      chatId: chatId.toString(LOG_ID_RADIX),
+      type,
+      param,
+    });
+
+    const config = loadOptimizationConfig(env);
+    const controller = new OptimizedSummaryController(env);
+
+    let result: string;
+    if (type === "chat") {
+      result = await controller.summarizeChat(chatId, param);
+    } else {
+      result = await controller.summarizeChatMessages(chatId, param);
+    }
+
+    // Check if result is valid
+    if (!result || typeof result !== 'string') {
+      throw new Error(`Invalid result from optimized controller: ${result}`);
+    }
+
+    // Send the result
+    await sendMessage(env, chatId, result);
+
+    Logger.debug(env, "Optimized summary completed successfully", {
+      chatId: chatId.toString(LOG_ID_RADIX),
+      type,
+      param,
+      resultLength: result.length,
+    });
+  } catch (error) {
+    const e = error as Error;
+
+    // Check if this is the special case where legacy already sent the message
+    if (e.message === "LEGACY_MESSAGE_SENT") {
+      Logger.debug(env, "Legacy system handled message sending", {
+        chatId: chatId.toString(LOG_ID_RADIX),
+        type,
+        param,
+      });
+      return; // Don't send another message
+    }
+
+    Logger.error("Optimized summary failed, falling back to legacy", {
+      chatId: chatId.toString(LOG_ID_RADIX),
+      type,
+      param,
+      error: e.message,
+      stack: e.stack,
+    });
+
+    // Fallback to legacy system
+    return legacyFallback(env, chatId, param);
+  }
+}
+
+/**
+ * Main summariseChat function with optimized system integration
+ */
+export async function summariseChat(env: Env, chatId: number, days: number) {
+  return tryOptimizedSummary(env, "chat", [chatId, days], summariseChatLegacy);
+}
+
+/**
+ * Main summariseChatMessages function with optimized system integration
+ */
+export async function summariseChatMessages(
+  env: Env,
+  chatId: number,
+  count: number,
+) {
+  return tryOptimizedSummary(
+    env,
+    "messages",
+    [chatId, count],
+    summariseChatMessagesLegacy,
+  );
 }
