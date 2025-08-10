@@ -6,6 +6,15 @@ import {
   FetchStatus,
 } from "../src/summary-optimization/types";
 
+// Response type definitions
+interface InitResponse {
+  sessionId: string;
+}
+
+interface CleanupResponse {
+  success: boolean;
+}
+
 // Mock dependencies
 vi.mock("../src/logger", () => ({
   Logger: {
@@ -90,7 +99,7 @@ describe("MessageFetcherDO", () => {
       });
 
       const response = await messageFecher.fetch(request);
-      const result = await response.json();
+      const result = await response.json() as InitResponse;
 
       expect(response.status).toBe(200);
       expect(result).toHaveProperty("sessionId");
@@ -173,7 +182,7 @@ describe("MessageFetcherDO", () => {
       });
 
       const initResponse = await messageFecher.fetch(initRequest);
-      const initResult = await initResponse.json();
+      const initResult = await initResponse.json() as InitResponse;
       const sessionId = initResult.sessionId;
 
       // Now check status
@@ -185,7 +194,7 @@ describe("MessageFetcherDO", () => {
       );
 
       const statusResponse = await messageFecher.fetch(statusRequest);
-      const statusResult: FetchStatus = await statusResponse.json();
+      const statusResult = await statusResponse.json() as FetchStatus;
 
       expect(statusResponse.status).toBe(200);
       expect(statusResult.sessionId).toBe(sessionId);
@@ -251,7 +260,7 @@ describe("MessageFetcherDO", () => {
       });
 
       const initResponse = await messageFecher.fetch(initRequest);
-      const initResult = await initResponse.json();
+      const initResult = await initResponse.json() as InitResponse;
       const sessionId = initResult.sessionId;
 
       // Try to get results immediately (should be running)
@@ -297,7 +306,7 @@ describe("MessageFetcherDO", () => {
       });
 
       const initResponse = await messageFecher.fetch(initRequest);
-      const initResult = await initResponse.json();
+      const initResult = await initResponse.json() as InitResponse;
       const sessionId = initResult.sessionId;
 
       // Cleanup session
@@ -308,7 +317,7 @@ describe("MessageFetcherDO", () => {
       });
 
       const cleanupResponse = await messageFecher.fetch(cleanupRequest);
-      const cleanupResult = await cleanupResponse.json();
+      const cleanupResult = await cleanupResponse.json() as CleanupResponse;
 
       expect(cleanupResponse.status).toBe(200);
       expect(cleanupResult.success).toBe(true);
@@ -333,7 +342,7 @@ describe("MessageFetcherDO", () => {
       });
 
       const response = await messageFecher.fetch(cleanupRequest);
-      const result = await response.json();
+      const result = await response.json() as CleanupResponse;
 
       expect(response.status).toBe(200);
       expect(result.success).toBe(true);
@@ -363,7 +372,7 @@ describe("MessageFetcherDO", () => {
       });
 
       const initResponse = await messageFecher.fetch(initRequest);
-      const initResult = await initResponse.json();
+      const initResult = await initResponse.json() as InitResponse;
 
       expect(initResponse.status).toBe(200);
       expect(initResult.sessionId).toBeDefined();
@@ -494,7 +503,7 @@ describe("MessageFetcherDO", () => {
       });
 
       const initResponse = await messageFecher.fetch(initRequest);
-      const initResult = await initResponse.json();
+      const initResult = await initResponse.json() as InitResponse;
       const sessionId = initResult.sessionId;
 
       expect(initResponse.status).toBe(200);
@@ -511,7 +520,7 @@ describe("MessageFetcherDO", () => {
       );
 
       const statusResponse = await messageFecher.fetch(statusRequest);
-      const statusResult = await statusResponse.json();
+      const statusResult = await statusResponse.json() as FetchStatus;
 
       // Session should exist but might have failed due to KV error
       expect(statusResponse.status).toBe(200);
@@ -544,8 +553,8 @@ describe("MessageFetcherDO", () => {
       const response1 = await messageFecher.fetch(request1);
       const response2 = await messageFecher.fetch(request2);
 
-      const result1 = await response1.json();
-      const result2 = await response2.json();
+      const result1 = await response1.json() as InitResponse;
+      const result2 = await response2.json() as InitResponse;
 
       expect(result1.sessionId).not.toBe(result2.sessionId);
     });

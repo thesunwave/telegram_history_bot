@@ -67,8 +67,8 @@ describe('Simple Optimized System Test', () => {
       const result = await controller.summarizeChat(123, 7);
       console.log('✅ Result:', result);
       console.log('📊 Type:', typeof result);
-      console.log('📞 HISTORY.list calls:', mockEnv.HISTORY.list.mock.calls.length);
-      console.log('📞 HISTORY.get calls:', mockEnv.HISTORY.get.mock.calls.length);
+      console.log('📞 HISTORY.list calls:', (mockEnv.HISTORY.list as any).mock.calls.length);
+      console.log('📞 HISTORY.get calls:', (mockEnv.HISTORY.get as any).mock.calls.length);
       console.log('📞 AI.run calls:', mockEnv.AI.run.mock.calls.length);
       expect(result).toBeDefined();
     } catch (error) {

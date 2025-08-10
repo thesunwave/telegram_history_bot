@@ -143,10 +143,10 @@ describe("HierarchicalProcessor", () => {
     it("should be resilient to missing optional environment variables", async () => {
       const minimalEnv = {
         ...mockEnv,
-        SUMMARY_PROMPT: undefined,
-        SUMMARY_SYSTEM: undefined,
-        SUMMARY_TEMPERATURE: undefined,
-        SUMMARY_TOP_P: undefined,
+        SUMMARY_PROMPT: 'Default prompt',
+        SUMMARY_SYSTEM: 'Default system',
+        SUMMARY_TEMPERATURE: 0.7,
+        SUMMARY_TOP_P: 0.9,
       };
 
       const result = await processor.process(mockMessages, minimalEnv);

@@ -19,6 +19,7 @@ export function createMockEnv(overrides: Partial<Env> = {}): Env {
     COUNTERS: {} as any,
     COUNTERS_DO: {} as any,
     MESSAGE_FETCHER_DO: {} as any,
+    MESSAGE_AGGREGATOR_DO: {} as any,
     DB: {} as any,
     AI: {} as any,
     TOKEN: "test-token",

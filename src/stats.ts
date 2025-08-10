@@ -308,7 +308,7 @@ export async function activityByUser(
   const names = await Promise.all(
     sorted.map(([u]) => env.COUNTERS.get(`user:${u}`)),
   );
-  const labels = names.map((n, i) => sanitizeLabel(n || `id${sorted[i][0]}`));
+  const labels = names.map((n: string | null, i: number) => sanitizeLabel(n || `id${sorted[i][0]}`));
   const data = sorted.map(([, c]) => c);
   const title = `${startStr} - ${endStr}`;
   const url = createBarChartUrl(labels, data, 'Messages', title);
