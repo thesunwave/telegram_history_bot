@@ -54,21 +54,19 @@ export class DayBlockManager {
   }
 
   private async handleAddMessage(request: Request): Promise<Response> {
-    const body = await request.json() as { message: StoredMessage; retryCount?: number };
-    const { message, retryCount = 0 } = body;
-     const maxRetries = 3;
+    const body = await request.json() as { message: StoredMessage };
+    const { message } = body;
 
     Logger.debug(this.env, 'DayBlockManager: adding message', {
       chat: message.chat.toString(LOG_ID_RADIX),
-      messageTs: message.ts,
-      retryCount
+      messageTs: message.ts
     });
 
     try {
       const date = new Date(message.ts * 1000).toISOString().slice(0, 10);
       const blockKey = `block:${message.chat}:${date}`;
 
-      // Get current block with atomic read
+      // Get current block - no version tracking needed since blockConcurrencyWhile ensures serialization
       const currentBlock = await this.storage.get<DayBlock>(blockKey);
       
       const block: DayBlock = currentBlock || {
@@ -113,31 +111,8 @@ export class DayBlockManager {
       // Calculate checksum for integrity verification
       block.checksum = this.calculateBlockChecksum(block);
 
-      // Atomic write with version check
-      const success = await this.atomicWrite(blockKey, block, currentBlock?.version);
-
-      if (!success && retryCount < maxRetries) {
-        // Version conflict - retry with exponential backoff
-        const delay = Math.pow(2, retryCount) * 100; // 100ms, 200ms, 400ms
-        await new Promise(resolve => setTimeout(resolve, delay));
-        
-        Logger.debug(this.env, 'DayBlockManager: version conflict, retrying', {
-          chat: message.chat.toString(LOG_ID_RADIX),
-          date,
-          retryCount: retryCount + 1,
-          delay
-        });
-
-        // Recursive retry
-        return await this.handleAddMessage(new Request(request.url, {
-          method: 'POST',
-          body: JSON.stringify({ message, retryCount: retryCount + 1 })
-        }));
-      }
-
-      if (!success) {
-        throw new Error(`Failed to add message after ${maxRetries} retries due to version conflicts`);
-      }
+      // Direct write - blockConcurrencyWhile ensures no conflicts within this DO instance
+      await this.storage.put(blockKey, block);
 
       // Also save to KV for backup and compatibility
       const kvKey = `msg_day:${message.chat}:${date}`;
@@ -175,8 +150,7 @@ export class DayBlockManager {
       Logger.error('DayBlockManager: add message failed', {
         chat: message.chat.toString(LOG_ID_RADIX),
         error: error.message || String(error),
-        stack: error.stack,
-        retryCount
+        stack: error.stack
       });
       throw error;
     }
