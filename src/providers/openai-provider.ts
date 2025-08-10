@@ -41,6 +41,9 @@ interface OpenAIChatResponse {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    };
   };
 }
 
@@ -49,7 +52,7 @@ export class OpenAIProvider implements AIProvider {
   private model: string;
   private baseUrl: string = 'https://api.openai.com/v1';
   private providerType: 'standard' | 'premium';
-
+  
   private isGPT5Model(model: string): boolean {
     // GPT-5 models use max_completion_tokens parameter
     return model.toLowerCase().includes('gpt-5') || model.toLowerCase().includes('gpt5');
@@ -117,13 +120,15 @@ export class OpenAIProvider implements AIProvider {
       });
     }
 
+    const systemMessage: ChatMessage = {
+      role: 'system',
+      content: request.systemPrompt
+        ? `${request.systemPrompt}\n${request.limitNote}`
+        : request.limitNote
+    };
+
     const messages: ChatMessage[] = [
-      {
-        role: 'system',
-        content: request.systemPrompt
-          ? `${request.systemPrompt}\n${request.limitNote}`
-          : request.limitNote
-      },
+      systemMessage,
       {
         role: 'user',
         content: `${request.userPrompt}\n${MESSAGE_SEPARATOR}\n${content}`
@@ -137,7 +142,9 @@ export class OpenAIProvider implements AIProvider {
       if (env) {
         Logger.debug(env, 'OpenAI provider: response details', {
           responseLength: result.length,
-          responsePreview: result.substring(0, 200)
+          responsePreview: result.substring(0, 200),
+          tokensUsed: response.usage?.total_tokens || 0,
+          cachedTokens: response.usage?.prompt_tokens_details?.cached_tokens || 0
         });
       }
 
@@ -205,12 +212,14 @@ export class OpenAIProvider implements AIProvider {
       requestBody.response_format = { type: 'json_object' };
     }
 
+    const headers: Record<string, string> = {
+      'Authorization': `Bearer ${this.apiKey}`,
+      'Content-Type': 'application/json'
+    };
+
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json'
-      },
+      headers,
       body: JSON.stringify(requestBody)
     });
 
@@ -299,6 +308,7 @@ export class OpenAIProvider implements AIProvider {
           provider: 'openai',
           responseLength: result.length,
           tokensUsed: response.usage?.total_tokens || 0,
+          cachedTokens: response.usage?.prompt_tokens_details?.cached_tokens || 0,
           finishReason: response.choices[0].finish_reason,
           isEmpty: result === ''
         });
