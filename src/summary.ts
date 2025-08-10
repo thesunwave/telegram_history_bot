@@ -1059,6 +1059,17 @@ async function tryOptimizedSummary(
     });
   } catch (error) {
     const e = error as Error;
+
+    // Check if this is the special case where legacy already sent the message
+    if (e.message === "LEGACY_MESSAGE_SENT") {
+      Logger.debug(env, "Legacy system handled message sending", {
+        chatId: chatId.toString(LOG_ID_RADIX),
+        type,
+        param,
+      });
+      return; // Don't send another message
+    }
+
     Logger.error("Optimized summary failed, falling back to legacy", {
       chatId: chatId.toString(LOG_ID_RADIX),
       type,

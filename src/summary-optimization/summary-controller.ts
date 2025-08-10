@@ -199,9 +199,9 @@ export class OptimizedSummaryController implements SummaryController {
    * Determines if optimized processing should be used
    */
   private shouldUseOptimizedProcessing(estimatedMessageCount: number): boolean {
-    // For now, use a simple threshold. This can be made more sophisticated later.
-    const threshold = this.config.parallelProcessing.minMessagesThreshold;
-    return estimatedMessageCount >= threshold;
+    // Always use optimized processing when enabled - let the strategy selector
+    // decide which specific strategy to use (direct, parallel, or hierarchical)
+    return true;
   }
 
   /**
@@ -511,13 +511,17 @@ export class OptimizedSummaryController implements SummaryController {
       value,
     });
 
+    // The legacy functions send messages directly, so we need to call them
+    // and then throw an error to indicate that the message was already sent
     if (type === "chat") {
       await legacySummariseChat(this.env, chatId, value);
-      return "Legacy processing completed"; // Legacy function sends message directly
     } else {
       await legacySummariseChatMessages(this.env, chatId, value);
-      return "Legacy processing completed"; // Legacy function sends message directly
     }
+    
+    // Throw a special error to indicate that the message was already sent
+    // This prevents the caller from trying to send another message
+    throw new Error("LEGACY_MESSAGE_SENT");
   }
 
   /**

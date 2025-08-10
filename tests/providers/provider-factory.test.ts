@@ -1,8 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  ProviderFactory,
-  ProviderType,
-} from "../../src/providers/provider-factory";
+import { describe, it, expect, beforeEach } from "vitest";
+import { ProviderFactory } from "../../src/providers/provider-factory";
 import { CloudflareAIProvider } from "../../src/providers/cloudflare-provider";
 import { OpenAIProvider } from "../../src/providers/openai-provider";
 import { Env } from "../../src/env";
@@ -11,22 +8,23 @@ describe("ProviderFactory", () => {
   let mockEnv: Env;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-
     mockEnv = {
       AI: {
-        run: vi.fn().mockResolvedValue({ response: "Test summary response" }),
+        run: () => Promise.resolve({ response: "test response" }),
       } as any,
       SUMMARY_MODEL: "test-model",
       SUMMARY_PROMPT: "Test prompt",
       SUMMARY_SYSTEM: "Test system",
+      SUMMARY_MAX_TOKENS: 500,
+      SUMMARY_TEMPERATURE: 0.7,
+      SUMMARY_TOP_P: 0.9,
       HISTORY: {} as any,
       COUNTERS: {} as any,
       COUNTERS_DO: {} as any,
       DB: {} as any,
       TOKEN: "test-token",
       SECRET: "test-secret",
-    };
+    } as Env;
   });
 
   describe("createProvider", () => {
@@ -36,22 +34,27 @@ describe("ProviderFactory", () => {
       const provider = ProviderFactory.createProvider(mockEnv);
 
       expect(provider).toBeInstanceOf(CloudflareAIProvider);
+      expect(provider.getProviderInfo().name).toBe("cloudflare");
     });
 
     it('should create OpenAIProvider when SUMMARY_PROVIDER is "openai"', () => {
       (mockEnv as any).SUMMARY_PROVIDER = "openai";
+      (mockEnv as any).OPENAI_API_KEY = "test-key";
 
       const provider = ProviderFactory.createProvider(mockEnv);
 
       expect(provider).toBeInstanceOf(OpenAIProvider);
+      expect(provider.getProviderInfo().name).toBe("openai");
     });
 
     it('should create OpenAIProvider with premium when SUMMARY_PROVIDER is "openai-premium"', () => {
       (mockEnv as any).SUMMARY_PROVIDER = "openai-premium";
+      (mockEnv as any).OPENAI_API_KEY = "test-key";
 
       const provider = ProviderFactory.createProvider(mockEnv);
 
       expect(provider).toBeInstanceOf(OpenAIProvider);
+      expect(provider.getProviderInfo().name).toBe("openai-premium");
     });
 
     it("should create CloudflareAIProvider when SUMMARY_PROVIDER is undefined (default fallback)", () => {
@@ -59,6 +62,7 @@ describe("ProviderFactory", () => {
       const provider = ProviderFactory.createProvider(mockEnv);
 
       expect(provider).toBeInstanceOf(CloudflareAIProvider);
+      expect(provider.getProviderInfo().name).toBe("cloudflare");
     });
 
     it("should create CloudflareAIProvider when SUMMARY_PROVIDER is empty string (default fallback)", () => {
@@ -67,14 +71,17 @@ describe("ProviderFactory", () => {
       const provider = ProviderFactory.createProvider(mockEnv);
 
       expect(provider).toBeInstanceOf(CloudflareAIProvider);
+      expect(provider.getProviderInfo().name).toBe("cloudflare");
     });
 
     it("should handle case-insensitive provider names", () => {
       (mockEnv as any).SUMMARY_PROVIDER = "OPENAI";
+      (mockEnv as any).OPENAI_API_KEY = "test-key";
 
       const provider = ProviderFactory.createProvider(mockEnv);
 
       expect(provider).toBeInstanceOf(OpenAIProvider);
+      expect(provider.getProviderInfo().name).toBe("openai");
     });
 
     it("should handle mixed case provider names", () => {
@@ -83,6 +90,7 @@ describe("ProviderFactory", () => {
       const provider = ProviderFactory.createProvider(mockEnv);
 
       expect(provider).toBeInstanceOf(CloudflareAIProvider);
+      expect(provider.getProviderInfo().name).toBe("cloudflare");
     });
 
     it("should throw error for unsupported provider type", () => {
@@ -108,6 +116,7 @@ describe("ProviderFactory", () => {
       const provider = ProviderFactory.createProvider(mockEnv);
 
       expect(provider).toBeInstanceOf(CloudflareAIProvider);
+      expect(provider.getProviderInfo().name).toBe("cloudflare");
     });
   });
 
@@ -140,44 +149,20 @@ describe("ProviderFactory", () => {
     });
   });
 
-  describe("provider type validation", () => {
-    it("should validate all supported provider types", () => {
-      const supportedProviders: ProviderType[] = [
-        "cloudflare",
-        "openai",
-        "openai-premium",
-      ];
+  describe("provider validation and edge cases", () => {
+    it("should validate cloudflare provider configuration", () => {
+      (mockEnv as any).SUMMARY_PROVIDER = "cloudflare";
 
-      supportedProviders.forEach((providerType) => {
-        (mockEnv as any).SUMMARY_PROVIDER = providerType;
+      const provider = ProviderFactory.createProvider(mockEnv);
 
-        expect(() => ProviderFactory.createProvider(mockEnv)).not.toThrow();
-      });
+      // Should not throw when validating config
+      expect(() => provider.validateConfig()).not.toThrow();
     });
 
-    it("should reject unsupported provider types", () => {
-      const unsupportedProviders = [
-        "anthropic",
-        "cohere",
-        "huggingface",
-        "invalid",
-      ];
-
-      unsupportedProviders.forEach((providerType) => {
-        (mockEnv as any).SUMMARY_PROVIDER = providerType;
-
-        expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-          `Unsupported provider: ${providerType}. Supported providers: cloudflare, openai, openai-premium`,
-        );
-      });
-    });
-  });
-
-  describe("edge cases", () => {
     it("should handle whitespace in provider name", () => {
       (mockEnv as any).SUMMARY_PROVIDER = "  openai  ";
 
-      // This should fail because we don't trim whitespace
+      // Should fail because we don't trim whitespace
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
         "Unsupported provider:   openai  . Supported providers: cloudflare, openai, openai-premium",
       );
@@ -196,6 +181,40 @@ describe("ProviderFactory", () => {
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
         "Unsupported provider: true. Supported providers: cloudflare, openai, openai-premium",
+      );
+    });
+
+    it("should create working providers that can get provider info", () => {
+      const cloudflareProvider = ProviderFactory.createProvider(mockEnv);
+      const info1 = cloudflareProvider.getProviderInfo();
+
+      expect(info1).toHaveProperty("name");
+      expect(info1).toHaveProperty("model");
+      expect(info1.name).toBe("cloudflare");
+      expect(info1.model).toBe("test-model");
+
+      (mockEnv as any).SUMMARY_PROVIDER = "openai";
+      (mockEnv as any).OPENAI_API_KEY = "test-key";
+
+      const openaiProvider = ProviderFactory.createProvider(mockEnv);
+      const info2 = openaiProvider.getProviderInfo();
+
+      expect(info2).toHaveProperty("name");
+      expect(info2).toHaveProperty("model");
+      expect(info2.name).toBe("openai");
+    });
+
+    it("should handle missing required configuration gracefully", () => {
+      // Test with missing AI binding for Cloudflare
+      const envWithoutAI = {
+        ...mockEnv,
+        AI: undefined,
+      } as any;
+
+      const provider = ProviderFactory.createProvider(envWithoutAI);
+
+      expect(() => provider.validateConfig()).toThrow(
+        "AI binding is required for Cloudflare provider",
       );
     });
   });
