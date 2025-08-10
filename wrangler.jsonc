@@ -54,6 +54,10 @@
         "name": "MESSAGE_AGGREGATOR_DO",
         "class_name": "MessageAggregatorDO",
       },
+      {
+        "name": "DAY_BLOCK_MANAGER_DO",
+        "class_name": "DayBlockManager",
+      },
     ],
   },
   "d1_databases": [
@@ -156,6 +160,10 @@
     {
       "tag": "v3",
       "new_classes": ["MessageAggregatorDO"],
+    },
+    {
+      "tag": "v4",
+      "new_classes": ["DayBlockManager"],
     },
   ],
   // ========================================

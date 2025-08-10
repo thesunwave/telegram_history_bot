@@ -4,6 +4,7 @@ import { handleUpdate, recordMessage, getTextMessage } from "./update";
 import { CountersDO } from "./counters-do";
 import { MessageFetcherDO } from "./message-fetcher-do";
 import { MessageAggregatorDO } from "./message-aggregator-do";
+import { DayBlockManager } from "./day-block-manager";
 import { ProviderInitializer } from "./providers/provider-init";
 import { Logger } from "./logger";
 import type {
@@ -89,4 +90,4 @@ export default {
   },
 };
 
-export { CountersDO, MessageFetcherDO, MessageAggregatorDO };
+export { CountersDO, MessageFetcherDO, MessageAggregatorDO, DayBlockManager };
