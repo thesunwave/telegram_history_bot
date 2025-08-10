@@ -10,14 +10,14 @@ export default defineConfig({
     poolOptions: {
       threads: {
         singleThread: true, // Run tests sequentially to avoid race conditions
-        isolate: false, // Faster startup
+        isolate: true, // Isolate modules between test files to prevent mock leakage
         useAtomics: true,
       },
     },
     globals: true,
     bail: 0, // Run all tests to see full picture
     retry: 1, // Allow one retry for flaky tests
-    reporter: ["default"],
+    reporters: ["default"],
     logHeapUsage: false, // Disable heap logging for speed
     allowOnly: false,
     passWithNoTests: true,
@@ -30,8 +30,6 @@ export default defineConfig({
     outputFile: undefined,
     // Performance optimizations
     maxConcurrency: 1, // Run one test at a time
-    minThreads: 1,
-    maxThreads: 1,
     // Environment setup
     setupFiles: [],
     globalSetup: [],

@@ -226,7 +226,7 @@ export class ContextOptimizer {
     const textTokens = Math.ceil(message.text.length / 4);
     
     // Add tokens for username (typically 1-3 tokens)
-    const usernameTokens = Math.ceil(message.username.length / 4) + 1;
+    const usernameTokens = message.username ? Math.ceil(message.username.length / 4) + 1 : 2;
     
     // Add tokens for timestamp formatting (typically 2-3 tokens)
     const timestampTokens = 3;

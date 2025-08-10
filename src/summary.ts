@@ -24,6 +24,9 @@ import {
 
 function filterContentMessages(messages: TelegramMessage[]): TelegramMessage[] {
   return messages.filter((msg) => {
+    if (!msg.text || typeof msg.text !== 'string') {
+      return false;
+    }
     const text = msg.text.toLowerCase().trim();
 
     // Игнорируем команды бота
@@ -528,13 +531,10 @@ export async function summariseChatLegacy(
 
       if (error instanceof ProviderError) {
         // Provider-specific errors
-        if (
-          e.message.includes("rate limit") ||
-          e.message.includes("Too many requests")
-        ) {
+        if (/rate limit|too many requests/i.test(e.message)) {
           userMessage =
             "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
-        } else if (e.message.includes("timeout")) {
+        } else if (/timeout/i.test(e.message)) {
           userMessage =
             "Превышено время ожидания ответа от AI сервиса. Попробуйте сократить период или количество сообщений.";
         }
@@ -545,6 +545,10 @@ export async function summariseChatLegacy(
         // Our custom critical failure error
         userMessage =
           "Произошли критические ошибки при получении сообщений. Попробуйте позже или сократите период.";
+      } else if (/rate limit|too many requests/i.test(e.message)) {
+        // Handle generic rate limit errors as well (case-insensitive)
+        userMessage =
+          "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
       }
 
       await sendMessage(env, chatId, userMessage);
@@ -557,7 +561,7 @@ export async function summariseChatLegacy(
     });
 
     // Save to database
-    if (env.DB) {
+    if (env.DB && typeof env.DB.prepare === 'function') {
       try {
         Logger.debug(env, "summarize DB insert start", {
           chat: chatId.toString(LOG_ID_RADIX),
@@ -870,13 +874,10 @@ export async function summariseChatMessagesLegacy(
 
       if (error instanceof ProviderError) {
         // Provider-specific errors
-        if (
-          e.message.includes("rate limit") ||
-          e.message.includes("Too many requests")
-        ) {
+        if (/rate limit|too many requests/i.test(e.message)) {
           userMessage =
             "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
-        } else if (e.message.includes("timeout")) {
+        } else if (/timeout/i.test(e.message)) {
           userMessage =
             "Превышено время ожидания ответа от AI сервиса. Попробуйте запросить меньше сообщений.";
         }
@@ -887,13 +888,17 @@ export async function summariseChatMessagesLegacy(
         // Our custom critical failure error
         userMessage =
           "Произошли критические ошибки при получении сообщений. Попробуйте позже или запросите меньше сообщений.";
+      } else if (/rate limit|too many requests/i.test(e.message)) {
+        // Handle generic rate limit errors as well (case-insensitive)
+        userMessage =
+          "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
       }
 
       await sendMessage(env, chatId, userMessage);
       return;
     }
 
-    if (env.DB) {
+    if (env.DB && typeof env.DB.prepare === 'function') {
       try {
         await env.DB.prepare(
           "INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)",
@@ -1046,6 +1051,11 @@ async function tryOptimizedSummary(
       result = await controller.summarizeChat(chatId, param);
     } else {
       result = await controller.summarizeChatMessages(chatId, param);
+    }
+
+    // Check if result is valid
+    if (!result || typeof result !== 'string') {
+      throw new Error(`Invalid result from optimized controller: ${result}`);
     }
 
     // Send the result
