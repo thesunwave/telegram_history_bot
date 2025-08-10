@@ -6,6 +6,8 @@ export interface Env {
   COUNTERS_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
   MESSAGE_FETCHER_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
   MESSAGE_AGGREGATOR_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
+  // Added DayBlockManager Durable Object binding
+  DAY_BLOCK_MANAGER_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
   DB: import("@cloudflare/workers-types").D1Database;
   AI: any;
   TOKEN: string;

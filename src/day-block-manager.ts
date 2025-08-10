@@ -1,3 +1,4 @@
+import type { DurableObjectState, DurableObjectStorage } from '@cloudflare/workers-types';
 import { DayBlock, StoredMessage, DAY, LOG_ID_RADIX } from './env';
 import { Logger } from './logger';
 import { hashText } from './utils';
@@ -50,8 +51,9 @@ export class DayBlockManager {
   }
 
   private async handleAddMessage(request: Request): Promise<Response> {
-    const { message, retryCount = 0 } = await request.json();
-    const maxRetries = 3;
+    const body = await request.json() as { message: StoredMessage; retryCount?: number };
+    const { message, retryCount = 0 } = body;
+     const maxRetries = 3;
 
     Logger.debug(this.env, 'DayBlockManager: adding message', {
       chat: message.chat.toString(LOG_ID_RADIX),
@@ -282,8 +284,8 @@ export async function addMessageToDayBlockSafe(
   message: StoredMessage
 ): Promise<{ success: boolean; messageCount: number; duplicate?: boolean }> {
   const date = new Date(message.ts * 1000).toISOString().slice(0, 10);
-  const doId = env.MESSAGE_AGGREGATOR_DO.idFromName(`dayblock:${message.chat}:${date}`);
-  const doStub = env.MESSAGE_AGGREGATOR_DO.get(doId);
+  const doId = env.DAY_BLOCK_MANAGER_DO.idFromName(`dayblock:${message.chat}:${date}`);
+  const doStub = env.DAY_BLOCK_MANAGER_DO.get(doId);
 
   Logger.debug(env, 'addMessageToDayBlockSafe: routing to DO', {
     chat: message.chat.toString(LOG_ID_RADIX),
@@ -325,8 +327,8 @@ export async function getDayBlockSafe(
   chatId: number,
   date: string
 ): Promise<DayBlock | null> {
-  const doId = env.MESSAGE_AGGREGATOR_DO.idFromName(`dayblock:${chatId}:${date}`);
-  const doStub = env.MESSAGE_AGGREGATOR_DO.get(doId);
+  const doId = env.DAY_BLOCK_MANAGER_DO.idFromName(`dayblock:${chatId}:${date}`);
+  const doStub = env.DAY_BLOCK_MANAGER_DO.get(doId);
 
   try {
     const response = await doStub.fetch(`https://do/get-block?chatId=${chatId}&date=${date}`, {
