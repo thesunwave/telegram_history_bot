@@ -43,12 +43,12 @@ describe("Performance Validation and Optimization", () => {
     const originalGet = env.HISTORY.get.bind(env.HISTORY);
     const originalList = env.HISTORY.list.bind(env.HISTORY);
 
-    vi.spyOn(env.HISTORY, "get").mockImplementation(async (...args) => {
+    vi.spyOn(env.HISTORY, "get").mockImplementation(async (...args: any[]) => {
       apiRequestCounter++;
-      return originalGet(...args);
+      return (originalGet as any)(...args);
     });
 
-    vi.spyOn(env.HISTORY, "list").mockImplementation(async (...args) => {
+    vi.spyOn(env.HISTORY, "list").mockImplementation(async (...args: any[]) => {
       apiRequestCounter++;
       return originalList(...args);
     });

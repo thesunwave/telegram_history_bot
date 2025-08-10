@@ -6,6 +6,22 @@ import { Env, StoredMessage } from '../env';
 import { TelegramMessage } from '../providers/ai-provider';
 import { Logger, PerformanceTracker } from '../logger';
 
+// Response type definitions for MessageAggregatorDO
+interface InitializeResponse {
+  success: boolean;
+  sessionId: string;
+}
+
+interface AggregateResponse {
+  success: boolean;
+  messagesAggregated: number;
+  messagesReceived: number;
+}
+
+interface CleanupResponse {
+  success: boolean;
+}
+
 export interface AggregationResult {
   sessionId: string;
   status: 'running' | 'completed' | 'failed';
@@ -57,7 +73,7 @@ export class MessageAggregatorUtils {
       });
 
       const response = await Promise.race([
-        aggregator.fetch(request),
+        aggregator.fetch(request as any),
         new Promise<Response>((_, reject) =>
           setTimeout(() => reject(new Error('Aggregator initialization timeout')), this.AGGREGATOR_TIMEOUT)
         ),
@@ -68,7 +84,7 @@ export class MessageAggregatorUtils {
         throw new Error(`Aggregator initialization failed: ${response.status} ${errorText}`);
       }
 
-      const result = await response.json();
+      const result = await response.json() as InitializeResponse;
 
       Logger.debug(env, 'MessageAggregator session initialized', {
         sessionId,
@@ -128,7 +144,7 @@ export class MessageAggregatorUtils {
       });
 
       const response = await Promise.race([
-        aggregator.fetch(request),
+        aggregator.fetch(request as any),
         new Promise<Response>((_, reject) =>
           setTimeout(() => reject(new Error('Aggregator timeout')), this.AGGREGATOR_TIMEOUT)
         ),
@@ -139,7 +155,7 @@ export class MessageAggregatorUtils {
         throw new Error(`Aggregation failed: ${response.status} ${errorText}`);
       }
 
-      const result = await response.json();
+      const result = await response.json() as AggregateResponse;
 
       Logger.debug(env, 'Messages aggregated successfully', {
         sessionId,
@@ -191,7 +207,7 @@ export class MessageAggregatorUtils {
       const request = new Request(`http://localhost/results?sessionId=${encodeURIComponent(sessionId)}`);
 
       const response = await Promise.race([
-        aggregator.fetch(request),
+        aggregator.fetch(request as any),
         new Promise<Response>((_, reject) =>
           setTimeout(() => reject(new Error('Get results timeout')), this.AGGREGATOR_TIMEOUT)
         ),
@@ -206,7 +222,7 @@ export class MessageAggregatorUtils {
         throw new Error(`Get results failed: ${response.status} ${errorText}`);
       }
 
-      const result = await response.json();
+      const result = await response.json() as AggregationResult;
 
       Logger.debug(env, 'MessageAggregator results retrieved', {
         sessionId,
@@ -253,7 +269,7 @@ export class MessageAggregatorUtils {
       const request = new Request(`http://localhost/status?sessionId=${encodeURIComponent(sessionId)}`);
 
       const response = await Promise.race([
-        aggregator.fetch(request),
+        aggregator.fetch(request as any),
         new Promise<Response>((_, reject) =>
           setTimeout(() => reject(new Error('Get status timeout')), this.AGGREGATOR_TIMEOUT)
         ),
@@ -267,7 +283,7 @@ export class MessageAggregatorUtils {
         throw new Error(`Get status failed: ${response.status} ${errorText}`);
       }
 
-      return await response.json();
+      return await response.json() as AggregationStatus;
 
     } catch (error: any) {
       Logger.error('MessageAggregator get status error', {
@@ -301,7 +317,7 @@ export class MessageAggregatorUtils {
       });
 
       const response = await Promise.race([
-        aggregator.fetch(request),
+        aggregator.fetch(request as any),
         new Promise<Response>((_, reject) =>
           setTimeout(() => reject(new Error('Cleanup timeout')), this.AGGREGATOR_TIMEOUT)
         ),
@@ -317,7 +333,7 @@ export class MessageAggregatorUtils {
         throw new Error(`Cleanup failed: ${response.status} ${errorText}`);
       }
 
-      const result = await response.json();
+      const result = await response.json() as CleanupResponse;
 
       Logger.debug(env, 'MessageAggregator session cleaned up', {
         sessionId,

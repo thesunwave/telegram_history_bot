@@ -81,6 +81,8 @@ describe("Summary Providers Integration Tests", () => {
       HISTORY: history,
       COUNTERS: counters,
       COUNTERS_DO: {} as any,
+      MESSAGE_FETCHER_DO: {} as any,
+      MESSAGE_AGGREGATOR_DO: {} as any,
       DB: db,
       AI: { run: vi.fn(async () => ({ response: "Cloudflare AI summary" })) },
       TOKEN: "test-token",

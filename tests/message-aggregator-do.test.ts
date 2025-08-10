@@ -4,6 +4,43 @@ import type { DurableObjectState } from '@cloudflare/workers-types';
 import { Env, StoredMessage } from '../src/env';
 import { TelegramMessage } from '../src/providers/ai-provider';
 
+// Response type definitions
+interface InitializeResponse {
+  success: boolean;
+  sessionId: string;
+}
+
+interface AggregateResponse {
+  success: boolean;
+  messagesAggregated: number;
+  messagesReceived: number;
+}
+
+interface ResultsResponse {
+  sessionId: string;
+  status: string;
+  messagesAggregated: number;
+  messagesReceived: number;
+  messages: TelegramMessage[];
+  errors: string[];
+  processingTime: number | null;
+}
+
+interface StatusResponse {
+  sessionId: string;
+  status: string;
+  messagesReceived: number;
+  messagesAggregated: number;
+  errors: string[];
+  startTime: number;
+  endTime?: number;
+  lastActivity: number;
+}
+
+interface CleanupResponse {
+  success: boolean;
+}
+
 // Mock DurableObjectState
 const mockState: DurableObjectState = {
   storage: {
@@ -66,7 +103,7 @@ describe('MessageAggregatorDO', () => {
       });
 
       const response = await aggregator.fetch(request);
-      const result = await response.json();
+      const result = await response.json() as InitializeResponse;
 
       expect(response.status).toBe(200);
       expect(result.success).toBe(true);
@@ -139,7 +176,7 @@ describe('MessageAggregatorDO', () => {
       });
 
       const response = await aggregator.fetch(request);
-      const result = await response.json();
+      const result = await response.json() as AggregateResponse;
 
       expect(response.status).toBe(200);
       expect(result.success).toBe(true);
@@ -179,7 +216,7 @@ describe('MessageAggregatorDO', () => {
       // Get results
       const resultsRequest = new Request('http://localhost/results?sessionId=test-session');
       const response = await aggregator.fetch(resultsRequest);
-      const result = await response.json();
+      const result = await response.json() as ResultsResponse;
 
       expect(result.messages[0].ts).toBe(1000);
       expect(result.messages[1].ts).toBe(2000);
@@ -222,7 +259,7 @@ describe('MessageAggregatorDO', () => {
       });
 
       const response = await aggregator.fetch(request);
-      const result = await response.json();
+      const result = await response.json() as AggregateResponse;
 
       expect(result.messagesReceived).toBe(3);
       expect(result.messagesAggregated).toBe(2); // One duplicate removed
@@ -288,7 +325,7 @@ describe('MessageAggregatorDO', () => {
     it('should retrieve results successfully', async () => {
       const request = new Request('http://localhost/results?sessionId=test-session');
       const response = await aggregator.fetch(request);
-      const result = await response.json();
+      const result = await response.json() as ResultsResponse;
 
       expect(response.status).toBe(200);
       expect(result.sessionId).toBe('test-session');
@@ -329,7 +366,7 @@ describe('MessageAggregatorDO', () => {
     it('should retrieve status successfully', async () => {
       const request = new Request('http://localhost/status?sessionId=test-session');
       const response = await aggregator.fetch(request);
-      const result = await response.json();
+      const result = await response.json() as StatusResponse;
 
       expect(response.status).toBe(200);
       expect(result.sessionId).toBe('test-session');
@@ -370,7 +407,7 @@ describe('MessageAggregatorDO', () => {
       });
 
       const response = await aggregator.fetch(cleanupRequest);
-      const result = await response.json();
+      const result = await response.json() as CleanupResponse;
 
       expect(response.status).toBe(200);
       expect(result.success).toBe(true);
@@ -441,7 +478,7 @@ describe('MessageAggregatorDO', () => {
       // Get results to check validation errors
       const resultsRequest = new Request('http://localhost/results?sessionId=test-session');
       const resultsResponse = await aggregator.fetch(resultsRequest);
-      const result = await resultsResponse.json();
+      const result = await resultsResponse.json() as ResultsResponse;
 
       expect(result.errors.length).toBeGreaterThan(0);
       expect(result.errors.some((error: string) => error.includes('username'))).toBe(true);
@@ -491,7 +528,7 @@ describe('MessageAggregatorDO', () => {
       });
 
       const response = await aggregator.fetch(aggregateRequest);
-      const result = await response.json();
+      const result = await response.json() as AggregateResponse;
 
       expect(response.status).toBe(200);
       expect(result.messagesAggregated).toBe(0);
@@ -540,7 +577,7 @@ describe('MessageAggregatorDO', () => {
       });
 
       const response = await aggregator.fetch(secondRequest);
-      const result = await response.json();
+      const result = await response.json() as AggregateResponse;
 
       expect(result.messagesReceived).toBe(2);
       expect(result.messagesAggregated).toBe(2);

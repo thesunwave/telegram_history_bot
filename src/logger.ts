@@ -88,7 +88,7 @@ export class PerformanceTracker {
     const now = Date.now();
     const staleThreshold = 5 * 60 * 1000; // 5 minutes
 
-    for (const [trackerId, metrics] of this.activeTrackers.entries()) {
+    for (const [trackerId, metrics] of Array.from(this.activeTrackers.entries())) {
       if (now - metrics.startTime > staleThreshold) {
         console.warn(
           `[PERF_TRACKER] Cleaning up stale tracker: ${metrics.functionName} (${trackerId}), started ${Math.round((now - metrics.startTime) / 1000)}s ago`,

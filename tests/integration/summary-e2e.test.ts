@@ -59,10 +59,10 @@ describe("Summary End-to-End Tests", () => {
     } as unknown as D1Database;
 
     env = createMockEnv();
-    env.HISTORY = history;
-    env.COUNTERS = counters;
-    env.COUNTERS_DO = createCountersNamespace(env);
-    env.DB = db;
+    env.HISTORY = history as any;
+    env.COUNTERS = counters as any;
+    env.COUNTERS_DO = createCountersNamespace(env) as any;
+    env.DB = db as any;
     env.MESSAGE_FETCHER_DO = {} as any;
     env.MESSAGE_AGGREGATOR_DO = {} as any;
 
@@ -165,9 +165,9 @@ describe("Summary End-to-End Tests", () => {
       // Track API requests to ensure batching is working
       let kvRequestCount = 0;
       const originalGet = env.HISTORY.get;
-      env.HISTORY.get = vi.fn(async (...args) => {
+      (env.HISTORY as any).get = vi.fn(async (...args: any[]) => {
         kvRequestCount++;
-        return originalGet.apply(env.HISTORY, args);
+        return (originalGet as any).apply(env.HISTORY, args);
       });
 
       const { responseTime, success } = await sendSummaryCommand(7);
@@ -220,7 +220,7 @@ describe("Summary End-to-End Tests", () => {
       let maxConcurrentRequests = 0;
       let currentConcurrentRequests = 0;
       const originalGet = env.HISTORY.get;
-      env.HISTORY.get = vi.fn(async (...args) => {
+      (env.HISTORY as any).get = vi.fn(async (...args: any[]) => {
         currentConcurrentRequests++;
         maxConcurrentRequests = Math.max(
           maxConcurrentRequests,
@@ -228,7 +228,7 @@ describe("Summary End-to-End Tests", () => {
         );
 
         try {
-          return await originalGet.apply(env.HISTORY, args);
+          return await (originalGet as any).apply(env.HISTORY, args);
         } finally {
           currentConcurrentRequests--;
         }
@@ -290,7 +290,7 @@ describe("Summary End-to-End Tests", () => {
       const originalGet = env.HISTORY.get;
       const originalList = env.HISTORY.list;
 
-      env.HISTORY.get = vi.fn(async (...args) => {
+      (env.HISTORY as any).get = vi.fn(async (...args: any[]) => {
         totalApiCalls++;
         currentBatchSize++;
         maxBatchSize = Math.max(maxBatchSize, currentBatchSize);
@@ -299,15 +299,15 @@ describe("Summary End-to-End Tests", () => {
         await new Promise((resolve) => setTimeout(resolve, 1));
 
         try {
-          return await originalGet.apply(env.HISTORY, args);
+          return await (originalGet as any).apply(env.HISTORY, args);
         } finally {
           currentBatchSize--;
         }
       });
 
-      env.HISTORY.list = vi.fn(async (...args) => {
+      (env.HISTORY as any).list = vi.fn(async (...args: any[]) => {
         totalApiCalls++;
-        return originalList.apply(env.HISTORY, args);
+        return (originalList as any).apply(env.HISTORY, args);
       });
 
       const { success } = await sendSummaryCommand(7);
@@ -335,13 +335,13 @@ describe("Summary End-to-End Tests", () => {
       // Simulate some KV request failures
       let failureCount = 0;
       const originalGet = env.HISTORY.get;
-      env.HISTORY.get = vi.fn(async (...args) => {
+      (env.HISTORY as any).get = vi.fn(async (...args: any[]) => {
         // Fail every 10th request
         if (Math.random() < 0.1) {
           failureCount++;
           throw new Error("Simulated KV failure");
         }
-        return originalGet.apply(env.HISTORY, args);
+        return (originalGet as any).apply(env.HISTORY, args);
       });
 
       const { success } = await sendSummaryCommand(7);
@@ -477,12 +477,12 @@ describe("Summary End-to-End Tests", () => {
 
       // Simulate occasional KV failures
       const originalGet = env.HISTORY.get;
-      env.HISTORY.get = vi.fn(async (...args) => {
+      (env.HISTORY as any).get = vi.fn(async (...args: any[]) => {
         if (Math.random() < 0.05) {
           // 5% failure rate
           throw new Error("Simulated concurrent failure");
         }
-        return originalGet.apply(env.HISTORY, args);
+        return (originalGet as any).apply(env.HISTORY, args);
       });
 
       // Send multiple concurrent requests
