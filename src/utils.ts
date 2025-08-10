@@ -270,11 +270,21 @@ export async function processBatchesDetailed<T, R>(
         `, rate: ${(batch.length / (batchDuration / 1000)).toFixed(1)} req/s`
       );
       
-      // If we're hitting API limits, increase delay for subsequent batches
+      // If we're hitting API limits, implement exponential backoff
       if (batchApiLimitErrors > 0 && batchNumber < totalBatches) {
-        const adaptiveDelay = Math.max(delayBetweenBatches, 1000); // At least 1 second
-        console.log(`[BATCH_METRICS] API limits detected, increasing delay to ${adaptiveDelay}ms before next batch`);
-        await new Promise(resolve => setTimeout(resolve, adaptiveDelay));
+        // Exponential backoff: base delay * 2^(number of consecutive API limit batches)
+        const consecutiveApiLimitBatches = errorsByBatch
+          .slice(-3) // Check last 3 batches
+          .filter(batch => batch.errorTypes.includes(BatchErrorType.API_LIMIT_EXCEEDED))
+          .length;
+        
+        const exponentialDelay = Math.min(
+          Math.max(delayBetweenBatches, 1000) * Math.pow(2, consecutiveApiLimitBatches),
+          10000 // Cap at 10 seconds
+        );
+        
+        console.log(`[BATCH_METRICS] API limits detected (${consecutiveApiLimitBatches} consecutive), using exponential backoff: ${exponentialDelay}ms before next batch`);
+        await new Promise(resolve => setTimeout(resolve, exponentialDelay));
       } else if (delayBetweenBatches > 0 && batchNumber < totalBatches) {
         console.log(`[BATCH_METRICS] Waiting ${delayBetweenBatches}ms before next batch`);
         await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
@@ -320,6 +330,15 @@ export async function processBatchesDetailed<T, R>(
         default:
           unknownErrors += batch.length;
           break;
+      }
+      
+      // Circuit breaker: stop processing if too many API limit errors
+      const totalApiLimitErrors = errorsByBatch
+        .reduce((sum, batch) => sum + (batch.errorTypes.includes(BatchErrorType.API_LIMIT_EXCEEDED) ? batch.errorCount : 0), 0);
+      
+      if (totalApiLimitErrors > totalItems * 0.3) {
+        console.error(`[BATCH_METRICS] Circuit breaker triggered: too many API limit errors (${totalApiLimitErrors}/${totalItems}), aborting remaining batches`);
+        break;
       }
       
       // If too many batches are failing completely, we might want to abort

@@ -15,6 +15,7 @@ import { HierarchicalProcessor } from "./hierarchical-processor";
 import { Env, DAY, LOG_ID_RADIX } from "../env";
 import { Logger, PerformanceTracker } from "../logger";
 import { fetchMessages, fetchLastMessages } from "../history";
+import { fetchMessagesHybrid } from "../history-optimized";
 import { TelegramMessage } from "../providers/ai-provider";
 import { sendMessage } from "../telegram";
 
@@ -251,8 +252,8 @@ export class OptimizedSummaryController implements SummaryController {
       session.status = "fetching";
       const fetchStart = Date.now();
 
-      // Fetch messages
-      const allMessages = await fetchMessages(this.env, chatId, start, end);
+      // Fetch messages using optimized method
+      const allMessages = await fetchMessagesHybrid(this.env, chatId, start, end);
       const fetchDuration = Date.now() - fetchStart;
       session.metrics.fetchDuration = fetchDuration;
       session.metrics.totalMessages = allMessages.length;

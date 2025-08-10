@@ -27,6 +27,11 @@ export interface Env {
   DEBUG_LOGS?: string;
   KV_BATCH_SIZE?: number;
   KV_BATCH_DELAY?: number;
+  LARGE_DATASET_BATCH_SIZE?: number;
+  LARGE_DATASET_BATCH_DELAY?: number;
+  VERY_LARGE_DATASET_BATCH_SIZE?: number;
+  VERY_LARGE_DATASET_BATCH_DELAY?: number;
+  ADMIN_USER_ID?: string;
 
   // Optimized summary system configuration
   SUMMARY_OPT_ENABLED?: string | boolean;
@@ -67,6 +72,16 @@ export interface StoredMessage {
   ts: number;
 }
 
+export interface DayBlock {
+  date: string; // YYYY-MM-DD format
+  chatId: number;
+  messages: StoredMessage[];
+  messageCount: number;
+  lastUpdated: number;
+  version: number; // For optimistic locking
+  checksum?: string; // For data integrity verification
+}
+
 export const DAY = 86400;
 export const TELEGRAM_LIMIT = 4096;
 export const LOG_ID_RADIX = 36;
@@ -76,3 +91,7 @@ export const WEEK_DAYS = 6; // lookback days for weekly stats
 export const MONTH_DAYS = 27; // lookback days for monthly stats
 export const DEFAULT_KV_BATCH_SIZE = 50; // Conservative default for KV request batching
 export const DEFAULT_KV_BATCH_DELAY = 0; // No delay between batches by default
+export const LARGE_DATASET_BATCH_SIZE = 25; // More conservative batch size for large datasets
+export const LARGE_DATASET_BATCH_DELAY = 200; // Minimum delay for large datasets
+export const VERY_LARGE_DATASET_BATCH_SIZE = 15; // Very conservative batch size for very large datasets  
+export const VERY_LARGE_DATASET_BATCH_DELAY = 500; // Longer delay for very large datasets

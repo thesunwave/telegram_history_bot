@@ -565,6 +565,8 @@ describe("History Functions Integration Tests", () => {
 
       // Set custom batch size
       env.KV_BATCH_SIZE = 5;
+      env.LARGE_DATASET_BATCH_DELAY = 0;
+      env.VERY_LARGE_DATASET_BATCH_DELAY = 0;
 
       // Create messages
       await createTestMessages(chatId, 20, oneDayAgo, 3600);
