@@ -1,4 +1,4 @@
-import { Env } from './env';
+import { Env } from "./env";
 
 /**
  * Performance tracking utilities for monitoring function execution times
@@ -15,47 +15,66 @@ export interface PerformanceMetrics {
 export class PerformanceTracker {
   private static activeTrackers = new Map<string, PerformanceMetrics>();
 
-  static start(functionName: string, chatId?: string, additionalData?: any): string {
+  static start(
+    functionName: string,
+    chatId?: string,
+    additionalData?: any,
+  ): string {
     const trackerId = `${functionName}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const metrics: PerformanceMetrics = {
       functionName,
       startTime: Date.now(),
       chatId,
-      additionalData
+      additionalData,
     };
-    
+
     this.activeTrackers.set(trackerId, metrics);
-    
-    console.log(`[PERF_TRACKER] Started tracking ${functionName}${chatId ? ` for chat ${chatId}` : ''}`, {
-      trackerId,
-      startTime: new Date(metrics.startTime).toISOString(),
-      additionalData
-    });
-    
+
+    if (process.env.NODE_ENV !== "test") {
+      console.log(
+        `[PERF_TRACKER] Started tracking ${functionName}${chatId ? ` for chat ${chatId}` : ""}`,
+        {
+          trackerId,
+          startTime: new Date(metrics.startTime).toISOString(),
+          additionalData,
+        },
+      );
+    }
+
     return trackerId;
   }
 
-  static end(trackerId: string, additionalData?: any): PerformanceMetrics | null {
+  static end(
+    trackerId: string,
+    additionalData?: any,
+  ): PerformanceMetrics | null {
     const metrics = this.activeTrackers.get(trackerId);
     if (!metrics) {
-      console.warn(`[PERF_TRACKER] No active tracker found for ID: ${trackerId}`);
+      console.warn(
+        `[PERF_TRACKER] No active tracker found for ID: ${trackerId}`,
+      );
       return null;
     }
 
     metrics.endTime = Date.now();
     metrics.duration = metrics.endTime - metrics.startTime;
-    
+
     if (additionalData) {
       metrics.additionalData = { ...metrics.additionalData, ...additionalData };
     }
 
-    console.log(`[PERF_TRACKER] Completed ${metrics.functionName}${metrics.chatId ? ` for chat ${metrics.chatId}` : ''} in ${metrics.duration}ms`, {
-      trackerId,
-      duration: metrics.duration,
-      startTime: new Date(metrics.startTime).toISOString(),
-      endTime: new Date(metrics.endTime).toISOString(),
-      additionalData: metrics.additionalData
-    });
+    if (process.env.NODE_ENV !== "test") {
+      console.log(
+        `[PERF_TRACKER] Completed ${metrics.functionName}${metrics.chatId ? ` for chat ${metrics.chatId}` : ""} in ${metrics.duration}ms`,
+        {
+          trackerId,
+          duration: metrics.duration,
+          startTime: new Date(metrics.startTime).toISOString(),
+          endTime: new Date(metrics.endTime).toISOString(),
+          additionalData: metrics.additionalData,
+        },
+      );
+    }
 
     this.activeTrackers.delete(trackerId);
     return metrics;
@@ -68,10 +87,12 @@ export class PerformanceTracker {
   static cleanup(): void {
     const now = Date.now();
     const staleThreshold = 5 * 60 * 1000; // 5 minutes
-    
-    for (const [trackerId, metrics] of this.activeTrackers.entries()) {
+
+    for (const [trackerId, metrics] of Array.from(this.activeTrackers.entries())) {
       if (now - metrics.startTime > staleThreshold) {
-        console.warn(`[PERF_TRACKER] Cleaning up stale tracker: ${metrics.functionName} (${trackerId}), started ${Math.round((now - metrics.startTime) / 1000)}s ago`);
+        console.warn(
+          `[PERF_TRACKER] Cleaning up stale tracker: ${metrics.functionName} (${trackerId}), started ${Math.round((now - metrics.startTime) / 1000)}s ago`,
+        );
         this.activeTrackers.delete(trackerId);
       }
     }
@@ -80,7 +101,7 @@ export class PerformanceTracker {
 
 export class Logger {
   private static isDebugEnabled(env: Env): boolean {
-    return env.DEBUG_LOGS === 'true' || env.DEBUG_LOGS === '1';
+    return env.DEBUG_LOGS === "true" || env.DEBUG_LOGS === "1";
   }
 
   static debug(env: Env, message: string, data?: any): void {
@@ -117,78 +138,120 @@ export class Logger {
     }
   }
 
+  static warn(env: Env, message: string, data?: any): void {
+    if (data) {
+      console.warn(message, data);
+    } else {
+      console.warn(message);
+    }
+  }
+
+  static info(env: Env, message: string, data?: any): void {
+    if (data) {
+      console.info(message, data);
+    } else {
+      console.info(message);
+    }
+  }
+
   /**
    * Log API request patterns for optimization analysis
    */
-  static logApiRequestPattern(env: Env, operation: string, data: {
-    requestCount: number;
-    duration: number;
-    successRate: number;
-    errorTypes?: string[];
-    batchSize?: number;
-    chatId?: string;
-  }): void {
+  static logApiRequestPattern(
+    env: Env,
+    operation: string,
+    data: {
+      requestCount: number;
+      duration: number;
+      successRate: number;
+      errorTypes?: string[];
+      batchSize?: number;
+      chatId?: string;
+    },
+  ): void {
+    if (!this.isDebugEnabled(env)) return;
     console.log(`[API_PATTERN] ${operation}`, {
       timestamp: new Date().toISOString(),
       operation,
       requestCount: data.requestCount,
       duration: data.duration,
-      requestsPerSecond: data.duration > 0 ? (data.requestCount / (data.duration / 1000)).toFixed(2) : '0',
+      requestsPerSecond:
+        data.duration > 0
+          ? (data.requestCount / (data.duration / 1000)).toFixed(2)
+          : "0",
       successRate: `${data.successRate.toFixed(1)}%`,
       errorTypes: data.errorTypes || [],
       batchSize: data.batchSize,
       chatId: data.chatId,
-      efficiency: data.batchSize && data.duration > 0 ? 
-        `${(data.batchSize / (data.duration / 1000)).toFixed(1)} items/s` : 'N/A'
+      efficiency:
+        data.batchSize && data.duration > 0
+          ? `${(data.batchSize / (data.duration / 1000)).toFixed(1)} items/s`
+          : "N/A",
     });
   }
 
   /**
    * Log performance insights for function execution
    */
-  static logPerformanceInsight(env: Env, functionName: string, data: {
-    duration: number;
-    itemsProcessed?: number;
-    memoryUsage?: number;
-    chatId?: string;
-    stage?: string;
-    insights?: string[];
-  }): void {
+  static logPerformanceInsight(
+    env: Env,
+    functionName: string,
+    data: {
+      duration: number;
+      itemsProcessed?: number;
+      memoryUsage?: number;
+      chatId?: string;
+      stage?: string;
+      insights?: string[];
+    },
+  ): void {
+    if (!this.isDebugEnabled(env)) return;
     const insights = data.insights || [];
-    
+
     // Add automatic insights based on performance data
     if (data.duration > 30000) {
-      insights.push('SLOW_EXECUTION');
+      insights.push("SLOW_EXECUTION");
     }
     if (data.itemsProcessed && data.duration > 0) {
       const rate = data.itemsProcessed / (data.duration / 1000);
       if (rate < 10) {
-        insights.push('LOW_THROUGHPUT');
+        insights.push("LOW_THROUGHPUT");
       } else if (rate > 100) {
-        insights.push('HIGH_THROUGHPUT');
+        insights.push("HIGH_THROUGHPUT");
       }
     }
 
-    console.log(`[PERF_INSIGHT] ${functionName}${data.stage ? `_${data.stage}` : ''}`, {
-      timestamp: new Date().toISOString(),
-      functionName,
-      stage: data.stage,
-      duration: data.duration,
-      itemsProcessed: data.itemsProcessed,
-      throughput: data.itemsProcessed && data.duration > 0 ? 
-        `${(data.itemsProcessed / (data.duration / 1000)).toFixed(1)} items/s` : 'N/A',
-      memoryUsage: data.memoryUsage,
-      chatId: data.chatId,
-      insights,
-      performanceGrade: this.calculatePerformanceGrade(data.duration, data.itemsProcessed)
-    });
+    console.log(
+      `[PERF_INSIGHT] ${functionName}${data.stage ? `_${data.stage}` : ""}`,
+      {
+        timestamp: new Date().toISOString(),
+        functionName,
+        stage: data.stage,
+        duration: data.duration,
+        itemsProcessed: data.itemsProcessed,
+        throughput:
+          data.itemsProcessed && data.duration > 0
+            ? `${(data.itemsProcessed / (data.duration / 1000)).toFixed(1)} items/s`
+            : "N/A",
+        memoryUsage: data.memoryUsage,
+        chatId: data.chatId,
+        insights,
+        performanceGrade: this.calculatePerformanceGrade(
+          data.duration,
+          data.itemsProcessed,
+        ),
+      },
+    );
   }
 
-  private static calculatePerformanceGrade(duration: number, itemsProcessed?: number): string {
-    if (duration < 1000) return 'EXCELLENT';
-    if (duration < 5000) return 'GOOD';
-    if (duration < 15000) return 'FAIR';
-    if (duration < 30000) return 'POOR';
-    return 'CRITICAL';
+  private static calculatePerformanceGrade(
+    duration: number,
+    itemsProcessed?: number,
+  ): string {
+    if (duration < 1000) return "EXCELLENT";
+    if (duration < 5000) return "GOOD";
+    if (duration < 15000) return "FAIR";
+    if (duration < 30000) return "POOR";
+    return "CRITICAL";
   }
 }

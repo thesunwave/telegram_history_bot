@@ -18,49 +18,50 @@ export class ProviderInitializer {
   static async initializeProvider(env: Env): Promise<AIProvider> {
     try {
       console.log("Provider initialization started");
-      
+
       // Create provider instance
       const provider = ProviderFactory.createProvider(env);
       const providerInfo = provider.getProviderInfo();
-      
+
       console.log("Provider created", {
         provider: providerInfo.name,
         model: providerInfo.model,
         version: providerInfo.version,
       });
-      
+
       // Validate provider configuration
       provider.validateConfig();
-      
+
       console.log("Provider configuration validated successfully", {
         provider: providerInfo.name,
         model: providerInfo.model,
       });
-      
+
       // Cache the initialized provider
       this.instance = provider;
       this.isInitialized = true;
-      
+
       console.log("Provider initialization completed", {
         provider: providerInfo.name,
         model: providerInfo.model,
         supportedProviders: ProviderFactory.getSupportedProviders(),
         defaultProvider: ProviderFactory.getDefaultProvider(),
       });
-      
+
       return provider;
     } catch (error: any) {
-      const errorMessage = error instanceof ProviderError 
-        ? `Provider error (${error.provider}): ${error.message}`
-        : `Provider initialization failed: ${error.message || String(error)}`;
-      
+      const errorMessage =
+        error instanceof ProviderError
+          ? `Provider error (${error.provider}): ${error.message}`
+          : `Provider initialization failed: ${error.message || String(error)}`;
+
       console.error("Provider initialization failed", {
         error: errorMessage,
         stack: error.stack,
         supportedProviders: ProviderFactory.getSupportedProviders(),
         defaultProvider: ProviderFactory.getDefaultProvider(),
       });
-      
+
       throw new Error(errorMessage);
     }
   }
@@ -76,9 +77,12 @@ export class ProviderInitializer {
       console.warn("Provider not initialized, performing lazy initialization");
       // For backward compatibility, create provider on-demand
       // This should ideally not happen if proper initialization is done
-      return ProviderFactory.createProvider(env);
+      this.instance = ProviderFactory.createProvider(env);
+      this.instance.validateConfig();
+      this.isInitialized = true;
+      return this.instance;
     }
-    
+
     return this.instance;
   }
 
@@ -106,7 +110,7 @@ export class ProviderInitializer {
     try {
       const provider = this.getProvider(env);
       const providerInfo = provider.getProviderInfo();
-      
+
       console.log("Active provider information", {
         provider: providerInfo.name,
         model: providerInfo.model,

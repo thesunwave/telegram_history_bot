@@ -35,6 +35,7 @@ const HELP_TEXT = [
   '/activity_month – график активности за месяц',
   '/activity_users_week – активность по пользователям за неделю',
   '/activity_users_month – активность по пользователям за месяц',
+  '/test_race_conditions – тест защиты от race conditions (только для админов)',
   '/help – показать список всех команд',
 ].join('\n');
 
@@ -65,28 +66,44 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     text: msg.text,
     ts,
   };
-  const key = `msg:${chatId}:${ts}:${msg.message_id}`;
 
-  Logger.debug(env, 'recordMessage: saving to KV', {
-    key,
+  Logger.debug(env, 'recordMessage: saving message', {
     chatId,
     username,
     textLength: msg.text?.length || 0,
     timestamp: ts,
     messageId: msg.message_id
   });
-
+  
+  // Save to optimized daily block structure
   try {
-    await env.HISTORY.put(key, JSON.stringify(stored), {
-      expirationTtl: 7 * DAY,
+    const { addMessageToDayBlock } = await import('./history-optimized');
+    await addMessageToDayBlock(env, stored);
+    Logger.debug(env, 'recordMessage: day block save successful', { 
+      chatId,
+      date: new Date(ts * 1000).toISOString().slice(0, 10)
     });
-    Logger.debug(env, 'recordMessage: KV save successful', { key });
   } catch (error: any) {
-    Logger.error('recordMessage: KV save failed', {
-      key,
+    Logger.error('recordMessage: day block save failed', {
+      chatId,
       error: error.message || String(error),
       stack: error.stack
     });
+    
+    // Fallback to individual message storage for reliability
+    const key = `msg:${chatId}:${ts}:${msg.message_id}`;
+    try {
+      await env.HISTORY.put(key, JSON.stringify(stored), {
+        expirationTtl: 7 * DAY,
+      });
+      Logger.debug(env, 'recordMessage: fallback individual save successful', { key });
+    } catch (fallbackError: any) {
+      Logger.error('recordMessage: both storage methods failed', {
+        key,
+        dayBlockError: error.message,
+        fallbackError: fallbackError.message || String(fallbackError)
+      });
+    }
   }
 
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
@@ -369,6 +386,37 @@ export async function handleUpdate(msg: any, env: Env) {
     } else {
       const period = sub === 'month' ? 'month' : 'week';
       await activityChart(env, chatId, period);
+    }
+  } else if (msg.text.startsWith('/test_race_conditions')) {
+    // Only allow admins to run race condition tests
+    const userId = msg.from?.id || 0;
+    const isAdmin = userId === parseInt(env.ADMIN_USER_ID || '0'); // Add ADMIN_USER_ID to env
+    
+    if (!isAdmin) {
+      await sendMessage(env, chatId, 'Эта команда доступна только администраторам');
+      return;
+    }
+
+    await sendMessage(env, chatId, 'Запуск тестов защиты от race conditions...');
+    
+    try {
+      const { runAllRaceConditionTests } = await import('./race-condition-tests');
+      const testResults = await runAllRaceConditionTests(env, chatId);
+      
+      const summary = testResults.map(result => 
+        `${result.success ? '✅' : '❌'} ${result.testName}: ${result.messagesAdded}/${result.expectedMessages} сообщений, ${result.duplicatesDetected} дубликатов, ${result.errors.length} ошибок`
+      ).join('\n');
+      
+      const overallSuccess = testResults.every(r => r.success);
+      const totalDuration = testResults.reduce((sum, r) => sum + r.duration, 0);
+      
+      await sendMessage(env, chatId, 
+        `Результаты тестов race conditions:\n\n${summary}\n\n` +
+        `${overallSuccess ? '✅ Все тесты пройдены' : '❌ Есть проблемы'}\n` +
+        `Общее время: ${totalDuration}ms`
+      );
+    } catch (error: any) {
+      await sendMessage(env, chatId, `Ошибка при выполнении тестов: ${error.message}`);
     }
   } else if (msg.text.startsWith('/help')) {
     await sendMessage(env, chatId, HELP_TEXT);
