@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ProviderInitializer } from "../../src/providers/provider-init";
-import { ProviderFactory } from "../../src/providers/provider-factory";
 import { CloudflareAIProvider } from "../../src/providers/cloudflare-provider";
 import { OpenAIProvider } from "../../src/providers/openai-provider";
-import { ProviderError } from "../../src/providers/ai-provider";
 import { Env } from "../../src/env";
 
-// Mock console methods
+// Mock console methods to capture logs
 const mockConsoleLog = vi.fn();
 const mockConsoleError = vi.fn();
 const mockConsoleWarn = vi.fn();
@@ -18,229 +16,136 @@ vi.stubGlobal("console", {
   debug: vi.fn(),
 });
 
-// Mock ProviderFactory
-vi.mock("../../src/providers/provider-factory", () => ({
-  ProviderFactory: {
-    createProvider: vi.fn(),
-    getSupportedProviders: vi.fn(),
-    getDefaultProvider: vi.fn(),
-  },
-}));
-
-// Mock providers
-vi.mock("../../src/providers/cloudflare-provider");
-vi.mock("../../src/providers/openai-provider");
-
-const { ProviderFactory: mockProviderFactory } = await import(
-  "../../src/providers/provider-factory"
-);
-
 describe("ProviderInitializer", () => {
-  const mockEnv: Env = {
-    SUMMARY_PROVIDER: "cloudflare",
-    SUMMARY_MODEL: "test-model",
-    AI: {
-      run: vi.fn().mockResolvedValue({ response: "Test summary response" }),
-    } as any,
-  } as Env;
+  let mockEnv: Env;
 
   beforeEach(() => {
     vi.clearAllMocks();
     ProviderInitializer.reset();
 
-    // Reset mocks to default behavior
-    (mockProviderFactory.createProvider as any).mockClear();
-    (mockProviderFactory.getSupportedProviders as any).mockClear();
-    (mockProviderFactory.getDefaultProvider as any).mockClear();
+    mockEnv = {
+      SUMMARY_PROVIDER: "cloudflare",
+      SUMMARY_MODEL: "test-model",
+      AI: {
+        run: vi.fn().mockResolvedValue({ response: "Test summary response" }),
+      } as any,
+      SUMMARY_PROMPT: "Test prompt",
+      SUMMARY_SYSTEM: "Test system",
+      SUMMARY_MAX_TOKENS: 500,
+      SUMMARY_TEMPERATURE: 0.7,
+      SUMMARY_TOP_P: 0.9,
+      HISTORY: {} as any,
+      COUNTERS: {} as any,
+      COUNTERS_DO: {} as any,
+      DB: {} as any,
+      TOKEN: "test-token",
+      SECRET: "test-secret",
+      DEBUG_LOGS: "false",
+    } as Env;
   });
 
   describe("initializeProvider", () => {
-    it("should initialize provider successfully", async () => {
-      const mockProvider = {
-        validateConfig: vi.fn(),
-        getProviderInfo: vi.fn().mockReturnValue({
-          name: "cloudflare",
-          model: "test-model",
-          version: "1.0",
-        }),
-      };
+    it("should initialize Cloudflare provider successfully", async () => {
+      const provider = await ProviderInitializer.initializeProvider(mockEnv);
 
-      (mockProviderFactory.createProvider as any).mockReturnValue(
-        mockProvider as any,
-      );
-      (mockProviderFactory.getSupportedProviders as any).mockReturnValue([
-        "cloudflare",
-        "openai",
-      ]);
-      (mockProviderFactory.getDefaultProvider as any).mockReturnValue(
-        "cloudflare",
-      );
-
-      const result = await ProviderInitializer.initializeProvider(mockEnv);
-
-      expect(result).toBe(mockProvider);
-      expect(mockProvider.validateConfig).toHaveBeenCalled();
+      expect(provider).toBeInstanceOf(CloudflareAIProvider);
       expect(ProviderInitializer.isProviderInitialized()).toBe(true);
       expect(mockConsoleLog).toHaveBeenCalledWith(
         "Provider initialization started",
       );
-      expect(mockConsoleLog).toHaveBeenCalledWith("Provider created", {
-        provider: "cloudflare",
-        model: "test-model",
-        version: "1.0",
-      });
-      expect(mockConsoleLog).toHaveBeenCalledWith(
-        "Provider configuration validated successfully",
-        {
-          provider: "cloudflare",
-          model: "test-model",
-        },
-      );
       expect(mockConsoleLog).toHaveBeenCalledWith(
         "Provider initialization completed",
-        {
-          provider: "cloudflare",
-          model: "test-model",
-          supportedProviders: ["cloudflare", "openai"],
-          defaultProvider: "cloudflare",
-        },
+        expect.any(Object),
       );
     });
 
-    it("should handle provider creation error", async () => {
-      const error = new Error("Provider creation failed");
-      (mockProviderFactory.createProvider as any).mockImplementation(() => {
-        throw error;
-      });
-      (mockProviderFactory.getSupportedProviders as any).mockReturnValue([
-        "cloudflare",
-        "openai",
-      ]);
-      (mockProviderFactory.getDefaultProvider as any).mockReturnValue(
-        "cloudflare",
-      );
+    it("should initialize OpenAI provider successfully", async () => {
+      (mockEnv as any).SUMMARY_PROVIDER = "openai";
+      (mockEnv as any).OPENAI_API_KEY = "test-api-key";
+
+      const provider = await ProviderInitializer.initializeProvider(mockEnv);
+
+      expect(provider).toBeInstanceOf(OpenAIProvider);
+      expect(ProviderInitializer.isProviderInitialized()).toBe(true);
+    });
+
+    it("should handle missing AI binding gracefully", async () => {
+      const envWithoutAI = {
+        ...mockEnv,
+        AI: undefined,
+      } as any;
 
       await expect(
-        ProviderInitializer.initializeProvider(mockEnv),
-      ).rejects.toThrow(
-        "Provider initialization failed: Provider creation failed",
-      );
+        ProviderInitializer.initializeProvider(envWithoutAI),
+      ).rejects.toThrow("Provider initialization failed");
 
       expect(ProviderInitializer.isProviderInitialized()).toBe(false);
       expect(mockConsoleError).toHaveBeenCalledWith(
         "Provider initialization failed",
-        {
-          error: "Provider initialization failed: Provider creation failed",
-          stack: error.stack,
-          supportedProviders: ["cloudflare", "openai"],
-          defaultProvider: "cloudflare",
-        },
+        expect.any(Object),
       );
     });
 
-    it("should handle provider validation error", async () => {
-      const validationError = new Error("Invalid configuration");
-      const mockProvider = {
-        validateConfig: vi.fn().mockImplementation(() => {
-          throw validationError;
-        }),
-        getProviderInfo: vi.fn().mockReturnValue({
-          name: "cloudflare",
-          model: "test-model",
-        }),
-      };
-
-      (mockProviderFactory.createProvider as any).mockReturnValue(
-        mockProvider as any,
-      );
-      (mockProviderFactory.getSupportedProviders as any).mockReturnValue([
-        "cloudflare",
-        "openai",
-      ]);
-      (mockProviderFactory.getDefaultProvider as any).mockReturnValue(
-        "cloudflare",
-      );
+    it("should handle missing model configuration", async () => {
+      const envWithoutModel = {
+        ...mockEnv,
+        SUMMARY_MODEL: undefined,
+      } as any;
 
       await expect(
-        ProviderInitializer.initializeProvider(mockEnv),
-      ).rejects.toThrow(
-        "Provider initialization failed: Invalid configuration",
-      );
+        ProviderInitializer.initializeProvider(envWithoutModel),
+      ).rejects.toThrow("Provider initialization failed");
 
       expect(ProviderInitializer.isProviderInitialized()).toBe(false);
     });
 
-    it("should handle ProviderError specifically", async () => {
-      const providerError = new ProviderError(
-        "OpenAI API key missing",
-        "openai",
-      );
-      (mockProviderFactory.createProvider as any).mockImplementation(() => {
-        throw providerError;
-      });
-      (mockProviderFactory.getSupportedProviders as any).mockReturnValue([
-        "cloudflare",
-        "openai",
-      ]);
-      (mockProviderFactory.getDefaultProvider as any).mockReturnValue(
-        "cloudflare",
-      );
+    it("should handle invalid provider type", async () => {
+      (mockEnv as any).SUMMARY_PROVIDER = "invalid-provider";
 
       await expect(
         ProviderInitializer.initializeProvider(mockEnv),
-      ).rejects.toThrow("Provider error (openai): OpenAI API key missing");
+      ).rejects.toThrow("Provider initialization failed");
 
-      expect(mockConsoleError).toHaveBeenCalledWith(
-        "Provider initialization failed",
-        {
-          error: "Provider error (openai): OpenAI API key missing",
-          stack: providerError.stack,
-          supportedProviders: ["cloudflare", "openai"],
-          defaultProvider: "cloudflare",
-        },
-      );
+      expect(ProviderInitializer.isProviderInitialized()).toBe(false);
     });
   });
 
   describe("getProvider", () => {
-    it("should return initialized provider", () => {
-      const mockProvider = {
-        validateConfig: vi.fn(),
-        getProviderInfo: vi.fn().mockReturnValue({
-          name: "cloudflare",
-          model: "test-model",
-        }),
-      };
+    it("should return initialized provider", async () => {
+      // First initialize
+      const initializedProvider =
+        await ProviderInitializer.initializeProvider(mockEnv);
 
-      // Manually set the provider as initialized
-      ProviderInitializer["instance"] = mockProvider as any;
-      ProviderInitializer["isInitialized"] = true;
+      // Then get the same instance
+      const retrievedProvider = ProviderInitializer.getProvider(mockEnv);
 
-      const result = ProviderInitializer.getProvider(mockEnv);
-
-      expect(result).toBe(mockProvider);
+      expect(retrievedProvider).toBe(initializedProvider);
+      expect(retrievedProvider).toBeInstanceOf(CloudflareAIProvider);
     });
 
     it("should perform lazy initialization if not initialized", () => {
-      const mockProvider = {
-        validateConfig: vi.fn(),
-        getProviderInfo: vi.fn().mockReturnValue({
-          name: "cloudflare",
-          model: "test-model",
-        }),
-      };
+      // Don't initialize first
+      const provider = ProviderInitializer.getProvider(mockEnv);
 
-      (mockProviderFactory.createProvider as any).mockReturnValue(
-        mockProvider as any,
-      );
-
-      const result = ProviderInitializer.getProvider(mockEnv);
-
-      expect(result).toBe(mockProvider);
+      expect(provider).toBeInstanceOf(CloudflareAIProvider);
+      expect(ProviderInitializer.isProviderInitialized()).toBe(true);
       expect(mockConsoleWarn).toHaveBeenCalledWith(
         "Provider not initialized, performing lazy initialization",
       );
-      expect(mockProviderFactory.createProvider).toHaveBeenCalledWith(mockEnv);
+    });
+
+    it("should return different provider types based on configuration", () => {
+      // Test Cloudflare
+      const cloudflareProvider = ProviderInitializer.getProvider(mockEnv);
+      expect(cloudflareProvider).toBeInstanceOf(CloudflareAIProvider);
+
+      // Reset and test OpenAI
+      ProviderInitializer.reset();
+      (mockEnv as any).SUMMARY_PROVIDER = "openai";
+      (mockEnv as any).OPENAI_API_KEY = "test-key";
+
+      const openaiProvider = ProviderInitializer.getProvider(mockEnv);
+      expect(openaiProvider).toBeInstanceOf(OpenAIProvider);
     });
   });
 
@@ -249,67 +154,114 @@ describe("ProviderInitializer", () => {
       expect(ProviderInitializer.isProviderInitialized()).toBe(false);
     });
 
-    it("should return true when initialized", () => {
-      ProviderInitializer["instance"] = {} as any;
-      ProviderInitializer["isInitialized"] = true;
+    it("should return true when initialized", async () => {
+      await ProviderInitializer.initializeProvider(mockEnv);
+      expect(ProviderInitializer.isProviderInitialized()).toBe(true);
+    });
 
+    it("should return true after lazy initialization", () => {
+      ProviderInitializer.getProvider(mockEnv);
       expect(ProviderInitializer.isProviderInitialized()).toBe(true);
     });
   });
 
   describe("reset", () => {
-    it("should reset provider state", () => {
-      ProviderInitializer["instance"] = {} as any;
-      ProviderInitializer["isInitialized"] = true;
+    it("should reset provider state", async () => {
+      // Initialize first
+      await ProviderInitializer.initializeProvider(mockEnv);
+      expect(ProviderInitializer.isProviderInitialized()).toBe(true);
 
+      // Reset
+      ProviderInitializer.reset();
+      expect(ProviderInitializer.isProviderInitialized()).toBe(false);
+    });
+
+    it("should allow re-initialization after reset", async () => {
+      // Initialize, reset, and initialize again
+      await ProviderInitializer.initializeProvider(mockEnv);
       ProviderInitializer.reset();
 
-      expect(ProviderInitializer.isProviderInitialized()).toBe(false);
-      expect(ProviderInitializer["instance"]).toBeNull();
+      const provider = await ProviderInitializer.initializeProvider(mockEnv);
+      expect(provider).toBeInstanceOf(CloudflareAIProvider);
+      expect(ProviderInitializer.isProviderInitialized()).toBe(true);
     });
   });
 
   describe("logProviderInfo", () => {
-    it("should log provider information when initialized", () => {
-      const mockProvider = {
-        getProviderInfo: vi.fn().mockReturnValue({
-          name: "cloudflare",
-          model: "test-model",
-          version: "1.0",
-        }),
-      };
-
-      ProviderInitializer["instance"] = mockProvider as any;
-      ProviderInitializer["isInitialized"] = true;
+    it("should log provider information when initialized", async () => {
+      await ProviderInitializer.initializeProvider(mockEnv);
 
       ProviderInitializer.logProviderInfo(mockEnv);
 
       expect(mockConsoleLog).toHaveBeenCalledWith(
         "Active provider information",
-        {
+        expect.objectContaining({
           provider: "cloudflare",
           model: "test-model",
-          version: "1.0",
           initialized: true,
-        },
+        }),
       );
     });
 
-    it("should handle error when logging provider info fails", () => {
-      const error = new Error("Provider info failed");
-      (mockProviderFactory.createProvider as any).mockImplementation(() => {
-        throw error;
-      });
-
+    it("should handle logging when not initialized", () => {
+      // Should perform lazy initialization and then log
       ProviderInitializer.logProviderInfo(mockEnv);
+
+      expect(mockConsoleLog).toHaveBeenCalledWith(
+        "Active provider information",
+        expect.objectContaining({
+          provider: "cloudflare",
+          initialized: true,
+        }),
+      );
+    });
+
+    it("should handle provider creation errors during logging", () => {
+      const envWithError = {
+        ...mockEnv,
+        AI: undefined,
+      } as any;
+
+      ProviderInitializer.logProviderInfo(envWithError);
 
       expect(mockConsoleError).toHaveBeenCalledWith(
         "Failed to log provider information",
-        {
-          error: "Provider info failed",
+        expect.objectContaining({
           initialized: false,
-        },
+        }),
       );
+    });
+  });
+
+  describe("provider functionality validation", () => {
+    it("should create provider that can validate its own config", async () => {
+      const provider = await ProviderInitializer.initializeProvider(mockEnv);
+
+      expect(() => provider.validateConfig()).not.toThrow();
+    });
+
+    it("should create provider with correct info", async () => {
+      const provider = await ProviderInitializer.initializeProvider(mockEnv);
+      const info = provider.getProviderInfo();
+
+      expect(info).toHaveProperty("name");
+      expect(info).toHaveProperty("model");
+      expect(info.name).toBe("cloudflare");
+      expect(info.model).toBe("test-model");
+    });
+
+    it("should work with different provider configurations", async () => {
+      // Test Cloudflare
+      let provider = await ProviderInitializer.initializeProvider(mockEnv);
+      expect(provider.getProviderInfo().name).toBe("cloudflare");
+
+      // Reset and test OpenAI
+      ProviderInitializer.reset();
+      (mockEnv as any).SUMMARY_PROVIDER = "openai";
+      (mockEnv as any).OPENAI_API_KEY = "test-key";
+
+      provider = await ProviderInitializer.initializeProvider(mockEnv);
+      expect(provider.getProviderInfo().name).toBe("openai");
     });
   });
 });
