@@ -69,7 +69,7 @@ describe('CloudflareAIProvider', () => {
         frequency_penalty: 0.1,
         messages: [
           { role: 'system', content: 'You are a helpful assistant\nKeep it under 100 characters' },
-          { role: 'user', content: 'Summarize this conversation\n=== СООБЩЕНИЯ ===\nuser1: Hello world\nuser2: How are you?' }
+          { role: 'user', content: 'Summarize this conversation\n=== СООБЩЕНИЯ ===\nuser1: Hello world;\nuser2: How are you?' }
         ]
       });
     });
