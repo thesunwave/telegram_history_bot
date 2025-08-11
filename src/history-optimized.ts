@@ -113,8 +113,14 @@ export async function fetchMessagesOptimized(
         
         // Fallback to KV if DO doesn't have the block
         if (!block) {
-          const key = getDayBlockKey(chatId, date);
-          block = await env.HISTORY.get<DayBlock>(key, { type: 'json' });
+          // Try new sharded format first
+          block = await loadShardedBlockFromKV(env, chatId, date);
+          
+          // Fallback to legacy single-block format
+          if (!block) {
+            const key = getDayBlockKey(chatId, date);
+            block = await env.HISTORY.get<DayBlock>(key, { type: 'json' });
+          }
         }
         
         return { date, block, success: true };
@@ -260,5 +266,53 @@ export async function fetchMessagesHybrid(
       error: error.message || String(error)
     });
     throw error;
+  }
+}
+
+
+async function loadShardedBlockFromKV(env: Env, chatId: number, date: string): Promise<DayBlock | null> {
+  try {
+    const metaKey = `msg_day_meta:${chatId}:${date}`;
+    type DayBlockMeta = {
+      id: string;
+      date: string;
+      chatId: number;
+      messageCount: number;
+      lastUpdated: number;
+      version: number;
+      shardCount: number;
+      checksum?: string;
+    };
+
+    const meta = await env.HISTORY.get<DayBlockMeta>(metaKey, { type: 'json' });
+    if (!meta) return null;
+
+    const shardPromises: Promise<StoredMessage[]>[] = [];
+    for (let i = 0; i < meta.shardCount; i++) {
+      const shardKey = `msg_day_shard:${chatId}:${date}:${i}`;
+      shardPromises.push(
+        env.HISTORY.get<{ messages: StoredMessage[] }>(shardKey, { type: 'json' })
+          .then(s => s?.messages || [])
+          .catch(() => [])
+      );
+    }
+
+    const shardMessages = await Promise.all(shardPromises);
+    const messages = shardMessages.flat();
+    messages.sort((a, b) => a.ts - b.ts);
+
+    const block: DayBlock = {
+      date,
+      chatId,
+      messages,
+      messageCount: meta.messageCount,
+      lastUpdated: meta.lastUpdated,
+      version: meta.version,
+      checksum: meta.checksum
+    };
+
+    return block;
+  } catch {
+    return null;
   }
 }
