@@ -18,8 +18,8 @@ export class CloudflareAIProvider implements AIProvider {
 
   async summarize(request: SummaryRequest, options: SummaryOptions, env?: Env): Promise<string> {
     // Format messages as "username: text"
-    const content = request.messages.map(m => `${m.username}: ${m.text}`).join('\n');
-    
+    // For chat with system prompt present, we separate entries with ";\n" to reduce ambiguity between lines.
+    // Otherwise (including completion or when system prompt is undefined), we use a simple "\n" separator.
     try {
       let response: any;
       
@@ -27,7 +27,10 @@ export class CloudflareAIProvider implements AIProvider {
       const model = (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL;
       
       if (model.includes('chat')) {
-        const messages = this.buildChatMessages(request, content);
+        const contentForChat = request.messages
+          .map(m => `${m.username}: ${m.text}`)
+          .join(request.systemPrompt ? ';\n' : '\n');
+        const messages = this.buildChatMessages(request, contentForChat);
         const aiOptions = {
           max_tokens: options.maxTokens,
           temperature: options.temperature,
@@ -37,7 +40,10 @@ export class CloudflareAIProvider implements AIProvider {
         };
         response = await this.env.AI.run(model, aiOptions);
       } else {
-        const input = `${request.userPrompt}\n${request.limitNote}\n${content}`;
+        const contentForCompletion = request.messages
+          .map(m => `${m.username}: ${m.text}`)
+          .join('\n');
+        const input = `${request.userPrompt}\n${request.limitNote}\n${contentForCompletion}`;
         const aiOptions = {
           max_tokens: options.maxTokens,
           temperature: options.temperature,
@@ -48,7 +54,9 @@ export class CloudflareAIProvider implements AIProvider {
         response = await this.env.AI.run(model, aiOptions);
       }
       
-      const result = response.response ?? response;
+      const raw = (response.response ?? response) as string;
+      const parsed = this.tryParseSummaryJson(raw, env);
+      const result = parsed ?? raw;
       return truncateText(result, TELEGRAM_LIMIT);
     } catch (error: any) {
       throw new ProviderError(
@@ -56,6 +64,100 @@ export class CloudflareAIProvider implements AIProvider {
         'cloudflare',
         error
       );
+    }
+  }
+
+  private tryParseSummaryJson(response: string, env?: Env): string | null {
+    try {
+      let text = (response || '').trim();
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) {
+        text = match[0];
+      }
+      const obj = JSON.parse(text);
+      if (!obj || typeof obj !== 'object') return null;
+
+      // Structured format support
+      const getString = (v: any): string => (typeof v === 'string' ? v.trim() : '');
+      const normalizeItem = (i: any): string => {
+        if (typeof i === 'string') return i.trim();
+        if (i && typeof i === 'object') {
+          const candidates = ['text', 'title', 'point', 'value', 'content'];
+          for (const k of candidates) {
+            const val = (i as any)[k];
+            if (typeof val === 'string' && val.trim()) return val.trim();
+          }
+        }
+        return '';
+      };
+
+      const period = getString((obj as any).period);
+      const participants = getString((obj as any).participants);
+      const summary = getString((obj as any).summary);
+      const topics = Array.isArray((obj as any).topics)
+        ? (obj as any).topics.map(normalizeItem).filter((s: string) => !!s)
+        : [];
+      const keyPoints = Array.isArray((obj as any).keyPoints)
+        ? (obj as any).keyPoints.map(normalizeItem).filter((s: string) => !!s)
+        : [];
+      const importantDetails = Array.isArray((obj as any).importantDetails)
+        ? (obj as any).importantDetails.map(normalizeItem).filter((s: string) => !!s)
+        : [];
+
+      const hasStructured =
+        !!period || !!participants || !!summary || topics.length > 0 || keyPoints.length > 0 || importantDetails.length > 0;
+
+      if (hasStructured) {
+        const lines: string[] = [];
+        if (period) lines.push(`📅 Период: ${period}`);
+        if (participants) lines.push(`👥 Участники: ${participants}`);
+        if (lines.length) lines.push('');
+        if (summary) {
+          lines.push(`📋 Резюме: ${summary}`);
+          lines.push('');
+        }
+        lines.push('🎯 Основные темы:');
+        if (topics.length) lines.push(...topics.map((t: string) => `- ${t}`)); else lines.push('- Нет данных');
+        lines.push('');
+        lines.push('⚡ Ключевые моменты:');
+        if (keyPoints.length) lines.push(...keyPoints.map((t: string) => `- ${t}`)); else lines.push('- Нет данных');
+        lines.push('');
+        lines.push('📌 Важные детали:');
+        if (importantDetails.length) lines.push(...importantDetails.map((t: string) => `- ${t}`)); else lines.push('- Нет данных');
+
+        return lines.join('\n').trim();
+      }
+
+      const preferredKeys = ['summary', 'text', 'result', 'content'];
+      for (const key of preferredKeys) {
+        if (typeof (obj as any)[key] === 'string' && (obj as any)[key].trim().length > 0) {
+          return (obj as any)[key].trim();
+        }
+      }
+
+      const title = typeof (obj as any).title === 'string' ? (obj as any).title.trim() : '';
+      const bullets = Array.isArray((obj as any).bullets) ? (obj as any).bullets.filter((b: any) => typeof b === 'string' && b.trim().length > 0) : [];
+      const sections = Array.isArray((obj as any).sections) ? (obj as any).sections.filter((s: any) => typeof s === 'string' && s.trim().length > 0) : [];
+      const parts: string[] = [];
+      if (title) parts.push(title);
+      if (sections.length) parts.push(sections.join('\n\n'));
+      if (bullets.length) parts.push(bullets.map((b: string) => `- ${b}`).join('\n'));
+      if (parts.length) return parts.join('\n\n').trim();
+
+      for (const [k, v] of Object.entries(obj)) {
+        if (typeof v === 'string' && v.trim().length > 0) {
+          return v.trim();
+        }
+      }
+
+      return null;
+    } catch (e: any) {
+      if (env) {
+        Logger.debug(env, 'Cloudflare provider: JSON parse skipped, using raw text', {
+          error: e.message || String(e)
+        });
+      }
+      return null;
     }
   }
 
@@ -184,45 +286,49 @@ export class CloudflareAIProvider implements AIProvider {
       
       const parsed = JSON.parse(cleanResponse);
       
-      // Validate response structure
-      if (typeof parsed.hasProfanity !== 'boolean') {
-        throw new Error('Invalid response: hasProfanity must be boolean');
-      }
+      // Validate hasProfanity
+      const hasProfanity = typeof parsed.hasProfanity === 'boolean' ? parsed.hasProfanity : false;
       
-      if (!Array.isArray(parsed.words)) {
-        throw new Error('Invalid response: words must be array');
-      }
+      // Normalize words array to required structure
+      const rawWords = Array.isArray(parsed.words) ? parsed.words : [];
+      const words = rawWords
+        .map((w: any) => {
+          if (typeof w === 'string') {
+            const s = w.trim();
+            if (!s) return null;
+            return { word: s, baseForm: s, confidence: 0.5 };
+          }
+          if (w && typeof w === 'object') {
+            const word = typeof w.word === 'string' && w.word.trim().length > 0 ? w.word.trim() : undefined;
+            const baseForm = typeof w.baseForm === 'string' && w.baseForm.trim().length > 0 ? w.baseForm.trim() : (word || undefined);
+            let confidence = typeof w.confidence === 'number' ? w.confidence : 0.5;
+            if (!(confidence >= 0 && confidence <= 1)) confidence = 0.5;
+            if (!word && !baseForm) return null;
+            return { word: word || baseForm!, baseForm: baseForm || word!, confidence };
+          }
+          return null;
+        })
+        .filter((v: any): v is { word: string; baseForm: string; confidence: number } => !!v);
       
-      // Validate each word entry
-      for (const word of parsed.words) {
-        if (typeof word.word !== 'string' || typeof word.baseForm !== 'string') {
-          throw new Error('Invalid response: word entries must have string word and baseForm');
-        }
-        if (typeof word.confidence !== 'number' || word.confidence < 0 || word.confidence > 1) {
-          throw new Error('Invalid response: confidence must be number between 0 and 1');
-        }
-      }
-      
-      return parsed as ProfanityAnalysisResult;
-    } catch (error) {
-      Logger.error('Cloudflare profanity analysis: response parsing failed', {
-        provider: 'cloudflare',
-        rawResponse: response.substring(0, 200) + (response.length > 200 ? '...' : ''),
-        error: error instanceof Error ? error.message : String(error)
-      });
-      
-      // Return safe fallback on parsing error
       return {
-        hasProfanity: false,
-        words: []
+        hasProfanity,
+        words
       };
+    } catch (e: any) {
+      // If parsing fails, try basic heuristic: if response contains "true", assume profanity
+      const lower = String(response).toLowerCase();
+      const hasProfanity = lower.includes('true');
+      const words: { word: string; baseForm: string; confidence: number }[] = [];
+      return { hasProfanity, words };
     }
   }
 
   getProviderInfo(): ProviderInfo {
+    // Support both new and old configuration variables for backward compatibility
+    const model = (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL;
     return {
       name: 'cloudflare',
-      model: (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL
+      model
     };
   }
 }
