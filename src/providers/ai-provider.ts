@@ -1,7 +1,7 @@
 export const MESSAGE_SEPARATOR = "=== СООБЩЕНИЯ ===";
 
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'developer';
   content: string;
 }
 
@@ -20,8 +20,8 @@ export interface SummaryRequest {
 
 export interface SummaryOptions {
   maxTokens: number;
-  temperature: number;
-  topP: number;
+  temperature?: number;
+  topP?: number;
   frequencyPenalty?: number;
   presencePenalty?: number;
   seed?: number;

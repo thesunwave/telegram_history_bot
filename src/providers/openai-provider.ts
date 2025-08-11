@@ -284,23 +284,40 @@ export class OpenAIProvider implements AIProvider {
           model: this.model,
           textLength: text.length,
           providerType: this.providerType,
-          textPreview: text.substring(0, 100) + (text.length > 100 ? '...' : '')
+          textPreview: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+          isGPT5: this.isGPT5Model(this.model)
         });
       }
 
       const { systemPrompt, userPrompt } = getProfanityPrompts(env);
+      
+      // Use 'developer' role for GPT-5 models, 'system' for others
+      const roleToUse = this.isGPT5Model(this.model) ? 'developer' : 'system';
       const messages: ChatMessage[] = [
-        { role: 'system', content: systemPrompt },
+        { role: roleToUse, content: systemPrompt },
         { role: 'user', content: `${userPrompt}\n${text}` }
       ];
 
+      // Prepare options for profanity analysis
       const options: SummaryOptions = {
         maxTokens: 500,
         temperature: 0.1,
         topP: 0.9
       };
 
-      const response = await this.callOpenAI(messages, options, true);
+      // Add reasoning_effort for GPT-5 models
+      if (this.isGPT5Model(this.model)) {
+        options.reasoningEffort = 'medium';
+      }
+
+      if (env) {
+        Logger.debug(env, 'OpenAI profanity analysis: request options', {
+          model: this.model,
+          finalOptions: options
+        });
+      }
+
+      const response = await this.callOpenAI(messages, options, !this.isGPT5Model(this.model));
       const result = response.choices[0].message.content?.trim() || '';
 
       if (env) {
