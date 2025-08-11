@@ -12,6 +12,10 @@ export class DayBlockManager {
   private storage: DurableObjectStorage;
   private state: DurableObjectState;
 
+  // Sharding constants
+  private static readonly MAX_VALUE_SIZE_BYTES = 131072; // Hard limit
+  private static readonly TARGET_MAX_BYTES = 110000; // Safety margin for JSON payload per shard
+
   constructor(state: DurableObjectState, env: any) {
     this.env = env;
     this.storage = state.storage;
@@ -64,27 +68,29 @@ export class DayBlockManager {
 
     try {
       const date = new Date(message.ts * 1000).toISOString().slice(0, 10);
-      const blockKey = `block:${message.chat}:${date}`;
+      const blockId = `${message.chat}:${date}`;
 
-      // Get current block - no version tracking needed since blockConcurrencyWhile ensures serialization
-      const currentBlock = await this.storage.get<DayBlock>(blockKey);
-      
-      const block: DayBlock = currentBlock || {
-        date,
-        chatId: message.chat,
-        messages: [],
-        messageCount: 0,
-        lastUpdated: Date.now(),
-        version: 1,
-        checksum: ''
-      };
+      // Load meta (or migrate from legacy single-block format)
+      let meta = await this.loadMeta(blockId);
+      if (!meta) {
+        // Try migrate from legacy single-block key
+        const legacyKey = this.legacyBlockKey(blockId);
+        const legacy = await this.storage.get<DayBlock>(legacyKey);
+        if (legacy) {
+          meta = await this.migrateLegacyBlockToShards(blockId, legacy);
+        } else {
+          meta = this.createEmptyMeta(blockId, message.chat, date);
+          await this.saveMeta(blockId, meta);
+        }
+      }
 
-      // Check for duplicate messages
-      const isDuplicate = block.messages.some(m => 
-        m.ts === message.ts && 
-        m.user === message.user && 
-        m.text === message.text
-      );
+      // Duplicate detection: check newest shard first, then older ones if needed
+      const latestShardIndex = Math.max(0, meta.shardCount - 1);
+      let isDuplicate = await this.messageExistsInShardRange(blockId, message, latestShardIndex, latestShardIndex);
+      if (!isDuplicate && meta.shardCount > 1) {
+        // Fallback scan all shards if not found in latest
+        isDuplicate = await this.messageExistsInShardRange(blockId, message, 0, meta.shardCount - 2);
+      }
 
       if (isDuplicate) {
         Logger.debug(this.env, 'DayBlockManager: duplicate message skipped', {
@@ -92,59 +98,66 @@ export class DayBlockManager {
           date,
           messageTs: message.ts
         });
-        return new Response(JSON.stringify({ 
-          success: true, 
+        return new Response(JSON.stringify({
+          success: true,
           duplicate: true,
-          messageCount: block.messageCount 
-        }), {
-          headers: { 'Content-Type': 'application/json' }
-        });
+          messageCount: meta.messageCount
+        }), { headers: { 'Content-Type': 'application/json' } });
       }
 
-      // Add message and update metadata
-      block.messages.push(message);
-      block.messages.sort((a, b) => a.ts - b.ts); // Maintain chronological order
-      block.messageCount = block.messages.length;
-      block.lastUpdated = Date.now();
-      block.version += 1;
-      
-      // Calculate checksum for integrity verification
-      block.checksum = this.calculateBlockChecksum(block);
-
-      // Direct write - blockConcurrencyWhile ensures no conflicts within this DO instance
-      await this.storage.put(blockKey, block);
-
-      // Also save to KV for backup and compatibility
-      const kvKey = `msg_day:${message.chat}:${date}`;
-      try {
-        await this.env.HISTORY.put(kvKey, JSON.stringify(block), {
-          expirationTtl: 7 * DAY,
-        });
-      } catch (kvError: any) {
-        Logger.error('DayBlockManager: KV backup failed', {
-          chat: message.chat.toString(LOG_ID_RADIX),
-          date,
-          kvKey,
-          error: kvError.message
-        });
-        // Don't fail the operation if KV backup fails
+      // Load latest shard (create if not exists)
+      const shardIndex = latestShardIndex;
+      let shard = await this.loadShard(blockId, shardIndex);
+      if (!shard) {
+        shard = { messages: [] };
       }
+
+      // Try to append to current shard
+      shard.messages.push(message);
+      shard.messages.sort((a, b) => a.ts - b.ts);
+
+      // If shard too large, move message to a new shard
+      if (this.calcSizeBytes(shard) > DayBlockManager.TARGET_MAX_BYTES) {
+        // Remove the recently added message from current shard
+        shard.messages.pop();
+        // Persist the current shard if it was changed
+        await this.saveShard(blockId, shardIndex, shard);
+
+        // Create a new shard and put the message there
+        const newIndex = meta.shardCount; // next shard index
+        const newShard = { messages: [message] };
+        await this.saveShard(blockId, newIndex, newShard);
+
+        // Update meta for new shard
+        meta.shardCount += 1;
+      } else {
+        // Save updated shard
+        await this.saveShard(blockId, shardIndex, shard);
+      }
+
+      // Update meta
+      meta.messageCount += 1;
+      meta.lastUpdated = Date.now();
+      meta.version += 1;
+      meta.checksum = this.updateRollingChecksum(meta.checksum, message);
+      await this.saveMeta(blockId, meta);
+
+      // Backup to KV (meta + affected shards only)
+      await this.backupToKV(blockId, meta, shardIndex, meta.shardCount - 1);
 
       Logger.debug(this.env, 'DayBlockManager: message added successfully', {
         chat: message.chat.toString(LOG_ID_RADIX),
         date,
-        messageCount: block.messageCount,
-        version: block.version,
-        blockSize: JSON.stringify(block).length
+        messageCount: meta.messageCount,
+        version: meta.version,
+        shardCount: meta.shardCount
       });
 
-      return new Response(JSON.stringify({ 
-        success: true, 
-        messageCount: block.messageCount,
-        version: block.version
-      }), {
-        headers: { 'Content-Type': 'application/json' }
-      });
+      return new Response(JSON.stringify({
+        success: true,
+        messageCount: meta.messageCount,
+        version: meta.version
+      }), { headers: { 'Content-Type': 'application/json' } });
 
     } catch (error: any) {
       Logger.error('DayBlockManager: add message failed', {
@@ -169,26 +182,38 @@ export class DayBlockManager {
     }
 
     try {
-      const blockKey = `block:${chatId}:${date}`;
-      const block = await this.storage.get<DayBlock>(blockKey);
+      const blockId = `${chatId}:${date}`;
 
-      if (!block) {
+      // Load meta or migrate legacy on-the-fly
+      let meta = await this.loadMeta(blockId);
+      if (!meta) {
+        const legacyKey = this.legacyBlockKey(blockId);
+        const legacy = await this.storage.get<DayBlock>(legacyKey);
+        if (legacy) {
+          meta = await this.migrateLegacyBlockToShards(blockId, legacy);
+        }
+      }
+
+      if (!meta) {
         return new Response(JSON.stringify({ block: null }), {
           headers: { 'Content-Type': 'application/json' }
         });
       }
 
-      // Verify checksum
-      const expectedChecksum = this.calculateBlockChecksum(block);
-      if (block.checksum && block.checksum !== expectedChecksum) {
-        Logger.error('DayBlockManager: checksum mismatch detected', {
-          chat: chatId.toString(LOG_ID_RADIX),
-          date,
-          expectedChecksum,
-          actualChecksum: block.checksum
-        });
-        // Return block but log the integrity issue
-      }
+      // Load all shards
+      const shards = await this.loadAllShards(blockId, meta.shardCount);
+      const messages = shards.flatMap(s => s.messages);
+      messages.sort((a, b) => a.ts - b.ts);
+
+      const block: DayBlock = {
+        date,
+        chatId,
+        messages,
+        messageCount: meta.messageCount,
+        lastUpdated: meta.lastUpdated,
+        version: meta.version,
+        checksum: meta.checksum
+      };
 
       return new Response(JSON.stringify({ block }), {
         headers: { 'Content-Type': 'application/json' }
@@ -204,53 +229,178 @@ export class DayBlockManager {
     }
   }
 
-  private async atomicWrite(
-    key: string, 
-    newBlock: DayBlock, 
-    expectedVersion?: number
-  ): Promise<boolean> {
-    try {
-      // Use Durable Object's atomic operations
-      const currentBlock = await this.storage.get<DayBlock>(key);
-      
-      // Version check for optimistic locking
-      if (expectedVersion !== undefined && currentBlock && currentBlock.version !== expectedVersion) {
-        Logger.debug(this.env, 'DayBlockManager: version conflict detected', {
-          key,
-          expectedVersion,
-          currentVersion: currentBlock.version
-        });
-        return false;
+  // ===== Sharding helpers =====
+
+  private legacyBlockKey(blockId: string): string {
+    return `block:${blockId}`;
+  }
+  private metaKey(blockId: string): string {
+    return `block_meta:${blockId}`;
+  }
+  private shardKey(blockId: string, shardIndex: number): string {
+    return `block_shard:${blockId}:${shardIndex}`;
+  }
+
+  private kvMetaKey(blockId: string): string {
+    const [chatId, date] = blockId.split(':');
+    return `msg_day_meta:${chatId}:${date}`;
+  }
+  private kvShardKey(blockId: string, shardIndex: number): string {
+    const [chatId, date] = blockId.split(':');
+    return `msg_day_shard:${chatId}:${date}:${shardIndex}`;
+  }
+
+  private createEmptyMeta(blockId: string, chatId: number, date: string): DayBlockMeta {
+    return {
+      id: blockId,
+      date,
+      chatId,
+      messageCount: 0,
+      lastUpdated: Date.now(),
+      version: 1,
+      shardCount: 1,
+      checksum: ''
+    };
+  }
+
+  private async loadMeta(blockId: string): Promise<DayBlockMeta | null> {
+    const meta = await this.storage.get<DayBlockMeta>(this.metaKey(blockId));
+    return meta || null;
+  }
+  private async saveMeta(blockId: string, meta: DayBlockMeta): Promise<void> {
+    await this.storage.put(this.metaKey(blockId), meta);
+  }
+
+  private async loadShard(blockId: string, index: number): Promise<DayBlockShard | null> {
+    const shard = await this.storage.get<DayBlockShard>(this.shardKey(blockId, index));
+    return shard || null;
+  }
+  private async saveShard(blockId: string, index: number, shard: DayBlockShard): Promise<void> {
+    await this.storage.put(this.shardKey(blockId, index), shard);
+  }
+
+  private async loadAllShards(blockId: string, shardCount: number): Promise<DayBlockShard[]> {
+    const promises: Promise<DayBlockShard | null>[] = [];
+    for (let i = 0; i < shardCount; i++) {
+      promises.push(this.loadShard(blockId, i));
+    }
+    const shards = await Promise.all(promises);
+    return shards.filter((s): s is DayBlockShard => !!s);
+  }
+
+  private async migrateLegacyBlockToShards(blockId: string, legacy: DayBlock): Promise<DayBlockMeta> {
+    // Break legacy block.messages into shards under TARGET_MAX_BYTES
+    const messages = [...legacy.messages].sort((a, b) => a.ts - b.ts);
+    let currentShard: DayBlockShard = { messages: [] };
+    let shardIndex = 0;
+    let shardCount = 0;
+
+    const saveCurrentShard = async () => {
+      await this.saveShard(blockId, shardIndex, currentShard);
+      shardIndex += 1;
+      shardCount += 1;
+      currentShard = { messages: [] };
+    };
+
+    for (const msg of messages) {
+      currentShard.messages.push(msg);
+      if (this.calcSizeBytes(currentShard) > DayBlockManager.TARGET_MAX_BYTES) {
+        // Remove last and flush shard
+        currentShard.messages.pop();
+        await saveCurrentShard();
+        // Start new shard with this message
+        currentShard.messages.push(msg);
       }
+    }
+    if (currentShard.messages.length) {
+      await saveCurrentShard();
+    }
 
-      // Atomic write
-      await this.storage.put(key, newBlock);
-      return true;
+    const meta: DayBlockMeta = {
+      id: blockId,
+      date: legacy.date,
+      chatId: legacy.chatId,
+      messageCount: legacy.messageCount,
+      lastUpdated: legacy.lastUpdated,
+      version: legacy.version,
+      shardCount: shardCount || 1,
+      checksum: legacy.checksum || ''
+    };
 
-    } catch (error: any) {
-      Logger.error('DayBlockManager: atomic write failed', {
-        key,
-        error: error.message || String(error)
-      });
-      return false;
+    await this.saveMeta(blockId, meta);
+
+    // Backup to KV fully after migration
+    await this.backupAllShardsToKV(blockId, meta);
+
+    // Remove legacy key to avoid confusion (best-effort)
+    try { await this.storage.delete(this.legacyBlockKey(blockId)); } catch {}
+
+    return meta;
+  }
+
+  private async messageExistsInShardRange(blockId: string, message: StoredMessage, startIndex: number, endIndex: number): Promise<boolean> {
+    for (let i = startIndex; i <= endIndex; i++) {
+      const shard = await this.loadShard(blockId, i);
+      if (!shard) continue;
+      const dup = shard.messages.some(m => m.ts === message.ts && m.user === message.user && m.text === message.text);
+      if (dup) return true;
+    }
+    return false;
+  }
+
+  private calcSizeBytes(obj: any): number {
+    try {
+      return new TextEncoder().encode(JSON.stringify(obj)).length;
+    } catch {
+      return JSON.stringify(obj).length;
     }
   }
 
-  private calculateBlockChecksum(block: DayBlock): string {
-    // Create a deterministic string representation for checksum
-    const checksumData = {
-      date: block.date,
-      chatId: block.chatId,
-      messageCount: block.messageCount,
-      messages: block.messages.map(m => ({
-        ts: m.ts,
-        user: m.user,
-        text: m.text
-      }))
-    };
-    
-    return hashText(JSON.stringify(checksumData));
+  private updateRollingChecksum(prev: string, message: StoredMessage): string {
+    const payload = `${prev || ''}|${message.ts}:${message.user}:${message.text}`;
+    return hashText(payload);
   }
+
+  private async backupToKV(blockId: string, meta: DayBlockMeta, affectedStartShard: number, affectedEndShard: number): Promise<void> {
+    try {
+      // Save meta
+      await this.env.HISTORY.put(this.kvMetaKey(blockId), JSON.stringify(meta), { expirationTtl: 7 * DAY });
+      // Save shards
+      const promises: Promise<any>[] = [];
+      for (let i = affectedStartShard; i <= affectedEndShard; i++) {
+        const shard = await this.loadShard(blockId, i);
+        if (!shard) continue;
+        promises.push(this.env.HISTORY.put(this.kvShardKey(blockId, i), JSON.stringify(shard), { expirationTtl: 7 * DAY }));
+      }
+      await Promise.all(promises);
+    } catch (kvError: any) {
+      Logger.error('DayBlockManager: KV backup failed', {
+        blockId,
+        error: kvError.message
+      });
+      // Do not fail operation on KV errors
+    }
+  }
+
+  private async backupAllShardsToKV(blockId: string, meta: DayBlockMeta): Promise<void> {
+    await this.backupToKV(blockId, meta, 0, Math.max(0, meta.shardCount - 1));
+  }
+}
+
+// Local sharding types
+interface DayBlockMeta {
+  id: string;
+  date: string;
+  chatId: number;
+  messageCount: number;
+  lastUpdated: number;
+  version: number;
+  shardCount: number;
+  checksum: string;
+}
+
+interface DayBlockShard {
+  messages: StoredMessage[];
 }
 
 /**
