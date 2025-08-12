@@ -136,7 +136,7 @@ export class OpenAIProvider implements AIProvider {
     ];
 
     try {
-      const response = await this.callOpenAI(messages, options, true); // Force JSON response
+      const response = await this.callOpenAI(messages, options, false); // Text response only
       const raw = response.choices[0].message.content;
 
       if (env) {
@@ -148,11 +148,7 @@ export class OpenAIProvider implements AIProvider {
         });
       }
 
-      // Try to parse JSON summary and format it nicely; fallback to raw text
-      const parsed = this.tryParseSummaryJson(raw, env);
-      const result = parsed ?? raw;
-
-      return truncateText(result, TELEGRAM_LIMIT);
+      return truncateText(raw, TELEGRAM_LIMIT);
     } catch (error: any) {
       if (error instanceof ProviderError) {
         throw error;
@@ -165,105 +161,7 @@ export class OpenAIProvider implements AIProvider {
     }
   }
 
-  private tryParseSummaryJson(response: string, env?: Env): string | null {
-    try {
-      let text = (response || '').trim();
-      // Extract JSON object if surrounded by extra text
-      const match = text.match(/\{[\s\S]*\}/);
-      if (match) {
-        text = match[0];
-      }
-      const obj = JSON.parse(text);
-      if (!obj || typeof obj !== 'object') return null;
 
-      // First, handle structured summary format if present
-      const getString = (v: any): string => (typeof v === 'string' ? v.trim() : '');
-      const normalizeItem = (i: any): string => {
-        if (typeof i === 'string') return i.trim();
-        if (i && typeof i === 'object') {
-          const candidates = ['text', 'title', 'point', 'value', 'content'];
-          for (const k of candidates) {
-            const val = (i as any)[k];
-            if (typeof val === 'string' && val.trim()) return val.trim();
-          }
-        }
-        return '';
-      };
-
-      const period = getString((obj as any).period);
-      const participants = getString((obj as any).participants);
-      const summary = getString((obj as any).summary);
-      const topics = Array.isArray((obj as any).topics)
-        ? (obj as any).topics.map(normalizeItem).filter((s: string) => !!s)
-        : [];
-      const keyPoints = Array.isArray((obj as any).keyPoints)
-        ? (obj as any).keyPoints.map(normalizeItem).filter((s: string) => !!s)
-        : [];
-      const importantDetails = Array.isArray((obj as any).importantDetails)
-        ? (obj as any).importantDetails.map(normalizeItem).filter((s: string) => !!s)
-        : [];
-
-      const hasStructured =
-        !!period || !!participants || !!summary || topics.length > 0 || keyPoints.length > 0 || importantDetails.length > 0;
-
-      if (hasStructured) {
-        const lines: string[] = [];
-        if (period) lines.push(`📅 Период: ${period}`);
-        if (participants) lines.push(`👥 Участники: ${participants}`);
-        if (lines.length) lines.push('');
-        if (summary) {
-          lines.push(`📋 Резюме: ${summary}`);
-          lines.push('');
-        }
-        lines.push('🎯 Основные темы:');
-        if (topics.length) lines.push(...topics.map((t: string) => `- ${t}`)); else lines.push('- Нет данных');
-        lines.push('');
-        lines.push('⚡ Ключевые моменты:');
-        if (keyPoints.length) lines.push(...keyPoints.map((t: string) => `- ${t}`)); else lines.push('- Нет данных');
-        lines.push('');
-        lines.push('📌 Важные детали:');
-        if (importantDetails.length) lines.push(...importantDetails.map((t: string) => `- ${t}`)); else lines.push('- Нет данных');
-
-        return lines.join('\n').trim();
-      }
-
-      // Preferred keys (fallback)
-      const preferredKeys = ['summary', 'text', 'result', 'content'];
-      for (const key of preferredKeys) {
-        if (typeof (obj as any)[key] === 'string' && (obj as any)[key].trim().length > 0) {
-          return (obj as any)[key].trim();
-        }
-      }
-
-      // Combine possible structured fields (legacy fallback)
-      const title = typeof (obj as any).title === 'string' ? (obj as any).title.trim() : '';
-      const bullets = Array.isArray((obj as any).bullets) ? (obj as any).bullets.filter((b: any) => typeof b === 'string' && b.trim().length > 0) : [];
-      const sections = Array.isArray((obj as any).sections) ? (obj as any).sections.filter((s: any) => typeof s === 'string' && s.trim().length > 0) : [];
-
-      const parts: string[] = [];
-      if (title) parts.push(title);
-      if (sections.length) parts.push(sections.join('\n\n'));
-      if (bullets.length) parts.push(bullets.map((b: string) => `- ${b}`).join('\n'));
-
-      if (parts.length) return parts.join('\n\n').trim();
-
-      // As a last resort, pick the first non-empty string property
-      for (const [k, v] of Object.entries(obj)) {
-        if (typeof v === 'string' && v.trim().length > 0) {
-          return v.trim();
-        }
-      }
-
-      return null;
-    } catch (e: any) {
-      if (env) {
-        Logger.debug(env, 'OpenAI provider: JSON parse skipped, using raw text', {
-          error: e.message || String(e)
-        });
-      }
-      return null;
-    }
-  }
 
   private async callOpenAI(messages: ChatMessage[], options: SummaryOptions, forceJsonResponse?: boolean): Promise<OpenAIChatResponse> {
     const isGPT5 = this.isGPT5Model(this.model);
@@ -311,7 +209,7 @@ export class OpenAIProvider implements AIProvider {
       requestBody.seed = options.seed;
     }
 
-    // Force JSON response format if requested
+    // Force JSON response format when requested (used by profanity analysis)
     if (forceJsonResponse) {
       requestBody.response_format = { type: 'json_object' };
     }

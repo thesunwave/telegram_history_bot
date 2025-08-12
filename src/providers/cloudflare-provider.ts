@@ -55,9 +55,7 @@ export class CloudflareAIProvider implements AIProvider {
       }
       
       const raw = (response.response ?? response) as string;
-      const parsed = this.tryParseSummaryJson(raw, env);
-      const result = parsed ?? raw;
-      return truncateText(result, TELEGRAM_LIMIT);
+      return truncateText(raw, TELEGRAM_LIMIT);
     } catch (error: any) {
       throw new ProviderError(
         `Cloudflare AI error: ${error.message || String(error)}`,
@@ -67,99 +65,7 @@ export class CloudflareAIProvider implements AIProvider {
     }
   }
 
-  private tryParseSummaryJson(response: string, env?: Env): string | null {
-    try {
-      let text = (response || '').trim();
-      const match = text.match(/\{[\s\S]*\}/);
-      if (match) {
-        text = match[0];
-      }
-      const obj = JSON.parse(text);
-      if (!obj || typeof obj !== 'object') return null;
 
-      // Structured format support
-      const getString = (v: any): string => (typeof v === 'string' ? v.trim() : '');
-      const normalizeItem = (i: any): string => {
-        if (typeof i === 'string') return i.trim();
-        if (i && typeof i === 'object') {
-          const candidates = ['text', 'title', 'point', 'value', 'content'];
-          for (const k of candidates) {
-            const val = (i as any)[k];
-            if (typeof val === 'string' && val.trim()) return val.trim();
-          }
-        }
-        return '';
-      };
-
-      const period = getString((obj as any).period);
-      const participants = getString((obj as any).participants);
-      const summary = getString((obj as any).summary);
-      const topics = Array.isArray((obj as any).topics)
-        ? (obj as any).topics.map(normalizeItem).filter((s: string) => !!s)
-        : [];
-      const keyPoints = Array.isArray((obj as any).keyPoints)
-        ? (obj as any).keyPoints.map(normalizeItem).filter((s: string) => !!s)
-        : [];
-      const importantDetails = Array.isArray((obj as any).importantDetails)
-        ? (obj as any).importantDetails.map(normalizeItem).filter((s: string) => !!s)
-        : [];
-
-      const hasStructured =
-        !!period || !!participants || !!summary || topics.length > 0 || keyPoints.length > 0 || importantDetails.length > 0;
-
-      if (hasStructured) {
-        const lines: string[] = [];
-        if (period) lines.push(`📅 Период: ${period}`);
-        if (participants) lines.push(`👥 Участники: ${participants}`);
-        if (lines.length) lines.push('');
-        if (summary) {
-          lines.push(`📋 Резюме: ${summary}`);
-          lines.push('');
-        }
-        lines.push('🎯 Основные темы:');
-        if (topics.length) lines.push(...topics.map((t: string) => `- ${t}`)); else lines.push('- Нет данных');
-        lines.push('');
-        lines.push('⚡ Ключевые моменты:');
-        if (keyPoints.length) lines.push(...keyPoints.map((t: string) => `- ${t}`)); else lines.push('- Нет данных');
-        lines.push('');
-        lines.push('📌 Важные детали:');
-        if (importantDetails.length) lines.push(...importantDetails.map((t: string) => `- ${t}`)); else lines.push('- Нет данных');
-
-        return lines.join('\n').trim();
-      }
-
-      const preferredKeys = ['summary', 'text', 'result', 'content'];
-      for (const key of preferredKeys) {
-        if (typeof (obj as any)[key] === 'string' && (obj as any)[key].trim().length > 0) {
-          return (obj as any)[key].trim();
-        }
-      }
-
-      const title = typeof (obj as any).title === 'string' ? (obj as any).title.trim() : '';
-      const bullets = Array.isArray((obj as any).bullets) ? (obj as any).bullets.filter((b: any) => typeof b === 'string' && b.trim().length > 0) : [];
-      const sections = Array.isArray((obj as any).sections) ? (obj as any).sections.filter((s: any) => typeof s === 'string' && s.trim().length > 0) : [];
-      const parts: string[] = [];
-      if (title) parts.push(title);
-      if (sections.length) parts.push(sections.join('\n\n'));
-      if (bullets.length) parts.push(bullets.map((b: string) => `- ${b}`).join('\n'));
-      if (parts.length) return parts.join('\n\n').trim();
-
-      for (const [k, v] of Object.entries(obj)) {
-        if (typeof v === 'string' && v.trim().length > 0) {
-          return v.trim();
-        }
-      }
-
-      return null;
-    } catch (e: any) {
-      if (env) {
-        Logger.debug(env, 'Cloudflare provider: JSON parse skipped, using raw text', {
-          error: e.message || String(e)
-        });
-      }
-      return null;
-    }
-  }
 
   private buildChatMessages(request: SummaryRequest, content: string): ChatMessage[] {
     const system = request.systemPrompt 
