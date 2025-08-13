@@ -9,8 +9,10 @@ import {
   ProviderInfo,
   ProviderError,
   ProfanityAnalysisResult,
+  CriminalAnalysisResult,
   MESSAGE_SEPARATOR,
   getProfanityPrompts,
+  getCriminalCodePrompts,
 } from "./ai-provider";
 
 export class CloudflareAIProvider implements AIProvider {
@@ -120,7 +122,29 @@ export class CloudflareAIProvider implements AIProvider {
           messages
         };
         
-        response = await this.env.AI.run(model, aiOptions);
+        if (env) {
+          Logger.debug(env, 'PROFANITY: About to call AI.run (chat mode)', {
+            model,
+            messagesCount: messages.length,
+            options: aiOptions
+          });
+        }
+        
+        // Add timeout for AI.run call
+        const aiPromise = this.env.AI.run(model, aiOptions);
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('AI.run timeout after 30 seconds')), 30000);
+        });
+        
+        response = await Promise.race([aiPromise, timeoutPromise]);
+        
+        if (env) {
+          Logger.debug(env, 'PROFANITY: AI.run completed (chat mode)', {
+            model,
+            responseType: typeof response,
+            hasResponse: !!response
+          });
+        }
       } else {
         const input = `${systemPrompt}\n\n${userPrompt}\n${text}`;
         const aiOptions = {
@@ -130,7 +154,29 @@ export class CloudflareAIProvider implements AIProvider {
           prompt: input
         };
         
-        response = await this.env.AI.run(model, aiOptions);
+        if (env) {
+          Logger.debug(env, 'PROFANITY: About to call AI.run (prompt mode)', {
+            model,
+            promptLength: input.length,
+            options: aiOptions
+          });
+        }
+        
+        // Add timeout for AI.run call
+        const aiPromise = this.env.AI.run(model, aiOptions);
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('AI.run timeout after 30 seconds')), 30000);
+        });
+        
+        response = await Promise.race([aiPromise, timeoutPromise]);
+        
+        if (env) {
+          Logger.debug(env, 'PROFANITY: AI.run completed (prompt mode)', {
+            model,
+            responseType: typeof response,
+            hasResponse: !!response
+          });
+        }
       }
       
       const result = response.response ?? response;
@@ -226,6 +272,200 @@ export class CloudflareAIProvider implements AIProvider {
       const hasProfanity = lower.includes('true');
       const words: { word: string; baseForm: string; confidence: number }[] = [];
       return { hasProfanity, words };
+    }
+  }
+
+  async analyzeCriminalCode(text: string, env?: any): Promise<CriminalAnalysisResult> {
+    const startTime = Date.now();
+    const model = (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL;
+
+    try {
+      if (env) {
+        Logger.debug(env, 'Cloudflare criminal code analysis: starting', {
+          provider: 'cloudflare',
+          model,
+          textLength: text.length,
+          isChatModel: model.includes('chat')
+        });
+      }
+
+      const { systemPrompt, userPrompt } = getCriminalCodePrompts(env || this.env);
+
+      let response: any;
+
+      if (model.includes('chat')) {
+        const messages: ChatMessage[] = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `${userPrompt}\n${text}` }
+        ];
+
+        const aiOptions = {
+          max_tokens: 800,
+          temperature: 0.1,
+          top_p: 0.9,
+          messages
+        };
+
+        if (env) {
+          Logger.debug(env, 'CRIMINAL: About to call AI.run (chat mode)', {
+            model,
+            messagesCount: messages.length,
+            options: aiOptions
+          });
+        }
+
+        const aiPromise = this.env.AI.run(model, aiOptions);
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('AI.run timeout after 30 seconds')), 30000);
+        });
+
+        response = await Promise.race([aiPromise, timeoutPromise]);
+
+        if (env) {
+          Logger.debug(env, 'CRIMINAL: AI.run completed (chat mode)', {
+            model,
+            responseType: typeof response,
+            hasResponse: !!response
+          });
+        }
+      } else {
+        const input = `${systemPrompt}\n\n${userPrompt}\n${text}`;
+        const aiOptions = {
+          max_tokens: 800,
+          temperature: 0.1,
+          top_p: 0.9,
+          prompt: input
+        };
+
+        if (env) {
+          Logger.debug(env, 'CRIMINAL: About to call AI.run (prompt mode)', {
+            model,
+            promptLength: input.length,
+            options: aiOptions
+          });
+        }
+
+        const aiPromise = this.env.AI.run(model, aiOptions);
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('AI.run timeout after 30 seconds')), 30000);
+        });
+
+        response = await Promise.race([aiPromise, timeoutPromise]);
+
+        if (env) {
+          Logger.debug(env, 'CRIMINAL: AI.run completed (prompt mode)', {
+            model,
+            responseType: typeof response,
+            hasResponse: !!response
+          });
+        }
+      }
+
+      const result = response.response ?? response;
+
+      if (env) {
+        Logger.debug(env, 'Cloudflare criminal code analysis: raw response received', {
+          provider: 'cloudflare',
+          responseLength: typeof result === 'string' ? result.length : 0,
+          responseType: typeof result
+        });
+      }
+
+      const parsedResult = this.parseCriminalCodeResponse(result);
+
+      const duration = Date.now() - startTime;
+      if (env) {
+        Logger.debug(env, 'Cloudflare criminal code analysis: completed successfully', {
+          provider: 'cloudflare',
+          duration,
+          hasViolations: parsedResult.hasViolations,
+          violationsFound: parsedResult.violations.length
+        });
+      }
+
+      return parsedResult;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+
+      if (env) {
+        Logger.error('Cloudflare criminal code analysis: failed', {
+          provider: 'cloudflare',
+          model,
+          textLength: text.length,
+          duration,
+          error: error.message || String(error),
+          errorType: error.constructor.name,
+          stack: error.stack
+        });
+      }
+
+      throw new ProviderError(
+        `Cloudflare AI criminal code analysis error: ${error.message || String(error)}`,
+        'cloudflare',
+        error
+      );
+    }
+  }
+
+  private parseCriminalCodeResponse(response: string): CriminalAnalysisResult {
+    try {
+      if (!response || typeof response !== 'string' || response.trim() === '') {
+        Logger.warn('Cloudflare criminal code analysis: empty response received (likely content filtered)', {
+          provider: 'cloudflare',
+          rawResponse: response
+        });
+        return {
+          hasViolations: false,
+          violations: [],
+          totalSeverity: 0,
+          riskLevel: 'low',
+          analysisTimestamp: Date.now()
+        };
+      }
+
+      let cleanResponse = response.trim();
+      const jsonMatch = cleanResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanResponse = jsonMatch[0];
+      }
+
+      const parsed = JSON.parse(cleanResponse);
+
+      if (typeof parsed.hasViolations !== 'boolean') {
+        throw new Error('Invalid response: hasViolations must be boolean');
+      }
+
+      if (!Array.isArray(parsed.violations)) {
+        throw new Error('Invalid response: violations must be array');
+      }
+
+      for (const violation of parsed.violations) {
+        if (typeof violation.article !== 'string' || typeof violation.quote !== 'string' || typeof violation.punishment !== 'string') {
+          throw new Error('Invalid response: violation entries must have string article, quote, punishment');
+        }
+        if (typeof violation.severity !== 'number' || violation.severity < 1 || violation.severity > 10) {
+          throw new Error('Invalid response: severity must be number between 1 and 10');
+        }
+        if (typeof violation.confidence !== 'number' || violation.confidence < 0 || violation.confidence > 1) {
+          throw new Error('Invalid response: confidence must be number between 0 and 1');
+        }
+      }
+
+      return parsed as CriminalAnalysisResult;
+    } catch (error) {
+      Logger.error('Cloudflare criminal code analysis: response parsing failed', {
+        provider: 'cloudflare',
+        rawResponse: response,
+        error: error instanceof Error ? error.message : String(error)
+      });
+
+      return {
+        hasViolations: false,
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: 'low',
+        analysisTimestamp: Date.now()
+      };
     }
   }
 

@@ -151,6 +151,21 @@ export function restoreConsoleLogging() {
 }
 
 /**
+ * Creates a mock Durable Object state with proper typing
+ */
+export function createMockState() {
+  return {
+    blockConcurrencyWhile: vi.fn((fn: () => Promise<any>) => fn()),
+    storage: {
+      get: vi.fn(),
+      put: vi.fn(),
+      delete: vi.fn(),
+      list: vi.fn(),
+    },
+  };
+}
+
+/**
  * Creates a safe mock environment with logging disabled
  */
 export function createSafeMockEnv(overrides: Partial<Env> = {}): Env {

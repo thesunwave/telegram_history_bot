@@ -5,6 +5,7 @@ import { CountersDO } from "./counters-do";
 import { MessageFetcherDO } from "./message-fetcher-do";
 import { MessageAggregatorDO } from "./message-aggregator-do";
 import { DayBlockManager } from "./day-block-manager";
+import { CriminalCodeAnalyzerDO } from "./criminal-code-analyzer-do";
 import { ProviderInitializer } from "./providers/provider-init";
 import { Logger } from "./logger";
 import type {
@@ -39,10 +40,25 @@ export default {
       req.method === "POST"
     ) {
       const token = url.pathname.split("/")[2];
-      if (token !== env.TOKEN)
-        return new Response("forbidden", { status: 403 });
-      if (req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.SECRET)
-        return new Response("forbidden", { status: 403 });
+      const secretHeader = req.headers.get("X-Telegram-Bot-Api-Secret-Token");
+      
+      console.log("webhook auth check", {
+        urlToken: token,
+        envToken: env.TOKEN,
+        tokenMatch: token === env.TOKEN,
+        secretHeader: secretHeader,
+        envSecret: env.SECRET,
+        secretMatch: secretHeader === env.SECRET
+      });
+      
+      if (token !== env.TOKEN) {
+         console.log("token mismatch", { token, envToken: env.TOKEN });
+         return new Response("forbidden", { status: 403 });
+       }
+       if (secretHeader !== env.SECRET) {
+         console.log("secret mismatch", { secretHeader, envSecret: env.SECRET });
+         return new Response("forbidden", { status: 403 });
+       }
       const update = await req.json();
       Logger.debug(env, "webhook received", {
         updateType: (update as any).message ? "message" : "other",
@@ -65,6 +81,58 @@ export default {
     if (url.pathname === "/jobs/daily_summary" && req.method === "POST") {
       await dailySummary(env);
       return Response.json({});
+    }
+    
+    // Criminal Code Analysis API endpoints
+    if (url.pathname === "/api/criminal-stats" && req.method === "GET") {
+      try {
+        const chatId = url.searchParams.get("chatId");
+        const userId = url.searchParams.get("userId");
+        const days = url.searchParams.get("days") || "30";
+        
+        if (!chatId) {
+          return new Response("Missing chatId parameter", { status: 400 });
+        }
+        
+        const id = env.CRIMINAL_CODE_ANALYZER_DO.idFromName(`criminal-analyzer-${chatId}`);
+        const stub = env.CRIMINAL_CODE_ANALYZER_DO.get(id);
+        
+        const statsUrl = new URL("/stats", "http://localhost");
+        if (userId) statsUrl.searchParams.set("userId", userId);
+        statsUrl.searchParams.set("days", days);
+        
+        const response = await stub.fetch(new Request(statsUrl.toString()));
+        return response;
+      } catch (error: any) {
+        console.error("Criminal stats API error:", error);
+        return new Response("Internal server error", { status: 500 });
+      }
+    }
+    
+    if (url.pathname === "/api/criminal-report" && req.method === "POST") {
+      try {
+        const body = await req.json();
+        const { chatId, text, userId } = body;
+        
+        if (!chatId || !text) {
+          return new Response("Missing required parameters", { status: 400 });
+        }
+        
+        const id = env.CRIMINAL_CODE_ANALYZER_DO.idFromName(`criminal-analyzer-${chatId}`);
+        const stub = env.CRIMINAL_CODE_ANALYZER_DO.get(id);
+        
+        const analyzeRequest = new Request("http://localhost/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, userId })
+        });
+        
+        const response = await stub.fetch(analyzeRequest);
+        return response;
+      } catch (error: any) {
+        console.error("Criminal report API error:", error);
+        return new Response("Internal server error", { status: 500 });
+      }
     }
 
     return new Response("Not found", { status: 404 });
@@ -90,4 +158,4 @@ export default {
   },
 };
 
-export { CountersDO, MessageFetcherDO, MessageAggregatorDO, DayBlockManager };
+export { CountersDO, MessageFetcherDO, MessageAggregatorDO, DayBlockManager, CriminalCodeAnalyzerDO };

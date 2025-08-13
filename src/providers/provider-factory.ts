@@ -2,8 +2,9 @@ import { Env } from "../env";
 import { AIProvider } from "./ai-provider";
 import { CloudflareAIProvider } from "./cloudflare-provider";
 import { OpenAIProvider } from "./openai-provider";
+import { MockProvider } from "./mock-provider";
 
-export type ProviderType = 'cloudflare' | 'openai' | 'openai-premium';
+export type ProviderType = 'cloudflare' | 'openai' | 'openai-premium' | 'mock';
 
 export class ProviderFactory {
   private static readonly SUPPORTED_PROVIDERS: ProviderType[] = ['cloudflare', 'openai', 'openai-premium'];
@@ -27,6 +28,8 @@ export class ProviderFactory {
         return new OpenAIProvider(env, 'standard');
       case 'openai-premium':
         return new OpenAIProvider(env, 'premium');
+      case 'mock':
+        return new MockProvider();
       default:
         // This should never happen due to validation, but TypeScript requires it
         throw new Error(`Unsupported provider: ${providerType}`);
