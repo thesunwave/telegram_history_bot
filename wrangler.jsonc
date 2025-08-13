@@ -58,6 +58,10 @@
         "name": "DAY_BLOCK_MANAGER_DO",
         "class_name": "DayBlockManager",
       },
+      {
+        "name": "CRIMINAL_CODE_ANALYZER_DO",
+        "class_name": "CriminalCodeAnalyzerDO",
+      },
     ],
   },
   "d1_databases": [
@@ -71,16 +75,16 @@
     "binding": "AI",
   },
   "vars": {
-    // Available values: "cloudflare", "openai"
+    // Available values: "cloudflare", "openai", "mock"
     "SUMMARY_PROVIDER": "openai",
-    "CLOUDFLARE_MODEL": "@cf/meta/llama-3.1-8b-instruct-fast",
+    "CLOUDFLARE_MODEL": "@cf/meta/llama-3.1-70b-instruct",
     "CLOUDFLARE_MAX_TOKENS": 500,
     "CLOUDFLARE_TEMPERATURE": 0.1,
     "CLOUDFLARE_TOP_P": 0.95,
     "CLOUDFLARE_FREQUENCY_PENALTY": 0.1,
     "CLOUDFLARE_PRESENCE_PENALTY": 0.05,   // Lower value for Cloudflare models
     "OPENAI_MODEL": "gpt-4.1-nano",
-    "OPENAI_MAX_TOKENS": 1000,
+    "OPENAI_MAX_TOKENS": 1500,
     "OPENAI_TEMPERATURE": 0.1,
     "OPENAI_TOP_P": 0.9,
     "OPENAI_FREQUENCY_PENALTY": 0.2,
@@ -164,6 +168,10 @@
     {
       "tag": "v4",
       "new_classes": ["DayBlockManager"],
+    },
+    {
+      "tag": "v5",
+      "new_classes": ["CriminalCodeAnalyzerDO"],
     },
   ],
   // ========================================

@@ -120,7 +120,29 @@ export class CloudflareAIProvider implements AIProvider {
           messages
         };
         
-        response = await this.env.AI.run(model, aiOptions);
+        if (env) {
+          Logger.debug(env, 'PROFANITY: About to call AI.run (chat mode)', {
+            model,
+            messagesCount: messages.length,
+            options: aiOptions
+          });
+        }
+        
+        // Add timeout for AI.run call
+        const aiPromise = this.env.AI.run(model, aiOptions);
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('AI.run timeout after 30 seconds')), 30000);
+        });
+        
+        response = await Promise.race([aiPromise, timeoutPromise]);
+        
+        if (env) {
+          Logger.debug(env, 'PROFANITY: AI.run completed (chat mode)', {
+            model,
+            responseType: typeof response,
+            hasResponse: !!response
+          });
+        }
       } else {
         const input = `${systemPrompt}\n\n${userPrompt}\n${text}`;
         const aiOptions = {
@@ -130,7 +152,29 @@ export class CloudflareAIProvider implements AIProvider {
           prompt: input
         };
         
-        response = await this.env.AI.run(model, aiOptions);
+        if (env) {
+          Logger.debug(env, 'PROFANITY: About to call AI.run (prompt mode)', {
+            model,
+            promptLength: input.length,
+            options: aiOptions
+          });
+        }
+        
+        // Add timeout for AI.run call
+        const aiPromise = this.env.AI.run(model, aiOptions);
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('AI.run timeout after 30 seconds')), 30000);
+        });
+        
+        response = await Promise.race([aiPromise, timeoutPromise]);
+        
+        if (env) {
+          Logger.debug(env, 'PROFANITY: AI.run completed (prompt mode)', {
+            model,
+            responseType: typeof response,
+            hasResponse: !!response
+          });
+        }
       }
       
       const result = response.response ?? response;
