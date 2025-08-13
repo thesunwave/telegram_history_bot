@@ -7,7 +7,7 @@ import { MockProvider } from "./mock-provider";
 export type ProviderType = 'cloudflare' | 'openai' | 'openai-premium' | 'mock';
 
 export class ProviderFactory {
-  private static readonly SUPPORTED_PROVIDERS: ProviderType[] = ['cloudflare', 'openai', 'openai-premium', 'mock'];
+  private static readonly SUPPORTED_PROVIDERS: ProviderType[] = ['cloudflare', 'openai', 'openai-premium'];
   private static readonly DEFAULT_PROVIDER: ProviderType = 'cloudflare';
 
   /**

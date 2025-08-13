@@ -61,12 +61,17 @@ export class CountersDO {
         return new Response('Bad request', { status: 400 });
       }
       try {
-        await this.state.blockConcurrencyWhile(() => this.incrementCounters(payload));
+        const result = (await this.state.blockConcurrencyWhile(() => this.incrementCounters(payload))) as {
+          userDayCount: number;
+          chatDayActivity: number;
+        };
+        return new Response(JSON.stringify({ ok: true, ...result }), {
+          headers: { 'content-type': 'application/json' },
+        });
       } catch (err: any) {
         console.error('counter update error', err.message || err);
         return new Response('error', { status: 500 });
       }
-      return new Response('ok');
     } else if (endpoint === '/profanity') {
       let payload: ProfanityIncrementPayload;
       try {
@@ -119,7 +124,7 @@ export class CountersDO {
       throw new Error('invalid criminal payload');
   }
 
-  private async incrementCounters({ chatId, userId, username, day }: IncrementPayload) {
+  private async incrementCounters({ chatId, userId, username, day }: IncrementPayload): Promise<{ userDayCount: number; chatDayActivity: number }> {
     const statsKey = `${STATS_PREFIX}:${chatId}:${userId}:${day}`;
     const count = parseInt((await this.env.COUNTERS.get(statsKey)) || '0', 10) + 1;
     await this.env.COUNTERS.put(statsKey, String(count));
@@ -144,6 +149,8 @@ export class CountersDO {
         });
       }
     }
+
+    return { userDayCount: count, chatDayActivity: actCnt };
   }
 
   private async incrementProfanityCounters(payload: ProfanityIncrementPayload) {
@@ -199,7 +206,12 @@ export class CountersDO {
     };
 
     try {
-      batchData = await request.json();
+      const data = (await request.json()) as any;
+      batchData = data as {
+        activity?: IncrementPayload[];
+        profanity?: ProfanityIncrementPayload[];
+        criminal?: CriminalIncrementPayload[];
+      };
     } catch {
       return new Response('Bad request', { status: 400 });
     }
