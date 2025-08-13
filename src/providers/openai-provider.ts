@@ -286,7 +286,6 @@ export class OpenAIProvider implements AIProvider {
           model: this.model,
           textLength: text.length,
           providerType: this.providerType,
-          textPreview: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
           isGPT5: this.isGPT5Model(this.model)
         });
       }

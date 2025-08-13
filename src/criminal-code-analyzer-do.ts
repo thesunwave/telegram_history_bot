@@ -1,0 +1,565 @@
+// ========================================
+// 🏛️ CRIMINAL CODE ANALYZER DURABLE OBJECT
+// ========================================
+// Анализирует сообщения на предмет нарушений УК РФ
+// с кэшированием результатов и атомарными операциями
+
+import type {
+  Env,
+  CriminalAnalysisResult,
+  CriminalAnalysisRequest,
+  CriminalBatchAnalysisRequest,
+  CriminalViolation,
+  CriminalViolationStats,
+  CriminalAnalysisCache
+} from './env';
+import { ProviderFactory } from './providers/provider-factory';
+import type { AIProvider } from './providers/ai-provider';
+
+export class CriminalCodeAnalyzerDO {
+  private state: DurableObjectState;
+  private env: Env;
+  private aiProvider: AIProvider | null = null;
+  private initPromise: Promise<void> | null = null;
+
+  constructor(state: DurableObjectState, env: Env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  // ========================================
+  // 🔧 INITIALIZATION
+  // ========================================
+
+  private async initialize(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this.doInitialize();
+    }
+    return this.initPromise;
+  }
+
+  private async doInitialize(): Promise<void> {
+    try {
+      this.aiProvider = await ProviderFactory.createProvider(this.env);
+      console.log('✅ CriminalCodeAnalyzerDO initialized successfully');
+    } catch (error) {
+      console.error('❌ Failed to initialize CriminalCodeAnalyzerDO:', error);
+      throw error;
+    }
+  }
+
+  // ========================================
+  // 🌐 HTTP REQUEST HANDLER
+  // ========================================
+
+  async fetch(request: Request): Promise<Response> {
+    try {
+      await this.initialize();
+
+      const url = new URL(request.url);
+      const path = url.pathname;
+
+      // 🔍 Single message analysis
+      if (path === '/analyze' && request.method === 'POST') {
+        return this.blockConcurrencyWhile(async () => {
+          return await this.handleAnalyzeRequest(request);
+        });
+      }
+
+      // 📊 Batch analysis
+      if (path === '/batch-analyze' && request.method === 'POST') {
+        return this.blockConcurrencyWhile(async () => {
+          return await this.handleBatchAnalyzeRequest(request);
+        });
+      }
+
+      // 📈 Get statistics
+      if (path === '/stats' && request.method === 'GET') {
+        return await this.handleStatsRequest(request);
+      }
+
+      // 🗑️ Clear cache
+      if (path === '/clear-cache' && request.method === 'POST') {
+        return this.blockConcurrencyWhile(async () => {
+          return await this.handleClearCacheRequest(request);
+        });
+      }
+
+      return new Response('Not Found', { status: 404 });
+    } catch (error) {
+      console.error('❌ CriminalCodeAnalyzerDO fetch error:', error);
+      return new Response(
+        JSON.stringify({ error: 'Internal server error', details: error.message }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+  }
+
+  // ========================================
+  // 🔍 SINGLE MESSAGE ANALYSIS
+  // ========================================
+
+  private async handleAnalyzeRequest(request: Request): Promise<Response> {
+    try {
+      let body: CriminalAnalysisRequest;
+      try {
+        body = await request.json();
+      } catch (jsonError) {
+        return new Response(
+          JSON.stringify({ error: 'Invalid JSON in request body' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      const { text, chatId, messageId, userId, forceRefresh = false, day } = body;
+
+      if (!text || text.trim().length === 0) {
+        return new Response(
+          JSON.stringify({ error: 'Text is required' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (!chatId) {
+        return new Response(
+          JSON.stringify({ error: 'Chat ID is required' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (text.length > this.env.CRIMINAL_CODE_MAX_TEXT_LENGTH) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Text too long', 
+            maxLength: this.env.CRIMINAL_CODE_MAX_TEXT_LENGTH 
+          }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // 🔍 Check cache first
+      let result: CriminalAnalysisResult;
+      if (!forceRefresh) {
+        const cached = await this.getCachedAnalysis(text);
+        if (cached) {
+          console.log('📋 Using cached criminal code analysis');
+          result = cached;
+        } else {
+          result = await this.performAnalysis(text);
+          await this.cacheAnalysis(text, result);
+        }
+      } else {
+        result = await this.performAnalysis(text);
+        await this.cacheAnalysis(text, result);
+      }
+
+      // 💾 Store violation in database if found
+      if (result.hasViolations && result.violations.length > 0) {
+        await this.storeViolations(result.violations, chatId, messageId, userId, text, body.username, day);
+        await this.updateStatistics(result);
+      }
+
+      return new Response(
+        JSON.stringify(result),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+    } catch (error) {
+      console.error('❌ Error in handleAnalyzeRequest:', error);
+      return new Response(
+        JSON.stringify({ error: 'Analysis failed', details: error.message }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+  }
+
+  // ========================================
+  // 📊 BATCH ANALYSIS
+  // ========================================
+
+  private async handleBatchAnalyzeRequest(request: Request): Promise<Response> {
+    try {
+      const body: CriminalBatchAnalysisRequest = await request.json();
+      const { messages, forceRefresh = false } = body;
+
+      if (!messages || messages.length === 0) {
+        return new Response(
+          JSON.stringify({ error: 'Messages array is required' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (messages.length > this.env.CRIMINAL_CODE_BATCH_SIZE) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Too many messages', 
+            maxBatchSize: this.env.CRIMINAL_CODE_BATCH_SIZE 
+          }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const results: Array<CriminalAnalysisResult & { messageId?: number; chatId?: number }> = [];
+      
+      for (const message of messages) {
+        if (!message.text || message.text.trim().length === 0) {
+          continue;
+        }
+
+        if (message.text.length > this.env.CRIMINAL_CODE_MAX_TEXT_LENGTH) {
+          console.warn(`⚠️ Skipping message ${message.messageId}: text too long`);
+          continue;
+        }
+
+        let result: CriminalAnalysisResult;
+        if (!forceRefresh) {
+          const cached = await this.getCachedAnalysis(message.text);
+          if (cached) {
+            result = cached;
+          } else {
+            result = await this.performAnalysis(message.text);
+            await this.cacheAnalysis(message.text, result);
+          }
+        } else {
+          result = await this.performAnalysis(message.text);
+          await this.cacheAnalysis(message.text, result);
+        }
+
+        // 💾 Store violations if found
+        if (result.hasViolations && result.violations.length > 0) {
+          await this.storeViolations(
+            result.violations, 
+            message.chatId, 
+            message.messageId, 
+            message.userId, 
+            message.text,
+            message.username,
+            message.day
+          );
+          await this.updateStatistics(result);
+        }
+
+        results.push({
+          ...result,
+          messageId: message.messageId,
+          chatId: message.chatId
+        });
+      }
+
+      return new Response(
+        JSON.stringify({ results }),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+    } catch (error) {
+      console.error('❌ Error in handleBatchAnalyzeRequest:', error);
+      return new Response(
+        JSON.stringify({ error: 'Batch analysis failed', details: error.message }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+  }
+
+  // ========================================
+  // 📈 STATISTICS
+  // ========================================
+
+  private async handleStatsRequest(request: Request): Promise<Response> {
+    try {
+      const url = new URL(request.url);
+      const chatId = url.searchParams.get('chatId');
+      const period = url.searchParams.get('period') || '7d';
+
+      let query = `
+        SELECT 
+          article,
+          COUNT(*) as violation_count,
+          AVG(severity) as avg_severity,
+          MAX(severity) as max_severity,
+          MIN(created_at) as first_seen,
+          MAX(created_at) as last_seen
+        FROM violation_stats 
+        WHERE created_at >= datetime('now', '-${this.getPeriodDays(period)} days')
+      `;
+
+      const params: any[] = [];
+      if (chatId) {
+        query += ' AND chat_id = ?';
+        params.push(parseInt(chatId));
+      }
+
+      query += ' GROUP BY article ORDER BY violation_count DESC';
+
+      const stmt = this.env.DB.prepare(query);
+      const stats = await stmt.bind(...params).all();
+
+      const userStats = {
+        totalViolations: stats.results?.reduce((sum: number, stat: any) => sum + stat.violation_count, 0) || 0,
+        avgSeverity: stats.results?.reduce((sum: number, stat: any) => sum + stat.avg_severity, 0) / (stats.results?.length || 1) || 0,
+        topViolations: stats.results?.slice(0, 5) || []
+      };
+
+      return new Response(
+        JSON.stringify({ 
+          stats: stats.results || [],
+          userStats 
+        }),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+    } catch (error) {
+      console.error('❌ Error in handleStatsRequest:', error);
+      return new Response(
+        JSON.stringify({ error: 'Failed to get statistics', details: error.message }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+  }
+
+  // ========================================
+  // 🗑️ CACHE MANAGEMENT
+  // ========================================
+
+  private async handleClearCacheRequest(request: Request): Promise<Response> {
+    try {
+      const url = new URL(request.url);
+      const pattern = url.searchParams.get('pattern') || '*';
+
+      // Clear from KV storage
+      const list = await this.env.HISTORY.list({ prefix: 'criminal_cache:' });
+      const deletePromises = list.keys.map(key => this.env.HISTORY.delete(key.name));
+      await Promise.all(deletePromises);
+
+      // Clear from database
+      const stmt = this.env.DB.prepare('DELETE FROM criminal_analysis_cache WHERE created_at < datetime(\'now\', \'-1 hour\')');
+      await stmt.run();
+
+      return new Response(
+        JSON.stringify({ 
+          message: 'Cache cleared successfully',
+          deletedKeys: list.keys.length 
+        }),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+    } catch (error) {
+      console.error('❌ Error in handleClearCacheRequest:', error);
+      return new Response(
+        JSON.stringify({ error: 'Failed to clear cache', details: error.message }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+  }
+
+  // ========================================
+  // 🤖 AI ANALYSIS
+  // ========================================
+
+  private async performAnalysis(text: string): Promise<CriminalAnalysisResult> {
+    if (!this.aiProvider) {
+      throw new Error('AI provider not initialized');
+    }
+
+    console.log('🔍 Performing criminal code analysis...');
+    
+    try {
+      const result = await this.aiProvider.analyzeCriminalCode(text, this.env);
+      console.log(`✅ Analysis completed: ${result.hasViolations ? result.violations.length + ' violations found' : 'no violations'}`);
+      return result;
+    } catch (error) {
+      console.error('❌ AI analysis failed:', error);
+      // Return safe fallback result
+      return {
+        hasViolations: false,
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: 'low',
+        analysisTimestamp: Date.now()
+      };
+    }
+  }
+
+  // ========================================
+  // 💾 CACHE OPERATIONS
+  // ========================================
+
+  private async getCachedAnalysis(text: string): Promise<CriminalAnalysisResult | null> {
+    try {
+      const textHash = await this.hashText(text);
+      const cacheKey = `criminal_cache:${textHash}`;
+      
+      // Try KV storage first (faster)
+      const cached = await this.env.HISTORY.get(cacheKey, 'json');
+      if (cached) {
+        const cacheData = cached as CriminalAnalysisCache;
+        if (Date.now() - cacheData.createdAt < this.env.CRIMINAL_CODE_CACHE_TTL) {
+          return cacheData.result;
+        }
+      }
+
+      // Try database cache
+      const stmt = this.env.DB.prepare(`
+        SELECT result FROM criminal_analysis_cache 
+        WHERE text_hash = ? AND created_at > datetime('now', '-${this.env.CRIMINAL_CODE_CACHE_TTL / 1000} seconds')
+      `);
+      const dbResult = await stmt.bind(textHash).first();
+      
+      if (dbResult) {
+        const result = JSON.parse(dbResult.result as string) as CriminalAnalysisResult;
+        // Update KV cache
+        await this.env.HISTORY.put(cacheKey, JSON.stringify({
+          textHash,
+          result,
+          createdAt: Date.now()
+        }), { expirationTtl: this.env.CRIMINAL_CODE_CACHE_TTL / 1000 });
+        return result;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('❌ Error getting cached analysis:', error);
+      return null;
+    }
+  }
+
+  private async cacheAnalysis(text: string, result: CriminalAnalysisResult): Promise<void> {
+    try {
+      const textHash = await this.hashText(text);
+      const cacheKey = `criminal_cache:${textHash}`;
+      const cacheData: CriminalAnalysisCache = {
+        textHash,
+        result,
+        createdAt: Date.now()
+      };
+
+      // Store in KV (fast access)
+      await this.env.HISTORY.put(
+        cacheKey, 
+        JSON.stringify(cacheData),
+        { expirationTtl: this.env.CRIMINAL_CODE_CACHE_TTL / 1000 }
+      );
+
+      // Store in database (persistent backup)
+      const stmt = this.env.DB.prepare(`
+        INSERT OR REPLACE INTO criminal_analysis_cache (text_hash, result, created_at)
+        VALUES (?, ?, datetime('now'))
+      `);
+      await stmt.bind(textHash, JSON.stringify(result)).run();
+    } catch (error) {
+      console.error('❌ Error caching analysis:', error);
+      // Don't throw - caching failure shouldn't break analysis
+    }
+  }
+
+  // ========================================
+  // 💾 DATABASE OPERATIONS
+  // ========================================
+
+  private async storeViolations(
+    violations: CriminalViolation[], 
+    chatId?: number, 
+    messageId?: number, 
+    userId?: number, 
+    text?: string,
+    username?: string,
+    day?: string
+  ): Promise<void> {
+    try {
+      // Store violations in database
+      for (const violation of violations) {
+        const stmt = this.env.DB.prepare(`
+          INSERT INTO criminal_violations (
+            chat_id, message_id, user_id, article, quote, punishment, 
+            severity, confidence, text_preview, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `);
+        
+        await stmt.bind(
+          chatId || null,
+          messageId || null,
+          userId || null,
+          violation.article,
+          violation.quote,
+          violation.punishment,
+          violation.severity,
+          violation.confidence,
+          text ? text.substring(0, 200) : null
+        ).run();
+      }
+
+      // Send data to CountersDO for KV storage updates
+      if (chatId && userId && violations.length > 0) {
+        try {
+          const dayToUse = day || new Date().toISOString().slice(0, 10);
+          const totalSeverity = violations.reduce((sum, v) => sum + v.severity, 0);
+          
+          const countersId = this.env.COUNTERS_DO.idFromName(String(chatId));
+          const counters = this.env.COUNTERS_DO.get(countersId);
+          
+          const payload = {
+            chatId,
+            userId,
+            username: username || 'unknown',
+            day: dayToUse,
+            violations,
+            totalSeverity
+          };
+          
+          const response = await counters.fetch('https://do/criminal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          
+          if (!response.ok) {
+            console.error('❌ Failed to update criminal counters:', await response.text());
+          } else {
+            console.log('✅ Criminal counters updated successfully');
+          }
+        } catch (error) {
+          console.error('❌ Error updating criminal counters:', error);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error storing violations:', error);
+      // Don't throw - storage failure shouldn't break analysis
+    }
+  }
+
+  private async updateStatistics(result: CriminalAnalysisResult): Promise<void> {
+    try {
+      // Statistics are updated automatically via database trigger
+      // This method can be extended for additional statistics logic
+      console.log(`📊 Statistics updated for ${result.violations.length} violations`);
+    } catch (error) {
+      console.error('❌ Error updating statistics:', error);
+    }
+  }
+
+  // ========================================
+  // 🛠️ UTILITY METHODS
+  // ========================================
+
+  private async hashText(text: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(text.trim().toLowerCase());
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  private getPeriodDays(period: string): number {
+    switch (period) {
+      case '1d': return 1;
+      case '7d': return 7;
+      case '30d': return 30;
+      case '90d': return 90;
+      default: return 7;
+    }
+  }
+
+  // ========================================
+  // 🔒 CONCURRENCY CONTROL
+  // ========================================
+
+  private async blockConcurrencyWhile<T>(callback: () => Promise<T>): Promise<T> {
+    // This method ensures atomic operations by blocking concurrent access
+    // using Durable Objects' built-in concurrency control
+    return await this.state.blockConcurrencyWhile(callback);
+  }
+}

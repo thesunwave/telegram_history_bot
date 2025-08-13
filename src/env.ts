@@ -8,6 +8,7 @@ export interface Env {
   MESSAGE_AGGREGATOR_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
   // Added DayBlockManager Durable Object binding
   DAY_BLOCK_MANAGER_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
+  CRIMINAL_CODE_ANALYZER_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
   DB: import("@cloudflare/workers-types").D1Database;
   AI: any;
   TOKEN: string;
@@ -97,3 +98,75 @@ export const LARGE_DATASET_BATCH_SIZE = 25; // More conservative batch size for 
 export const LARGE_DATASET_BATCH_DELAY = 200; // Minimum delay for large datasets
 export const VERY_LARGE_DATASET_BATCH_SIZE = 15; // Very conservative batch size for very large datasets  
 export const VERY_LARGE_DATASET_BATCH_DELAY = 500; // Longer delay for very large datasets
+
+// Batch processing constants
+export const BATCH_SIZE = 50;
+export const MAX_BATCH_SIZE = 100;
+export const BATCH_TIMEOUT = 30000; // 30 seconds
+
+// ========================================
+// 🏛️ CRIMINAL CODE ANALYSIS TYPES
+// ========================================
+
+// Criminal violation found in text analysis
+export interface CriminalViolation {
+  article: string;           // УК РФ article (e.g., "Статья 282")
+  quote: string;            // Exact quote from text that violates the law
+  punishment: string;       // Possible punishment description
+  severity: number;         // Severity level 1-10
+  confidence: number;       // AI confidence 0.0-1.0
+}
+
+// Result of criminal code analysis
+export interface CriminalAnalysisResult {
+  hasViolations: boolean;
+  violations: CriminalViolation[];
+  totalSeverity: number;
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  analysisTimestamp: number;
+}
+
+// Request for criminal code analysis
+export interface CriminalAnalysisRequest {
+  text: string;
+  userId?: number;
+  chatId?: number;
+  messageId?: number;
+  username?: string;
+  useCache?: boolean;
+}
+
+// Batch analysis request
+export interface CriminalBatchAnalysisRequest {
+  texts: Array<{
+    text: string;
+    userId?: number;
+    chatId?: number;
+    messageId?: number;
+  }>;
+  useCache?: boolean;
+}
+
+// Statistics for criminal violations
+export interface CriminalViolationStats {
+  userId?: number;
+  chatId?: number;
+  totalViolations: number;
+  avgSeverity: number;
+  mostCommonArticle?: string;
+  lastViolationAt?: string;
+  riskTrend: 'increasing' | 'stable' | 'decreasing';
+}
+
+// Cache entry for analysis results
+export interface CriminalAnalysisCache {
+  textHash: string;
+  result: CriminalAnalysisResult;
+  expiresAt: number;
+}
+
+// Criminal Code Analyzer DO constants
+export const CRIMINAL_ANALYSIS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+export const CRIMINAL_MAX_TEXT_LENGTH = 10000; // Maximum text length for analysis
+export const CRIMINAL_ANALYSIS_TIMEOUT = 30000; // 30 seconds timeout
+export const CRIMINAL_BATCH_SIZE = 10; // Maximum batch size for analysis

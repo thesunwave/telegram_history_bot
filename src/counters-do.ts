@@ -6,6 +6,9 @@ const USER_PREFIX = 'user';
 const ACTIVITY_PREFIX = 'activity';
 const PROFANITY_USER_PREFIX = 'profanity';
 const PROFANITY_WORDS_PREFIX = 'profanity_words';
+const CRIMINAL_USER_PREFIX = 'criminal';
+const CRIMINAL_ARTICLE_PREFIX = 'criminal_article';
+const CRIMINAL_SEVERITY_PREFIX = 'criminal_severity';
 
 export interface IncrementPayload {
   chatId: number;
@@ -24,6 +27,19 @@ export interface ProfanityIncrementPayload {
     baseForm: string;
     count: number;
   }>;
+}
+
+export interface CriminalIncrementPayload {
+  chatId: number;
+  userId: number;
+  username: string;
+  day: string;
+  violations: Array<{
+    article: string;
+    severity: number;
+    count: number;
+  }>;
+  totalSeverity: number;
 }
 
 export class CountersDO {
@@ -66,6 +82,21 @@ export class CountersDO {
         return new Response('error', { status: 500 });
       }
       return new Response('ok');
+    } else if (endpoint === '/criminal') {
+      let payload: CriminalIncrementPayload;
+      try {
+        payload = (await request.json()) as CriminalIncrementPayload;
+        this.validateCriminal(payload);
+      } catch {
+        return new Response('Bad request', { status: 400 });
+      }
+      try {
+        await this.state.blockConcurrencyWhile(() => this.incrementCriminalCounters(payload));
+      } catch (err: any) {
+        console.error('criminal counter update error', err.message || err);
+        return new Response('error', { status: 500 });
+      }
+      return new Response('ok');
     } else if (endpoint === '/batch') {
       return await this.processBatchRequest(request);
     }
@@ -81,6 +112,11 @@ export class CountersDO {
   private validateProfanity(p: ProfanityIncrementPayload) {
     if (p.chatId == null || p.userId == null || !p.day || p.count == null || !Array.isArray(p.words))
       throw new Error('invalid profanity payload');
+  }
+
+  private validateCriminal(p: CriminalIncrementPayload) {
+    if (p.chatId == null || p.userId == null || !p.day || !Array.isArray(p.violations) || p.totalSeverity == null)
+      throw new Error('invalid criminal payload');
   }
 
   private async incrementCounters({ chatId, userId, username, day }: IncrementPayload) {
@@ -110,166 +146,95 @@ export class CountersDO {
     }
   }
 
-  private async incrementProfanityCounters({ chatId, userId, username, day, count, words }: ProfanityIncrementPayload) {
-    try {
-      // КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ: кто и когда увеличивает счетчик профанити
-      const stack = new Error().stack;
-      console.log('🚨 PROFANITY COUNTER INCREMENT DETECTED 🚨', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        username,
-        day,
-        count,
-        wordsCount: words.length,
-        timestamp: new Date().toISOString(),
-        words: words.map(w => ({ baseForm: w.baseForm.substring(0, 3) + '***', count: w.count })),
-        stackTrace: stack?.split('\n').slice(0, 5) // Первые 5 строк стека
-      });
+  private async incrementProfanityCounters(payload: ProfanityIncrementPayload) {
+    const { chatId, userId, username, day, count, words } = payload;
+    
+    // Critical logging for profanity detection
+    console.log(`CRITICAL: Profanity detected - User: ${username} (${userId}), Chat: ${chatId}, Count: ${count}, Words: ${words.map(w => w.baseForm).join(', ')}`);
+    
+    const profanityUserKey = `${PROFANITY_USER_PREFIX}:${chatId}:${userId}:${day}`;
+    
+    // Update user profanity count in KV
+    const currentUserCount = parseInt((await this.env.COUNTERS.get(profanityUserKey)) || '0', 10);
+    await this.env.COUNTERS.put(profanityUserKey, String(currentUserCount + count));
+    
+    // Update word-specific counts in KV
+    for (const word of words) {
+      const wordKey = `${PROFANITY_WORDS_PREFIX}:${chatId}:${word.baseForm}:${day}`;
+      const currentWordCount = parseInt((await this.env.COUNTERS.get(wordKey)) || '0', 10);
+      await this.env.COUNTERS.put(wordKey, String(currentWordCount + word.count));
+    }
+  }
 
-      // Store username for later retrieval
-      await this.env.COUNTERS.put(`${USER_PREFIX}:${userId}`, username);
-
-      // Increment user profanity counter: profanity:chat:user:day
-      const userProfanityKey = `${PROFANITY_USER_PREFIX}:${chatId}:${userId}:${day}`;
-      const currentUserCount = parseInt((await this.env.COUNTERS.get(userProfanityKey)) || '0', 10);
-      const newUserCount = currentUserCount + count;
-      await this.env.COUNTERS.put(userProfanityKey, String(newUserCount));
-
-      console.log('Profanity counters: user counter updated', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        previousCount: currentUserCount,
-        increment: count,
-        newCount: newUserCount
-      });
-
-      // Increment word profanity counters: profanity_words:chat:word:day
-      let wordsUpdated = 0;
-      for (const word of words) {
-        const wordKey = `${PROFANITY_WORDS_PREFIX}:${chatId}:${word.baseForm}:${day}`;
-        const currentWordCount = parseInt((await this.env.COUNTERS.get(wordKey)) || '0', 10);
-        const newWordCount = currentWordCount + word.count;
-        await this.env.COUNTERS.put(wordKey, String(newWordCount));
-        wordsUpdated++;
-
-        console.log('Profanity counters: word counter updated', {
-          chatId: chatId.toString(36),
-          baseForm: word.baseForm.substring(0, 3) + '***', // Censor word in logs
-          previousCount: currentWordCount,
-          increment: word.count,
-          newCount: newWordCount
-        });
-      }
-
-      console.log('Profanity counters: update completed successfully', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        totalWordsIncrement: count,
-        uniqueWordsUpdated: wordsUpdated
-      });
-
-    } catch (error: any) {
-      console.error('Profanity counters: update failed', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        error: error.message || String(error),
-        stack: error.stack
-      });
-      throw error;
+  private async incrementCriminalCounters(payload: CriminalIncrementPayload) {
+    const { chatId, userId, username, day, violations, totalSeverity } = payload;
+    
+    // Critical logging for criminal code violations
+    console.log(`CRITICAL: Criminal code violations detected - User: ${username} (${userId}), Chat: ${chatId}, Total Severity: ${totalSeverity}, Articles: ${violations.map(v => v.article).join(', ')}`);
+    
+    const criminalUserKey = `${CRIMINAL_USER_PREFIX}:${chatId}:${userId}:${day}`;
+    const criminalSeverityKey = `${CRIMINAL_SEVERITY_PREFIX}:${chatId}:${userId}:${day}`;
+    
+    // Update user criminal violations count in KV
+    const currentUserCount = parseInt((await this.env.COUNTERS.get(criminalUserKey)) || '0', 10);
+    await this.env.COUNTERS.put(criminalUserKey, String(currentUserCount + violations.length));
+    
+    // Update user total severity in KV
+    const currentSeverity = parseInt((await this.env.COUNTERS.get(criminalSeverityKey)) || '0', 10);
+    await this.env.COUNTERS.put(criminalSeverityKey, String(currentSeverity + totalSeverity));
+    
+    // Update article-specific counts in KV
+    for (const violation of violations) {
+      const articleKey = `${CRIMINAL_ARTICLE_PREFIX}:${chatId}:${violation.article}:${day}`;
+      const currentArticleCount = parseInt((await this.env.COUNTERS.get(articleKey)) || '0', 10);
+      await this.env.COUNTERS.put(articleKey, String(currentArticleCount + violation.count));
     }
   }
 
   private async processBatchRequest(request: Request): Promise<Response> {
+    let batchData: {
+      activity?: IncrementPayload[];
+      profanity?: ProfanityIncrementPayload[];
+      criminal?: CriminalIncrementPayload[];
+    };
+
     try {
-      const { items } = await request.json() as { 
-        items: Array<{ 
-          type: 'activity' | 'profanity'; 
-          chatId: number; 
-          userId: number; 
-          username?: string; 
-          day: string; 
-          count?: number; 
-          words?: Array<{ baseForm: string; count: number }>;
-        }> 
-      };
-
-      if (!Array.isArray(items) || items.length === 0) {
-        return new Response('Invalid batch format', { status: 400 });
-      }
-
-      const updates: Record<string, string> = {};
-      const userUpdates: Record<string, string> = {};
-
-      // Process all items in batch
-      for (const item of items) {
-        if (item.type === 'activity') {
-          const statsKey = `${STATS_PREFIX}:${item.chatId}:${item.userId}:${item.day}`;
-          const currentCount = parseInt((await this.env.COUNTERS.get(statsKey)) || '0', 10);
-          updates[statsKey] = String(currentCount + 1);
-          
-          if (item.username) {
-            userUpdates[`${USER_PREFIX}:${item.userId}`] = item.username;
-          }
-
-          const activityKey = `${ACTIVITY_PREFIX}:${item.chatId}:${item.day}`;
-          const currentActivityCount = parseInt((await this.env.COUNTERS.get(activityKey)) || '0', 10);
-          updates[activityKey] = String(currentActivityCount + 1);
-
-        } else if (item.type === 'profanity') {
-          if (!item.count || !item.words) continue;
-
-          if (item.username) {
-            userUpdates[`${USER_PREFIX}:${item.userId}`] = item.username;
-          }
-
-          // User profanity counter
-          const userProfanityKey = `${PROFANITY_USER_PREFIX}:${item.chatId}:${item.userId}:${item.day}`;
-          const currentUserCount = parseInt((await this.env.COUNTERS.get(userProfanityKey)) || '0', 10);
-          updates[userProfanityKey] = String(currentUserCount + item.count);
-
-          // Word profanity counters
-          for (const word of item.words) {
-            const wordKey = `${PROFANITY_WORDS_PREFIX}:${item.chatId}:${word.baseForm}:${item.day}`;
-            const currentWordCount = parseInt((await this.env.COUNTERS.get(wordKey)) || '0', 10);
-            updates[wordKey] = String(currentWordCount + word.count);
-          }
-        }
-      }
-
-      // Batch write all updates
-      const allUpdates = { ...updates, ...userUpdates };
-      await Promise.all(
-        Object.entries(allUpdates).map(([key, value]) => this.env.COUNTERS.put(key, value))
-      );
-
-      // Process database updates for activity items
-      if (this.env.DB) {
-        const activityItems = items.filter(item => item.type === 'activity');
-        if (activityItems.length > 0) {
-          const stmt = this.env.DB.prepare(
-            'INSERT INTO activity (chat_id, day, count) VALUES (?, ?, 1) ' +
-            'ON CONFLICT(chat_id, day) DO UPDATE SET count = count + 1'
-          );
-          
-          const dbPromises = activityItems.map(item => 
-            stmt.bind(item.chatId, item.day).run()
-          );
-          
-          try {
-            await Promise.all(dbPromises);
-          } catch (e: any) {
-            console.error('activity db batch error', e.message || String(e));
-          }
-        }
-      }
-
-      return new Response(JSON.stringify({ success: true, processed: items.length }), {
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-    } catch (error) {
-      console.error('Batch processing error', error);
-      return new Response('Invalid batch request', { status: 400 });
+      batchData = await request.json();
+    } catch {
+      return new Response('Bad request', { status: 400 });
     }
+
+    try {
+      await this.state.blockConcurrencyWhile(async () => {
+        // Process activity increments
+        if (batchData.activity && Array.isArray(batchData.activity)) {
+          for (const payload of batchData.activity) {
+            this.validate(payload);
+            await this.incrementCounters(payload);
+          }
+        }
+
+        // Process profanity increments
+        if (batchData.profanity && Array.isArray(batchData.profanity)) {
+          for (const payload of batchData.profanity) {
+            this.validateProfanity(payload);
+            await this.incrementProfanityCounters(payload);
+          }
+        }
+
+        // Process criminal code violations increments
+        if (batchData.criminal && Array.isArray(batchData.criminal)) {
+          for (const payload of batchData.criminal) {
+            this.validateCriminal(payload);
+            await this.incrementCriminalCounters(payload);
+          }
+        }
+      });
+    } catch (err: any) {
+      console.error('batch counter update error', err.message || err);
+      return new Response('error', { status: 500 });
+    }
+
+    return new Response('ok');
   }
 }
