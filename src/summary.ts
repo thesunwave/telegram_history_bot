@@ -223,22 +223,34 @@ function createSummaryRequest(
     periodInfo = "неизвестно";
   }
 
-  // Заменяем плейсхолдеры в промпте
+  // Replace placeholders in prompts
+  let systemPrompt = env.SUMMARY_SYSTEM;
   let userPrompt = env.SUMMARY_PROMPT;
-  userPrompt = userPrompt.replace("{chatTitle}", chatTitle);
-  userPrompt = userPrompt.replace("{startDate}", startDate);
-  userPrompt = userPrompt.replace("{endDate}", endDate);
-  userPrompt = userPrompt.replace(
+  
+  // Replace placeholders in system prompt
+  systemPrompt = systemPrompt.replace("{messages}", "");
+  systemPrompt = systemPrompt.replace("{chatTitle}", chatTitle);
+  systemPrompt = systemPrompt.replace("{startDate}", startDate);
+  systemPrompt = systemPrompt.replace("{endDate}", endDate);
+  systemPrompt = systemPrompt.replace(
     "{totalMessages}",
     messages.length.toString(),
   );
+  systemPrompt = systemPrompt.replace("{participants}", participantsInfo);
+  systemPrompt = systemPrompt.replace("{period}", periodInfo);
+
+  // Replace placeholders in user prompt
+  userPrompt = userPrompt.replace("{chatTitle}", chatTitle);
+  userPrompt = userPrompt.replace("{startDate}", startDate);
+  userPrompt = userPrompt.replace("{endDate}", endDate);
+  userPrompt = userPrompt.replace("{totalMessages}", messages.length.toString());
   userPrompt = userPrompt.replace("{participants}", participantsInfo);
   userPrompt = userPrompt.replace("{period}", periodInfo);
-  userPrompt = userPrompt.replace("{messages}", ""); // Сообщения добавляются отдельно провайдером
+  userPrompt = userPrompt.replace("{messages}", ""); // Messages are added separately by provider
 
   return {
     messages,
-    systemPrompt: env.SUMMARY_SYSTEM,
+    systemPrompt,
     userPrompt,
     limitNote,
   };
