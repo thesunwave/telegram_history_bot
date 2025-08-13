@@ -150,7 +150,13 @@ export class DirectProcessor implements IDirectProcessor {
     userPrompt = userPrompt.replace('{messages}', ''); // Messages are added separately by provider
 
     // Get system prompt
-    const systemPrompt = env.SUMMARY_SYSTEM || this.getDefaultSystemPrompt();
+    let systemPrompt = env.SUMMARY_SYSTEM || this.getDefaultSystemPrompt();
+    systemPrompt = systemPrompt.replace('{chatTitle}', 'Direct Processing Chat');
+    systemPrompt = systemPrompt.replace('{startDate}', startDate);
+    systemPrompt = systemPrompt.replace('{endDate}', endDate);
+    systemPrompt = systemPrompt.replace('{totalMessages}', messages.length.toString());
+    systemPrompt = systemPrompt.replace('{participants}', participantsInfo);
+    systemPrompt = systemPrompt.replace('{period}', periodInfo);
 
     return {
       messages,

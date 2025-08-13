@@ -193,21 +193,23 @@ function createSummaryRequest(
   }
 
   // Заменяем плейсхолдеры в промпте
+  let systemPrompt = env.SUMMARY_SYSTEM;
   let userPrompt = env.SUMMARY_PROMPT;
-  userPrompt = userPrompt.replace("{chatTitle}", chatTitle);
-  userPrompt = userPrompt.replace("{startDate}", startDate);
-  userPrompt = userPrompt.replace("{endDate}", endDate);
-  userPrompt = userPrompt.replace(
+  systemPrompt = systemPrompt.replace("{messages}", ""); // Сообщения добавляются отдельно провайдером
+  systemPrompt = systemPrompt.replace("{chatTitle}", chatTitle);
+  systemPrompt = systemPrompt.replace("{startDate}", startDate);
+  systemPrompt = systemPrompt.replace("{endDate}", endDate);
+  systemPrompt = systemPrompt.replace(
     "{totalMessages}",
     messages.length.toString(),
   );
-  userPrompt = userPrompt.replace("{participants}", participantsInfo);
-  userPrompt = userPrompt.replace("{period}", periodInfo);
+  systemPrompt = systemPrompt.replace("{participants}", participantsInfo);
+  systemPrompt = systemPrompt.replace("{period}", periodInfo);
   userPrompt = userPrompt.replace("{messages}", ""); // Сообщения добавляются отдельно провайдером
 
   return {
     messages,
-    systemPrompt: env.SUMMARY_SYSTEM,
+    systemPrompt,
     userPrompt,
     limitNote,
   };

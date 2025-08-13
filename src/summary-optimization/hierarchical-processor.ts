@@ -283,7 +283,13 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
     userPrompt = userPrompt + contextNote;
 
     // Get system prompt
-    const systemPrompt = env.SUMMARY_SYSTEM || this.getDefaultFinalSystemPrompt();
+    let systemPrompt = env.SUMMARY_SYSTEM || this.getDefaultFinalSystemPrompt();
+    systemPrompt = systemPrompt.replace('{chatTitle}', 'Hierarchical Processing Chat');
+    systemPrompt = systemPrompt.replace('{startDate}', startDate);
+    systemPrompt = systemPrompt.replace('{endDate}', endDate);
+    systemPrompt = systemPrompt.replace('{totalMessages}', originalMessages.length.toString());
+    systemPrompt = systemPrompt.replace('{participants}', participantsInfo);
+    systemPrompt = systemPrompt.replace('{period}', periodInfo);
 
     return {
       messages: syntheticMessages,
