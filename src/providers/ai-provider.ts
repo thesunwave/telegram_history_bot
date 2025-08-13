@@ -27,6 +27,8 @@ export interface SummaryOptions {
   seed?: number;
   verbosity?: 'low' | 'medium' | 'high';
   reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+  // When true, provider should request strict JSON response if supported (e.g., OpenAI response_format)
+  forceJsonResponse?: boolean;
 }
 
 export interface ProviderInfo {
@@ -119,6 +121,7 @@ export const DEFAULT_CRIMINAL_CODE_SYSTEM_PROMPT = `Ты эксперт по У�
    - Художественные произведения
    - Новостные сводки
    - Академические дискуссии
+   - Технический жаргон и ненормативные выражения в отношении предметов (например, если речь идёт о поломке техники с применением сленга — не считать нарушением, а анализировать только реальные признаки состава преступлений)
 5. Фокусируйся на реальных угрозах и призывах к действию
 
 # Основные категории для анализа

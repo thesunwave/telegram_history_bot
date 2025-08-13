@@ -54,6 +54,15 @@ export interface Env {
   SUMMARY_OPT_ENABLE_DETAILED_METRICS?: string | boolean;
   SUMMARY_OPT_LOG_PERFORMANCE_INSIGHTS?: string | boolean;
   SUMMARY_OPT_TRACK_TOKEN_USAGE?: string | boolean;
+
+  // Cache TTL configuration (in seconds)
+  CRIMINAL_ANALYSIS_CACHE_TTL?: string | number;
+  PROFANITY_ANALYSIS_CACHE_TTL?: string | number;
+  MESSAGE_BLOCK_CACHE_TTL?: string | number;
+
+  // Text preview configuration
+  CRIMINAL_STORE_TEXT_PREVIEW?: string | boolean;
+  CRIMINAL_TEXT_PREVIEW_LENGTH?: string | number;
 }
 
 export interface DurableObjectId {}
@@ -162,7 +171,7 @@ export interface CriminalViolationStats {
 export interface CriminalAnalysisCache {
   textHash: string;
   result: CriminalAnalysisResult;
-  expiresAt: number;
+  createdAt: number;
 }
 
 // Criminal Code Analyzer DO constants

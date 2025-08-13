@@ -120,11 +120,46 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   const id = env.COUNTERS_DO.idFromName(String(chatId));
 
   try {
-    await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
+    const res = await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
       method: 'POST',
       body: JSON.stringify({ chatId, userId, username, day }),
     });
-    Logger.debug(env, 'recordMessage: counter update successful', { chatId, day });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '[no-body]');
+      Logger.error('recordMessage: counter update returned non-OK status', {
+        chatId,
+        day,
+        status: res.status,
+        body: text,
+      });
+    } else {
+      // Try to parse JSON with detailed counts (new DO version)
+      let parsed: any = null;
+      let rawText: string | null = null;
+      try {
+        parsed = await res.json();
+      } catch {
+        // Fallback for legacy plain-text 'ok'
+        rawText = await res.text().catch(() => null);
+      }
+
+      if (parsed && typeof parsed === 'object') {
+        Logger.log('recordMessage: counter update successful (verified)', {
+          chatId: chatId.toString(36),
+          day,
+          userDayCount: parsed.userDayCount,
+          chatDayActivity: parsed.chatDayActivity,
+          ok: parsed.ok,
+        });
+      } else {
+        Logger.debug(env, 'recordMessage: counter update successful (legacy DO response)', {
+          chatId: chatId.toString(36),
+          day,
+          response: rawText ?? 'ok',
+        });
+      }
+    }
   } catch (error: any) {
     Logger.error('recordMessage: counter update failed', {
       chatId,
@@ -159,15 +194,21 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     });
     
     // Fire-and-forget: don't await this
-     analyzeProfanityAsync(msg, env, chatId, userId, username, day).catch(error => {
-      Logger.error('Background profanity analysis failed', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        username,
-        messageId: msg.message_id,
-        error: error.message || String(error)
-      });
+    const profanityPromise = analyzeProfanityAsync(msg, env, chatId, userId, username, day).catch(error => {
+    Logger.error('Background profanity analysis failed', {
+    chatId: chatId.toString(36),
+    userId: userId.toString(36),
+    username,
+    messageId: msg.message_id,
+    error: error.message || String(error)
     });
+    });
+    // Ensure background task isn't cut off when the request finishes
+    if (ctx) {
+    ctx.waitUntil(profanityPromise);
+    } else {
+    void profanityPromise;
+    }
   } else {
     Logger.debug(env, 'Skipping profanity analysis', {
       chatId: chatId.toString(36),
@@ -204,15 +245,21 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       });
     
     // Fire-and-forget: don't await this
-    analyzeCriminalCodeAsync(msg, env, chatId, userId, username, day).catch(error => {
-      Logger.error('Background criminal code analysis failed', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        username,
-        messageId: msg.message_id,
-        error: error.message || String(error)
-      });
+    const criminalPromise = analyzeCriminalCodeAsync(msg, env, chatId, userId, username, day).catch(error => {
+    Logger.error('Background criminal code analysis failed', {
+    chatId: chatId.toString(36),
+    userId: userId.toString(36),
+    username,
+    messageId: msg.message_id,
+    error: error.message || String(error)
     });
+    });
+    // Ensure background task isn't cut off when the request finishes
+    if (ctx) {
+    ctx.waitUntil(criminalPromise);
+    } else {
+    void criminalPromise;
+    }
   } else {
     Logger.debug(env, 'Skipping criminal code analysis', {
       chatId: chatId.toString(36),
@@ -497,7 +544,7 @@ async function analyzeCriminalCodeAsync(
     const analysisTime = Date.now() - analysisStart;
 
     if (response.ok) {
-      const result = await response.json();
+      const result: any = await response.json();
       const totalDuration = Date.now() - startTime;
 
       if (result.hasViolations) {

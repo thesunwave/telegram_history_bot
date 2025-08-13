@@ -5,7 +5,7 @@
  * for handling large message volumes that exceed single context limits
  */
 
-import { HierarchicalProcessor as IHierarchicalProcessor, ProcessingPhase } from './types';
+import { HierarchicalProcessor as IHierarchicalProcessor, ProcessingPhase, ChunkUserSummaries, AggregatedUserSummary } from './types';
 import { TelegramMessage, SummaryRequest, SummaryOptions } from '../providers/ai-provider';
 import { Env, LOG_ID_RADIX } from '../env';
 import { ProviderFactory } from '../providers/provider-factory';
@@ -22,19 +22,34 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
   }
 
   /**
-   * Processes messages using hierarchical two-stage approach
-   * Stage 1: Preprocessing chunks with simplified prompts
-   * Stage 2: Final summarization of intermediate results
+   * Processes messages using hierarchical approach with per-user aggregation
+   * Stage 1: Per-chunk per-user summaries (JSON)
+   * Stage 2: Aggregate per-user summaries across chunks
+   * Stage 3: Final summarization of aggregated user summaries
    */
   async process(messages: TelegramMessage[], env: Env): Promise<string> {
     const trackerId = PerformanceTracker.start('hierarchicalProcessor', 'process', { 
       messageCount: messages.length 
     });
 
-    Logger.debug(env, 'HierarchicalProcessor: Starting hierarchical processing', {
+    Logger.debug(env, 'HierarchicalProcessor: Starting hierarchical processing (per-user)', {
       messageCount: messages.length,
       trackerId
     });
+
+    // Guard: empty messages should be rejected
+    if (!messages || messages.length === 0) {
+      Logger.warn('HierarchicalProcessor: No messages provided for processing', {
+        messageCount: messages ? messages.length : 0,
+        trackerId
+      });
+      PerformanceTracker.end(trackerId, {
+        messageCount: 0,
+        success: false,
+        error: 'No messages provided'
+      });
+      throw new Error('No messages provided');
+    }
 
     try {
       // Load configuration
@@ -57,29 +72,39 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
         }))
       });
 
-      // Stage 1: Preprocess each chunk
+      // Stage 1: Preprocess each chunk into per-user summaries
       const preprocessingStart = Date.now();
-      const intermediateResults = await this.preprocessChunks(chunks, env);
+      const chunkUserSummaries = await this.preprocessChunksPerUser(chunks, env);
       const preprocessingDuration = Date.now() - preprocessingStart;
 
-      Logger.debug(env, 'HierarchicalProcessor: Preprocessing completed', {
+      Logger.debug(env, 'HierarchicalProcessor: Per-user preprocessing completed', {
         chunkCount: chunks.length,
-        intermediateResultsCount: intermediateResults.length,
+        resultsCount: chunkUserSummaries.length,
         preprocessingDuration
       });
 
-      // Stage 2: Final summarization
+      // Stage 2: Aggregate per-user summaries across chunks
+      const aggregationStart = Date.now();
+      const aggregated = this.aggregateUserSummaries(chunkUserSummaries);
+      const aggregationDuration = Date.now() - aggregationStart;
+
+      Logger.debug(env, 'HierarchicalProcessor: Aggregation completed', {
+        users: aggregated.length,
+        aggregationDuration
+      });
+
+      // Stage 3: Final summarization
       const finalProcessingStart = Date.now();
-      const finalSummary = await this.processFinalSummary(
-        intermediateResults, 
-        messages, 
+      const finalSummary = await this.processFinalSummaryForUsers(
+        aggregated,
+        messages,
         env
       );
       const finalProcessingDuration = Date.now() - finalProcessingStart;
 
       Logger.debug(env, 'HierarchicalProcessor: Final processing completed', {
         finalProcessingDuration,
-        totalDuration: preprocessingDuration + finalProcessingDuration,
+        totalDuration: preprocessingDuration + aggregationDuration + finalProcessingDuration,
         resultLength: finalSummary.length
       });
 
@@ -113,7 +138,250 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
   }
 
   /**
-   * Preprocesses chunks with simplified prompts
+   * Preprocesses chunks with per-user JSON summaries
+   */
+  private async preprocessChunksPerUser(
+    chunks: TelegramMessage[][],
+    env: Env
+  ): Promise<ChunkUserSummaries[]> {
+    const provider = ProviderFactory.createProvider(env);
+    const config = loadOptimizationConfig(env);
+    const results: ChunkUserSummaries[] = [];
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+
+      Logger.debug(env, `HierarchicalProcessor: Processing chunk ${i + 1}/${chunks.length} (per-user)`, {
+        chunkIndex: i,
+        messageCount: chunk.length,
+        estimatedTokens: this.contextOptimizer.estimateTokens(chunk)
+      });
+
+      try {
+        // Build preprocessing request (per-user JSON)
+        const request = this.buildPreprocessingRequestForUsers(chunk, i, chunks.length, env, config);
+        const options = this.buildPreprocessingOptions(env);
+        options.forceJsonResponse = true; // enforce JSON only for per-user preprocessing
+
+        // Process chunk
+        const raw = await provider.summarize(request, options, env);
+        const parsed = this.parseChunkUserSummaries(raw, i);
+        results.push(parsed);
+
+        Logger.debug(env, `HierarchicalProcessor: Chunk ${i + 1} processed (per-user)`, {
+          chunkIndex: i,
+          users: parsed.userSummaries.length
+        });
+
+      } catch (error) {
+        const e = error as Error;
+        Logger.error(`HierarchicalProcessor: Failed to process chunk ${i + 1} (per-user)`, {
+          chunkIndex: i,
+          error: e.message,
+          messageCount: chunk.length
+        });
+
+        // Continue with empty per-user result if some chunks fail
+        results.push({ chunkIndex: i, userSummaries: [] });
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Aggregate per-user summaries across all chunks
+   */
+  private aggregateUserSummaries(chunkSummaries: ChunkUserSummaries[]): AggregatedUserSummary[] {
+    const map = new Map<string, AggregatedUserSummary>();
+
+    for (const chunk of chunkSummaries) {
+      for (const us of chunk.userSummaries) {
+        const key = us.username.trim();
+        if (!key) continue;
+
+        if (!map.has(key)) {
+          map.set(key, {
+            username: key,
+            totalMessageCount: us.messageCount || 0,
+            aggregatedSummary: us.summary || '',
+            chunkContributions: [chunk.chunkIndex]
+          });
+        } else {
+          const agg = map.get(key)!;
+          agg.totalMessageCount += us.messageCount || 0;
+          // Concatenate summaries with separators, avoiding duplicates
+          const part = (us.summary || '').trim();
+          if (part) {
+            if (agg.aggregatedSummary) {
+              agg.aggregatedSummary += `\n- ${part}`;
+            } else {
+              agg.aggregatedSummary = part;
+            }
+          }
+          if (!agg.chunkContributions.includes(chunk.chunkIndex)) {
+            agg.chunkContributions.push(chunk.chunkIndex);
+          }
+        }
+      }
+    }
+
+    // Sort users by message count desc
+    return Array.from(map.values()).sort((a, b) => b.totalMessageCount - a.totalMessageCount);
+  }
+
+  /**
+   * Build final summary from aggregated per-user summaries
+   */
+  private async processFinalSummaryForUsers(
+    aggregated: AggregatedUserSummary[],
+    originalMessages: TelegramMessage[],
+    env: Env
+  ): Promise<string> {
+    const provider = ProviderFactory.createProvider(env);
+
+    // Create synthetic messages where each message represents a user's aggregated summary
+    const baseTs = originalMessages.length > 0 ? originalMessages[0].ts : Math.floor(Date.now() / 1000);
+    const syntheticMessages: TelegramMessage[] = aggregated.map((u, index) => ({
+      username: u.username,
+      text: `Total messages: ${u.totalMessageCount}. Summary: ${u.aggregatedSummary}`,
+      ts: baseTs + index
+    }));
+
+    const request = this.buildFinalSummaryRequestForUsers(
+      syntheticMessages,
+      originalMessages,
+      aggregated,
+      env,
+      loadOptimizationConfig(env)
+    );
+
+    const options = this.buildFinalSummaryOptions(env);
+
+    Logger.debug(env, 'HierarchicalProcessor: Processing final summary (per-user)', {
+      syntheticCount: syntheticMessages.length,
+      totalOriginalMessages: originalMessages.length
+    });
+
+    const finalSummary = await provider.summarize(request, options, env);
+    return finalSummary;
+  }
+
+  /**
+   * Builds preprocessing request that enforces per-user JSON summaries
+   */
+  private buildPreprocessingRequestForUsers(
+    messages: TelegramMessage[],
+    chunkIndex: number,
+    totalChunks: number,
+    env: Env,
+    config: any
+  ): SummaryRequest {
+    const systemPrompt = this.getPreprocessingSystemPromptForUsers();
+
+    // Strict JSON instruction with schema
+    const userPrompt = `Ты получишь сообщения чата. Создай краткие выжимки по КАЖДОМУ пользователю отдельно для части ${chunkIndex + 1} из ${totalChunks}.\n\nТребования:\n- Сохраняй ИСХОДНЫЕ имена пользователей без выдумывания новых\n- Игнорируй служебные сообщения и ботов\n- Объединяй повторы, сохраняя суть\n- Пиши кратко и по делу\n\nФормат ответa ТОЛЬКО строгий JSON без комментариев:\n{\n  "chunkIndex": ${chunkIndex},\n  "userSummaries": [\n    { "username": "имя", "messageCount": число, "summary": "краткая выжимка" }\n  ]\n}\n\nЕсли в части нет существенных сообщений, верни {"chunkIndex": ${chunkIndex}, "userSummaries": []}.\n\n{messages}`;
+
+    return {
+      messages,
+      systemPrompt,
+      userPrompt,
+      limitNote: `Персональная предобработка части ${chunkIndex + 1} из ${totalChunks}`
+    };
+  }
+
+  /**
+   * Build final request leveraging aggregated per-user summaries
+   */
+  private buildFinalSummaryRequestForUsers(
+    syntheticMessages: TelegramMessage[],
+    originalMessages: TelegramMessage[],
+    aggregated: AggregatedUserSummary[],
+    env: Env,
+    config: any
+  ): SummaryRequest {
+    // Extract participant information from original messages
+    const participants = [...new Set(originalMessages.map(m => m.username))];
+    const firstMsg = originalMessages[0] || { ts: Math.floor(Date.now() / 1000) } as TelegramMessage;
+    const lastMsg = originalMessages[originalMessages.length - 1] || firstMsg;
+    const startDate = new Date(firstMsg.ts * 1000).toLocaleDateString('ru-RU');
+    const endDate = new Date(lastMsg.ts * 1000).toLocaleDateString('ru-RU');
+
+    // Create participant stats
+    const participantStats = participants.map(username => {
+      const messageCount = originalMessages.filter(m => m.username === username).length;
+      return { username, messageCount };
+    }).sort((a, b) => b.messageCount - a.messageCount);
+
+    const participantsInfo = participantStats.length > 0
+      ? `${participantStats.length} чел. (${participantStats.map(p => `${p.username}: ${p.messageCount}`).join(', ')})`
+      : 'нет данных';
+
+    // Calculate period info
+    const durationInSeconds = lastMsg.ts - firstMsg.ts;
+    const durationInDays = Math.floor(durationInSeconds / (24 * 60 * 60));
+    const periodInfo = `${startDate} - ${endDate}${durationInDays > 0 ? ` (${durationInDays} дн.)` : ' (в тот же день)'}`;
+
+    // Build user prompt with placeholders replaced
+    let userPrompt = env.SUMMARY_PROMPT || this.getDefaultFinalPrompt();
+    userPrompt = userPrompt.replace('{chatTitle}', 'Hierarchical Processing Chat');
+    userPrompt = userPrompt.replace('{startDate}', startDate);
+    userPrompt = userPrompt.replace('{endDate}', endDate);
+    userPrompt = userPrompt.replace('{totalMessages}', originalMessages.length.toString());
+    userPrompt = userPrompt.replace('{participants}', participantsInfo);
+    userPrompt = userPrompt.replace('{period}', periodInfo);
+    userPrompt = userPrompt.replace('{messages}', ''); // Messages are added separately by provider
+
+    // Add context note about per-user aggregation
+    const contextNote = `\n\n📊 Данные подготовлены как выжимки по каждому пользователю (агрегировано по всем частям).\nВАЖНО: используй имена пользователей из сообщений как есть, не выдумывай новых.`;
+    userPrompt = userPrompt + contextNote;
+
+    // System prompt
+    let systemPrompt = env.SUMMARY_SYSTEM || this.getDefaultFinalSystemPrompt();
+    systemPrompt = systemPrompt.replace('{chatTitle}', 'Hierarchical Processing Chat');
+    systemPrompt = systemPrompt.replace('{startDate}', startDate);
+    systemPrompt = systemPrompt.replace('{endDate}', endDate);
+    systemPrompt = systemPrompt.replace('{totalMessages}', originalMessages.length.toString());
+    systemPrompt = systemPrompt.replace('{participants}', participantsInfo);
+    systemPrompt = systemPrompt.replace('{period}', periodInfo);
+
+    return {
+      messages: syntheticMessages,
+      systemPrompt,
+      userPrompt,
+      limitNote: `Финальная обработка агрегированных пользовательских выжимок (${aggregated.length} пользователей)`
+    };
+  }
+
+  /**
+   * Parse provider response into ChunkUserSummaries
+   */
+  private parseChunkUserSummaries(response: string, chunkIndex: number): ChunkUserSummaries {
+    try {
+      let clean = (response || '').trim();
+      const jsonMatch = clean.match(/\{[\s\S]*\}/);
+      if (jsonMatch) clean = jsonMatch[0];
+      const parsed = JSON.parse(clean);
+
+      const arr = Array.isArray(parsed.userSummaries) ? parsed.userSummaries : [];
+      const userSummaries = arr
+        .map((u: any) => {
+          const username = typeof u.username === 'string' ? u.username.trim() : '';
+          const messageCount = typeof u.messageCount === 'number' && isFinite(u.messageCount) ? u.messageCount : 0;
+          const summary = typeof u.summary === 'string' ? u.summary.trim() : '';
+          if (!username) return null;
+          return { username, messageCount, summary };
+        })
+        .filter((v: any): v is { username: string; messageCount: number; summary: string } => !!v);
+
+      return { chunkIndex, userSummaries };
+    } catch (e) {
+      return { chunkIndex, userSummaries: [] };
+    }
+  }
+
+  /**
+   * Legacy: Preprocesses chunks with simplified prompts (kept for compatibility)
    */
   private async preprocessChunks(
     chunks: TelegramMessage[][], 
@@ -163,7 +431,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
   }
 
   /**
-   * Processes final summary from intermediate results
+   * Legacy: Processes final summary from intermediate results (kept for compatibility)
    */
   private async processFinalSummary(
     intermediateResults: string[], 
@@ -202,7 +470,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
   }
 
   /**
-   * Builds preprocessing request with simplified prompt
+   * Builds preprocessing request with simplified prompt (legacy)
    */
   private buildPreprocessingRequest(
     messages: TelegramMessage[], 
@@ -233,7 +501,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
   }
 
   /**
-   * Builds final summary request
+   * Builds final summary request (legacy)
    */
   private buildFinalSummaryRequest(
     syntheticMessages: TelegramMessage[],
@@ -312,20 +580,20 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
 
     let opts: SummaryOptions = {
       maxTokens: reducedMaxTokens,
-      temperature: 0.3, // Lower temperature for more consistent preprocessing
+      temperature: 0.2, // Lower temperature for consistency in JSON
       topP: 0.9
     };
 
     // Provider-specific adjustments
     switch (provider) {
       case 'cloudflare':
-        opts.maxTokens = Math.min(reducedMaxTokens, 300);
+        opts.maxTokens = Math.min(reducedMaxTokens, 350);
         break;
       case 'openai':
-        opts.maxTokens = Math.min(reducedMaxTokens, 400);
+        opts.maxTokens = Math.min(reducedMaxTokens, 450);
         break;
       case 'openai-premium':
-        opts.maxTokens = Math.min(reducedMaxTokens, 500);
+        opts.maxTokens = Math.min(reducedMaxTokens, 550);
         break;
     }
 
@@ -381,7 +649,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
   }
 
   /**
-   * Returns default preprocessing prompt
+   * Returns default preprocessing prompt (legacy)
    */
   private getDefaultPreprocessingPrompt(): string {
     return `Создай краткую сводку для части {chunkNumber} из {totalChunks}.
@@ -399,13 +667,22 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
   }
 
   /**
-   * Returns system prompt for preprocessing
+   * Returns system prompt for preprocessing (legacy)
    */
   private getPreprocessingSystemPrompt(): string {
     return `Ты помощник для предварительной обработки сообщений чата.
 Твоя задача - создать промежуточную сводку части сообщений, которая будет использована для финальной суммаризации.
 Сохраняй только важную информацию, опуская несущественные детали.
 Будь объективным и точным в передаче смысла обсуждений.`;
+  }
+
+  /**
+   * Returns system prompt for per-user preprocessing
+   */
+  private getPreprocessingSystemPromptForUsers(): string {
+    return `Ты помощник для предварительной обработки сообщений чата.
+Твоя задача — сформировать выжимки по каждому пользователю (персонально) в строгом формате JSON.
+Важно: сохраняй ИСХОДНЫЕ имена пользователей без выдумывания новых, не добавляй комментарии вне JSON.`;
   }
 
   /**

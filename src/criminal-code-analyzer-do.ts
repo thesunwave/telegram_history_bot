@@ -378,35 +378,44 @@ export class CriminalCodeAnalyzerDO {
   // 💾 CACHE OPERATIONS
   // ========================================
 
+  private getCacheTTL(): number {
+    // TTL in seconds, prefer env var, fallback to 24 hours
+    const raw = (this.env as any).CRIMINAL_ANALYSIS_CACHE_TTL;
+    const ttl = typeof raw === 'string' ? parseInt(raw, 10) : typeof raw === 'number' ? raw : 24 * 60 * 60;
+    // Ensure positive integer seconds
+    return Number.isFinite(ttl) && ttl > 0 ? Math.floor(ttl) : 24 * 60 * 60;
+  }
+
   private async getCachedAnalysis(text: string): Promise<CriminalAnalysisResult | null> {
     try {
       const textHash = await this.hashText(text);
       const cacheKey = `criminal_cache:${textHash}`;
+      const cacheTTL = this.getCacheTTL();
       
       // Try KV storage first (faster)
       const cached = await this.env.HISTORY.get(cacheKey, 'json');
       if (cached) {
         const cacheData = cached as CriminalAnalysisCache;
-        if (Date.now() - cacheData.createdAt < this.env.CRIMINAL_CODE_CACHE_TTL) {
+        if (Date.now() - cacheData.createdAt < cacheTTL * 1000) {
           return cacheData.result;
         }
       }
 
       // Try database cache
       const stmt = this.env.DB.prepare(`
-        SELECT result FROM criminal_analysis_cache 
-        WHERE text_hash = ? AND created_at > datetime('now', '-${this.env.CRIMINAL_CODE_CACHE_TTL / 1000} seconds')
+        SELECT analysis_result FROM criminal_analysis_cache 
+        WHERE text_hash = ? AND created_at > datetime('now', '-${cacheTTL} seconds')
       `);
       const dbResult = await stmt.bind(textHash).first();
       
       if (dbResult) {
-        const result = JSON.parse(dbResult.result as string) as CriminalAnalysisResult;
+        const result = JSON.parse(dbResult.analysis_result as string) as CriminalAnalysisResult;
         // Update KV cache
         await this.env.HISTORY.put(cacheKey, JSON.stringify({
           textHash,
           result,
           createdAt: Date.now()
-        }), { expirationTtl: this.env.CRIMINAL_CODE_CACHE_TTL / 1000 });
+        }), { expirationTtl: cacheTTL });
         return result;
       }
 
@@ -421,23 +430,24 @@ export class CriminalCodeAnalyzerDO {
     try {
       const textHash = await this.hashText(text);
       const cacheKey = `criminal_cache:${textHash}`;
+      const cacheTTL = this.getCacheTTL();
       const cacheData: CriminalAnalysisCache = {
         textHash,
         result,
         createdAt: Date.now()
-      };
+      } as any; // allow createdAt for KV object
 
       // Store in KV (fast access)
       await this.env.HISTORY.put(
         cacheKey, 
         JSON.stringify(cacheData),
-        { expirationTtl: this.env.CRIMINAL_CODE_CACHE_TTL / 1000 }
+        { expirationTtl: cacheTTL }
       );
 
       // Store in database (persistent backup)
       const stmt = this.env.DB.prepare(`
-        INSERT OR REPLACE INTO criminal_analysis_cache (text_hash, result, created_at)
-        VALUES (?, ?, datetime('now'))
+        INSERT OR REPLACE INTO criminal_analysis_cache (text_hash, analysis_result, expires_at, created_at)
+        VALUES (?, ?, datetime('now', '+${cacheTTL} seconds'), datetime('now'))
       `);
       await stmt.bind(textHash, JSON.stringify(result)).run();
     } catch (error) {
@@ -460,6 +470,11 @@ export class CriminalCodeAnalyzerDO {
     day?: string
   ): Promise<void> {
     try {
+      const storePreviewRaw = (this.env as any).CRIMINAL_STORE_TEXT_PREVIEW;
+      const storePreview = typeof storePreviewRaw === 'string' ? storePreviewRaw.toLowerCase() === 'true' : Boolean(storePreviewRaw);
+      const previewLenRaw = (this.env as any).CRIMINAL_TEXT_PREVIEW_LENGTH;
+      const previewLength = Number.isFinite(Number(previewLenRaw)) && Number(previewLenRaw) > 0 ? Math.floor(Number(previewLenRaw)) : 200;
+
       // Store violations in database
       for (const violation of violations) {
         const stmt = this.env.DB.prepare(`
@@ -468,6 +483,7 @@ export class CriminalCodeAnalyzerDO {
             severity, confidence, text_preview, created_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         `);
+        const textPreview = storePreview && text ? text.substring(0, previewLength) : null;
         
         await stmt.bind(
           chatId || null,
@@ -478,7 +494,7 @@ export class CriminalCodeAnalyzerDO {
           violation.punishment,
           violation.severity,
           violation.confidence,
-          text ? text.substring(0, 200) : null
+          textPreview
         ).run();
       }
 
@@ -508,8 +524,6 @@ export class CriminalCodeAnalyzerDO {
           
           if (!response.ok) {
             console.error('❌ Failed to update criminal counters:', await response.text());
-          } else {
-            console.log('✅ Criminal counters updated successfully');
           }
         } catch (error) {
           console.error('❌ Error updating criminal counters:', error);

@@ -203,3 +203,27 @@ export interface AggregationStatus {
   endTime?: number;
   lastActivity: number;
 }
+
+// Per-user data interfaces for improved hierarchical processing
+export interface UserSummary {
+  username: string;
+  messageCount: number;
+  summary: string;
+}
+
+export interface ChunkUserSummaries {
+  chunkIndex: number;
+  userSummaries: UserSummary[];
+}
+
+export interface AggregatedUserSummary {
+  username: string;
+  totalMessageCount: number;
+  aggregatedSummary: string;
+  chunkContributions: number[]; // which chunks this user appeared in
+}
+
+// Enhanced hierarchical processor interface with per-user processing
+export interface EnhancedHierarchicalProcessor extends HierarchicalProcessor {
+  processWithUserAggregation(messages: TelegramMessage[], env: Env): Promise<string>;
+}
