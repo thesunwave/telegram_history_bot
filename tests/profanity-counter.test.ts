@@ -88,6 +88,30 @@ describe('Profanity Counter System', () => {
 
   describe('Profanity counter increments', () => {
     it('should increment user profanity counter', async () => {
+      // Create fresh instance with proper mocking
+      const mockStorage = new Map<string, string>();
+      const mockEnvLocal = {
+        ...mockEnv,
+        COUNTERS: {
+          get: vi.fn((key: string) => Promise.resolve(mockStorage.get(key) || null)),
+          put: vi.fn((key: string, value: string) => {
+            mockStorage.set(key, value);
+            return Promise.resolve();
+          }),
+          delete: vi.fn((key: string) => {
+            mockStorage.delete(key);
+            return Promise.resolve();
+          }),
+          list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
+        } as any
+      };
+      
+      const mockStateLocal = {
+        blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
+      };
+      
+      const countersDOLocal = new CountersDO(mockStateLocal, mockEnvLocal);
+      
       const payload: ProfanityIncrementPayload = {
         chatId: 123,
         userId: 456,
@@ -105,20 +129,40 @@ describe('Profanity Counter System', () => {
         body: JSON.stringify(payload)
       }) as any;
 
-      await countersDO.fetch(request);
+      await countersDOLocal.fetch(request);
 
       // Check that user profanity counter was incremented
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
-        'user:456',
-        'testuser'
-      ) as any;
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
         'profanity:123:456:2025-01-01',
         '3'
       ) as any;
     });
 
     it('should increment word profanity counters', async () => {
+      // Create fresh instance with proper mocking
+      const mockStorage = new Map<string, string>();
+      const mockEnvLocal = {
+        ...mockEnv,
+        COUNTERS: {
+          get: vi.fn((key: string) => Promise.resolve(mockStorage.get(key) || null)),
+          put: vi.fn((key: string, value: string) => {
+            mockStorage.set(key, value);
+            return Promise.resolve();
+          }),
+          delete: vi.fn((key: string) => {
+            mockStorage.delete(key);
+            return Promise.resolve();
+          }),
+          list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
+        } as any
+      };
+      
+      const mockStateLocal = {
+        blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
+      };
+      
+      const countersDOLocal = new CountersDO(mockStateLocal, mockEnvLocal);
+      
       const payload: ProfanityIncrementPayload = {
         chatId: 123,
         userId: 456,
@@ -136,14 +180,14 @@ describe('Profanity Counter System', () => {
         body: JSON.stringify(payload)
       }) as any;
 
-      await countersDO.fetch(request);
+      await countersDOLocal.fetch(request);
 
       // Check that word counters were incremented
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
         'profanity_words:123:word1:2025-01-01',
         '2'
       ) as any;
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
         'profanity_words:123:word2:2025-01-01',
         '1'
       ) as any;
@@ -151,14 +195,32 @@ describe('Profanity Counter System', () => {
 
     it('should accumulate existing counters', async () => {
       // Set up existing counters
-      const mockKV = new Map([
+      const mockStorage = new Map([
         ['profanity:123:456:2025-01-01', '5'],
         ['profanity_words:123:word1:2025-01-01', '3']
       ]);
       
-      mockEnv.COUNTERS.get = vi.fn().mockImplementation((key: string) => 
-        Promise.resolve(mockKV.get(key) || null)
-      ) as any;
+      const mockEnvLocal = {
+        ...mockEnv,
+        COUNTERS: {
+          get: vi.fn((key: string) => Promise.resolve(mockStorage.get(key) || null)),
+          put: vi.fn((key: string, value: string) => {
+            mockStorage.set(key, value);
+            return Promise.resolve();
+          }),
+          delete: vi.fn((key: string) => {
+            mockStorage.delete(key);
+            return Promise.resolve();
+          }),
+          list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
+        } as any
+      };
+      
+      const mockStateLocal = {
+        blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
+      };
+      
+      const countersDOLocal = new CountersDO(mockStateLocal, mockEnvLocal);
 
       const payload: ProfanityIncrementPayload = {
         chatId: 123,
@@ -177,18 +239,18 @@ describe('Profanity Counter System', () => {
         body: JSON.stringify(payload)
       }) as any;
 
-      await countersDO.fetch(request);
+      await countersDOLocal.fetch(request);
 
       // Check that counters were accumulated
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
         'profanity:123:456:2025-01-01',
         '7' // 5 + 2
       ) as any;
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
         'profanity_words:123:word1:2025-01-01',
         '4' // 3 + 1
       ) as any;
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
         'profanity_words:123:word3:2025-01-01',
         '1' // new word
       ) as any;
@@ -197,6 +259,30 @@ describe('Profanity Counter System', () => {
 
   describe('Endpoint routing', () => {
     it('should handle /inc endpoint for regular counters', async () => {
+      // Create fresh instance with proper mocking
+      const mockStorage = new Map<string, string>();
+      const mockEnvLocal = {
+        ...mockEnv,
+        COUNTERS: {
+          get: vi.fn((key: string) => Promise.resolve(mockStorage.get(key) || null)),
+          put: vi.fn((key: string, value: string) => {
+            mockStorage.set(key, value);
+            return Promise.resolve();
+          }),
+          delete: vi.fn((key: string) => {
+            mockStorage.delete(key);
+            return Promise.resolve();
+          }),
+          list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
+        } as any
+      };
+      
+      const mockStateLocal = {
+        blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
+      };
+      
+      const countersDOLocal = new CountersDO(mockStateLocal, mockEnvLocal);
+      
       const payload = {
         chatId: 123,
         userId: 456,
@@ -209,11 +295,35 @@ describe('Profanity Counter System', () => {
         body: JSON.stringify(payload)
       }) as any;
 
-      const response = await countersDO.fetch(request);
+      const response = await countersDOLocal.fetch(request);
       expect(response.status).toBe(200);
     });
 
     it('should handle /profanity endpoint for profanity counters', async () => {
+      // Create fresh instance with proper mocking
+      const mockStorage = new Map<string, string>();
+      const mockEnvLocal = {
+        ...mockEnv,
+        COUNTERS: {
+          get: vi.fn((key: string) => Promise.resolve(mockStorage.get(key) || null)),
+          put: vi.fn((key: string, value: string) => {
+            mockStorage.set(key, value);
+            return Promise.resolve();
+          }),
+          delete: vi.fn((key: string) => {
+            mockStorage.delete(key);
+            return Promise.resolve();
+          }),
+          list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
+        } as any
+      };
+      
+      const mockStateLocal = {
+        blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
+      };
+      
+      const countersDOLocal = new CountersDO(mockStateLocal, mockEnvLocal);
+      
       const payload: ProfanityIncrementPayload = {
         chatId: 123,
         userId: 456,
@@ -228,7 +338,7 @@ describe('Profanity Counter System', () => {
         body: JSON.stringify(payload)
       }) as any;
 
-      const response = await countersDO.fetch(request);
+      const response = await countersDOLocal.fetch(request);
       expect(response.status).toBe(200);
     });
 

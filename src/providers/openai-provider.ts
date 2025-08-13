@@ -9,8 +9,10 @@ import {
   ProviderInfo,
   ProviderError,
   ProfanityAnalysisResult,
+  CriminalAnalysisResult,
   MESSAGE_SEPARATOR,
   getProfanityPrompts,
+  getCriminalCodePrompts,
 } from "./ai-provider";
 
 interface OpenAIChatRequest {
@@ -107,7 +109,7 @@ export class OpenAIProvider implements AIProvider {
 
   async summarize(request: SummaryRequest, options: SummaryOptions, env?: Env): Promise<string> {
     // Format messages with semicolon separators between each message
-    const content = request.messages.map(m => `${m.username}: ${m.text}`).join(';\n');
+    const content = request.messages.map(m => `${m.username}: ${m.text}`).join(';');
 
     // Debug logging
     if (env) {
@@ -136,7 +138,7 @@ export class OpenAIProvider implements AIProvider {
     ];
 
     try {
-      const response = await this.callOpenAI(messages, options, false); // Text response only
+      const response = await this.callOpenAI(messages, options, options.forceJsonResponse ?? false); // Text or JSON response
       const raw = response.choices[0].message.content;
 
       if (env) {
@@ -209,7 +211,7 @@ export class OpenAIProvider implements AIProvider {
       requestBody.seed = options.seed;
     }
 
-    // Force JSON response format when requested (used by profanity analysis)
+    // Force JSON response format when requested (used by profanity analysis and per-user preprocessing)
     if (forceJsonResponse) {
       requestBody.response_format = { type: 'json_object' };
     }
@@ -286,7 +288,6 @@ export class OpenAIProvider implements AIProvider {
           model: this.model,
           textLength: text.length,
           providerType: this.providerType,
-          textPreview: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
           isGPT5: this.isGPT5Model(this.model)
         });
       }
@@ -473,6 +474,200 @@ export class OpenAIProvider implements AIProvider {
       return {
         hasProfanity: false,
         words: []
+      };
+    }
+  }
+
+  async analyzeCriminalCode(text: string, env?: any): Promise<CriminalAnalysisResult> {
+    const startTime = Date.now();
+
+    try {
+      if (env) {
+        Logger.debug(env, 'OpenAI criminal code analysis: starting', {
+          provider: 'openai',
+          model: this.model,
+          textLength: text.length,
+          providerType: this.providerType,
+          isGPT5: this.isGPT5Model(this.model)
+        });
+      }
+
+      const { systemPrompt, userPrompt } = getCriminalCodePrompts(env);
+      
+      // Use 'developer' role for GPT-5 models, 'system' for others
+      const roleToUse = this.isGPT5Model(this.model) ? 'developer' : 'system';
+      const messages: ChatMessage[] = [
+        { role: roleToUse, content: systemPrompt },
+        { role: 'user', content: `${userPrompt}\n${text}` }
+      ];
+
+      // Prepare options for criminal code analysis
+      const options: SummaryOptions = {
+        maxTokens: (env as any)?.OPENAI_MAX_TOKENS ?? (env as any)?.SUMMARY_MAX_TOKENS ?? 800,
+        temperature: (env as any)?.OPENAI_TEMPERATURE ?? (env as any)?.SUMMARY_TEMPERATURE ?? 0.1,
+        topP: (env as any)?.OPENAI_TOP_P ?? (env as any)?.SUMMARY_TOP_P ?? 0.9,
+      };
+
+      if ((env as any)?.OPENAI_FREQUENCY_PENALTY !== undefined || (env as any)?.SUMMARY_FREQUENCY_PENALTY !== undefined) {
+        options.frequencyPenalty = (env as any)?.OPENAI_FREQUENCY_PENALTY ?? (env as any)?.SUMMARY_FREQUENCY_PENALTY;
+      }
+      if ((env as any)?.OPENAI_SEED !== undefined || (env as any)?.SUMMARY_SEED !== undefined) {
+        options.seed = (env as any)?.OPENAI_SEED ?? (env as any)?.SUMMARY_SEED;
+      }
+
+      // Add reasoning_effort for GPT-5 models
+      if (this.isGPT5Model(this.model)) {
+        options.reasoningEffort = 'medium';
+      }
+
+      if (env) {
+        Logger.debug(env, 'OpenAI criminal code analysis: request options', {
+          model: this.model,
+          finalOptions: options
+        });
+      }
+
+      const response = await this.callOpenAI(messages, options, !this.isGPT5Model(this.model));
+      const result = response.choices[0].message.content?.trim() || '';
+
+      if (env) {
+        Logger.debug(env, 'OpenAI criminal code analysis: raw response received', {
+          provider: 'openai',
+          responseLength: result.length,
+          tokensUsed: response.usage?.total_tokens || 0,
+          cachedTokens: response.usage?.prompt_tokens_details?.cached_tokens || 0,
+          finishReason: response.choices[0].finish_reason,
+          isEmpty: result === ''
+        });
+      }
+
+      // Check if response was filtered by OpenAI
+      if (response.choices[0].finish_reason === 'content_filter') {
+        if (env) {
+          Logger.warn('OpenAI criminal code analysis: content filtered by OpenAI', {
+            provider: 'openai',
+            finishReason: response.choices[0].finish_reason
+          });
+        }
+
+        return {
+          hasViolations: false,
+          violations: [],
+          totalSeverity: 0,
+          riskLevel: 'low',
+          analysisTimestamp: Date.now()
+        };
+      }
+
+      // Parse JSON response
+      const parsedResult = this.parseCriminalCodeResponse(result);
+
+      const duration = Date.now() - startTime;
+      if (env) {
+        Logger.debug(env, 'OpenAI criminal code analysis: completed successfully', {
+          provider: 'openai',
+          duration,
+          hasViolations: parsedResult.hasViolations,
+          violationsFound: parsedResult.violations.length,
+          tokensUsed: response.usage?.total_tokens || 0
+        });
+      }
+
+      return parsedResult;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+
+      if (env) {
+        Logger.error('OpenAI criminal code analysis: failed', {
+          provider: 'openai',
+          model: this.model,
+          providerType: this.providerType,
+          textLength: text.length,
+          duration,
+          error: error.message || String(error),
+          errorType: error.constructor.name,
+          stack: error.stack
+        });
+      }
+
+      if (error instanceof ProviderError) {
+        throw error;
+      }
+      throw new ProviderError(
+        `OpenAI criminal code analysis error: ${error.message || String(error)}`,
+        'openai',
+        error
+      );
+    }
+  }
+
+  private parseCriminalCodeResponse(response: string): CriminalAnalysisResult {
+    try {
+      // Handle empty response
+      if (!response || response.trim() === '') {
+        Logger.warn('OpenAI criminal code analysis: empty response received (likely content filtered)', {
+          provider: 'openai',
+          rawResponse: response
+        });
+
+        return {
+          hasViolations: false,
+          violations: [],
+          totalSeverity: 0,
+          riskLevel: 'low',
+          analysisTimestamp: Date.now()
+        };
+      }
+
+      // Clean up response - remove any markdown formatting or extra text
+      let cleanResponse = response.trim();
+
+      // Find JSON content between curly braces
+      const jsonMatch = cleanResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanResponse = jsonMatch[0];
+      }
+
+      const parsed = JSON.parse(cleanResponse);
+
+      // Validate response structure
+      if (typeof parsed.hasViolations !== 'boolean') {
+        throw new Error('Invalid response: hasViolations must be boolean');
+      }
+
+      if (!Array.isArray(parsed.violations)) {
+        throw new Error('Invalid response: violations must be array');
+      }
+
+      // Validate each violation entry
+      for (const violation of parsed.violations) {
+        if (typeof violation.article !== 'string' || typeof violation.quote !== 'string' ||
+            typeof violation.punishment !== 'string') {
+          throw new Error('Invalid response: violation entries must have string article, quote, punishment');
+        }
+        if (typeof violation.severity !== 'number' || violation.severity < 1 || violation.severity > 10) {
+          throw new Error('Invalid response: severity must be number between 1 and 10');
+        }
+        if (typeof violation.confidence !== 'number' || violation.confidence < 0 || violation.confidence > 1) {
+          throw new Error('Invalid response: confidence must be number between 0 and 1');
+        }
+      }
+
+      return parsed as CriminalAnalysisResult;
+    } catch (error) {
+      Logger.error('OpenAI criminal code analysis: response parsing failed', {
+        provider: 'openai',
+        rawResponse: response,
+        error: error instanceof Error ? error.message : String(error)
+      });
+
+      // Return safe fallback on parsing errors
+      return {
+        hasViolations: false,
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: 'low',
+        analysisTimestamp: Date.now()
       };
     }
   }

@@ -1,7 +1,7 @@
 import { Env, DAY, MAX_LAST_MESSAGES } from './env';
 import type { KVNamespace, ExecutionContext } from '@cloudflare/workers-types';
 import { summariseChat, summariseChatMessages } from './summary';
-import { topChat, resetCounters, activityChart, activityByUser, profanityTopUsers, profanityWordsStats, myProfanityStats, profanityChart, resetProfanityCounters } from './stats';
+import { topChat, resetCounters, activityChart, activityByUser, profanityTopUsers, profanityWordsStats, myProfanityStats, profanityChart, resetProfanityCounters, criminalCodeStats, criminalTopUsers, myCriminalStats, resetCriminalCounters } from './stats';
 import { sendMessage } from './telegram';
 import { Logger } from './logger';
 import { ProfanityAnalyzer } from './profanity';
@@ -9,7 +9,7 @@ import { ProviderFactory } from './providers/provider-factory';
 
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
-  return env.TOKEN === 'test-token' ||
+  return env.TOKEN === 'test_token' ||
     env.OPENAI_API_KEY === 'test-openai-key' ||
     (typeof process !== 'undefined' && process.env.NODE_ENV === 'test');
 }
@@ -30,6 +30,16 @@ const HELP_TEXT = [
   '/profanity_chart_week – график мата за неделю',
   '/profanity_chart_month – график мата за месяц',
   '/profanity_reset – сбросить только счетчики мата для чата',
+  '/criminal_stats [period] – статистика нарушений УК РФ',
+  '  Примеры: /criminal_stats, /criminal_stats week, /criminal_stats month',
+  '  period: today|week|month (по умолчанию today)',
+  '/my_criminal [period] – ваша статистика нарушений УК РФ',
+  '  Примеры: /my_criminal, /my_criminal week, /my_criminal month',
+  '  period: today|week|month (по умолчанию показывает все периоды)',
+  '/criminal_top [n] [period] – топ N нарушителей УК РФ',
+  '  Примеры: /criminal_top, /criminal_top 10, /criminal_top 5 week',
+  '  n: 1-20 (по умолчанию 5), period: today|week|month (по умолчанию today)',
+  '/criminal_reset – сбросить только счетчики УК РФ для чата',
   '/reset – сбросить счетчики для чата',
   '/activity_week – график активности за неделю',
   '/activity_month – график активности за месяц',
@@ -110,11 +120,46 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   const id = env.COUNTERS_DO.idFromName(String(chatId));
 
   try {
-    await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
+    const res = await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
       method: 'POST',
       body: JSON.stringify({ chatId, userId, username, day }),
     });
-    Logger.debug(env, 'recordMessage: counter update successful', { chatId, day });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '[no-body]');
+      Logger.error('recordMessage: counter update returned non-OK status', {
+        chatId,
+        day,
+        status: res.status,
+        body: text,
+      });
+    } else {
+      // Try to parse JSON with detailed counts (new DO version)
+      let parsed: any = null;
+      let rawText: string | null = null;
+      try {
+        parsed = await res.json();
+      } catch {
+        // Fallback for legacy plain-text 'ok'
+        rawText = await res.text().catch(() => null);
+      }
+
+      if (parsed && typeof parsed === 'object') {
+        Logger.log('recordMessage: counter update successful (verified)', {
+          chatId: chatId.toString(36),
+          day,
+          userDayCount: parsed.userDayCount,
+          chatDayActivity: parsed.chatDayActivity,
+          ok: parsed.ok,
+        });
+      } else {
+        Logger.debug(env, 'recordMessage: counter update successful (legacy DO response)', {
+          chatId: chatId.toString(36),
+          day,
+          response: rawText ?? 'ok',
+        });
+      }
+    }
   } catch (error: any) {
     Logger.error('recordMessage: counter update failed', {
       chatId,
@@ -122,28 +167,106 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     });
   }
 
-  // Perform profanity analysis in background if message has text, ctx is available, not in test mode, and not a command
-  if (msg.text && ctx && !isTestEnvironment(env) && !msg.text.startsWith('/')) {
-    Logger.debug(env, 'recordMessage: scheduling profanity analysis', {
-      chatId,
-      userId,
+  // Schedule profanity analysis in background (fire-and-forget)
+  // Only for text messages that are not commands and not in test environment
+  Logger.log('PROFANITY ANALYSIS CHECK', {
+    hasText: !!msg.text,
+    isCommand: msg.text?.startsWith('/'),
+    isTestEnv: isTestEnvironment(env),
+    chatId: chatId.toString(36)
+  });
+  
+  if (msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
+    Logger.log('STARTING PROFANITY ANALYSIS', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
       username,
-      textPreview: msg.text.substring(0, 50),
-      isCommand: msg.text.startsWith('/'),
-      day
+      messageId: msg.message_id,
+      textLength: msg.text.length
     });
-    ctx.waitUntil(analyzeProfanityAsync(msg, env, chatId, userId, username, day));
-  } else {
-    Logger.debug(env, 'recordMessage: skipping profanity analysis', {
-      chatId,
-      userId,
+    
+    Logger.debug(env, 'Scheduling profanity analysis for message', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
       username,
+      messageId: msg.message_id,
+      textLength: msg.text.length
+    });
+    
+    // Fire-and-forget: don't await this
+    const profanityPromise = analyzeProfanityAsync(msg, env, chatId, userId, username, day).catch(error => {
+    Logger.error('Background profanity analysis failed', {
+    chatId: chatId.toString(36),
+    userId: userId.toString(36),
+    username,
+    messageId: msg.message_id,
+    error: error.message || String(error)
+    });
+    });
+    // Ensure background task isn't cut off when the request finishes
+    if (ctx) {
+    ctx.waitUntil(profanityPromise);
+    } else {
+    void profanityPromise;
+    }
+  } else {
+    Logger.debug(env, 'Skipping profanity analysis', {
+      chatId: chatId.toString(36),
       hasText: !!msg.text,
-      hasCtx: !!ctx,
-      isTestEnv: isTestEnvironment(env),
+      isTest: isTestEnvironment(env),
+      reason: !msg.text ? 'no-text' : 'test-environment'
+    });
+  }
+
+  // Schedule criminal code analysis in background (fire-and-forget)
+    // Only for text messages that are not commands and not in test environment
+    Logger.log('CRIMINAL CODE ANALYSIS CHECK', {
+      hasText: !!msg.text,
       isCommand: msg.text?.startsWith('/'),
-      textPreview: msg.text?.substring(0, 50),
-      day
+      isTestEnv: isTestEnvironment(env),
+      chatId: chatId.toString(36)
+    });
+    
+    if (msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
+      Logger.log('STARTING CRIMINAL CODE ANALYSIS', {
+        chatId: chatId.toString(36),
+        userId: userId.toString(36),
+        username,
+        messageId: msg.message_id,
+        textLength: msg.text.length
+      });
+      
+      Logger.debug(env, 'Scheduling criminal code analysis for message', {
+        chatId: chatId.toString(36),
+        userId: userId.toString(36),
+        username,
+        messageId: msg.message_id,
+        textLength: msg.text.length
+      });
+    
+    // Fire-and-forget: don't await this
+    const criminalPromise = analyzeCriminalCodeAsync(msg, env, chatId, userId, username, day).catch(error => {
+    Logger.error('Background criminal code analysis failed', {
+    chatId: chatId.toString(36),
+    userId: userId.toString(36),
+    username,
+    messageId: msg.message_id,
+    error: error.message || String(error)
+    });
+    });
+    // Ensure background task isn't cut off when the request finishes
+    if (ctx) {
+    ctx.waitUntil(criminalPromise);
+    } else {
+    void criminalPromise;
+    }
+  } else {
+    Logger.debug(env, 'Skipping criminal code analysis', {
+      chatId: chatId.toString(36),
+      hasText: !!msg.text,
+      isCommand: msg.text?.startsWith('/'),
+      isTest: isTestEnvironment(env),
+      reason: !msg.text ? 'no-text' : msg.text?.startsWith('/') ? 'is-command' : 'test-environment'
     });
   }
 }
@@ -156,6 +279,14 @@ async function analyzeProfanityAsync(
   username: string,
   day: string
 ): Promise<void> {
+  Logger.log('PROFANITY ANALYSIS FUNCTION STARTED', {
+    chatId: chatId.toString(36),
+    userId: userId.toString(36),
+    username,
+    day,
+    textLength: msg.text?.length
+  });
+  
   const startTime = Date.now();
   const timings: Record<string, number> = {};
 
@@ -181,16 +312,23 @@ async function analyzeProfanityAsync(
       messageId: msg.message_id,
       timestamp: new Date().toISOString(),
       day,
-      textPreview: msg.text?.substring(0, 100),
       isCommand: msg.text?.startsWith('/'),
       fullText: msg.text // Временно для отладки
     });
 
     // Create AI provider and profanity analyzer
     const providerStart = Date.now();
+    Logger.log('PROFANITY: Creating AI provider', {
+      chatId: chatId.toString(36),
+      textLength: msg.text?.length
+    });
     const aiProvider = ProviderFactory.createProvider(env);
     const profanityAnalyzer = new ProfanityAnalyzer(aiProvider);
     timings.providerCreation = Date.now() - providerStart;
+    Logger.log('PROFANITY: AI provider created successfully', {
+      chatId: chatId.toString(36),
+      creationTime: timings.providerCreation
+    });
 
     Logger.debug(env, 'Profanity analysis: provider and analyzer created', {
       chatId: chatId.toString(36),
@@ -200,8 +338,17 @@ async function analyzeProfanityAsync(
 
     // Analyze message for profanity
     const analysisStart = Date.now();
+    Logger.log('PROFANITY: Starting analysis', {
+      chatId: chatId.toString(36)
+    });
     const profanityResult = await profanityAnalyzer.analyzeMessage(msg.text, env);
     timings.analysis = Date.now() - analysisStart;
+    Logger.log('PROFANITY: Analysis completed', {
+      chatId: chatId.toString(36),
+      analysisTime: timings.analysis,
+      hasProfanity: profanityResult.totalCount > 0,
+      totalCount: profanityResult.totalCount
+    });
 
     Logger.debug(env, 'Profanity analysis: analysis phase completed', {
       chatId: chatId.toString(36),
@@ -327,6 +474,127 @@ function determineBackgroundErrorPhase(timings: Record<string, number>): string 
   return 'initialization';
 }
 
+async function analyzeCriminalCodeAsync(
+  msg: any,
+  env: Env,
+  chatId: number,
+  userId: number,
+  username: string,
+  day: string
+): Promise<void> {
+  Logger.log('CRIMINAL CODE ANALYSIS FUNCTION STARTED', {
+    chatId: chatId.toString(36),
+    userId: userId.toString(36),
+    username,
+    day,
+    textLength: msg.text?.length
+  });
+  
+  const startTime = Date.now();
+
+  // КРИТИЧЕСКАЯ ПРОВЕРКА: команды НЕ должны попадать сюда!
+  if (msg.text?.startsWith('/')) {
+    Logger.error('CRITICAL: Command reached criminal code analysis - this should never happen!', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
+      username,
+      command: msg.text,
+      messageId: msg.message_id
+    });
+    return; // Немедленный выход для команд
+  }
+
+  try {
+    Logger.debug(env, 'Criminal code analysis: starting background processing', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
+      username,
+      textLength: msg.text?.length || 0,
+      messageId: msg.message_id,
+      timestamp: new Date().toISOString()
+    });
+
+    // Get CriminalCodeAnalyzerDO instance
+    const analyzerStart = Date.now();
+    const analyzerId = env.CRIMINAL_CODE_ANALYZER_DO.idFromName(String(chatId));
+    const analyzer = env.CRIMINAL_CODE_ANALYZER_DO.get(analyzerId);
+    const analyzerCreationTime = Date.now() - analyzerStart;
+
+    Logger.debug(env, 'Criminal code analysis: analyzer instance created', {
+      chatId: chatId.toString(36),
+      creationTime: analyzerCreationTime
+    });
+
+    // Perform analysis
+    const analysisStart = Date.now();
+    const response = await analyzer.fetch('https://do/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        text: msg.text,
+        chatId,
+        userId,
+        messageId: msg.message_id,
+        username,
+        day
+      })
+    });
+    const analysisTime = Date.now() - analysisStart;
+
+    if (response.ok) {
+      const result: any = await response.json();
+      const totalDuration = Date.now() - startTime;
+
+      if (result.hasViolations) {
+        Logger.log('Criminal code analysis: violations detected', {
+          chatId: chatId.toString(36),
+          userId: userId.toString(36),
+          username,
+          violationsCount: result.violations?.length || 0,
+          riskLevel: result.riskLevel,
+          confidence: result.confidence,
+          timings: {
+            analyzerCreation: analyzerCreationTime,
+            analysis: analysisTime,
+            total: totalDuration
+          },
+          articles: result.violations?.map((v: any) => v.article).join(', ') || 'unknown'
+        });
+      } else {
+        Logger.debug(env, 'Criminal code analysis: no violations detected', {
+          chatId: chatId.toString(36),
+          userId: userId.toString(36),
+          confidence: result.confidence,
+          timings: {
+            analyzerCreation: analyzerCreationTime,
+            analysis: analysisTime,
+            total: totalDuration
+          }
+        });
+      }
+    } else {
+      const errorText = await response.text().catch(() => 'Unable to read response');
+      throw new Error(`Criminal code analysis failed with status: ${response.status}, response: ${errorText}`);
+    }
+  } catch (error: any) {
+    const totalDuration = Date.now() - startTime;
+
+    // Log error but don't throw - criminal code analysis failures shouldn't break message processing
+    Logger.error('Criminal code analysis: background processing failed', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
+      username,
+      messageId: msg.message_id,
+      textLength: msg.text?.length || 0,
+      duration: totalDuration,
+      error: error.message || String(error),
+      stack: error.stack
+    });
+  }
+}
+
 export async function handleUpdate(msg: any, env: Env) {
   if (!msg) return;
   const chatId = msg.chat.id;
@@ -418,6 +686,23 @@ export async function handleUpdate(msg: any, env: Env) {
     } catch (error: any) {
       await sendMessage(env, chatId, `Ошибка при выполнении тестов: ${error.message}`);
     }
+  } else if (msg.text.startsWith('/criminal_stats')) {
+    const args = msg.text.split(' ');
+    const period = args[1] || 'today';
+    await criminalCodeStats(env, chatId, period);
+  } else if (msg.text.startsWith('/my_criminal')) {
+    const args = msg.text.split(' ');
+    const period = args[1];
+    const userId = msg.from?.id || 0;
+    await myCriminalStats(env, chatId, userId, period);
+  } else if (msg.text.startsWith('/criminal_top')) {
+    const args = msg.text.split(' ');
+    const count = parseInt(args[1]) || 5;
+    const period = args[2] || 'today';
+    await criminalTopUsers(env, chatId, count, period);
+  } else if (msg.text.startsWith('/criminal_reset')) {
+    await resetCriminalCounters(env, chatId);
+    await sendMessage(env, chatId, 'Счетчики нарушений УК РФ сброшены');
   } else if (msg.text.startsWith('/help')) {
     await sendMessage(env, chatId, HELP_TEXT);
   }

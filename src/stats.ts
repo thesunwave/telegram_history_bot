@@ -803,3 +803,310 @@ function formatProfanityActivityText(data: { label: string; value: number }[], t
   
   return `${title}\n${text}\nВсего: ${total}`;
 }
+
+// Criminal Code analysis statistics interfaces
+export interface UserCriminalStat {
+  userId: number;
+  username: string;
+  count: number;
+}
+
+export interface UserPersonalCriminalStats {
+  today: number;
+  week: number;
+  month: number;
+}
+
+// Get top users by criminal violations count for a specific period
+export async function getTopCriminalUsers(
+  env: Env,
+  chatId: number,
+  limit: number = 5,
+  period: string = 'today'
+): Promise<UserCriminalStat[]> {
+  const { startStr } = getDateRange(period);
+  const prefix = `criminal:${chatId}:`;
+  let cursor: string | undefined = undefined;
+  const totals: Record<string, number> = {};
+
+  do {
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    const values = await Promise.all(
+      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
+    );
+    for (let i = 0; i < list.keys.length; i++) {
+      const [_, chat, user, day] = list.keys[i].name.split(':');
+      if (day >= startStr) {
+        const count = parseInt(values[i] || '0', 10);
+        totals[user] = (totals[user] || 0) + count;
+      }
+    }
+  } while (cursor);
+
+  const sorted = Object.entries(totals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit);
+
+  const result: UserCriminalStat[] = [];
+  const usernames = await Promise.all(
+    sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`)),
+  );
+
+  for (let i = 0; i < sorted.length; i++) {
+    const [userId, count] = sorted[i];
+    const username = usernames[i] || `id${userId}`;
+    result.push({
+      userId: parseInt(userId, 10),
+      username,
+      count,
+    });
+  }
+
+  return result;
+}
+
+// Get personal criminal violations statistics for a user
+export async function getUserCriminalStats(
+  env: Env,
+  chatId: number,
+  userId: number
+): Promise<UserPersonalCriminalStats> {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().slice(0, 10);
+  
+  const weekStart = new Date(today);
+  weekStart.setUTCDate(weekStart.getUTCDate() - WEEK_DAYS);
+  const weekStartStr = weekStart.toISOString().slice(0, 10);
+  
+  const monthStart = new Date(today);
+  monthStart.setUTCDate(monthStart.getUTCDate() - MONTH_DAYS);
+  const monthStartStr = monthStart.toISOString().slice(0, 10);
+
+  const prefix = `criminal:${chatId}:${userId}:`;
+  let cursor: string | undefined = undefined;
+  let todayCount = 0;
+  let weekCount = 0;
+  let monthCount = 0;
+
+  do {
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    const values = await Promise.all(
+      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
+    );
+    for (let i = 0; i < list.keys.length; i++) {
+      const [_, chat, user, day] = list.keys[i].name.split(':');
+      const count = parseInt(values[i] || '0', 10);
+      
+      if (day === todayStr) {
+        todayCount += count;
+      }
+      if (day >= weekStartStr) {
+        weekCount += count;
+      }
+      if (day >= monthStartStr) {
+        monthCount += count;
+      }
+    }
+  } while (cursor);
+
+  return {
+    today: todayCount,
+    week: weekCount,
+    month: monthCount,
+  };
+}
+
+// Command handler for criminal code top users
+export async function criminalTopUsers(
+  env: Env,
+  chatId: number,
+  count: number = 5,
+  period: string = 'today'
+) {
+  // Validate parameters
+  const validPeriods = ['today', 'week', 'month'];
+  if (!validPeriods.includes(period)) {
+    await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
+    return;
+  }
+
+  const limit = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
+  
+  try {
+    const topUsers = await getTopCriminalUsers(env, chatId, limit, period);
+    
+    if (topUsers.length === 0) {
+      await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
+      return;
+    }
+
+    const periodText = period === 'today' ? 'сегодня' : 
+                     period === 'week' ? 'за неделю' : 'за месяц';
+    
+    const lines = [`Топ нарушителей УК РФ ${periodText}:`];
+    for (let i = 0; i < topUsers.length; i++) {
+      const user = topUsers[i];
+      lines.push(`${i + 1}. ${user.username}: ${user.count}`);
+    }
+    
+    const text = lines.join('\n');
+    await sendMessage(env, chatId, text);
+  } catch (error: any) {
+    console.error('criminal top users error', {
+      chatId,
+      error: error.message || String(error)
+    });
+    await sendMessage(env, chatId, 'Ошибка при получении топа нарушителей');
+  }
+}
+
+// Command handler for personal criminal statistics
+export async function myCriminalStats(
+  env: Env,
+  chatId: number,
+  userId: number,
+  period?: string
+) {
+  try {
+    if (period) {
+      // Show stats for specific period
+      const validPeriods = ['today', 'week', 'month'];
+      if (!validPeriods.includes(period)) {
+        await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
+        return;
+      }
+
+      const stats = await getUserCriminalStats(env, chatId, userId);
+      let count: number;
+      let periodText: string;
+
+      switch (period) {
+        case 'today':
+          count = stats.today;
+          periodText = 'сегодня';
+          break;
+        case 'week':
+          count = stats.week;
+          periodText = 'за неделю';
+          break;
+        case 'month':
+          count = stats.month;
+          periodText = 'за месяц';
+          break;
+        default:
+          count = stats.today;
+          periodText = 'сегодня';
+      }
+
+      if (count === 0) {
+        await sendMessage(env, chatId, `У вас чистая речь ${periodText}!`);
+      } else {
+        await sendMessage(env, chatId, `Ваша статистика ${periodText}: ${count} нарушений УК РФ`);
+      }
+    } else {
+      // Show stats for all periods
+      const stats = await getUserCriminalStats(env, chatId, userId);
+      
+      if (stats.today === 0 && stats.week === 0 && stats.month === 0) {
+        await sendMessage(env, chatId, 'У вас чистая речь!');
+        return;
+      }
+
+      const lines = [
+        'Ваша статистика нарушений УК РФ:',
+        `Сегодня: ${stats.today}`,
+        `За неделю: ${stats.week}`,
+        `За месяц: ${stats.month}`
+      ];
+      
+      const text = lines.join('\n');
+      await sendMessage(env, chatId, text);
+    }
+  } catch (error: any) {
+    console.error('my criminal stats error', {
+      chatId,
+      userId,
+      error: error.message || String(error)
+    });
+    await sendMessage(env, chatId, 'Ошибка при получении вашей статистики');
+  }
+}
+
+// Command handler for criminal code statistics
+export async function criminalCodeStats(
+  env: Env,
+  chatId: number,
+  period: string = 'today'
+) {
+  // Validate parameters
+  const validPeriods = ['today', 'week', 'month'];
+  if (!validPeriods.includes(period)) {
+    await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
+    return;
+  }
+  
+  try {
+    const topUsers = await getTopCriminalUsers(env, chatId, 10, period);
+    
+    if (topUsers.length === 0) {
+      await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
+      return;
+    }
+
+    const periodText = period === 'today' ? 'сегодня' : 
+                     period === 'week' ? 'за неделю' : 'за месяц';
+    
+    const lines = [`Статистика нарушений УК РФ ${periodText}:`];
+    const totalViolations = topUsers.reduce((sum, user) => sum + user.count, 0);
+    
+    for (let i = 0; i < Math.min(topUsers.length, 10); i++) {
+      const user = topUsers[i];
+      lines.push(`${i + 1}. ${user.username}: ${user.count}`);
+    }
+    
+    lines.push(`\nВсего нарушений: ${totalViolations}`);
+    
+    const text = lines.join('\n');
+    await sendMessage(env, chatId, text);
+  } catch (error: any) {
+    console.error('criminal code stats error', {
+      chatId,
+      error: error.message || String(error)
+    });
+    await sendMessage(env, chatId, 'Ошибка при получении статистики УК РФ');
+  }
+}
+
+// Reset only criminal code counters for a chat
+export async function resetCriminalCounters(env: Env, chatId: number) {
+  // Reset criminal user counters
+  const cPrefix = `criminal:${chatId}:`;
+  let cursor: string | undefined = undefined;
+  do {
+    const list: any = await env.COUNTERS.list({ prefix: cPrefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    for (const key of list.keys) {
+      await env.COUNTERS.delete(key.name);
+    }
+  } while (cursor);
+  
+  // Reset criminal violations in database if available
+  if (env.DB) {
+    try {
+      await env.DB.prepare('DELETE FROM criminal_violations WHERE chat_id = ?')
+        .bind(chatId)
+        .run();
+      await env.DB.prepare('DELETE FROM violation_stats WHERE chat_id = ?')
+        .bind(chatId)
+        .run();
+    } catch (e) {
+      console.error('criminal reset db error', {
+        chat: chatId.toString(36),
+        err: (e as Error).message || String(e),
+      });
+    }
+  }
+}
