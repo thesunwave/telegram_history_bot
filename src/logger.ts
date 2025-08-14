@@ -122,7 +122,20 @@ export class Logger {
     }
   }
 
-  static warn(message: string, data?: any): void {
+  static warn(message: string, data?: any): void;
+  static warn(env: Env, message: string, data?: any): void;
+  static warn(arg1: string | Env, arg2?: any, arg3?: any): void {
+    let message: string;
+    let data: any | undefined;
+
+    if (typeof arg1 === "string") {
+      message = arg1;
+      data = arg2;
+    } else {
+      message = arg2 as string;
+      data = arg3;
+    }
+
     if (data) {
       console.warn(message, data);
     } else {
@@ -138,13 +151,7 @@ export class Logger {
     }
   }
 
-  static warn(env: Env, message: string, data?: any): void {
-    if (data) {
-      console.warn(message, data);
-    } else {
-      console.warn(message);
-    }
-  }
+  // Removed duplicate warn implementation; unified via overloads above
 
   static info(env: Env, message: string, data?: any): void {
     if (data) {
