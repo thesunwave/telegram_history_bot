@@ -21,7 +21,7 @@ import { validateViolationAnalysis, ValidationError } from './models/validation'
  * Интерфейс основного обработчика нарушений
  */
 export interface IViolationHandler {
-  formatViolationMessage(analysis: ViolationAnalysis): Promise<string>;
+  formatViolationMessage(analysis: ViolationAnalysis, userId?: string, chatId?: string): Promise<string>;
   getUserStats(userId: string, chatId: string): Promise<string>;
   getPeriodStats(chatId: string, days: number): Promise<string>;
   getGeneralStats(chatId: string): Promise<string>;
@@ -50,7 +50,7 @@ export class ViolationHandler implements IViolationHandler {
    * Форматирует сообщение о нарушении с использованием MessageFormatter
    * Сохраняет данные через ViolationRepository
    */
-  async formatViolationMessage(analysis: ViolationAnalysis): Promise<string> {
+  async formatViolationMessage(analysis: ViolationAnalysis, userId?: string, chatId?: string): Promise<string> {
     try {
       // Валидация входных данных
       this.validateViolationAnalysis(analysis);
@@ -59,8 +59,8 @@ export class ViolationHandler implements IViolationHandler {
       const formattedMessage = this.messageFormatter.formatViolationAnalysis(analysis);
 
       // Сохраняем нарушения в базу данных (если есть)
-      if (analysis.hasViolations && analysis.violations.length > 0) {
-        await this.saveViolations(analysis.violations);
+      if (analysis.hasViolations && analysis.violations.length > 0 && userId && chatId) {
+        await this.saveViolations(analysis.violations, userId, chatId);
       }
 
       return formattedMessage;
