@@ -148,16 +148,25 @@ export class MessageFormatter implements IMessageFormatter {
    * Formats user statistics
    */
   formatUserStats(stats: UserStats): string {
+    // Handle null/undefined stats
+    if (!stats) {
+      return '❌ ' + this.htmlBuilder.bold('Ошибка: данные статистики недоступны');
+    }
+
     const lines = [
       '📊 ' + this.htmlBuilder.bold('Статистика пользователя'),
       '',
-      `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations}`,
-      `${this.htmlBuilder.bold('Средняя серьезность:')} ${stats.averageSeverity.toFixed(1)}/10`,
-      `${this.htmlBuilder.bold('Уровень риска:')} ${this.formatRiskLevel(stats.riskLevel)}`
+      `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations || 0}`,
+      `${this.htmlBuilder.bold('Средняя серьезность:')} ${(stats.averageSeverity || 0).toFixed(1)}/10`,
+      `${this.htmlBuilder.bold('Уровень риска:')} ${this.formatRiskLevel(stats.riskLevel || 'low')}`
     ];
 
     if (stats.lastViolationDate) {
-      lines.push(`${this.htmlBuilder.bold('Последнее нарушение:')} ${stats.lastViolationDate.toLocaleDateString('ru-RU')}`);
+      try {
+        lines.push(`${this.htmlBuilder.bold('Последнее нарушение:')} ${stats.lastViolationDate.toLocaleDateString('ru-RU')}`);
+      } catch (dateError) {
+        console.warn('⚠️ Invalid lastViolationDate:', dateError);
+      }
     }
 
     lines.push('');
@@ -167,18 +176,36 @@ export class MessageFormatter implements IMessageFormatter {
       lines.push('');
     }
 
+    // Handle empty violations case
+    if (stats.totalViolations === 0) {
+      lines.push(this.htmlBuilder.italic('У пользователя пока нет нарушений'));
+      return lines.join('\n');
+    }
+
     // Group violations by article
-    if (stats.violationsByArticle.length > 0) {
+    if (stats.violationsByArticle && stats.violationsByArticle.length > 0) {
       lines.push(this.htmlBuilder.bold('Нарушения по статьям УК РФ:'));
       
       // Sort by count (descending)
       const sortedViolations = [...stats.violationsByArticle]
-        .sort((a, b) => b.count - a.count);
+        .filter(v => v && v.article && v.count > 0) // Filter out invalid entries
+        .sort((a, b) => (b.count || 0) - (a.count || 0));
       
-      sortedViolations.forEach(({ article, count, averageSeverity }) => {
-        const severityEmoji = this.getSeverityEmoji(Math.floor(averageSeverity));
-        lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count} раз ${severityEmoji} (ср. ${averageSeverity.toFixed(1)})`);
-      });
+      if (sortedViolations.length > 0) {
+        sortedViolations.forEach(({ article, count, averageSeverity }) => {
+          try {
+            const severityEmoji = this.getSeverityEmoji(Math.floor(averageSeverity || 1));
+            lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count} раз ${severityEmoji} (ср. ${(averageSeverity || 0).toFixed(1)})`);
+          } catch (emojiError) {
+            console.warn('⚠️ Error formatting violation:', emojiError);
+            lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count} раз (ср. ${(averageSeverity || 0).toFixed(1)})`);
+          }
+        });
+      } else {
+        lines.push(this.htmlBuilder.italic('Детали нарушений недоступны'));
+      }
+    } else {
+      lines.push(this.htmlBuilder.italic('Детали нарушений недоступны'));
     }
 
     return lines.join('\n');
@@ -188,33 +215,56 @@ export class MessageFormatter implements IMessageFormatter {
    * Formats period statistics with trends
    */
   formatPeriodStats(stats: PeriodStats): string {
+    // Handle null/undefined stats
+    if (!stats) {
+      return '❌ ' + this.htmlBuilder.bold('Ошибка: данные статистики за период недоступны');
+    }
+
     const lines = [
       '📈 ' + this.htmlBuilder.bold('Статистика за период'),
-      '',
-      `${this.htmlBuilder.bold('Период:')} ${stats.startDate.toLocaleDateString('ru-RU')} - ${stats.endDate.toLocaleDateString('ru-RU')}`,
-      `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations}`,
-      `${this.htmlBuilder.bold('Уникальных пользователей:')} ${stats.uniqueUsers}`,
-      `${this.htmlBuilder.bold('Средняя серьезность:')} ${stats.averageSeverity.toFixed(1)}/10`,
       ''
     ];
+
+    // Safe date formatting
+    try {
+      const startDateStr = stats.startDate ? stats.startDate.toLocaleDateString('ru-RU') : 'неизвестно';
+      const endDateStr = stats.endDate ? stats.endDate.toLocaleDateString('ru-RU') : 'неизвестно';
+      lines.push(`${this.htmlBuilder.bold('Период:')} ${startDateStr} - ${endDateStr}`);
+    } catch (dateError) {
+      console.warn('⚠️ Error formatting period dates:', dateError);
+      lines.push(`${this.htmlBuilder.bold('Период:')} данные недоступны`);
+    }
+
+    lines.push(
+      `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations || 0}`,
+      `${this.htmlBuilder.bold('Уникальных пользователей:')} ${stats.uniqueUsers || 0}`,
+      `${this.htmlBuilder.bold('Средняя серьезность:')} ${(stats.averageSeverity || 0).toFixed(1)}/10`,
+      ''
+    );
+
+    // Handle empty period case
+    if ((stats.totalViolations || 0) === 0) {
+      lines.push(this.htmlBuilder.italic('За указанный период нарушений не зафиксировано'));
+      return lines.join('\n');
+    }
 
     // Add comparison with previous period
     if (stats.comparisonWithPreviousPeriod) {
       const { violationsChange, severityChange, usersChange } = stats.comparisonWithPreviousPeriod;
       
-      if (violationsChange !== 0) {
+      if (typeof violationsChange === 'number' && violationsChange !== 0) {
         const changeEmoji = violationsChange > 0 ? '📈' : '📉';
         const changeText = violationsChange > 0 ? 'увеличение' : 'уменьшение';
         lines.push(`${changeEmoji} ${this.htmlBuilder.bold('Изменение количества:')} ${changeText} на ${Math.abs(violationsChange).toFixed(1)}%`);
       }
 
-      if (severityChange !== 0) {
+      if (typeof severityChange === 'number' && severityChange !== 0) {
         const changeEmoji = severityChange > 0 ? '⬆️' : '⬇️';
         const changeText = severityChange > 0 ? 'повышение' : 'снижение';
         lines.push(`${changeEmoji} ${this.htmlBuilder.bold('Изменение серьезности:')} ${changeText} на ${Math.abs(severityChange).toFixed(1)}`);
       }
 
-      if (usersChange !== 0) {
+      if (typeof usersChange === 'number' && usersChange !== 0) {
         const changeEmoji = usersChange > 0 ? '👥📈' : '👥📉';
         const changeText = usersChange > 0 ? 'увеличение' : 'уменьшение';
         lines.push(`${changeEmoji} ${this.htmlBuilder.bold('Изменение пользователей:')} ${changeText} на ${Math.abs(usersChange).toFixed(1)}%`);
@@ -222,17 +272,27 @@ export class MessageFormatter implements IMessageFormatter {
     }
 
     // Group violations by article
-    if (stats.violationsByArticle.length > 0) {
+    if (stats.violationsByArticle && stats.violationsByArticle.length > 0) {
       lines.push('', this.htmlBuilder.bold('Нарушения по статьям УК РФ:'));
       
-      // Sort by count (descending)
+      // Sort by count (descending) and filter out invalid entries
       const sortedViolations = [...stats.violationsByArticle]
-        .sort((a, b) => b.count - a.count);
+        .filter(v => v && v.article && (v.count || 0) > 0)
+        .sort((a, b) => (b.count || 0) - (a.count || 0));
       
-      sortedViolations.forEach(({ article, count, averageSeverity }) => {
-        const severityEmoji = this.getSeverityEmoji(Math.floor(averageSeverity));
-        lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count} раз ${severityEmoji} (ср. ${averageSeverity.toFixed(1)})`);
-      });
+      if (sortedViolations.length > 0) {
+        sortedViolations.forEach(({ article, count, averageSeverity }) => {
+          try {
+            const severityEmoji = this.getSeverityEmoji(Math.floor(averageSeverity || 1));
+            lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count || 0} раз ${severityEmoji} (ср. ${(averageSeverity || 0).toFixed(1)})`);
+          } catch (emojiError) {
+            console.warn('⚠️ Error formatting period violation:', emojiError);
+            lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count || 0} раз (ср. ${(averageSeverity || 0).toFixed(1)})`);
+          }
+        });
+      } else {
+        lines.push(this.htmlBuilder.italic('Детали нарушений недоступны'));
+      }
     }
 
     return lines.join('\n');
@@ -242,60 +302,113 @@ export class MessageFormatter implements IMessageFormatter {
    * Formats general statistics with top violations and users
    */
   formatGeneralStats(stats: GeneralStats): string {
+    // Handle null/undefined stats
+    if (!stats) {
+      return '❌ ' + this.htmlBuilder.bold('Ошибка: данные общей статистики недоступны');
+    }
+
     const lines = [
       '📊 ' + this.htmlBuilder.bold('Общая статистика чата'),
       '',
-      `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations}`,
-      `${this.htmlBuilder.bold('Средняя серьезность:')} ${stats.averageSeverity.toFixed(1)}/10`,
-      `${this.htmlBuilder.bold('Общий уровень риска:')} ${this.formatRiskLevel(stats.overallRiskLevel)}`,
+      `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations || 0}`,
+      `${this.htmlBuilder.bold('Средняя серьезность:')} ${(stats.averageSeverity || 0).toFixed(1)}/10`,
+      `${this.htmlBuilder.bold('Общий уровень риска:')} ${this.formatRiskLevel(stats.overallRiskLevel || 'low')}`,
       ''
     ];
 
+    // Handle empty stats case
+    if ((stats.totalViolations || 0) === 0) {
+      lines.push(this.htmlBuilder.italic('В чате пока не зафиксировано нарушений'));
+      return lines.join('\n');
+    }
+
     // Top 5 violations
-    if (stats.topViolations.length > 0) {
+    if (stats.topViolations && stats.topViolations.length > 0) {
       lines.push(this.htmlBuilder.bold('🏆 Топ-5 самых частых нарушений:'));
       
-      stats.topViolations.slice(0, 5).forEach((violation, index) => {
-        const position = index + 1;
-        const positionEmoji = this.getPositionEmoji(position);
-        const severityEmoji = this.getSeverityEmoji(Math.floor(violation.averageSeverity));
-        
-        lines.push(`${positionEmoji} ${this.htmlBuilder.bold(`Статья ${violation.article}:`)} ${violation.count} раз ${severityEmoji} (ср. ${violation.averageSeverity.toFixed(1)})`);
-      });
+      const validViolations = stats.topViolations
+        .filter(v => v && v.article && (v.count || 0) > 0)
+        .slice(0, 5);
+      
+      if (validViolations.length > 0) {
+        validViolations.forEach((violation, index) => {
+          try {
+            const position = index + 1;
+            const positionEmoji = this.getPositionEmoji(position);
+            const severityEmoji = this.getSeverityEmoji(Math.floor(violation.averageSeverity || 1));
+            
+            lines.push(`${positionEmoji} ${this.htmlBuilder.bold(`Статья ${violation.article}:`)} ${violation.count || 0} раз ${severityEmoji} (ср. ${(violation.averageSeverity || 0).toFixed(1)})`);
+          } catch (violationError) {
+            console.warn('⚠️ Error formatting top violation:', violationError);
+            lines.push(`${index + 1}. ${this.htmlBuilder.bold(`Статья ${violation.article}:`)} ${violation.count || 0} раз`);
+          }
+        });
+      } else {
+        lines.push(this.htmlBuilder.italic('Детали нарушений недоступны'));
+      }
       
       lines.push('');
     }
 
     // Top 5 users
-    if (stats.topUsers.length > 0) {
+    if (stats.topUsers && stats.topUsers.length > 0) {
       lines.push(this.htmlBuilder.bold('👤 Топ-5 пользователей с наибольшим количеством нарушений:'));
       
-      stats.topUsers.slice(0, 5).forEach((user, index) => {
-        const position = index + 1;
-        const positionEmoji = this.getPositionEmoji(position);
-        const riskEmoji = this.formatRiskLevel(user.riskLevel);
-        const username = user.username ? `@${user.username}` : `ID: ${user.userId}`;
-        
-        const violationsText = user.count === 1 ? 'нарушение' : 
-                              user.count < 5 ? 'нарушения' : 'нарушений';
-        lines.push(`${positionEmoji} ${this.htmlBuilder.bold(username)}: ${user.count} ${violationsText}, риск: ${riskEmoji} (ср. ${user.averageSeverity.toFixed(1)})`);
-      });
+      const validUsers = stats.topUsers
+        .filter(u => u && u.userId && (u.count || 0) > 0)
+        .slice(0, 5);
+      
+      if (validUsers.length > 0) {
+        validUsers.forEach((user, index) => {
+          try {
+            const position = index + 1;
+            const positionEmoji = this.getPositionEmoji(position);
+            const riskEmoji = this.formatRiskLevel(user.riskLevel || 'low');
+            const username = user.username ? `@${user.username}` : `ID: ${user.userId}`;
+            
+            const count = user.count || 0;
+            const violationsText = count === 1 ? 'нарушение' : 
+                                  count < 5 ? 'нарушения' : 'нарушений';
+            lines.push(`${positionEmoji} ${this.htmlBuilder.bold(username)}: ${count} ${violationsText}, риск: ${riskEmoji} (ср. ${(user.averageSeverity || 0).toFixed(1)})`);
+          } catch (userError) {
+            console.warn('⚠️ Error formatting top user:', userError);
+            const username = user.username ? `@${user.username}` : `ID: ${user.userId}`;
+            lines.push(`${index + 1}. ${this.htmlBuilder.bold(username)}: ${user.count || 0} нарушений`);
+          }
+        });
+      } else {
+        lines.push(this.htmlBuilder.italic('Данные о пользователях недоступны'));
+      }
       
       lines.push('');
     }
 
     // Critical violations (severity >= 8)
-    if (stats.criticalViolations.length > 0) {
+    if (stats.criticalViolations && stats.criticalViolations.length > 0) {
       lines.push('🚨 ' + this.htmlBuilder.bold('Критические нарушения (серьезность ≥ 8):'));
       
-      stats.criticalViolations.forEach((violation) => {
-        const severityEmoji = this.getSeverityEmoji(violation.severity);
-        lines.push(`${severityEmoji} ${this.htmlBuilder.bold(`Статья ${violation.article}:`)} серьезность ${violation.severity}/10`);
-        const truncatedQuote = violation.quote.length > 100 ? 
-          violation.quote.substring(0, 100) + '...' : 
-          violation.quote;
-        lines.push(`   ${this.htmlBuilder.italic(`"${truncatedQuote}"`)}`)
-      });
+      const validCriticalViolations = stats.criticalViolations
+        .filter(v => v && v.article && (v.severity || 0) >= 8);
+      
+      if (validCriticalViolations.length > 0) {
+        validCriticalViolations.forEach((violation) => {
+          try {
+            const severityEmoji = this.getSeverityEmoji(violation.severity || 8);
+            lines.push(`${severityEmoji} ${this.htmlBuilder.bold(`Статья ${violation.article}:`)} серьезность ${violation.severity || 8}/10`);
+            
+            const quote = violation.quote || 'Цитата недоступна';
+            const truncatedQuote = quote.length > 100 ? 
+              quote.substring(0, 100) + '...' : 
+              quote;
+            lines.push(`   ${this.htmlBuilder.italic(`"${this.escapeHtml(truncatedQuote)}"`)}`)
+          } catch (criticalError) {
+            console.warn('⚠️ Error formatting critical violation:', criticalError);
+            lines.push(`🔴 ${this.htmlBuilder.bold(`Статья ${violation.article}:`)} серьезность ${violation.severity || 8}/10`);
+          }
+        });
+      } else {
+        lines.push(this.htmlBuilder.italic('Критические нарушения не найдены'));
+      }
     }
 
     return lines.join('\n');

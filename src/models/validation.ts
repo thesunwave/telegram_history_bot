@@ -359,7 +359,7 @@ export function validateGeneralStats(generalStats: any): generalStats is General
 }
 
 /**
- * Утилитарные функции для валидации
+ * Утилитарные функции для валидации и санитизации данных
  */
 export const ValidationUtils = {
   /**
@@ -390,5 +390,215 @@ export const ValidationUtils = {
     if (averageSeverity <= 3) return 'low';
     if (averageSeverity <= 6) return 'medium';
     return 'high';
+  },
+
+  /**
+   * Санитизирует и нормализует серьезность
+   */
+  sanitizeSeverity(severity: any): number {
+    if (typeof severity === 'number' && !isNaN(severity)) {
+      return Math.max(1, Math.min(10, Math.round(severity)));
+    }
+    if (typeof severity === 'string') {
+      const parsed = parseFloat(severity);
+      if (!isNaN(parsed)) {
+        return Math.max(1, Math.min(10, Math.round(parsed)));
+      }
+    }
+    return 1; // Fallback to minimum severity
+  },
+
+  /**
+   * Санитизирует и нормализует уровень доверия
+   */
+  sanitizeConfidence(confidence: any): number {
+    if (typeof confidence === 'number' && !isNaN(confidence)) {
+      return Math.max(0, Math.min(1, confidence));
+    }
+    if (typeof confidence === 'string') {
+      const parsed = parseFloat(confidence);
+      if (!isNaN(parsed)) {
+        return Math.max(0, Math.min(1, parsed));
+      }
+    }
+    return 0.5; // Fallback to neutral confidence
+  },
+
+  /**
+   * Санитизирует строковое поле
+   */
+  sanitizeString(value: any, fallback: string = ''): string {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : fallback;
+    }
+    if (value != null) {
+      const stringified = String(value).trim();
+      return stringified.length > 0 ? stringified : fallback;
+    }
+    return fallback;
+  },
+
+  /**
+   * Санитизирует уровень риска
+   */
+  sanitizeRiskLevel(riskLevel: any): 'low' | 'medium' | 'high' {
+    if (typeof riskLevel === 'string' && this.isValidRiskLevel(riskLevel)) {
+      return riskLevel;
+    }
+    return 'low'; // Fallback to low risk
+  },
+
+  /**
+   * Проверяет, является ли объект пустым или null/undefined
+   */
+  isEmpty(value: any): boolean {
+    if (value == null) return true;
+    if (Array.isArray(value)) return value.length === 0;
+    if (typeof value === 'object') return Object.keys(value).length === 0;
+    if (typeof value === 'string') return value.trim().length === 0;
+    return false;
+  },
+
+  /**
+   * Проверяет, является ли значение валидной датой
+   */
+  isValidDate(date: any): boolean {
+    return date instanceof Date && !isNaN(date.getTime());
+  },
+
+  /**
+   * Санитизирует дату
+   */
+  sanitizeDate(date: any): Date | undefined {
+    if (this.isValidDate(date)) {
+      return date;
+    }
+    if (typeof date === 'string') {
+      const parsed = new Date(date);
+      if (this.isValidDate(parsed)) {
+        return parsed;
+      }
+    }
+    return undefined;
+  }
+};
+
+/**
+ * Функции для санитизации и восстановления данных
+ */
+export const DataSanitizer = {
+  /**
+   * Санитизирует нарушение, восстанавливая поврежденные данные
+   */
+  sanitizeViolation(violation: any): Violation {
+    if (!violation || typeof violation !== 'object') {
+      return {
+        article: 'Неизвестная статья',
+        quote: 'Данные повреждены',
+        punishment: 'Не определено',
+        severity: 1,
+        confidence: 0.1
+      };
+    }
+
+    const sanitizedArticle = ValidationUtils.sanitizeString(violation.article, 'Неизвестная статья');
+    const sanitizedQuote = ValidationUtils.sanitizeString(violation.quote, 'Данные повреждены');
+    const sanitizedPunishment = ValidationUtils.sanitizeString(violation.punishment, 'Не определено');
+    
+    // Если статья пустая или является дефолтной, пропускаем это нарушение
+    if (sanitizedArticle === 'Неизвестная статья' && sanitizedQuote === 'Данные повреждены') {
+      return null as any; // Будет отфильтровано позже
+    }
+
+    return {
+      article: sanitizedArticle,
+      quote: sanitizedQuote,
+      punishment: sanitizedPunishment,
+      severity: ValidationUtils.sanitizeSeverity(violation.severity),
+      confidence: ValidationUtils.sanitizeConfidence(violation.confidence)
+    };
+  },
+
+  /**
+   * Санитизирует анализ нарушений, восстанавливая поврежденные данные
+   */
+  sanitizeViolationAnalysis(analysis: any): ViolationAnalysis {
+    if (!analysis || typeof analysis !== 'object') {
+      return {
+        hasViolations: false,
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: 'low',
+        analysisTimestamp: new Date().toISOString()
+      };
+    }
+
+    // Санитизируем массив нарушений
+    let violations: Violation[] = [];
+    if (Array.isArray(analysis.violations)) {
+      violations = analysis.violations
+        .map((v: any) => this.sanitizeViolation(v))
+        .filter((v: Violation | null) => v !== null && v.article && v.article !== 'Неизвестная статья');
+    }
+
+    // Вычисляем общую серьезность
+    const totalSeverity = violations.reduce((sum, v) => sum + v.severity, 0);
+    const averageSeverity = violations.length > 0 ? totalSeverity / violations.length : 0;
+
+    return {
+      hasViolations: violations.length > 0,
+      violations,
+      totalSeverity,
+      riskLevel: ValidationUtils.calculateRiskLevel(averageSeverity),
+      analysisTimestamp: ValidationUtils.sanitizeString(analysis.analysisTimestamp, new Date().toISOString())
+    };
+  },
+
+  /**
+   * Создает пустую статистику пользователя
+   */
+  createEmptyUserStats(userId: string, chatId: string): UserStats {
+    return {
+      userId: ValidationUtils.sanitizeString(userId, 'unknown'),
+      chatId: ValidationUtils.sanitizeString(chatId, 'unknown'),
+      totalViolations: 0,
+      violationsByArticle: [],
+      averageSeverity: 0,
+      riskLevel: 'low',
+      lastViolationDate: undefined,
+      mostCommonViolation: undefined
+    };
+  },
+
+  /**
+   * Создает пустую статистику за период
+   */
+  createEmptyPeriodStats(chatId: string, startDate: Date, endDate: Date): PeriodStats {
+    return {
+      chatId: ValidationUtils.sanitizeString(chatId, 'unknown'),
+      startDate: ValidationUtils.sanitizeDate(startDate) || new Date(),
+      endDate: ValidationUtils.sanitizeDate(endDate) || new Date(),
+      totalViolations: 0,
+      violationsByArticle: [],
+      averageSeverity: 0,
+      uniqueUsers: 0,
+      comparisonWithPreviousPeriod: undefined
+    };
+  },
+
+  /**
+   * Создает пустую общую статистику
+   */
+  createEmptyGeneralStats(chatId: string): GeneralStats {
+    return {
+      chatId: ValidationUtils.sanitizeString(chatId, 'unknown'),
+      totalViolations: 0,
+      topViolations: [],
+      topUsers: [],
+      overallRiskLevel: 'low',
+      averageSeverity: 0,
+      criticalViolations: []
+    };
   }
 };

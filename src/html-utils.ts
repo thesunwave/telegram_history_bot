@@ -24,7 +24,7 @@ export const SEVERITY_EMOJIS = {
  * Gets severity level based on numeric value (1-10)
  */
 export function getSeverityLevel(severity: number): SeverityLevel {
-  if (severity < 1 || severity > 10) {
+  if (isNaN(severity) || severity < 1 || severity > 10) {
     throw new Error('Severity must be between 1 and 10');
   }
   
