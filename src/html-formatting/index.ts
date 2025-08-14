@@ -14,6 +14,17 @@ export {
   type StatsMessageData 
 } from '../html-builder';
 
+// Export MessageFormatter classes and interfaces
+export {
+  MessageFormatter,
+  messageFormatter,
+  type IMessageFormatter,
+  type Violation,
+  type ViolationAnalysis,
+  type UserStats,
+  type PeriodStats
+} from '../message-formatter';
+
 // Export HTML utilities
 export {
   SeverityLevel,
@@ -35,9 +46,13 @@ import {
   createListItem
 } from '../html-utils';
 
+// Import MessageFormatter for re-export
+import { messageFormatter } from '../message-formatter';
+
 // Re-export for convenience
 export const htmlFormatting = {
   builder: htmlBuilder,
+  formatter: messageFormatter,
   utils: {
     getSeverityLevel,
     getSeverityEmoji,
