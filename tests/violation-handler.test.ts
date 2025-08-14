@@ -163,27 +163,42 @@ describe('ViolationHandler Integration Tests', () => {
     });
 
     it('должен возвращать fallback сообщение при ошибке валидации', async () => {
-      const invalidAnalysis = {
-        hasViolations: true,
-        violations: [
-          {
-            article: '', // Невалидная статья
-            quote: 'Тест',
-            punishment: 'Тест',
-            severity: 15, // Невалидная серьезность
-            confidence: 0.8
-          }
-        ],
-        totalSeverity: 5,
-        riskLevel: 'medium',
-        analysisTimestamp: new Date().toISOString()
-      } as any;
+      // Подавляем console.warn для этого теста, так как ошибки валидации ожидаемы
+      const originalWarn = console.warn;
+      console.warn = vi.fn();
 
-      const result = await violationHandler.formatViolationMessage(invalidAnalysis);
+      try {
+        const invalidAnalysis = {
+          hasViolations: true,
+          violations: [
+            {
+              article: '', // Невалидная статья - ожидаемая ошибка валидации
+              quote: 'Тест',
+              punishment: 'Тест',
+              severity: 15, // Невалидная серьезность - ожидаемая ошибка валидации
+              confidence: 0.8
+            }
+          ],
+          totalSeverity: 5,
+          riskLevel: 'medium',
+          analysisTimestamp: new Date().toISOString()
+        } as any;
 
-      // После санитизации невалидные нарушения отфильтровываются, остается пустой анализ
-      expect(result).toContain('✅');
-      expect(result).toContain('Нарушений не обнаружено');
+        const result = await violationHandler.formatViolationMessage(invalidAnalysis);
+
+        // После санитизации невалидные нарушения отфильтровываются, остается пустой анализ
+        expect(result).toContain('✅');
+        expect(result).toContain('Нарушений не обнаружено');
+
+        // Проверяем, что предупреждение о валидации было выведено
+        expect(console.warn).toHaveBeenCalledWith(
+          expect.stringContaining('ViolationAnalysis validation failed, attempting to sanitize:'),
+          expect.stringContaining('Invalid violation at index 0')
+        );
+      } finally {
+        // Восстанавливаем оригинальный console.warn
+        console.warn = originalWarn;
+      }
     });
   });
 
@@ -218,25 +233,51 @@ describe('ViolationHandler Integration Tests', () => {
     });
 
     it('должен обрабатывать ошибку при получении статистики пользователя', async () => {
-      vi.spyOn(mockStatisticsService, 'getUserStats').mockRejectedValue(new Error('Database error'));
+      // Подавляем console.error для этого теста, так как ошибка базы данных ожидаема
+      const originalError = console.error;
+      console.error = vi.fn();
 
-      const result = await violationHandler.getUserStats('123456', '-100123456789');
+      try {
+        vi.spyOn(mockStatisticsService, 'getUserStats').mockRejectedValue(new Error('Database error'));
 
-      // Теперь возвращается fallback статистика с предупреждением
-      expect(result).toContain('📊');
-      expect(result).toContain('Статистика пользователя');
-      expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+        const result = await violationHandler.getUserStats('123456', '-100123456789');
+
+        // Теперь возвращается fallback статистика с предупреждением
+        expect(result).toContain('📊');
+        expect(result).toContain('Статистика пользователя');
+        expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+
+        // Проверяем, что ошибка была залогирована
+        expect(console.error).toHaveBeenCalledWith(
+          '❌ Error getting user stats:',
+          expect.any(Error)
+        );
+      } finally {
+        // Восстанавливаем оригинальный console.error
+        console.error = originalError;
+      }
     });
 
     it('должен валидировать параметры для getUserStats', async () => {
-      // Теперь возвращается fallback статистика с предупреждением
-      const result1 = await violationHandler.getUserStats('', '-100123456789');
-      expect(result1).toContain('📊');
-      expect(result1).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+      // Подавляем console.error для этого теста, так как ошибки валидации ожидаемы
+      const originalError = console.error;
+      console.error = vi.fn();
 
-      const result2 = await violationHandler.getUserStats('123456', '');
-      expect(result2).toContain('📊');
-      expect(result2).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+      try {
+        // Теперь возвращается fallback статистика с предупреждением
+        const result1 = await violationHandler.getUserStats('', '-100123456789');
+        expect(result1).toContain('📊');
+        expect(result1).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+
+        const result2 = await violationHandler.getUserStats('123456', '');
+        expect(result2).toContain('📊');
+        expect(result2).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+
+        // Проверяем, что ошибки валидации были залогированы
+        expect(console.error).toHaveBeenCalledTimes(2);
+      } finally {
+        console.error = originalError;
+      }
     });
   });
 
@@ -274,19 +315,30 @@ describe('ViolationHandler Integration Tests', () => {
     });
 
     it('должен валидировать параметры для getPeriodStats', async () => {
-      // Теперь возвращается fallback статистика с предупреждением
-      const result1 = await violationHandler.getPeriodStats('', 7);
-      expect(result1).toContain('📈');
-      expect(result1).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+      // Подавляем console.error для этого теста, так как ошибки валидации ожидаемы
+      const originalError = console.error;
+      console.error = vi.fn();
 
-      // Параметры санитизируются к валидным значениям
-      const result2 = await violationHandler.getPeriodStats('-100123456789', 0);
-      expect(result2).toContain('📈');
-      expect(result2).toContain('За указанный период нарушений не зафиксировано');
+      try {
+        // Теперь возвращается fallback статистика с предупреждением
+        const result1 = await violationHandler.getPeriodStats('', 7);
+        expect(result1).toContain('📈');
+        expect(result1).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
 
-      const result3 = await violationHandler.getPeriodStats('-100123456789', 400);
-      expect(result3).toContain('📈');
-      expect(result3).toContain('За указанный период нарушений не зафиксировано');
+        // Параметры санитизируются к валидным значениям
+        const result2 = await violationHandler.getPeriodStats('-100123456789', 0);
+        expect(result2).toContain('📈');
+        expect(result2).toContain('За указанный период нарушений не зафиксировано');
+
+        const result3 = await violationHandler.getPeriodStats('-100123456789', 400);
+        expect(result3).toContain('📈');
+        expect(result3).toContain('За указанный период нарушений не зафиксировано');
+
+        // Проверяем, что ошибки были залогированы (может быть больше из-за fallback попыток)
+        expect(console.error).toHaveBeenCalled();
+      } finally {
+        console.error = originalError;
+      }
     });
   });
 
@@ -332,34 +384,73 @@ describe('ViolationHandler Integration Tests', () => {
     });
 
     it('должен валидировать параметры для getGeneralStats', async () => {
-      // Теперь возвращается fallback статистика с предупреждением
-      const result = await violationHandler.getGeneralStats('');
-      expect(result).toContain('📊');
-      expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+      // Подавляем console.error для этого теста, так как ошибка валидации ожидаема
+      const originalError = console.error;
+      console.error = vi.fn();
+
+      try {
+        // Теперь возвращается fallback статистика с предупреждением
+        const result = await violationHandler.getGeneralStats('');
+        expect(result).toContain('📊');
+        expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+
+        // Проверяем, что ошибка валидации была залогирована
+        expect(console.error).toHaveBeenCalledTimes(1);
+      } finally {
+        console.error = originalError;
+      }
     });
   });
 
   describe('Error Handling', () => {
     it('должен обрабатывать ошибки базы данных gracefully', async () => {
-      vi.spyOn(mockStatisticsService, 'getUserStats').mockRejectedValue(new Error('Connection timeout'));
+      // Подавляем console.error для этого теста, так как ошибка ожидаема
+      const originalError = console.error;
+      console.error = vi.fn();
 
-      const result = await violationHandler.getUserStats('123456', '-100123456789');
+      try {
+        vi.spyOn(mockStatisticsService, 'getUserStats').mockRejectedValue(new Error('Connection timeout'));
 
-      // Теперь возвращается fallback статистика с предупреждением
-      expect(result).toContain('📊');
-      expect(result).toContain('Статистика пользователя');
-      expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+        const result = await violationHandler.getUserStats('123456', '-100123456789');
+
+        // Теперь возвращается fallback статистика с предупреждением
+        expect(result).toContain('📊');
+        expect(result).toContain('Статистика пользователя');
+        expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+
+        // Проверяем, что ошибка была залогирована
+        expect(console.error).toHaveBeenCalledWith(
+          '❌ Error getting user stats:',
+          expect.any(Error)
+        );
+      } finally {
+        console.error = originalError;
+      }
     });
 
     it('должен обрабатывать неизвестные ошибки', async () => {
-      vi.spyOn(mockStatisticsService, 'getPeriodStats').mockRejectedValue('Unknown error');
+      // Подавляем console.error для этого теста, так как ошибка ожидаема
+      const originalError = console.error;
+      console.error = vi.fn();
 
-      const result = await violationHandler.getPeriodStats('-100123456789', 7);
+      try {
+        vi.spyOn(mockStatisticsService, 'getPeriodStats').mockRejectedValue('Unknown error');
 
-      // Теперь возвращается fallback статистика с предупреждением
-      expect(result).toContain('📈');
-      expect(result).toContain('Статистика за период');
-      expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+        const result = await violationHandler.getPeriodStats('-100123456789', 7);
+
+        // Теперь возвращается fallback статистика с предупреждением
+        expect(result).toContain('📈');
+        expect(result).toContain('Статистика за период');
+        expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
+
+        // Проверяем, что ошибка была залогирована (строка, а не Error объект)
+        expect(console.error).toHaveBeenCalledWith(
+          '❌ Error getting period stats:',
+          'Unknown error'
+        );
+      } finally {
+        console.error = originalError;
+      }
     });
   });
 

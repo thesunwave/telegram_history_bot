@@ -731,5 +731,48 @@ export async function handleUpdate(msg: any, env: Env) {
     await sendMessage(env, chatId, 'Счетчики нарушений УК РФ сброшены');
   } else if (msg.text.startsWith('/help')) {
     await sendMessage(env, chatId, HELP_TEXT);
+  } else {
+    // Analyze regular messages (not commands) for profanity and criminal code violations
+    if (msg.text && !msg.text.startsWith('/')) {
+      const userId = msg.from?.id || 0;
+      const username = msg.from?.username || msg.from?.first_name || 'Unknown';
+      
+      // Run both analyses in parallel for better performance
+      const analysisPromises = [];
+      
+      // Add profanity analysis
+      analysisPromises.push(
+        analyzeProfanityAsync(msg, env, chatId, userId, username, day).catch(error => {
+          Logger.error('Background profanity analysis failed', {
+            chatId: chatId.toString(36),
+            userId: userId.toString(36),
+            username,
+            error: error.message || String(error)
+          });
+        })
+      );
+      
+      // Add criminal code analysis
+      analysisPromises.push(
+        analyzeCriminalCodeAsync(msg, env, chatId, userId, username, day).catch(error => {
+          Logger.error('Background criminal code analysis failed', {
+            chatId: chatId.toString(36),
+            userId: userId.toString(36),
+            username,
+            error: error.message || String(error)
+          });
+        })
+      );
+      
+      // Execute all analyses in parallel without blocking the response
+      Promise.all(analysisPromises).catch(error => {
+        Logger.error('One or more background analyses failed', {
+          chatId: chatId.toString(36),
+          userId: userId.toString(36),
+          username,
+          error: error.message || String(error)
+        });
+      });
+    }
   }
 }
