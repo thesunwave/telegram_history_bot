@@ -3,7 +3,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MessageFormatter, Violation, ViolationAnalysis, UserStats, PeriodStats } from '../src/message-formatter';
+import { MessageFormatter, Violation, ViolationAnalysis } from '../src/message-formatter';
+import { UserStats, PeriodStats, GeneralStats, ViolationCount, UserViolationCount } from '../src/models/statistics';
 import { HTMLBuilder } from '../src/html-builder';
 
 describe('MessageFormatter', () => {
@@ -185,10 +186,10 @@ describe('MessageFormatter', () => {
       userId: 'user123',
       chatId: 'chat456',
       totalViolations: 5,
-      violationsByArticle: new Map([
-        ['282', 3],
-        ['205', 2]
-      ]),
+      violationsByArticle: [
+        { article: '282', count: 3, averageSeverity: 6.5 },
+        { article: '205', count: 2, averageSeverity: 8.0 }
+      ],
       averageSeverity: 6.2,
       riskLevel: 'medium',
       lastViolationDate: new Date('2024-01-15'),
@@ -210,8 +211,8 @@ describe('MessageFormatter', () => {
       const result = formatter.formatUserStats(mockUserStats);
       
       expect(result).toContain('<b>Нарушения по статьям УК РФ:</b>');
-      expect(result).toContain('• <b>Статья 282:</b> 3 раз');
-      expect(result).toContain('• <b>Статья 205:</b> 2 раз');
+      expect(result).toContain('• <b>Статья 282:</b> 3 раз 🟡 (ср. 6.5)');
+      expect(result).toContain('• <b>Статья 205:</b> 2 раз 🔴 (ср. 8.0)');
       
       // Check that 282 (3 violations) comes before 205 (2 violations)
       const index282 = result.indexOf('• <b>Статья 282:</b> 3 раз');
@@ -222,8 +223,8 @@ describe('MessageFormatter', () => {
     it('should handle empty violations by article', () => {
       const statsWithoutViolations: UserStats = {
         ...mockUserStats,
-        violationsByArticle: new Map(),
-        mostCommonViolation: ''
+        violationsByArticle: [],
+        mostCommonViolation: undefined
       };
 
       const result = formatter.formatUserStats(statsWithoutViolations);
@@ -238,16 +239,17 @@ describe('MessageFormatter', () => {
       startDate: new Date('2024-01-01'),
       endDate: new Date('2024-01-31'),
       totalViolations: 15,
-      violationsByArticle: new Map([
-        ['282', 8],
-        ['205', 4],
-        ['130', 3]
-      ]),
+      violationsByArticle: [
+        { article: '282', count: 8, averageSeverity: 5.5 },
+        { article: '205', count: 4, averageSeverity: 8.2 },
+        { article: '130', count: 3, averageSeverity: 4.0 }
+      ],
       averageSeverity: 5.8,
       uniqueUsers: 7,
       comparisonWithPreviousPeriod: {
-        violationsChange: 3,
-        severityChange: -0.5
+        violationsChange: 15.5,
+        severityChange: -0.5,
+        usersChange: 12.0
       }
     };
 
@@ -264,23 +266,26 @@ describe('MessageFormatter', () => {
     it('should show increase trends correctly', () => {
       const result = formatter.formatPeriodStats(mockPeriodStats);
       
-      expect(result).toContain('📈 <b>Изменение количества:</b> увеличение на 3');
+      expect(result).toContain('📈 <b>Изменение количества:</b> увеличение на 15.5%');
       expect(result).toContain('⬇️ <b>Изменение серьезности:</b> снижение на 0.5');
+      expect(result).toContain('👥📈 <b>Изменение пользователей:</b> увеличение на 12.0%');
     });
 
     it('should show decrease trends correctly', () => {
       const statsWithDecrease: PeriodStats = {
         ...mockPeriodStats,
         comparisonWithPreviousPeriod: {
-          violationsChange: -2,
-          severityChange: 1.2
+          violationsChange: -8.5,
+          severityChange: 1.2,
+          usersChange: -5.0
         }
       };
 
       const result = formatter.formatPeriodStats(statsWithDecrease);
       
-      expect(result).toContain('📉 <b>Изменение количества:</b> уменьшение на 2');
+      expect(result).toContain('📉 <b>Изменение количества:</b> уменьшение на 8.5%');
       expect(result).toContain('⬆️ <b>Изменение серьезности:</b> повышение на 1.2');
+      expect(result).toContain('👥📉 <b>Изменение пользователей:</b> уменьшение на 5.0%');
     });
 
     it('should not show trends when there are no changes', () => {
@@ -288,7 +293,8 @@ describe('MessageFormatter', () => {
         ...mockPeriodStats,
         comparisonWithPreviousPeriod: {
           violationsChange: 0,
-          severityChange: 0
+          severityChange: 0,
+          usersChange: 0
         }
       };
 
@@ -296,15 +302,16 @@ describe('MessageFormatter', () => {
       
       expect(result).not.toContain('Изменение количества');
       expect(result).not.toContain('Изменение серьезности');
+      expect(result).not.toContain('Изменение пользователей');
     });
 
     it('should format violations by article in descending order', () => {
       const result = formatter.formatPeriodStats(mockPeriodStats);
       
       expect(result).toContain('<b>Нарушения по статьям УК РФ:</b>');
-      expect(result).toContain('• <b>Статья 282:</b> 8 раз');
-      expect(result).toContain('• <b>Статья 205:</b> 4 раз');
-      expect(result).toContain('• <b>Статья 130:</b> 3 раз');
+      expect(result).toContain('• <b>Статья 282:</b> 8 раз 🟡 (ср. 5.5)');
+      expect(result).toContain('• <b>Статья 205:</b> 4 раз 🔴 (ср. 8.2)');
+      expect(result).toContain('• <b>Статья 130:</b> 3 раз 🟡 (ср. 4.0)');
       
       // Check order: 282 (8) > 205 (4) > 130 (3)
       const index282 = result.indexOf('• <b>Статья 282:</b> 8 раз');
@@ -313,6 +320,148 @@ describe('MessageFormatter', () => {
       
       expect(index282).toBeLessThan(index205);
       expect(index205).toBeLessThan(index130);
+    });
+  });
+
+  describe('formatGeneralStats', () => {
+    const mockGeneralStats: GeneralStats = {
+      chatId: 'chat456',
+      totalViolations: 50,
+      topViolations: [
+        { article: '282', count: 20, averageSeverity: 6.5 },
+        { article: '205', count: 15, averageSeverity: 8.8 },
+        { article: '130', count: 10, averageSeverity: 4.2 },
+        { article: '228', count: 3, averageSeverity: 7.0 },
+        { article: '159', count: 2, averageSeverity: 5.5 }
+      ],
+      topUsers: [
+        { userId: 'user1', username: 'baduser1', count: 12, averageSeverity: 7.2, riskLevel: 'high' },
+        { userId: 'user2', username: 'baduser2', count: 8, averageSeverity: 5.5, riskLevel: 'medium' },
+        { userId: 'user3', count: 6, averageSeverity: 4.0, riskLevel: 'low' },
+        { userId: 'user4', username: 'baduser4', count: 4, averageSeverity: 6.8, riskLevel: 'medium' },
+        { userId: 'user5', count: 3, averageSeverity: 3.2, riskLevel: 'low' }
+      ],
+      overallRiskLevel: 'high',
+      averageSeverity: 6.8,
+      criticalViolations: [
+        {
+          article: '205',
+          quote: 'Очень серьезное нарушение с высокой степенью опасности для общества',
+          punishment: 'лишение свободы на срок до 15 лет',
+          severity: 9,
+          confidence: 0.95
+        },
+        {
+          article: '282',
+          quote: 'Еще одно критическое нарушение',
+          punishment: 'штраф или лишение свободы',
+          severity: 8,
+          confidence: 0.88
+        }
+      ]
+    };
+
+    it('should format general statistics correctly', () => {
+      const result = formatter.formatGeneralStats(mockGeneralStats);
+      
+      expect(result).toContain('📊 <b>Общая статистика чата</b>');
+      expect(result).toContain('<b>Всего нарушений:</b> 50');
+      expect(result).toContain('<b>Средняя серьезность:</b> 6.8/10');
+      expect(result).toContain('<b>Общий уровень риска:</b> 🔴 Высокий');
+    });
+
+    it('should format top 5 violations with position emojis', () => {
+      const result = formatter.formatGeneralStats(mockGeneralStats);
+      
+      expect(result).toContain('<b>🏆 Топ-5 самых частых нарушений:</b>');
+      expect(result).toContain('🥇 <b>Статья 282:</b> 20 раз 🟡 (ср. 6.5)');
+      expect(result).toContain('🥈 <b>Статья 205:</b> 15 раз 🔴 (ср. 8.8)');
+      expect(result).toContain('🥉 <b>Статья 130:</b> 10 раз 🟡 (ср. 4.2)');
+      expect(result).toContain('4. <b>Статья 228:</b> 3 раз 🔴 (ср. 7.0)');
+      expect(result).toContain('5. <b>Статья 159:</b> 2 раз 🟡 (ср. 5.5)');
+    });
+
+    it('should format top 5 users with usernames and risk levels', () => {
+      const result = formatter.formatGeneralStats(mockGeneralStats);
+      
+      expect(result).toContain('<b>👤 Топ-5 пользователей с наибольшим количеством нарушений:</b>');
+      expect(result).toContain('🥇 <b>@baduser1</b>: 12 нарушений, риск: 🔴 Высокий (ср. 7.2)');
+      expect(result).toContain('🥈 <b>@baduser2</b>: 8 нарушений, риск: 🟡 Средний (ср. 5.5)');
+      expect(result).toContain('🥉 <b>ID: user3</b>: 6 нарушений, риск: 🟢 Низкий (ср. 4.0)');
+      expect(result).toContain('4. <b>@baduser4</b>: 4 нарушения, риск: 🟡 Средний (ср. 6.8)');
+      expect(result).toContain('5. <b>ID: user5</b>: 3 нарушения, риск: 🟢 Низкий (ср. 3.2)');
+    });
+
+    it('should format critical violations section', () => {
+      const result = formatter.formatGeneralStats(mockGeneralStats);
+      
+      expect(result).toContain('🚨 <b>Критические нарушения (серьезность ≥ 8):</b>');
+      expect(result).toContain('🔴 <b>Статья 205:</b> серьезность 9/10');
+      expect(result).toContain('<i>&quot;Очень серьезное нарушение с высокой степенью опасности для общества&quot;</i>');
+      expect(result).toContain('🔴 <b>Статья 282:</b> серьезность 8/10');
+      expect(result).toContain('<i>&quot;Еще одно критическое нарушение&quot;</i>');
+    });
+
+    it('should truncate long quotes in critical violations', () => {
+      const statsWithLongQuote: GeneralStats = {
+        ...mockGeneralStats,
+        criticalViolations: [
+          {
+            article: '205',
+            quote: 'Это очень длинная цитата которая должна быть обрезана потому что она превышает лимит в сто символов и может сделать сообщение слишком длинным для удобного чтения',
+            punishment: 'лишение свободы',
+            severity: 9,
+            confidence: 0.95
+          }
+        ]
+      };
+
+      const result = formatter.formatGeneralStats(statsWithLongQuote);
+      
+      expect(result).toContain('Это очень длинная цитата которая должна быть обрезана потому что она превышает лимит в сто символов ...');
+      expect(result).not.toContain('слишком длинным для удобного чтения');
+    });
+
+    it('should handle empty sections gracefully', () => {
+      const emptyStats: GeneralStats = {
+        chatId: 'chat456',
+        totalViolations: 0,
+        topViolations: [],
+        topUsers: [],
+        overallRiskLevel: 'low',
+        averageSeverity: 0,
+        criticalViolations: []
+      };
+
+      const result = formatter.formatGeneralStats(emptyStats);
+      
+      expect(result).toContain('📊 <b>Общая статистика чата</b>');
+      expect(result).toContain('<b>Всего нарушений:</b> 0');
+      expect(result).not.toContain('🏆 Топ-5 самых частых нарушений:');
+      expect(result).not.toContain('👤 Топ-5 пользователей');
+      expect(result).not.toContain('🚨 Критические нарушения');
+    });
+
+    it('should limit to top 5 even if more data is provided', () => {
+      const statsWithManyViolations: GeneralStats = {
+        ...mockGeneralStats,
+        topViolations: [
+          ...mockGeneralStats.topViolations,
+          { article: '111', count: 1, averageSeverity: 3.0 },
+          { article: '222', count: 1, averageSeverity: 2.0 }
+        ]
+      };
+
+      const result = formatter.formatGeneralStats(statsWithManyViolations);
+      
+      // Should only show first 5
+      expect(result).toContain('🥇 <b>Статья 282:</b>');
+      expect(result).toContain('🥈 <b>Статья 205:</b>');
+      expect(result).toContain('🥉 <b>Статья 130:</b>');
+      expect(result).toContain('4. <b>Статья 228:</b>');
+      expect(result).toContain('5. <b>Статья 159:</b>');
+      expect(result).not.toContain('Статья 111');
+      expect(result).not.toContain('Статья 222');
     });
   });
 
