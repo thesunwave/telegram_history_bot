@@ -45,7 +45,7 @@
   - Написать тесты для форматирования статистики
   - _Требования: 2.1, 2.4, 3.1, 3.3, 4.1, 4.4_
 
-- [ ] 7. Создать основной ViolationHandler
+- [x] 7. Создать основной ViolationHandler
   - Реализовать formatViolationMessage() с использованием MessageFormatter
   - Добавить методы getUserStats(), getPeriodStats(), getGeneralStats()
   - Интегрировать с ViolationRepository для сохранения данных
