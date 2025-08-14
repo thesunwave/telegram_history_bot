@@ -181,10 +181,9 @@ describe('ViolationHandler Integration Tests', () => {
 
       const result = await violationHandler.formatViolationMessage(invalidAnalysis);
 
-      expect(result).toContain('🚨');
-      expect(result).toContain('Обнаружены нарушения УК РФ');
-      expect(result).toContain('⚠️');
-      expect(result).toContain('Ошибка валидации');
+      // После санитизации невалидные нарушения отфильтровываются, остается пустой анализ
+      expect(result).toContain('✅');
+      expect(result).toContain('Нарушений не обнаружено');
     });
   });
 
@@ -223,19 +222,21 @@ describe('ViolationHandler Integration Tests', () => {
 
       const result = await violationHandler.getUserStats('123456', '-100123456789');
 
-      expect(result).toContain('❌');
-      expect(result).toContain('Не удалось получить статистику пользователя');
-      expect(result).toContain('Database error');
+      // Теперь возвращается fallback статистика с предупреждением
+      expect(result).toContain('📊');
+      expect(result).toContain('Статистика пользователя');
+      expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
     });
 
     it('должен валидировать параметры для getUserStats', async () => {
+      // Теперь возвращается fallback статистика с предупреждением
       const result1 = await violationHandler.getUserStats('', '-100123456789');
-      expect(result1).toContain('❌');
-      expect(result1).toContain('userId must be a non-empty string');
+      expect(result1).toContain('📊');
+      expect(result1).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
 
       const result2 = await violationHandler.getUserStats('123456', '');
-      expect(result2).toContain('❌');
-      expect(result2).toContain('chatId must be a non-empty string');
+      expect(result2).toContain('📊');
+      expect(result2).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
     });
   });
 
@@ -273,17 +274,19 @@ describe('ViolationHandler Integration Tests', () => {
     });
 
     it('должен валидировать параметры для getPeriodStats', async () => {
+      // Теперь возвращается fallback статистика с предупреждением
       const result1 = await violationHandler.getPeriodStats('', 7);
-      expect(result1).toContain('❌');
-      expect(result1).toContain('chatId must be a non-empty string');
+      expect(result1).toContain('📈');
+      expect(result1).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
 
+      // Параметры санитизируются к валидным значениям
       const result2 = await violationHandler.getPeriodStats('-100123456789', 0);
-      expect(result2).toContain('❌');
-      expect(result2).toContain('days must be a positive number');
+      expect(result2).toContain('📈');
+      expect(result2).toContain('За указанный период нарушений не зафиксировано');
 
       const result3 = await violationHandler.getPeriodStats('-100123456789', 400);
-      expect(result3).toContain('❌');
-      expect(result3).toContain('days must be a positive number not exceeding 365');
+      expect(result3).toContain('📈');
+      expect(result3).toContain('За указанный период нарушений не зафиксировано');
     });
   });
 
@@ -329,9 +332,10 @@ describe('ViolationHandler Integration Tests', () => {
     });
 
     it('должен валидировать параметры для getGeneralStats', async () => {
+      // Теперь возвращается fallback статистика с предупреждением
       const result = await violationHandler.getGeneralStats('');
-      expect(result).toContain('❌');
-      expect(result).toContain('chatId must be a non-empty string');
+      expect(result).toContain('📊');
+      expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
     });
   });
 
@@ -341,9 +345,10 @@ describe('ViolationHandler Integration Tests', () => {
 
       const result = await violationHandler.getUserStats('123456', '-100123456789');
 
-      expect(result).toContain('❌');
-      expect(result).toContain('Не удалось получить статистику пользователя');
-      expect(result).toContain('Connection timeout');
+      // Теперь возвращается fallback статистика с предупреждением
+      expect(result).toContain('📊');
+      expect(result).toContain('Статистика пользователя');
+      expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
     });
 
     it('должен обрабатывать неизвестные ошибки', async () => {
@@ -351,9 +356,10 @@ describe('ViolationHandler Integration Tests', () => {
 
       const result = await violationHandler.getPeriodStats('-100123456789', 7);
 
-      expect(result).toContain('❌');
-      expect(result).toContain('Не удалось получить статистику за период');
-      expect(result).toContain('Неизвестная ошибка');
+      // Теперь возвращается fallback статистика с предупреждением
+      expect(result).toContain('📈');
+      expect(result).toContain('Статистика за период');
+      expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
     });
   });
 
