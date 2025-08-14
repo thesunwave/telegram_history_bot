@@ -30,36 +30,14 @@ export interface ViolationAnalysis {
   analysisTimestamp: string;
 }
 
-/**
- * User statistics data
- */
-export interface UserStats {
-  userId: string;
-  chatId: string;
-  totalViolations: number;
-  violationsByArticle: Map<string, number>;
-  averageSeverity: number;
-  riskLevel: 'low' | 'medium' | 'high';
-  lastViolationDate: Date;
-  mostCommonViolation: string;
-}
-
-/**
- * Period statistics data
- */
-export interface PeriodStats {
-  chatId: string;
-  startDate: Date;
-  endDate: Date;
-  totalViolations: number;
-  violationsByArticle: Map<string, number>;
-  averageSeverity: number;
-  uniqueUsers: number;
-  comparisonWithPreviousPeriod: {
-    violationsChange: number;
-    severityChange: number;
-  };
-}
+// Import statistics models from the models directory
+import { 
+  UserStats, 
+  PeriodStats, 
+  GeneralStats, 
+  ViolationCount, 
+  UserViolationCount 
+} from './models/statistics';
 
 /**
  * Interface for the MessageFormatter
@@ -69,6 +47,7 @@ export interface IMessageFormatter {
   formatViolationAnalysis(analysis: ViolationAnalysis): string;
   formatUserStats(stats: UserStats): string;
   formatPeriodStats(stats: PeriodStats): string;
+  formatGeneralStats(stats: GeneralStats): string;
   getSeverityEmoji(severity: number): string;
   escapeHtml(text: string): string;
 }
@@ -174,10 +153,14 @@ export class MessageFormatter implements IMessageFormatter {
       '',
       `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations}`,
       `${this.htmlBuilder.bold('Средняя серьезность:')} ${stats.averageSeverity.toFixed(1)}/10`,
-      `${this.htmlBuilder.bold('Уровень риска:')} ${this.formatRiskLevel(stats.riskLevel)}`,
-      `${this.htmlBuilder.bold('Последнее нарушение:')} ${stats.lastViolationDate.toLocaleDateString('ru-RU')}`,
-      ''
+      `${this.htmlBuilder.bold('Уровень риска:')} ${this.formatRiskLevel(stats.riskLevel)}`
     ];
+
+    if (stats.lastViolationDate) {
+      lines.push(`${this.htmlBuilder.bold('Последнее нарушение:')} ${stats.lastViolationDate.toLocaleDateString('ru-RU')}`);
+    }
+
+    lines.push('');
 
     if (stats.mostCommonViolation) {
       lines.push(`${this.htmlBuilder.bold('Наиболее частое нарушение:')} ${stats.mostCommonViolation}`);
@@ -185,15 +168,16 @@ export class MessageFormatter implements IMessageFormatter {
     }
 
     // Group violations by article
-    if (stats.violationsByArticle.size > 0) {
+    if (stats.violationsByArticle.length > 0) {
       lines.push(this.htmlBuilder.bold('Нарушения по статьям УК РФ:'));
       
-      // Convert Map to array and sort by count (descending)
-      const sortedViolations = Array.from(stats.violationsByArticle.entries())
-        .sort(([, a], [, b]) => b - a);
+      // Sort by count (descending)
+      const sortedViolations = [...stats.violationsByArticle]
+        .sort((a, b) => b.count - a.count);
       
-      sortedViolations.forEach(([article, count]) => {
-        lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count} раз`);
+      sortedViolations.forEach(({ article, count, averageSeverity }) => {
+        const severityEmoji = this.getSeverityEmoji(Math.floor(averageSeverity));
+        lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count} раз ${severityEmoji} (ср. ${averageSeverity.toFixed(1)})`);
       });
     }
 
@@ -215,30 +199,102 @@ export class MessageFormatter implements IMessageFormatter {
     ];
 
     // Add comparison with previous period
-    const { violationsChange, severityChange } = stats.comparisonWithPreviousPeriod;
-    
-    if (violationsChange !== 0) {
-      const changeEmoji = violationsChange > 0 ? '📈' : '📉';
-      const changeText = violationsChange > 0 ? 'увеличение' : 'уменьшение';
-      lines.push(`${changeEmoji} ${this.htmlBuilder.bold('Изменение количества:')} ${changeText} на ${Math.abs(violationsChange)}`);
-    }
+    if (stats.comparisonWithPreviousPeriod) {
+      const { violationsChange, severityChange, usersChange } = stats.comparisonWithPreviousPeriod;
+      
+      if (violationsChange !== 0) {
+        const changeEmoji = violationsChange > 0 ? '📈' : '📉';
+        const changeText = violationsChange > 0 ? 'увеличение' : 'уменьшение';
+        lines.push(`${changeEmoji} ${this.htmlBuilder.bold('Изменение количества:')} ${changeText} на ${Math.abs(violationsChange).toFixed(1)}%`);
+      }
 
-    if (severityChange !== 0) {
-      const changeEmoji = severityChange > 0 ? '⬆️' : '⬇️';
-      const changeText = severityChange > 0 ? 'повышение' : 'снижение';
-      lines.push(`${changeEmoji} ${this.htmlBuilder.bold('Изменение серьезности:')} ${changeText} на ${Math.abs(severityChange).toFixed(1)}`);
+      if (severityChange !== 0) {
+        const changeEmoji = severityChange > 0 ? '⬆️' : '⬇️';
+        const changeText = severityChange > 0 ? 'повышение' : 'снижение';
+        lines.push(`${changeEmoji} ${this.htmlBuilder.bold('Изменение серьезности:')} ${changeText} на ${Math.abs(severityChange).toFixed(1)}`);
+      }
+
+      if (usersChange !== 0) {
+        const changeEmoji = usersChange > 0 ? '👥📈' : '👥📉';
+        const changeText = usersChange > 0 ? 'увеличение' : 'уменьшение';
+        lines.push(`${changeEmoji} ${this.htmlBuilder.bold('Изменение пользователей:')} ${changeText} на ${Math.abs(usersChange).toFixed(1)}%`);
+      }
     }
 
     // Group violations by article
-    if (stats.violationsByArticle.size > 0) {
+    if (stats.violationsByArticle.length > 0) {
       lines.push('', this.htmlBuilder.bold('Нарушения по статьям УК РФ:'));
       
-      // Convert Map to array and sort by count (descending)
-      const sortedViolations = Array.from(stats.violationsByArticle.entries())
-        .sort(([, a], [, b]) => b - a);
+      // Sort by count (descending)
+      const sortedViolations = [...stats.violationsByArticle]
+        .sort((a, b) => b.count - a.count);
       
-      sortedViolations.forEach(([article, count]) => {
-        lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count} раз`);
+      sortedViolations.forEach(({ article, count, averageSeverity }) => {
+        const severityEmoji = this.getSeverityEmoji(Math.floor(averageSeverity));
+        lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count} раз ${severityEmoji} (ср. ${averageSeverity.toFixed(1)})`);
+      });
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Formats general statistics with top violations and users
+   */
+  formatGeneralStats(stats: GeneralStats): string {
+    const lines = [
+      '📊 ' + this.htmlBuilder.bold('Общая статистика чата'),
+      '',
+      `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations}`,
+      `${this.htmlBuilder.bold('Средняя серьезность:')} ${stats.averageSeverity.toFixed(1)}/10`,
+      `${this.htmlBuilder.bold('Общий уровень риска:')} ${this.formatRiskLevel(stats.overallRiskLevel)}`,
+      ''
+    ];
+
+    // Top 5 violations
+    if (stats.topViolations.length > 0) {
+      lines.push(this.htmlBuilder.bold('🏆 Топ-5 самых частых нарушений:'));
+      
+      stats.topViolations.slice(0, 5).forEach((violation, index) => {
+        const position = index + 1;
+        const positionEmoji = this.getPositionEmoji(position);
+        const severityEmoji = this.getSeverityEmoji(Math.floor(violation.averageSeverity));
+        
+        lines.push(`${positionEmoji} ${this.htmlBuilder.bold(`Статья ${violation.article}:`)} ${violation.count} раз ${severityEmoji} (ср. ${violation.averageSeverity.toFixed(1)})`);
+      });
+      
+      lines.push('');
+    }
+
+    // Top 5 users
+    if (stats.topUsers.length > 0) {
+      lines.push(this.htmlBuilder.bold('👤 Топ-5 пользователей с наибольшим количеством нарушений:'));
+      
+      stats.topUsers.slice(0, 5).forEach((user, index) => {
+        const position = index + 1;
+        const positionEmoji = this.getPositionEmoji(position);
+        const riskEmoji = this.formatRiskLevel(user.riskLevel);
+        const username = user.username ? `@${user.username}` : `ID: ${user.userId}`;
+        
+        const violationsText = user.count === 1 ? 'нарушение' : 
+                              user.count < 5 ? 'нарушения' : 'нарушений';
+        lines.push(`${positionEmoji} ${this.htmlBuilder.bold(username)}: ${user.count} ${violationsText}, риск: ${riskEmoji} (ср. ${user.averageSeverity.toFixed(1)})`);
+      });
+      
+      lines.push('');
+    }
+
+    // Critical violations (severity >= 8)
+    if (stats.criticalViolations.length > 0) {
+      lines.push('🚨 ' + this.htmlBuilder.bold('Критические нарушения (серьезность ≥ 8):'));
+      
+      stats.criticalViolations.forEach((violation) => {
+        const severityEmoji = this.getSeverityEmoji(violation.severity);
+        lines.push(`${severityEmoji} ${this.htmlBuilder.bold(`Статья ${violation.article}:`)} серьезность ${violation.severity}/10`);
+        const truncatedQuote = violation.quote.length > 100 ? 
+          violation.quote.substring(0, 100) + '...' : 
+          violation.quote;
+        lines.push(`   ${this.htmlBuilder.italic(`"${truncatedQuote}"`)}`)
       });
     }
 
@@ -258,6 +314,22 @@ export class MessageFormatter implements IMessageFormatter {
         return '🔴 Высокий';
       default:
         return '❓ Неопределенный';
+    }
+  }
+
+  /**
+   * Gets position emoji for top rankings
+   */
+  private getPositionEmoji(position: number): string {
+    switch (position) {
+      case 1:
+        return '🥇';
+      case 2:
+        return '🥈';
+      case 3:
+        return '🥉';
+      default:
+        return `${position}.`;
     }
   }
 }
