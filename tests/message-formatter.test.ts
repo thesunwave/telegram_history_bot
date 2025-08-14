@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MessageFormatter, Violation, ViolationAnalysis } from '../src/message-formatter';
-import { UserStats, PeriodStats, GeneralStats, ViolationCount, UserViolationCount } from '../src/models/statistics';
+import { MessageFormatter, ViolationAnalysis } from '../src/message-formatter';
+import { UserStats, PeriodStats, GeneralStats, ViolationCount, UserViolationCount, Violation } from '../src/models/statistics';
 import { HTMLBuilder } from '../src/html-builder';
 
 describe('MessageFormatter', () => {
@@ -58,6 +58,8 @@ describe('MessageFormatter', () => {
   describe('formatViolation', () => {
     const mockViolation: Violation = {
       article: '282',
+      subarticle: '1',
+      articleTitle: 'Возбуждение ненависти либо вражды',
       quote: 'Тестовая цитата с нарушением',
       punishment: 'штраф в размере до трехсот тысяч рублей',
       severity: 7,
@@ -346,6 +348,8 @@ describe('MessageFormatter', () => {
       criticalViolations: [
         {
           article: '205',
+          subarticle: null,
+          articleTitle: 'Терроризм',
           quote: 'Очень серьезное нарушение с высокой степенью опасности для общества',
           punishment: 'лишение свободы на срок до 15 лет',
           severity: 9,
@@ -353,6 +357,8 @@ describe('MessageFormatter', () => {
         },
         {
           article: '282',
+          subarticle: '1',
+          articleTitle: 'Возбуждение ненависти либо вражды',
           quote: 'Еще одно критическое нарушение',
           punishment: 'штраф или лишение свободы',
           severity: 8,
@@ -408,6 +414,8 @@ describe('MessageFormatter', () => {
         criticalViolations: [
           {
             article: '205',
+            subarticle: null,
+            articleTitle: 'Терроризм',
             quote: 'Это очень длинная цитата которая должна быть обрезана потому что она превышает лимит в сто символов и может сделать сообщение слишком длинным для удобного чтения',
             punishment: 'лишение свободы',
             severity: 9,

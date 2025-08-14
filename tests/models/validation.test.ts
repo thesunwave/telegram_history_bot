@@ -20,7 +20,24 @@ describe('Validation Functions', () => {
   describe('validateViolation', () => {
     it('should validate correct violation', () => {
       const violation = {
-        article: 'Статья 282 УК РФ',
+        article: '282',
+        subarticle: '1',
+        articleTitle: 'Возбуждение ненависти либо вражды',
+        quote: 'Пример цитаты',
+        punishment: 'Штраф до 300 000 рублей',
+        severity: 7,
+        confidence: 0.85
+      };
+
+      expect(() => validateViolation(violation)).not.toThrow();
+      expect(validateViolation(violation)).toBe(true);
+    });
+
+    it('should validate violation with null subarticle', () => {
+      const violation = {
+        article: '282',
+        subarticle: null,
+        articleTitle: 'Возбуждение ненависти либо вражды',
         quote: 'Пример цитаты',
         punishment: 'Штраф до 300 000 рублей',
         severity: 7,
@@ -38,6 +55,8 @@ describe('Validation Functions', () => {
 
     it('should throw error for missing article', () => {
       const violation = {
+        subarticle: '1',
+        articleTitle: 'Возбуждение ненависти либо вражды',
         quote: 'Пример цитаты',
         punishment: 'Штраф',
         severity: 7,
@@ -48,9 +67,40 @@ describe('Validation Functions', () => {
       expect(() => validateViolation(violation)).toThrow('Article must be a non-empty string');
     });
 
+    it('should throw error for missing articleTitle', () => {
+      const violation = {
+        article: '282',
+        subarticle: '1',
+        quote: 'Пример цитаты',
+        punishment: 'Штраф',
+        severity: 7,
+        confidence: 0.85
+      };
+
+      expect(() => validateViolation(violation)).toThrow(ValidationError);
+      expect(() => validateViolation(violation)).toThrow('Article title must be a non-empty string');
+    });
+
+    it('should throw error for invalid subarticle type', () => {
+      const violation = {
+        article: '282',
+        subarticle: 123, // должно быть строкой или null
+        articleTitle: 'Возбуждение ненависти либо вражды',
+        quote: 'Пример цитаты',
+        punishment: 'Штраф',
+        severity: 7,
+        confidence: 0.85
+      };
+
+      expect(() => validateViolation(violation)).toThrow(ValidationError);
+      expect(() => validateViolation(violation)).toThrow('Subarticle must be a string or null');
+    });
+
     it('should throw error for invalid severity', () => {
       const violation = {
-        article: 'Статья 282 УК РФ',
+        article: '282',
+        subarticle: '1',
+        articleTitle: 'Возбуждение ненависти либо вражды',
         quote: 'Пример цитаты',
         punishment: 'Штраф',
         severity: 11, // Неверное значение
@@ -63,7 +113,9 @@ describe('Validation Functions', () => {
 
     it('should throw error for invalid confidence', () => {
       const violation = {
-        article: 'Статья 282 УК РФ',
+        article: '282',
+        subarticle: '1',
+        articleTitle: 'Возбуждение ненависти либо вражды',
         quote: 'Пример цитаты',
         punishment: 'Штраф',
         severity: 7,
@@ -81,7 +133,9 @@ describe('Validation Functions', () => {
         hasViolations: true,
         violations: [
           {
-            article: 'Статья 282 УК РФ',
+            article: '282',
+            subarticle: '1',
+            articleTitle: 'Возбуждение ненависти либо вражды',
             quote: 'Пример цитаты',
             punishment: 'Штраф',
             severity: 7,
@@ -402,7 +456,9 @@ describe('Validation Functions', () => {
         averageSeverity: 6.8,
         criticalViolations: [
           {
-            article: 'Статья 205 УК РФ',
+            article: '205',
+            subarticle: null,
+            articleTitle: 'Терроризм',
             quote: 'Критическое нарушение',
             punishment: 'Лишение свободы',
             severity: 9,

@@ -8,6 +8,8 @@
  */
 export interface Violation {
   article: string;
+  subarticle: string | null;
+  articleTitle: string;
   quote: string;
   punishment: string;
   severity: number; // 1-10

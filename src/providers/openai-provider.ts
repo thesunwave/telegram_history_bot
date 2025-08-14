@@ -641,7 +641,10 @@ export class OpenAIProvider implements AIProvider {
 
       // Validate each violation entry
       for (const violation of parsed.violations) {
-        if (typeof violation.article !== 'string' || typeof violation.quote !== 'string' ||
+        if (typeof violation.article !== 'string' || 
+            (violation.subarticle !== null && typeof violation.subarticle !== 'string') ||
+            typeof violation.articleTitle !== 'string' ||
+            typeof violation.quote !== 'string' ||
             typeof violation.punishment !== 'string') {
           throw new Error('Invalid response: violation entries must have string article, quote, punishment');
         }

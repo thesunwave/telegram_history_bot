@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { handleUpdate } from '../../src/update';
+import { handleUpdate, recordMessage } from '../../src/update';
 import { sendMessage } from '../../src/telegram';
 import type { Env } from '../../src/env';
 import type { ViolationAnalysis, Violation } from '../../src/models/statistics';
@@ -34,7 +34,7 @@ vi.mock('../../src/env', async () => {
   const actual = await vi.importActual('../../src/env');
   return {
     ...actual,
-    isTestEnvironment: vi.fn()
+    isTestEnvironment: vi.fn().mockReturnValue(false)
   };
 });
 
@@ -47,7 +47,13 @@ describe('Criminal Statistics E2E Integration Tests', () => {
   let mockCountersDO: any;
   let mockDB: any;
 
+  let originalNodeEnv: string | undefined;
+  
   beforeEach(() => {
+    // Мокаем process.env.NODE_ENV чтобы isTestEnvironment возвращал false
+    originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    
     // Сброс всех моков перед каждым тестом
     vi.clearAllMocks();
     
@@ -131,7 +137,7 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       DAY_BLOCK_MANAGER_DO: {} as any,
       CRIMINAL_CODE_ANALYZER_DO: mockCriminalAnalyzerDO,
       AI: {},
-      TOKEN: 'test_token',
+      TOKEN: 'production_token', // Не test_token, чтобы isTestEnvironment возвращала false
       SECRET: 'test-secret',
       SUMMARY_MODEL: 'test-model',
       SUMMARY_PROMPT: 'test-prompt'
@@ -139,6 +145,12 @@ describe('Criminal Statistics E2E Integration Tests', () => {
   });
 
   afterEach(() => {
+    // Восстанавливаем NODE_ENV
+    if (originalNodeEnv !== undefined) {
+      process.env.NODE_ENV = originalNodeEnv;
+    } else {
+      delete process.env.NODE_ENV;
+    }
     vi.restoreAllMocks();
   });
 
@@ -626,27 +638,27 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       // Создаем мок ExecutionContext с waitUntil
       const mockCtx = {
-        waitUntil: vi.fn().mockImplementation((promise: Promise<any>) => {
-          // Выполняем промис немедленно для тестирования
-          return promise;
+        waitUntil: vi.fn().mockImplementation(async (promise: Promise<any>) => {
+          // Ждем завершения промиса для тестирования
+          await promise;
         }),
-        passThroughOnException: vi.fn()
-      };
+        passThroughOnException: vi.fn(),
+        props: {}
+      } as any;
 
       // isTestEnvironment уже настроен в beforeEach для возврата false
 
       // Act: Обрабатываем сообщение через полный поток как в index.ts
-      // Передаем ExecutionContext для правильной работы ctx.waitUntil
+      // Сначала записываем сообщение (где происходит анализ)
+      await recordMessage(testMessage.message, mockEnv, mockCtx);
+      // Затем обрабатываем команды
       await handleUpdate(testMessage.message, mockEnv);
       
       // Ждем завершения асинхронных операций
       await new Promise(resolve => setTimeout(resolve, 100));
       
       // Логируем состояние моков для отладки
-      console.log('Mock calls after analysis:', {
-        idFromNameCalls: mockCriminalAnalyzerDO.idFromName.mock.calls,
-        getCalls: mockCriminalAnalyzerDO.get.mock.calls
-      });
+
 
       // Assert: Проверяем, что анализатор был вызван
       expect(mockCriminalAnalyzerDO.idFromName).toHaveBeenCalledWith('-100123456789');
@@ -698,30 +710,28 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       // Создаем мок ExecutionContext с waitUntil
       const mockCtx = {
-        waitUntil: vi.fn().mockImplementation((promise: Promise<any>) => {
-          return promise;
+        waitUntil: vi.fn().mockImplementation(async (promise: Promise<any>) => {
+          // Ждем завершения промиса для тестирования
+          await promise;
         }),
-        passThroughOnException: vi.fn()
-      };
+        passThroughOnException: vi.fn(),
+        props: {}
+      } as any;
 
       // Логируем состояние окружения для отладки
-      console.log('Test environment check:', {
-        chatId: testMessage.message.chat.id,
-        text: testMessage.message.text,
-        isCommand: testMessage.message.text?.startsWith('/')
-      });
+
 
       // Act: Обрабатываем сообщение через полный поток
+      // Сначала записываем сообщение (где происходит анализ)
+      await recordMessage(testMessage.message, mockEnv, mockCtx);
+      // Затем обрабатываем команды
       await handleUpdate(testMessage.message, mockEnv);
       
       // Ждем завершения асинхронных операций
       await new Promise(resolve => setTimeout(resolve, 100));
       
       // Логируем состояние моков для отладки
-      console.log('Mock calls after wait (second test):', {
-        idFromNameCalls: mockCriminalAnalyzerDO.idFromName.mock.calls,
-        getCalls: mockCriminalAnalyzerDO.get.mock.calls
-      });
+
 
       // Assert: Проверяем, что анализатор был вызван
       expect(mockCriminalAnalyzerDO.idFromName).toHaveBeenCalledWith('-100987654321');

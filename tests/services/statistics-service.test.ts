@@ -262,9 +262,9 @@ describe('StatisticsService', () => {
         overallRiskLevel: 'high',
         averageSeverity: 6.5,
         criticalViolations: [
-          { article: 'Статья 105 УК РФ', quote: 'Убийство 1', punishment: 'Лишение свободы', severity: 10, confidence: 0.9 },
-          { article: 'Статья 105 УК РФ', quote: 'Убийство 2', punishment: 'Лишение свободы', severity: 9, confidence: 0.8 },
-          { article: 'Статья 105 УК РФ', quote: 'Убийство 3', punishment: 'Лишение свободы', severity: 8, confidence: 0.7 }
+          { article: '105', subarticle: null, articleTitle: 'Убийство', quote: 'Убийство 1', punishment: 'Лишение свободы', severity: 10, confidence: 0.9 },
+          { article: '105', subarticle: null, articleTitle: 'Убийство', quote: 'Убийство 2', punishment: 'Лишение свободы', severity: 9, confidence: 0.8 },
+          { article: '105', subarticle: null, articleTitle: 'Убийство', quote: 'Убийство 3', punishment: 'Лишение свободы', severity: 8, confidence: 0.7 }
         ]
       };
 

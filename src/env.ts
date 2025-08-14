@@ -119,7 +119,9 @@ export const BATCH_TIMEOUT = 30000; // 30 seconds
 
 // Criminal violation found in text analysis
 export interface CriminalViolation {
-  article: string;           // УК РФ article (e.g., "Статья 282")
+  article: string;          // УК РФ article number only (e.g., "282")
+  subarticle: string | null; // Subarticle if exists (e.g., "1" for "282.1"), null otherwise
+  articleTitle: string;     // Article title/name
   quote: string;            // Exact quote from text that violates the law
   punishment: string;       // Possible punishment description
   severity: number;         // Severity level 1-10

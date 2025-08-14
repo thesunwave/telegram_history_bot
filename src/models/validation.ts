@@ -35,6 +35,14 @@ export function validateViolation(violation: any): violation is Violation {
     throw new ValidationError('Article must be a non-empty string', 'article');
   }
 
+  if (violation.subarticle !== null && violation.subarticle !== undefined && typeof violation.subarticle !== 'string') {
+    throw new ValidationError('Subarticle must be a string or null', 'subarticle');
+  }
+
+  if (!violation.articleTitle || typeof violation.articleTitle !== 'string') {
+    throw new ValidationError('Article title must be a non-empty string', 'articleTitle');
+  }
+
   if (!violation.quote || typeof violation.quote !== 'string') {
     throw new ValidationError('Quote must be a non-empty string', 'quote');
   }
@@ -495,6 +503,8 @@ export const DataSanitizer = {
     if (!violation || typeof violation !== 'object') {
       return {
         article: 'Неизвестная статья',
+        subarticle: null,
+        articleTitle: 'Неизвестное нарушение',
         quote: 'Данные повреждены',
         punishment: 'Не определено',
         severity: 1,
@@ -503,6 +513,8 @@ export const DataSanitizer = {
     }
 
     const sanitizedArticle = ValidationUtils.sanitizeString(violation.article, 'Неизвестная статья');
+    const sanitizedSubarticle = violation.subarticle ? ValidationUtils.sanitizeString(violation.subarticle, '') : null;
+    const sanitizedArticleTitle = ValidationUtils.sanitizeString(violation.articleTitle, 'Неизвестное нарушение');
     const sanitizedQuote = ValidationUtils.sanitizeString(violation.quote, 'Данные повреждены');
     const sanitizedPunishment = ValidationUtils.sanitizeString(violation.punishment, 'Не определено');
     
@@ -513,6 +525,8 @@ export const DataSanitizer = {
 
     return {
       article: sanitizedArticle,
+      subarticle: sanitizedSubarticle,
+      articleTitle: sanitizedArticleTitle,
       quote: sanitizedQuote,
       punishment: sanitizedPunishment,
       severity: ValidationUtils.sanitizeSeverity(violation.severity),
