@@ -6,6 +6,7 @@ import { sendMessage } from './telegram';
 import { Logger } from './logger';
 import { ProfanityAnalyzer } from './profanity';
 import { ProviderFactory } from './providers/provider-factory';
+import { ViolationHandler } from './violation-handler';
 
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
@@ -40,6 +41,7 @@ const HELP_TEXT = [
   '  Примеры: /criminal_top, /criminal_top 10, /criminal_top 5 week',
   '  n: 1-20 (по умолчанию 5), period: today|week|month (по умолчанию today)',
   '/criminal_reset – сбросить только счетчики УК РФ для чата',
+
   '/reset – сбросить счетчики для чата',
   '/activity_week – график активности за неделю',
   '/activity_month – график активности за месяц',
@@ -84,12 +86,12 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     timestamp: ts,
     messageId: msg.message_id
   });
-  
+
   // Save to optimized daily block structure
   try {
     const { addMessageToDayBlock } = await import('./history-optimized');
     await addMessageToDayBlock(env, stored);
-    Logger.debug(env, 'recordMessage: day block save successful', { 
+    Logger.debug(env, 'recordMessage: day block save successful', {
       chatId,
       date: new Date(ts * 1000).toISOString().slice(0, 10)
     });
@@ -99,7 +101,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       error: error.message || String(error),
       stack: error.stack
     });
-    
+
     // Fallback to individual message storage for reliability
     const key = `msg:${chatId}:${ts}:${msg.message_id}`;
     try {
@@ -175,7 +177,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     isTestEnv: isTestEnvironment(env),
     chatId: chatId.toString(36)
   });
-  
+
   if (msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
     Logger.log('STARTING PROFANITY ANALYSIS', {
       chatId: chatId.toString(36),
@@ -184,7 +186,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       messageId: msg.message_id,
       textLength: msg.text.length
     });
-    
+
     Logger.debug(env, 'Scheduling profanity analysis for message', {
       chatId: chatId.toString(36),
       userId: userId.toString(36),
@@ -192,22 +194,22 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       messageId: msg.message_id,
       textLength: msg.text.length
     });
-    
+
     // Fire-and-forget: don't await this
     const profanityPromise = analyzeProfanityAsync(msg, env, chatId, userId, username, day).catch(error => {
-    Logger.error('Background profanity analysis failed', {
-    chatId: chatId.toString(36),
-    userId: userId.toString(36),
-    username,
-    messageId: msg.message_id,
-    error: error.message || String(error)
-    });
+      Logger.error('Background profanity analysis failed', {
+        chatId: chatId.toString(36),
+        userId: userId.toString(36),
+        username,
+        messageId: msg.message_id,
+        error: error.message || String(error)
+      });
     });
     // Ensure background task isn't cut off when the request finishes
     if (ctx) {
-    ctx.waitUntil(profanityPromise);
+      ctx.waitUntil(profanityPromise);
     } else {
-    void profanityPromise;
+      void profanityPromise;
     }
   } else {
     Logger.debug(env, 'Skipping profanity analysis', {
@@ -219,46 +221,46 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   }
 
   // Schedule criminal code analysis in background (fire-and-forget)
-    // Only for text messages that are not commands and not in test environment
-    Logger.log('CRIMINAL CODE ANALYSIS CHECK', {
-      hasText: !!msg.text,
-      isCommand: msg.text?.startsWith('/'),
-      isTestEnv: isTestEnvironment(env),
-      chatId: chatId.toString(36)
+  // Only for text messages that are not commands and not in test environment
+  Logger.log('CRIMINAL CODE ANALYSIS CHECK', {
+    hasText: !!msg.text,
+    isCommand: msg.text?.startsWith('/'),
+    isTestEnv: isTestEnvironment(env),
+    chatId: chatId.toString(36)
+  });
+
+  if (msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
+    Logger.log('STARTING CRIMINAL CODE ANALYSIS', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
+      username,
+      messageId: msg.message_id,
+      textLength: msg.text.length
     });
-    
-    if (msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
-      Logger.log('STARTING CRIMINAL CODE ANALYSIS', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        username,
-        messageId: msg.message_id,
-        textLength: msg.text.length
-      });
-      
-      Logger.debug(env, 'Scheduling criminal code analysis for message', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        username,
-        messageId: msg.message_id,
-        textLength: msg.text.length
-      });
-    
+
+    Logger.debug(env, 'Scheduling criminal code analysis for message', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
+      username,
+      messageId: msg.message_id,
+      textLength: msg.text.length
+    });
+
     // Fire-and-forget: don't await this
     const criminalPromise = analyzeCriminalCodeAsync(msg, env, chatId, userId, username, day).catch(error => {
-    Logger.error('Background criminal code analysis failed', {
-    chatId: chatId.toString(36),
-    userId: userId.toString(36),
-    username,
-    messageId: msg.message_id,
-    error: error.message || String(error)
-    });
+      Logger.error('Background criminal code analysis failed', {
+        chatId: chatId.toString(36),
+        userId: userId.toString(36),
+        username,
+        messageId: msg.message_id,
+        error: error.message || String(error)
+      });
     });
     // Ensure background task isn't cut off when the request finishes
     if (ctx) {
-    ctx.waitUntil(criminalPromise);
+      ctx.waitUntil(criminalPromise);
     } else {
-    void criminalPromise;
+      void criminalPromise;
     }
   } else {
     Logger.debug(env, 'Skipping criminal code analysis', {
@@ -286,7 +288,7 @@ async function analyzeProfanityAsync(
     day,
     textLength: msg.text?.length
   });
-  
+
   const startTime = Date.now();
   const timings: Record<string, number> = {};
 
@@ -489,7 +491,7 @@ async function analyzeCriminalCodeAsync(
     day,
     textLength: msg.text?.length
   });
-  
+
   const startTime = Date.now();
 
   // КРИТИЧЕСКАЯ ПРОВЕРКА: команды НЕ должны попадать сюда!
@@ -562,6 +564,30 @@ async function analyzeCriminalCodeAsync(
           },
           articles: result.violations?.map((v: any) => v.article).join(', ') || 'unknown'
         });
+
+        // Use ViolationHandler to format and send enhanced violation message
+        try {
+          const violationHandler = new ViolationHandler(env);
+          const formattedMessage = await violationHandler.formatViolationMessage(
+            result,
+            userId.toString(),
+            chatId.toString()
+          );
+
+          // Send the enhanced violation message to the chat
+          await sendMessage(env, chatId, formattedMessage);
+
+          Logger.debug(env, 'Enhanced violation message sent', {
+            chatId: chatId.toString(36),
+            messageLength: formattedMessage.length
+          });
+        } catch (formatError: any) {
+          Logger.error('Failed to format/send enhanced violation message', {
+            chatId: chatId.toString(36),
+            error: formatError.message || String(formatError)
+          });
+          // Continue without throwing - the analysis was successful even if formatting failed
+        }
       } else {
         Logger.debug(env, 'Criminal code analysis: no violations detected', {
           chatId: chatId.toString(36),
@@ -659,26 +685,26 @@ export async function handleUpdate(msg: any, env: Env) {
     // Only allow admins to run race condition tests
     const userId = msg.from?.id || 0;
     const isAdmin = userId === parseInt(env.ADMIN_USER_ID || '0'); // Add ADMIN_USER_ID to env
-    
+
     if (!isAdmin) {
       await sendMessage(env, chatId, 'Эта команда доступна только администраторам');
       return;
     }
 
     await sendMessage(env, chatId, 'Запуск тестов защиты от race conditions...');
-    
+
     try {
       const { runAllRaceConditionTests } = await import('./race-condition-tests');
       const testResults = await runAllRaceConditionTests(env, chatId);
-      
-      const summary = testResults.map(result => 
+
+      const summary = testResults.map(result =>
         `${result.success ? '✅' : '❌'} ${result.testName}: ${result.messagesAdded}/${result.expectedMessages} сообщений, ${result.duplicatesDetected} дубликатов, ${result.errors.length} ошибок`
       ).join('\n');
-      
+
       const overallSuccess = testResults.every(r => r.success);
       const totalDuration = testResults.reduce((sum, r) => sum + r.duration, 0);
-      
-      await sendMessage(env, chatId, 
+
+      await sendMessage(env, chatId,
         `Результаты тестов race conditions:\n\n${summary}\n\n` +
         `${overallSuccess ? '✅ Все тесты пройдены' : '❌ Есть проблемы'}\n` +
         `Общее время: ${totalDuration}ms`
