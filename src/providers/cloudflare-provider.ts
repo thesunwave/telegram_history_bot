@@ -440,8 +440,12 @@ export class CloudflareAIProvider implements AIProvider {
       }
 
       for (const violation of parsed.violations) {
-        if (typeof violation.article !== 'string' || typeof violation.quote !== 'string' || typeof violation.punishment !== 'string') {
-          throw new Error('Invalid response: violation entries must have string article, quote, punishment');
+        if (typeof violation.article !== 'string' || 
+            (violation.subarticle !== null && typeof violation.subarticle !== 'string') ||
+            typeof violation.articleTitle !== 'string' ||
+            typeof violation.quote !== 'string' || 
+            typeof violation.punishment !== 'string') {
+          throw new Error('Invalid response: violation entries must have string article, subarticle, articleTitle, quote, punishment');
         }
         if (typeof violation.severity !== 'number' || violation.severity < 1 || violation.severity > 10) {
           throw new Error('Invalid response: severity must be number between 1 and 10');
