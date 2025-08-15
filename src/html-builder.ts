@@ -3,6 +3,8 @@
  * Supports Telegram's HTML formatting tags: <b>, <i>, <u>, <s>, <code>, <pre>
  */
 
+import { formatArticleForDisplay } from './html-utils';
+
 export interface IHTMLBuilder {
   bold(text: string): string;
   italic(text: string): string;
@@ -61,8 +63,9 @@ export class HTMLBuilder implements IHTMLBuilder {
    */
   italic(text: string): string {
     return `<i>${this.escapeHtml(text)}</i>`;
-  }  /**
+  }
 
+  /**
    * Wraps text in underline HTML tags
    */
   underline(text: string): string {
@@ -117,7 +120,7 @@ export class HTMLBuilder implements IHTMLBuilder {
       '\n⚠️ ' + this.italic('Низкий уровень доверия к анализу') : '';
     
     return [
-      `${severityEmoji} ${this.bold(`Статья ${article}`)}`,
+      `${severityEmoji} ${this.bold(formatArticleForDisplay(article))}`,
       '',
       this.bold('Цитата:'),
       this.italic(`"${quote}"`),
@@ -129,8 +132,9 @@ export class HTMLBuilder implements IHTMLBuilder {
       `${this.bold('Уровень доверия:')} ${Math.round(confidence * 100)}%`,
       confidenceWarning
     ].filter(line => line !== undefined).join('\n');
-  }  /*
-*
+  }
+
+  /**
    * Builds a formatted statistics message with HTML markup
    */
   buildStatsMessage(data: StatsMessageData): string {

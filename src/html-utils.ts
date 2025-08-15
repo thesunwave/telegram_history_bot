@@ -72,3 +72,27 @@ export function createListItem(label: string, value: string | number, emoji?: st
   
   return `${emojiPrefix}<b>${escapedLabel}:</b> ${escapedValue}`;
 }
+
+/**
+ * Returns normalized article label for display without duplicates like "Статья Статья 280 УК РФ".
+ * It builds a canonical form: "Статья {core} УК РФ" while avoiding duplicate prefixes/suffixes.
+ */
+export function formatArticleForDisplay(article: string): string {
+  const UNKNOWN = 'Неизвестная статья';
+  if (!article) return UNKNOWN;
+
+  // Normalize spaces and trim
+  let raw = (article || '').toString().trim();
+  if (!raw) return UNKNOWN;
+  if (raw === UNKNOWN) return UNKNOWN;
+
+  // Remove leading "Статья" (case-insensitive) and trailing "УК РФ"
+  let core = raw
+    .replace(/^\s*статья\s+/i, '')
+    .replace(/\s*ук\s*рф\s*$/i, '')
+    .trim();
+
+  if (!core) return UNKNOWN;
+
+  return `Статья ${core} УК РФ`;
+}
