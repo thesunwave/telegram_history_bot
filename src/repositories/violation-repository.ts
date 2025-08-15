@@ -47,15 +47,17 @@ export class ViolationRepository implements IViolationRepository {
     try {
       const stmt = this.env.DB.prepare(`
         INSERT INTO criminal_violations (
-          user_id, chat_id, article, quote, punishment, 
+          user_id, chat_id, article, subarticle, article_title, quote, punishment, 
           severity, confidence, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       `);
 
       await stmt.bind(
         parseInt(userId),
         parseInt(chatId),
         violation.article,
+        violation.subarticle || null,
+        violation.articleTitle || '',
         violation.quote,
         violation.punishment,
         violation.severity,
@@ -78,7 +80,7 @@ export class ViolationRepository implements IViolationRepository {
 
     try {
       const stmt = this.env.DB.prepare(`
-        SELECT article, quote, punishment, severity, confidence
+        SELECT article, subarticle, article_title, quote, punishment, severity, confidence
         FROM criminal_violations 
         WHERE user_id = ? AND chat_id = ?
         ORDER BY created_at DESC
@@ -88,6 +90,8 @@ export class ViolationRepository implements IViolationRepository {
       
       return (result.results || []).map((row: any) => ({
         article: row.article,
+        subarticle: row.subarticle || null,
+        articleTitle: row.article_title || '',
         quote: row.quote,
         punishment: row.punishment,
         severity: row.severity,
@@ -110,7 +114,7 @@ export class ViolationRepository implements IViolationRepository {
 
     try {
       const stmt = this.env.DB.prepare(`
-        SELECT article, quote, punishment, severity, confidence
+        SELECT article, subarticle, article_title, quote, punishment, severity, confidence
         FROM criminal_violations 
         WHERE chat_id = ? AND created_at >= datetime('now', '-${days} days')
         ORDER BY created_at DESC
@@ -120,6 +124,8 @@ export class ViolationRepository implements IViolationRepository {
       
       return (result.results || []).map((row: any) => ({
         article: row.article,
+        subarticle: row.subarticle || null,
+        articleTitle: row.article_title || '',
         quote: row.quote,
         punishment: row.punishment,
         severity: row.severity,
@@ -142,7 +148,7 @@ export class ViolationRepository implements IViolationRepository {
 
     try {
       const stmt = this.env.DB.prepare(`
-        SELECT article, quote, punishment, severity, confidence
+        SELECT article, subarticle, article_title, quote, punishment, severity, confidence
         FROM criminal_violations 
         WHERE chat_id = ?
         ORDER BY created_at DESC
@@ -152,6 +158,8 @@ export class ViolationRepository implements IViolationRepository {
       
       return (result.results || []).map((row: any) => ({
         article: row.article,
+        subarticle: row.subarticle || null,
+        articleTitle: row.article_title || '',
         quote: row.quote,
         punishment: row.punishment,
         severity: row.severity,
@@ -189,11 +197,14 @@ export class ViolationRepository implements IViolationRepository {
       const violationsByArticleStmt = this.env.DB.prepare(`
         SELECT 
           article,
+          subarticle,
+          article_title,
+          punishment,
           COUNT(*) as count,
           AVG(severity) as average_severity
         FROM criminal_violations 
         WHERE user_id = ? AND chat_id = ?
-        GROUP BY article
+        GROUP BY article, subarticle, article_title, punishment
         ORDER BY count DESC
       `);
 
@@ -207,6 +218,9 @@ export class ViolationRepository implements IViolationRepository {
 
       const violationsByArticle: ViolationCount[] = (violationsByArticleResult.results || []).map((row: any) => ({
         article: row.article,
+        subarticle: row.subarticle || null,
+        articleTitle: row.article_title || '',
+        punishment: row.punishment || '',
         count: row.count,
         averageSeverity: row.average_severity
       }));
@@ -263,11 +277,14 @@ export class ViolationRepository implements IViolationRepository {
       const violationsByArticleStmt = this.env.DB.prepare(`
         SELECT 
           article,
+          subarticle,
+          article_title,
+          punishment,
           COUNT(*) as count,
           AVG(severity) as average_severity
         FROM criminal_violations 
         WHERE chat_id = ? AND created_at >= datetime('now', '-${days} days')
-        GROUP BY article
+        GROUP BY article, subarticle, article_title, punishment
         ORDER BY count DESC
       `);
 
@@ -293,6 +310,9 @@ export class ViolationRepository implements IViolationRepository {
 
       const violationsByArticle: ViolationCount[] = (violationsByArticleResult.results || []).map((row: any) => ({
         article: row.article,
+        subarticle: row.subarticle || null,
+        articleTitle: row.article_title || '',
+        punishment: row.punishment || '',
         count: row.count,
         averageSeverity: row.average_severity
       }));
@@ -352,11 +372,14 @@ export class ViolationRepository implements IViolationRepository {
       const topViolationsStmt = this.env.DB.prepare(`
         SELECT 
           article,
+          subarticle,
+          article_title,
+          punishment,
           COUNT(*) as count,
           AVG(severity) as average_severity
         FROM criminal_violations 
         WHERE chat_id = ?
-        GROUP BY article
+        GROUP BY article, subarticle, article_title, punishment
         ORDER BY count DESC
         LIMIT 5
       `);
@@ -380,7 +403,7 @@ export class ViolationRepository implements IViolationRepository {
 
       // Критические нарушения (серьезность >= 8)
       const criticalViolationsStmt = this.env.DB.prepare(`
-        SELECT article, quote, punishment, severity, confidence
+        SELECT article, subarticle, article_title, quote, punishment, severity, confidence
         FROM criminal_violations 
         WHERE chat_id = ? AND severity >= 8
         ORDER BY severity DESC, created_at DESC
@@ -394,6 +417,9 @@ export class ViolationRepository implements IViolationRepository {
 
       const topViolations: ViolationCount[] = (topViolationsResult.results || []).map((row: any) => ({
         article: row.article,
+        subarticle: row.subarticle || null,
+        articleTitle: row.article_title || '',
+        punishment: row.punishment || '',
         count: row.count,
         averageSeverity: row.average_severity
       }));
@@ -407,6 +433,8 @@ export class ViolationRepository implements IViolationRepository {
 
       const criticalViolations: Violation[] = (criticalViolationsResult.results || []).map((row: any) => ({
         article: row.article,
+        subarticle: row.subarticle || null,
+        articleTitle: row.article_title || '',
         quote: row.quote,
         punishment: row.punishment,
         severity: row.severity,

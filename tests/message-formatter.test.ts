@@ -195,8 +195,8 @@ describe('MessageFormatter', () => {
       chatId: 'chat456',
       totalViolations: 5,
       violationsByArticle: [
-        { article: '282', count: 3, averageSeverity: 6.5 },
-        { article: '205', count: 2, averageSeverity: 8.0 }
+        { article: '282', subarticle: null, articleTitle: 'Возбуждение ненависти либо вражды', punishment: 'штраф в размере до трехсот тысяч рублей', count: 3, averageSeverity: 6.5 },
+        { article: '205', subarticle: '1', articleTitle: 'Терроризм', punishment: 'лишение свободы на срок до 15 лет', count: 2, averageSeverity: 8.0 }
       ],
       averageSeverity: 6.2,
       riskLevel: 'medium',
@@ -220,12 +220,24 @@ describe('MessageFormatter', () => {
       
       expect(result).toContain('<b>Нарушения по статьям УК РФ:</b>');
       expect(result).toContain('• <b>Статья 282 УК РФ</b> 3 раз 🟡 (ср. 6.5)');
-      expect(result).toContain('• <b>Статья 205 УК РФ</b> 2 раз 🔴 (ср. 8.0)');
+      expect(result).toContain('• <b>Статья 205.1 УК РФ</b> 2 раз 🔴 (ср. 8.0)');
       
-      // Check that 282 (3 violations) comes before 205 (2 violations)
+      // Check that 282 (3 violations) comes before 205.1 (2 violations)
       const index282 = result.indexOf('• <b>Статья 282 УК РФ</b> 3 раз');
-      const index205 = result.indexOf('• <b>Статья 205 УК РФ</b> 2 раз');
+      const index205 = result.indexOf('• <b>Статья 205.1 УК РФ</b> 2 раз');
       expect(index282).toBeLessThan(index205);
+    });
+
+    it('should display article titles and punishments for violations', () => {
+      const result = formatter.formatUserStats(mockUserStats);
+      
+      // Check that article titles are displayed
+      expect(result).toContain('<i>Возбуждение ненависти либо вражды</i>');
+      expect(result).toContain('<i>Терроризм</i>');
+      
+      // Check that punishments are displayed
+      expect(result).toContain('<b>Наказание:</b> штраф в размере до трехсот тысяч рублей');
+      expect(result).toContain('<b>Наказание:</b> лишение свободы на срок до 15 лет');
     });
 
     it('should handle empty violations by article', () => {
@@ -248,9 +260,9 @@ describe('MessageFormatter', () => {
       endDate: new Date('2024-01-31'),
       totalViolations: 15,
       violationsByArticle: [
-        { article: '282', count: 8, averageSeverity: 5.5 },
-        { article: '205', count: 4, averageSeverity: 8.2 },
-        { article: '130', count: 3, averageSeverity: 4.0 }
+        { article: '282', subarticle: null, articleTitle: 'Возбуждение ненависти либо вражды', punishment: 'штраф в размере до трехсот тысяч рублей', count: 8, averageSeverity: 5.5 },
+        { article: '205', subarticle: '1', articleTitle: 'Терроризм', punishment: 'лишение свободы на срок до 15 лет', count: 4, averageSeverity: 8.2 },
+        { article: '130', subarticle: null, articleTitle: 'Оскорбление', punishment: 'штраф в размере до сорока тысяч рублей', count: 3, averageSeverity: 4.0 }
       ],
       averageSeverity: 5.8,
       uniqueUsers: 7,
@@ -318,16 +330,30 @@ describe('MessageFormatter', () => {
       
       expect(result).toContain('<b>Нарушения по статьям УК РФ:</b>');
       expect(result).toContain('• <b>Статья 282 УК РФ</b> 8 раз 🟡 (ср. 5.5)');
-      expect(result).toContain('• <b>Статья 205 УК РФ</b> 4 раз 🔴 (ср. 8.2)');
+      expect(result).toContain('• <b>Статья 205.1 УК РФ</b> 4 раз 🔴 (ср. 8.2)');
       expect(result).toContain('• <b>Статья 130 УК РФ</b> 3 раз 🟡 (ср. 4.0)');
       
-      // Check order: 282 (8) > 205 (4) > 130 (3)
+      // Check order: 282 (8) > 205.1 (4) > 130 (3)
       const index282 = result.indexOf('• <b>Статья 282 УК РФ</b> 8 раз');
-      const index205 = result.indexOf('• <b>Статья 205 УК РФ</b> 4 раз');
+      const index205 = result.indexOf('• <b>Статья 205.1 УК РФ</b> 4 раз');
       const index130 = result.indexOf('• <b>Статья 130 УК РФ</b> 3 раз');
       
       expect(index282).toBeLessThan(index205);
       expect(index205).toBeLessThan(index130);
+    });
+
+    it('should display article titles and punishments in period stats', () => {
+      const result = formatter.formatPeriodStats(mockPeriodStats);
+      
+      // Check that article titles are displayed
+      expect(result).toContain('<i>Возбуждение ненависти либо вражды</i>');
+      expect(result).toContain('<i>Терроризм</i>');
+      expect(result).toContain('<i>Оскорбление</i>');
+      
+      // Check that punishments are displayed
+      expect(result).toContain('<b>Наказание:</b> штраф в размере до трехсот тысяч рублей');
+      expect(result).toContain('<b>Наказание:</b> лишение свободы на срок до 15 лет');
+      expect(result).toContain('<b>Наказание:</b> штраф в размере до сорока тысяч рублей');
     });
   });
 
@@ -336,11 +362,11 @@ describe('MessageFormatter', () => {
       chatId: 'chat456',
       totalViolations: 50,
       topViolations: [
-        { article: '282', count: 20, averageSeverity: 6.5 },
-        { article: '205', count: 15, averageSeverity: 8.8 },
-        { article: '130', count: 10, averageSeverity: 4.2 },
-        { article: '228', count: 3, averageSeverity: 7.0 },
-        { article: '159', count: 2, averageSeverity: 5.5 }
+        { article: '282', subarticle: null, articleTitle: 'Возбуждение ненависти либо вражды', punishment: 'штраф в размере до трехсот тысяч рублей', count: 20, averageSeverity: 6.5 },
+        { article: '205', subarticle: '1', articleTitle: 'Терроризм', punishment: 'лишение свободы на срок до 15 лет', count: 15, averageSeverity: 8.8 },
+        { article: '130', subarticle: null, articleTitle: 'Оскорбление', punishment: 'штраф в размере до сорока тысяч рублей', count: 10, averageSeverity: 4.2 },
+        { article: '228', subarticle: '1', articleTitle: 'Незаконные приобретение, хранение, перевозка, изготовление, переработка наркотических средств', punishment: 'лишение свободы на срок до трех лет', count: 3, averageSeverity: 7.0 },
+        { article: '159', subarticle: null, articleTitle: 'Мошенничество', punishment: 'штраф в размере до ста двадцати тысяч рублей', count: 2, averageSeverity: 5.5 }
       ],
       topUsers: [
         { userId: 'user1', username: 'baduser1', count: 12, averageSeverity: 7.2, riskLevel: 'high' },
@@ -387,10 +413,28 @@ describe('MessageFormatter', () => {
       
       expect(result).toContain('<b>🏆 Топ-5 самых частых нарушений:</b>');
       expect(result).toContain('🥇 <b>Статья 282 УК РФ</b> 20 раз 🟡 (ср. 6.5)');
-      expect(result).toContain('🥈 <b>Статья 205 УК РФ</b> 15 раз 🔴 (ср. 8.8)');
+      expect(result).toContain('🥈 <b>Статья 205.1 УК РФ</b> 15 раз 🔴 (ср. 8.8)');
       expect(result).toContain('🥉 <b>Статья 130 УК РФ</b> 10 раз 🟡 (ср. 4.2)');
-      expect(result).toContain('4. <b>Статья 228 УК РФ</b> 3 раз 🔴 (ср. 7.0)');
+      expect(result).toContain('4. <b>Статья 228.1 УК РФ</b> 3 раз 🔴 (ср. 7.0)');
       expect(result).toContain('5. <b>Статья 159 УК РФ</b> 2 раз 🟡 (ср. 5.5)');
+    });
+
+    it('should display article titles and punishments in general stats top violations', () => {
+      const result = formatter.formatGeneralStats(mockGeneralStats);
+      
+      // Check that article titles are displayed
+      expect(result).toContain('<i>Возбуждение ненависти либо вражды</i>');
+      expect(result).toContain('<i>Терроризм</i>');
+      expect(result).toContain('<i>Оскорбление</i>');
+      expect(result).toContain('<i>Незаконные приобретение, хранение, перевозка, изготовление, переработка наркотических средств</i>');
+      expect(result).toContain('<i>Мошенничество</i>');
+      
+      // Check that punishments are displayed
+      expect(result).toContain('<b>Наказание:</b> штраф в размере до трехсот тысяч рублей');
+      expect(result).toContain('<b>Наказание:</b> лишение свободы на срок до 15 лет');
+      expect(result).toContain('<b>Наказание:</b> штраф в размере до сорока тысяч рублей');
+      expect(result).toContain('<b>Наказание:</b> лишение свободы на срок до трех лет');
+      expect(result).toContain('<b>Наказание:</b> штраф в размере до ста двадцати тысяч рублей');
     });
 
     it('should format top 5 users with usernames and risk levels', () => {
@@ -470,9 +514,9 @@ describe('MessageFormatter', () => {
       
       // Should only show first 5
       expect(result).toContain('🥇 <b>Статья 282 УК РФ</b>');
-      expect(result).toContain('🥈 <b>Статья 205 УК РФ</b>');
+      expect(result).toContain('🥈 <b>Статья 205.1 УК РФ</b>');
       expect(result).toContain('🥉 <b>Статья 130 УК РФ</b>');
-      expect(result).toContain('4. <b>Статья 228 УК РФ</b>');
+      expect(result).toContain('4. <b>Статья 228.1 УК РФ</b>');
       expect(result).toContain('5. <b>Статья 159 УК РФ</b>');
       expect(result).not.toContain('Статья 111');
       expect(result).not.toContain('Статья 222');

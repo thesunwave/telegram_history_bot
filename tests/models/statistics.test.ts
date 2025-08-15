@@ -78,11 +78,17 @@ describe('Statistics Models', () => {
     it('should have correct structure', () => {
       const violationCount: ViolationCount = {
         article: 'Статья 282 УК РФ',
+        subarticle: '1',
+        articleTitle: 'Возбуждение ненависти либо вражды',
+        punishment: 'штраф в размере до трехсот тысяч рублей',
         count: 5,
         averageSeverity: 6.5
       };
 
       expect(violationCount.article).toBe('Статья 282 УК РФ');
+      expect(violationCount.subarticle).toBe('1');
+      expect(violationCount.articleTitle).toBe('Возбуждение ненависти либо вражды');
+      expect(violationCount.punishment).toBe('штраф в размере до трехсот тысяч рублей');
       expect(violationCount.count).toBe(5);
       expect(violationCount.averageSeverity).toBe(6.5);
     });

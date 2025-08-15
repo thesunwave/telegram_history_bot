@@ -115,6 +115,18 @@ export function validateViolationCount(violationCount: any): violationCount is V
     throw new ValidationError('Article must be a non-empty string', 'article');
   }
 
+  if (violationCount.subarticle !== undefined && violationCount.subarticle !== null && typeof violationCount.subarticle !== 'string') {
+    throw new ValidationError('subarticle must be a string, null, or undefined', 'subarticle');
+  }
+
+  if (violationCount.articleTitle !== undefined && typeof violationCount.articleTitle !== 'string') {
+    throw new ValidationError('articleTitle must be a string or undefined', 'articleTitle');
+  }
+
+  if (violationCount.punishment !== undefined && typeof violationCount.punishment !== 'string') {
+    throw new ValidationError('punishment must be a string or undefined', 'punishment');
+  }
+
   if (typeof violationCount.count !== 'number' || violationCount.count < 0) {
     throw new ValidationError('Count must be a non-negative number', 'count');
   }

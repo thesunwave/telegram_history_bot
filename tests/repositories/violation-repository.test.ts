@@ -56,6 +56,8 @@ describe('ViolationRepository Integration Tests', () => {
         12345,
         -1001234567890,
         'Статья 282',
+        null,
+        '',
         'экстремистские высказывания',
         'штраф до 500 тысяч рублей',
         7,
@@ -84,6 +86,8 @@ describe('ViolationRepository Integration Tests', () => {
       const mockResults = [
         {
           article: 'Статья 282',
+          subarticle: null,
+          articleTitle: '',
           quote: 'экстремистские высказывания',
           punishment: 'штраф до 500 тысяч рублей',
           severity: 7,
@@ -91,6 +95,8 @@ describe('ViolationRepository Integration Tests', () => {
         },
         {
           article: 'Статья 130',
+          subarticle: null,
+          articleTitle: '',
           quote: 'оскорбление личности',
           punishment: 'штраф до 40 тысяч рублей',
           severity: 4,
@@ -102,7 +108,7 @@ describe('ViolationRepository Integration Tests', () => {
 
       const result = await repository.getUserViolations('12345', '-1001234567890');
 
-      expect(mockDB.prepare).toHaveBeenCalledWith(expect.stringContaining('SELECT article, quote, punishment, severity, confidence'));
+      expect(mockDB.prepare).toHaveBeenCalledWith(expect.stringContaining('SELECT article, subarticle, article_title, quote, punishment, severity, confidence'));
       expect(mockStmt.bind).toHaveBeenCalledWith(12345, -1001234567890);
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual(mockResults[0]);
@@ -122,6 +128,8 @@ describe('ViolationRepository Integration Tests', () => {
       const mockResults = [
         {
           article: 'Статья 282',
+          subarticle: null,
+          articleTitle: '',
           quote: 'экстремистские высказывания',
           punishment: 'штраф до 500 тысяч рублей',
           severity: 7,
@@ -145,6 +153,8 @@ describe('ViolationRepository Integration Tests', () => {
       const mockResults = [
         {
           article: 'Статья 282',
+          subarticle: null,
+          articleTitle: '',
           quote: 'экстремистские высказывания',
           punishment: 'штраф до 500 тысяч рублей',
           severity: 7,
