@@ -7,6 +7,9 @@ import { Logger } from './logger';
 import { ProfanityAnalyzer } from './profanity';
 import { ProviderFactory } from './providers/provider-factory';
 import { ViolationHandler } from './violation-handler';
+import { NotificationService } from './services/notification-service';
+import { NotificationRepository } from './repositories/notification-repository';
+import type { NotificationType } from './models/notification-settings';
 
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
@@ -41,6 +44,12 @@ const HELP_TEXT = [
   '  Примеры: /criminal_top, /criminal_top 10, /criminal_top 5 week',
   '  n: 1-20 (по умолчанию 5), period: today|week|month (по умолчанию today)',
   '/criminal_reset – сбросить только счетчики УК РФ для чата',
+  '/auto_notifications – управление автоматическими уведомлениями',
+  '  /auto_notifications status – показать текущие настройки',
+  '  /auto_notifications enable [type] – включить уведомления (или конкретный тип)',
+  '  /auto_notifications disable [type] – отключить уведомления (или конкретный тип)',
+  '  /auto_notifications schedule [type] – настроить расписание для типа',
+  '  /auto_notifications stats [type] – статистика отправленных уведомлений',
 
   '/reset – сбросить счетчики для чата',
   '/activity_week – график активности за неделю',
@@ -565,28 +574,56 @@ async function analyzeCriminalCodeAsync(
           articles: result.violations?.map((v: any) => v.article).join(', ') || 'unknown'
         });
 
-        // Use ViolationHandler to format and send enhanced violation message
+        // Check notification settings before sending violation message
         try {
-          const violationHandler = new ViolationHandler(env);
-          const formattedMessage = await violationHandler.formatViolationMessage(
-            result,
-            userId.toString(),
-            chatId.toString()
-          );
+          const notificationRepository = new NotificationRepository(env);
+          const notificationService = new NotificationService(env, notificationRepository);
+          
+          // Get notification settings for this chat
+          const settings = await notificationService.getChatSettings(chatId.toString());
+          
+          // Only send if notifications are enabled and criminal reports are enabled
+          if (settings && settings.enabled && settings.notifications.criminal_reports.enabled) {
+            const violationHandler = new ViolationHandler(env);
+            const formattedMessage = await violationHandler.formatViolationMessage(
+              result,
+              userId.toString(),
+              chatId.toString()
+            );
 
-          // Send the enhanced violation message to the chat
-          await sendMessage(env, chatId, formattedMessage);
+            // Send the enhanced violation message to the chat
+            await sendMessage(env, chatId, formattedMessage);
 
-          Logger.debug(env, 'Enhanced violation message sent', {
-            chatId: chatId.toString(36),
-            messageLength: formattedMessage.length
-          });
+            Logger.debug(env, 'Enhanced violation message sent (notifications enabled)', {
+              chatId: chatId.toString(36),
+              messageLength: formattedMessage.length
+            });
+            
+            // Record notification result
+            await notificationRepository.recordNotificationResult(
+              chatId.toString(),
+              'criminal_reports',
+              {
+                success: true,
+                messageId: 'instant',
+                sentAt: new Date(),
+                responseTime: Date.now() - startTime,
+                retryAttempt: 0
+              }
+            );
+          } else {
+            Logger.debug(env, 'Criminal violation detected but notifications disabled', {
+              chatId: chatId.toString(36),
+              settingsEnabled: settings?.enabled || false,
+              criminalReportsEnabled: settings?.notifications?.criminal_reports?.enabled || false
+            });
+          }
         } catch (formatError: any) {
-          Logger.error('Failed to format/send enhanced violation message', {
+          Logger.error('Failed to check notification settings or send violation message', {
             chatId: chatId.toString(36),
             error: formatError.message || String(formatError)
           });
-          // Continue without throwing - the analysis was successful even if formatting failed
+          // Continue without throwing - the analysis was successful even if notification failed
         }
       } else {
         Logger.debug(env, 'Criminal code analysis: no violations detected', {
@@ -729,8 +766,334 @@ export async function handleUpdate(msg: any, env: Env) {
   } else if (msg.text.startsWith('/criminal_reset')) {
     await resetCriminalCounters(env, chatId);
     await sendMessage(env, chatId, 'Счетчики нарушений УК РФ сброшены');
+  } else if (msg.text.startsWith('/auto_notifications')) {
+    await handleAutoNotificationsCommand(env, msg);
   } else if (msg.text.startsWith('/help')) {
     await sendMessage(env, chatId, HELP_TEXT);
   }
   // Note: Background analysis (profanity and criminal code) is handled in recordMessage function
+}
+
+/**
+ * Обработчик команды управления автоматическими уведомлениями
+ */
+async function handleAutoNotificationsCommand(env: Env, msg: any) {
+  const chatId = msg.chat.id;
+  const userId = msg.from?.id?.toString() || '0';
+  const args = msg.text.split(/\s+/).slice(1); // Убираем /auto_notifications
+  const subcommand = args[0] || 'status';
+
+  try {
+    // Создаем экземпляры сервисов
+    const notificationRepository = new NotificationRepository(env);
+    const notificationService = new NotificationService(env, notificationRepository);
+
+    // Проверяем права пользователя
+    const canModify = await notificationService.canUserModifySettings(userId, chatId.toString());
+
+    switch (subcommand.toLowerCase()) {
+      case 'status':
+        await handleNotificationStatus(env, notificationService, chatId);
+        break;
+
+      case 'enable':
+        if (!canModify) {
+          await sendMessage(env, chatId, '❌ У вас нет прав для изменения настроек уведомлений');
+          return;
+        }
+        await handleNotificationEnable(env, notificationService, chatId, userId, args[1]);
+        break;
+
+      case 'disable':
+        if (!canModify) {
+          await sendMessage(env, chatId, '❌ У вас нет прав для изменения настроек уведомлений');
+          return;
+        }
+        await handleNotificationDisable(env, notificationService, chatId, userId, args[1]);
+        break;
+
+      case 'schedule':
+        if (!canModify) {
+          await sendMessage(env, chatId, '❌ У вас нет прав для изменения настроек уведомлений');
+          return;
+        }
+        await handleNotificationSchedule(env, notificationService, chatId, userId, args[1]);
+        break;
+
+      case 'stats':
+        await handleNotificationStats(env, notificationService, chatId, args[1] as NotificationType);
+        break;
+
+      case 'types':
+        await handleNotificationTypes(env, notificationService, chatId);
+        break;
+
+      default:
+        await sendMessage(env, chatId, 
+          `❓ Неизвестная подкоманда: ${subcommand}\n\n` +
+          'Доступные команды:\n' +
+          '• /auto_notifications status – показать настройки\n' +
+          '• /auto_notifications enable [type] – включить уведомления\n' +
+          '• /auto_notifications disable [type] – отключить уведомления\n' +
+          '• /auto_notifications schedule [type] – настроить расписание\n' +
+          '• /auto_notifications stats [type] – статистика\n' +
+          '• /auto_notifications types – список типов уведомлений'
+        );
+    }
+
+  } catch (error: any) {
+    Logger.error('Failed to handle auto_notifications command', {
+      chatId,
+      userId,
+      subcommand,
+      error: error.message || String(error)
+    });
+    await sendMessage(env, chatId, `❌ Ошибка при выполнении команды: ${error.message}`);
+  }
+}
+
+/**
+ * Показать статус настроек уведомлений
+ */
+async function handleNotificationStatus(env: Env, service: NotificationService, chatId: number) {
+  const settings = await service.getChatSettings(chatId.toString());
+
+  if (!settings) {
+    await sendMessage(env, chatId, 
+      '📋 *Автоматические уведомления*\n\n' +
+      '❌ Уведомления не настроены для этого чата\n\n' +
+      'Используйте `/auto_notifications enable` для включения'
+    );
+    return;
+  }
+
+  const enabledTypes = Object.entries(settings.notifications)
+    .filter(([_, config]) => config.enabled)
+    .map(([type, config]) => `• ${getNotificationTypeDisplayName(type as NotificationType)}: ${config.frequency}`)
+    .join('\n');
+
+  const disabledTypes = Object.entries(settings.notifications)
+    .filter(([_, config]) => !config.enabled)
+    .map(([type, _]) => `• ${getNotificationTypeDisplayName(type as NotificationType)}`)
+    .join('\n');
+
+  let message = `📋 *Автоматические уведомления*\n\n`;
+  message += `🔧 Общий статус: ${settings.enabled ? '✅ Включены' : '❌ Отключены'}\n`;
+  message += `👤 Последнее изменение: ${settings.updatedBy}\n`;
+  message += `📅 Обновлено: ${settings.updatedAt.toLocaleString('ru-RU')}\n\n`;
+
+  if (enabledTypes) {
+    message += `✅ *Включенные уведомления:*\n${enabledTypes}\n\n`;
+  }
+
+  if (disabledTypes) {
+    message += `❌ *Отключенные уведомления:*\n${disabledTypes}\n\n`;
+  }
+
+  if (settings.quietHours?.enabled) {
+    message += `🔇 *Тихие часы:* ${settings.quietHours.startTime.hour}:${settings.quietHours.startTime.minute.toString().padStart(2, '0')} - ${settings.quietHours.endTime.hour}:${settings.quietHours.endTime.minute.toString().padStart(2, '0')}\n\n`;
+  }
+
+  message += `🛡️ Только админы: ${settings.adminOnly ? 'Да' : 'Нет'}`;
+
+  await sendMessage(env, chatId, message);
+}
+
+/**
+ * Включить уведомления
+ */
+async function handleNotificationEnable(env: Env, service: NotificationService, chatId: number, userId: string, type?: string) {
+  if (type) {
+    // Включаем конкретный тип уведомлений
+    const availableTypes = service.getAvailableNotificationTypes();
+    if (!availableTypes.includes(type as NotificationType)) {
+      await sendMessage(env, chatId, 
+        `❌ Неизвестный тип уведомлений: ${type}\n\n` +
+        `Доступные типы: ${availableTypes.map(t => getNotificationTypeDisplayName(t)).join(', ')}`
+      );
+      return;
+    }
+
+    await service.enableNotification(chatId.toString(), type as NotificationType, userId);
+    await sendMessage(env, chatId, 
+      `✅ Уведомления "${getNotificationTypeDisplayName(type as NotificationType)}" включены`
+    );
+  } else {
+    // Включаем все уведомления
+    await service.updateChatSettings(chatId.toString(), { enabled: true }, userId);
+    await sendMessage(env, chatId, '✅ Автоматические уведомления включены для чата');
+  }
+}
+
+/**
+ * Отключить уведомления
+ */
+async function handleNotificationDisable(env: Env, service: NotificationService, chatId: number, userId: string, type?: string) {
+  if (type) {
+    // Отключаем конкретный тип уведомлений
+    const availableTypes = service.getAvailableNotificationTypes();
+    if (!availableTypes.includes(type as NotificationType)) {
+      await sendMessage(env, chatId, 
+        `❌ Неизвестный тип уведомлений: ${type}\n\n` +
+        `Доступные типы: ${availableTypes.map(t => getNotificationTypeDisplayName(t)).join(', ')}`
+      );
+      return;
+    }
+
+    await service.disableNotification(chatId.toString(), type as NotificationType, userId);
+    await sendMessage(env, chatId, 
+      `❌ Уведомления "${getNotificationTypeDisplayName(type as NotificationType)}" отключены`
+    );
+  } else {
+    // Отключаем все уведомления
+    await service.updateChatSettings(chatId.toString(), { enabled: false }, userId);
+    await sendMessage(env, chatId, '❌ Автоматические уведомления отключены для чата');
+  }
+}
+
+/**
+ * Настроить расписание уведомлений
+ */
+async function handleNotificationSchedule(env: Env, service: NotificationService, chatId: number, userId: string, type?: string) {
+  if (!type) {
+    await sendMessage(env, chatId, 
+      '❓ Укажите тип уведомлений для настройки расписания\n\n' +
+      'Пример: `/auto_notifications schedule daily_summary`'
+    );
+    return;
+  }
+
+  const availableTypes = service.getAvailableNotificationTypes();
+  if (!availableTypes.includes(type as NotificationType)) {
+    await sendMessage(env, chatId, 
+      `❌ Неизвестный тип уведомлений: ${type}\n\n` +
+      `Доступные типы: ${availableTypes.map(t => getNotificationTypeDisplayName(t)).join(', ')}`
+    );
+    return;
+  }
+
+  // Пока что показываем текущие настройки
+  const settings = await service.getChatSettings(chatId.toString());
+  if (!settings) {
+    await sendMessage(env, chatId, '❌ Сначала включите уведомления командой `/auto_notifications enable`');
+    return;
+  }
+
+  const typeSettings = settings.notifications[type as NotificationType];
+  let message = `⚙️ *Настройки "${getNotificationTypeDisplayName(type as NotificationType)}"*\n\n`;
+  message += `📊 Статус: ${typeSettings.enabled ? '✅ Включено' : '❌ Отключено'}\n`;
+  message += `⏰ Частота: ${getFrequencyDisplayName(typeSettings.frequency)}\n`;
+  
+  if (typeSettings.time) {
+    message += `🕐 Время: ${typeSettings.time.hour}:${typeSettings.time.minute.toString().padStart(2, '0')}\n`;
+  }
+  
+  if (typeSettings.threshold) {
+    message += `📈 Порог: ${typeSettings.threshold}\n`;
+  }
+  
+  message += `📋 Детали: ${typeSettings.includeDetails ? 'Включены' : 'Отключены'}\n`;
+  message += `📊 Макс. элементов: ${typeSettings.maxItemsInReport}\n\n`;
+  message += `💡 Для изменения настроек обратитесь к администратору`;
+
+  await sendMessage(env, chatId, message);
+}
+
+/**
+ * Показать статистику уведомлений
+ */
+async function handleNotificationStats(env: Env, service: NotificationService, chatId: number, type?: NotificationType) {
+  if (!type) {
+    // Показываем общую статистику по всем типам
+    const availableTypes = service.getAvailableNotificationTypes();
+    let message = '📊 *Статистика уведомлений*\n\n';
+
+    for (const notificationType of availableTypes) {
+      const stats = await service.getNotificationStats(chatId.toString(), notificationType);
+      const successRate = (stats.successRate * 100).toFixed(1);
+      
+      message += `📋 *${getNotificationTypeDisplayName(notificationType)}*\n`;
+      message += `• Отправлено: ${stats.totalSent}\n`;
+      message += `• Успешность: ${successRate}%\n`;
+      
+      if (stats.lastSentAt) {
+        message += `• Последнее: ${stats.lastSentAt.toLocaleString('ru-RU')}\n`;
+      }
+      
+      message += '\n';
+    }
+
+    await sendMessage(env, chatId, message);
+  } else {
+    // Показываем детальную статистику по конкретному типу
+    const stats = await service.getNotificationStats(chatId.toString(), type);
+    const successRate = (stats.successRate * 100).toFixed(1);
+    
+    let message = `📊 *Статистика "${getNotificationTypeDisplayName(type)}"*\n\n`;
+    message += `📤 Всего отправлено: ${stats.totalSent}\n`;
+    message += `✅ Успешность: ${successRate}%\n`;
+    message += `❌ Ошибок: ${stats.failureCount}\n`;
+    message += `⏱️ Среднее время отклика: ${stats.averageResponseTime}мс\n`;
+    
+    if (stats.lastSentAt) {
+      message += `📅 Последняя отправка: ${stats.lastSentAt.toLocaleString('ru-RU')}\n`;
+    }
+    
+    if (stats.lastFailureReason) {
+      message += `⚠️ Последняя ошибка: ${stats.lastFailureReason}\n`;
+    }
+
+    await sendMessage(env, chatId, message);
+  }
+}
+
+/**
+ * Показать доступные типы уведомлений
+ */
+async function handleNotificationTypes(env: Env, service: NotificationService, chatId: number) {
+  const availableTypes = service.getAvailableNotificationTypes();
+  
+  let message = '📋 *Доступные типы уведомлений:*\n\n';
+  
+  for (const type of availableTypes) {
+    const template = service.getNotificationTemplate(type);
+    message += `📌 *${getNotificationTypeDisplayName(type)}*\n`;
+    if (template) {
+      message += `   ${template.description}\n`;
+      message += `   Частота по умолчанию: ${getFrequencyDisplayName(template.defaultFrequency)}\n`;
+    }
+    message += '\n';
+  }
+
+  message += '💡 Используйте `/auto_notifications enable <тип>` для включения конкретного типа';
+
+  await sendMessage(env, chatId, message);
+}
+
+/**
+ * Получить отображаемое название типа уведомления
+ */
+function getNotificationTypeDisplayName(type: NotificationType): string {
+  const names: Record<NotificationType, string> = {
+    'criminal_reports': '🚨 Криминальные репорты',
+    'profanity_reports': '🤬 Отчеты о мате',
+    'activity_summary': '📈 Сводка активности',
+    'daily_summary': '📋 Ежедневная сводка',
+    'weekly_summary': '📊 Еженедельная сводка',
+    'monthly_summary': '📈 Месячная сводка'
+  };
+  return names[type] || type;
+}
+
+/**
+ * Получить отображаемое название частоты
+ */
+function getFrequencyDisplayName(frequency: string): string {
+  const names: Record<string, string> = {
+    'instant': '⚡ Мгновенно',
+    'daily': '📅 Ежедневно',
+    'weekly': '📊 Еженедельно',
+    'monthly': '📈 Ежемесячно'
+  };
+  return names[frequency] || frequency;
 }

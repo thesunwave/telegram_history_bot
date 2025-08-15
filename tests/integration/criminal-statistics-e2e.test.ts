@@ -648,6 +648,27 @@ describe('Criminal Statistics E2E Integration Tests', () => {
         props: {}
       } as any;
 
+      // Настраиваем уведомления для этого теста
+      const enabledNotificationSettings = {
+        chatId: '-100123456789',
+        enabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        updatedBy: '123456',
+        notifications: {
+          criminal_reports: { enabled: true, frequency: 'instant', includeDetails: true, maxItemsInReport: 10 },
+          profanity_reports: { enabled: false, frequency: 'daily', includeDetails: false, maxItemsInReport: 5 },
+          activity_summary: { enabled: false, frequency: 'daily', includeDetails: true, maxItemsInReport: 10 },
+          daily_summary: { enabled: false, frequency: 'daily', includeDetails: true, maxItemsInReport: 15 },
+          weekly_summary: { enabled: false, frequency: 'weekly', includeDetails: true, maxItemsInReport: 20 },
+          monthly_summary: { enabled: false, frequency: 'monthly', includeDetails: true, maxItemsInReport: 25 }
+        },
+        adminOnly: false
+      };
+
+      // Настраиваем мок HISTORY.get для возврата настроек уведомлений
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(enabledNotificationSettings));
+
       // isTestEnvironment уже настроен в beforeEach для возврата false
 
       // Act: Обрабатываем сообщение через полный поток как в index.ts
