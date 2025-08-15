@@ -6,6 +6,10 @@ import { sendMessage } from './telegram';
 import { Logger } from './logger';
 import { ProfanityAnalyzer } from './profanity';
 import { ProviderFactory } from './providers/provider-factory';
+import { ViolationHandler } from './violation-handler';
+import { NotificationService } from './services/notification-service';
+import { NotificationRepository } from './repositories/notification-repository';
+import type { NotificationType } from './models/notification-settings';
 
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
@@ -40,6 +44,13 @@ const HELP_TEXT = [
   '  Примеры: /criminal_top, /criminal_top 10, /criminal_top 5 week',
   '  n: 1-20 (по умолчанию 5), period: today|week|month (по умолчанию today)',
   '/criminal_reset – сбросить только счетчики УК РФ для чата',
+  '/auto_notifications – управление автоматическими уведомлениями',
+  '  /auto_notifications status – показать текущие настройки',
+  '  /auto_notifications enable [type] – включить уведомления (или конкретный тип)',
+  '  /auto_notifications disable [type] – отключить уведомления (или конкретный тип)',
+  '  /auto_notifications schedule [type] – настроить расписание для типа',
+  '  /auto_notifications stats [type] – статистика отправленных уведомлений',
+
   '/reset – сбросить счетчики для чата',
   '/activity_week – график активности за неделю',
   '/activity_month – график активности за месяц',
@@ -84,12 +95,12 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     timestamp: ts,
     messageId: msg.message_id
   });
-  
+
   // Save to optimized daily block structure
   try {
     const { addMessageToDayBlock } = await import('./history-optimized');
     await addMessageToDayBlock(env, stored);
-    Logger.debug(env, 'recordMessage: day block save successful', { 
+    Logger.debug(env, 'recordMessage: day block save successful', {
       chatId,
       date: new Date(ts * 1000).toISOString().slice(0, 10)
     });
@@ -99,7 +110,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       error: error.message || String(error),
       stack: error.stack
     });
-    
+
     // Fallback to individual message storage for reliability
     const key = `msg:${chatId}:${ts}:${msg.message_id}`;
     try {
@@ -175,7 +186,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     isTestEnv: isTestEnvironment(env),
     chatId: chatId.toString(36)
   });
-  
+
   if (msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
     Logger.log('STARTING PROFANITY ANALYSIS', {
       chatId: chatId.toString(36),
@@ -184,7 +195,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       messageId: msg.message_id,
       textLength: msg.text.length
     });
-    
+
     Logger.debug(env, 'Scheduling profanity analysis for message', {
       chatId: chatId.toString(36),
       userId: userId.toString(36),
@@ -192,22 +203,22 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       messageId: msg.message_id,
       textLength: msg.text.length
     });
-    
+
     // Fire-and-forget: don't await this
     const profanityPromise = analyzeProfanityAsync(msg, env, chatId, userId, username, day).catch(error => {
-    Logger.error('Background profanity analysis failed', {
-    chatId: chatId.toString(36),
-    userId: userId.toString(36),
-    username,
-    messageId: msg.message_id,
-    error: error.message || String(error)
-    });
+      Logger.error('Background profanity analysis failed', {
+        chatId: chatId.toString(36),
+        userId: userId.toString(36),
+        username,
+        messageId: msg.message_id,
+        error: error.message || String(error)
+      });
     });
     // Ensure background task isn't cut off when the request finishes
     if (ctx) {
-    ctx.waitUntil(profanityPromise);
+      ctx.waitUntil(profanityPromise);
     } else {
-    void profanityPromise;
+      void profanityPromise;
     }
   } else {
     Logger.debug(env, 'Skipping profanity analysis', {
@@ -219,46 +230,46 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   }
 
   // Schedule criminal code analysis in background (fire-and-forget)
-    // Only for text messages that are not commands and not in test environment
-    Logger.log('CRIMINAL CODE ANALYSIS CHECK', {
-      hasText: !!msg.text,
-      isCommand: msg.text?.startsWith('/'),
-      isTestEnv: isTestEnvironment(env),
-      chatId: chatId.toString(36)
+  // Only for text messages that are not commands and not in test environment
+  Logger.log('CRIMINAL CODE ANALYSIS CHECK', {
+    hasText: !!msg.text,
+    isCommand: msg.text?.startsWith('/'),
+    isTestEnv: isTestEnvironment(env),
+    chatId: chatId.toString(36)
+  });
+
+  if (msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
+    Logger.log('STARTING CRIMINAL CODE ANALYSIS', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
+      username,
+      messageId: msg.message_id,
+      textLength: msg.text.length
     });
-    
-    if (msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
-      Logger.log('STARTING CRIMINAL CODE ANALYSIS', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        username,
-        messageId: msg.message_id,
-        textLength: msg.text.length
-      });
-      
-      Logger.debug(env, 'Scheduling criminal code analysis for message', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        username,
-        messageId: msg.message_id,
-        textLength: msg.text.length
-      });
-    
+
+    Logger.debug(env, 'Scheduling criminal code analysis for message', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
+      username,
+      messageId: msg.message_id,
+      textLength: msg.text.length
+    });
+
     // Fire-and-forget: don't await this
     const criminalPromise = analyzeCriminalCodeAsync(msg, env, chatId, userId, username, day).catch(error => {
-    Logger.error('Background criminal code analysis failed', {
-    chatId: chatId.toString(36),
-    userId: userId.toString(36),
-    username,
-    messageId: msg.message_id,
-    error: error.message || String(error)
-    });
+      Logger.error('Background criminal code analysis failed', {
+        chatId: chatId.toString(36),
+        userId: userId.toString(36),
+        username,
+        messageId: msg.message_id,
+        error: error.message || String(error)
+      });
     });
     // Ensure background task isn't cut off when the request finishes
     if (ctx) {
-    ctx.waitUntil(criminalPromise);
+      ctx.waitUntil(criminalPromise);
     } else {
-    void criminalPromise;
+      void criminalPromise;
     }
   } else {
     Logger.debug(env, 'Skipping criminal code analysis', {
@@ -286,7 +297,7 @@ async function analyzeProfanityAsync(
     day,
     textLength: msg.text?.length
   });
-  
+
   const startTime = Date.now();
   const timings: Record<string, number> = {};
 
@@ -489,7 +500,7 @@ async function analyzeCriminalCodeAsync(
     day,
     textLength: msg.text?.length
   });
-  
+
   const startTime = Date.now();
 
   // КРИТИЧЕСКАЯ ПРОВЕРКА: команды НЕ должны попадать сюда!
@@ -562,6 +573,58 @@ async function analyzeCriminalCodeAsync(
           },
           articles: result.violations?.map((v: any) => v.article).join(', ') || 'unknown'
         });
+
+        // Check notification settings before sending violation message
+        try {
+          const notificationRepository = new NotificationRepository(env);
+          const notificationService = new NotificationService(env, notificationRepository);
+          
+          // Get notification settings for this chat
+          const settings = await notificationService.getChatSettings(chatId.toString());
+          
+          // Only send if notifications are enabled and criminal reports are enabled
+          if (settings && settings.enabled && settings.notifications.criminal_reports.enabled) {
+            const violationHandler = new ViolationHandler(env);
+            const formattedMessage = await violationHandler.formatViolationMessage(
+              result,
+              userId.toString(),
+              chatId.toString()
+            );
+
+            // Send the enhanced violation message to the chat
+            await sendMessage(env, chatId, formattedMessage);
+
+            Logger.debug(env, 'Enhanced violation message sent (notifications enabled)', {
+              chatId: chatId.toString(36),
+              messageLength: formattedMessage.length
+            });
+            
+            // Record notification result
+            await notificationRepository.recordNotificationResult(
+              chatId.toString(),
+              'criminal_reports',
+              {
+                success: true,
+                messageId: 'instant',
+                sentAt: new Date(),
+                responseTime: Date.now() - startTime,
+                retryAttempt: 0
+              }
+            );
+          } else {
+            Logger.debug(env, 'Criminal violation detected but notifications disabled', {
+              chatId: chatId.toString(36),
+              settingsEnabled: settings?.enabled || false,
+              criminalReportsEnabled: settings?.notifications?.criminal_reports?.enabled || false
+            });
+          }
+        } catch (formatError: any) {
+          Logger.error('Failed to check notification settings or send violation message', {
+            chatId: chatId.toString(36),
+            error: formatError.message || String(formatError)
+          });
+          // Continue without throwing - the analysis was successful even if notification failed
+        }
       } else {
         Logger.debug(env, 'Criminal code analysis: no violations detected', {
           chatId: chatId.toString(36),
@@ -659,26 +722,26 @@ export async function handleUpdate(msg: any, env: Env) {
     // Only allow admins to run race condition tests
     const userId = msg.from?.id || 0;
     const isAdmin = userId === parseInt(env.ADMIN_USER_ID || '0'); // Add ADMIN_USER_ID to env
-    
+
     if (!isAdmin) {
       await sendMessage(env, chatId, 'Эта команда доступна только администраторам');
       return;
     }
 
     await sendMessage(env, chatId, 'Запуск тестов защиты от race conditions...');
-    
+
     try {
       const { runAllRaceConditionTests } = await import('./race-condition-tests');
       const testResults = await runAllRaceConditionTests(env, chatId);
-      
-      const summary = testResults.map(result => 
+
+      const summary = testResults.map(result =>
         `${result.success ? '✅' : '❌'} ${result.testName}: ${result.messagesAdded}/${result.expectedMessages} сообщений, ${result.duplicatesDetected} дубликатов, ${result.errors.length} ошибок`
       ).join('\n');
-      
+
       const overallSuccess = testResults.every(r => r.success);
       const totalDuration = testResults.reduce((sum, r) => sum + r.duration, 0);
-      
-      await sendMessage(env, chatId, 
+
+      await sendMessage(env, chatId,
         `Результаты тестов race conditions:\n\n${summary}\n\n` +
         `${overallSuccess ? '✅ Все тесты пройдены' : '❌ Есть проблемы'}\n` +
         `Общее время: ${totalDuration}ms`
@@ -703,7 +766,334 @@ export async function handleUpdate(msg: any, env: Env) {
   } else if (msg.text.startsWith('/criminal_reset')) {
     await resetCriminalCounters(env, chatId);
     await sendMessage(env, chatId, 'Счетчики нарушений УК РФ сброшены');
+  } else if (msg.text.startsWith('/auto_notifications')) {
+    await handleAutoNotificationsCommand(env, msg);
   } else if (msg.text.startsWith('/help')) {
     await sendMessage(env, chatId, HELP_TEXT);
   }
+  // Note: Background analysis (profanity and criminal code) is handled in recordMessage function
+}
+
+/**
+ * Обработчик команды управления автоматическими уведомлениями
+ */
+async function handleAutoNotificationsCommand(env: Env, msg: any) {
+  const chatId = msg.chat.id;
+  const userId = msg.from?.id?.toString() || '0';
+  const args = msg.text.split(/\s+/).slice(1); // Убираем /auto_notifications
+  const subcommand = args[0] || 'status';
+
+  try {
+    // Создаем экземпляры сервисов
+    const notificationRepository = new NotificationRepository(env);
+    const notificationService = new NotificationService(env, notificationRepository);
+
+    // Проверяем права пользователя
+    const canModify = await notificationService.canUserModifySettings(userId, chatId.toString());
+
+    switch (subcommand.toLowerCase()) {
+      case 'status':
+        await handleNotificationStatus(env, notificationService, chatId);
+        break;
+
+      case 'enable':
+        if (!canModify) {
+          await sendMessage(env, chatId, '❌ У вас нет прав для изменения настроек уведомлений');
+          return;
+        }
+        await handleNotificationEnable(env, notificationService, chatId, userId, args[1]);
+        break;
+
+      case 'disable':
+        if (!canModify) {
+          await sendMessage(env, chatId, '❌ У вас нет прав для изменения настроек уведомлений');
+          return;
+        }
+        await handleNotificationDisable(env, notificationService, chatId, userId, args[1]);
+        break;
+
+      case 'schedule':
+        if (!canModify) {
+          await sendMessage(env, chatId, '❌ У вас нет прав для изменения настроек уведомлений');
+          return;
+        }
+        await handleNotificationSchedule(env, notificationService, chatId, userId, args[1]);
+        break;
+
+      case 'stats':
+        await handleNotificationStats(env, notificationService, chatId, args[1] as NotificationType);
+        break;
+
+      case 'types':
+        await handleNotificationTypes(env, notificationService, chatId);
+        break;
+
+      default:
+        await sendMessage(env, chatId, 
+          `❓ Неизвестная подкоманда: ${subcommand}\n\n` +
+          'Доступные команды:\n' +
+          '• /auto_notifications status – показать настройки\n' +
+          '• /auto_notifications enable [type] – включить уведомления\n' +
+          '• /auto_notifications disable [type] – отключить уведомления\n' +
+          '• /auto_notifications schedule [type] – настроить расписание\n' +
+          '• /auto_notifications stats [type] – статистика\n' +
+          '• /auto_notifications types – список типов уведомлений'
+        );
+    }
+
+  } catch (error: any) {
+    Logger.error('Failed to handle auto_notifications command', {
+      chatId,
+      userId,
+      subcommand,
+      error: error.message || String(error)
+    });
+    await sendMessage(env, chatId, `❌ Ошибка при выполнении команды: ${error.message}`);
+  }
+}
+
+/**
+ * Показать статус настроек уведомлений
+ */
+async function handleNotificationStatus(env: Env, service: NotificationService, chatId: number) {
+  const settings = await service.getChatSettings(chatId.toString());
+
+  if (!settings) {
+    await sendMessage(env, chatId, 
+      '📋 *Автоматические уведомления*\n\n' +
+      '❌ Уведомления не настроены для этого чата\n\n' +
+      'Используйте `/auto_notifications enable` для включения'
+    );
+    return;
+  }
+
+  const enabledTypes = Object.entries(settings.notifications)
+    .filter(([_, config]) => config.enabled)
+    .map(([type, config]) => `• ${getNotificationTypeDisplayName(type as NotificationType)}: ${config.frequency}`)
+    .join('\n');
+
+  const disabledTypes = Object.entries(settings.notifications)
+    .filter(([_, config]) => !config.enabled)
+    .map(([type, _]) => `• ${getNotificationTypeDisplayName(type as NotificationType)}`)
+    .join('\n');
+
+  let message = `📋 *Автоматические уведомления*\n\n`;
+  message += `🔧 Общий статус: ${settings.enabled ? '✅ Включены' : '❌ Отключены'}\n`;
+  message += `👤 Последнее изменение: ${settings.updatedBy}\n`;
+  message += `📅 Обновлено: ${settings.updatedAt.toLocaleString('ru-RU')}\n\n`;
+
+  if (enabledTypes) {
+    message += `✅ *Включенные уведомления:*\n${enabledTypes}\n\n`;
+  }
+
+  if (disabledTypes) {
+    message += `❌ *Отключенные уведомления:*\n${disabledTypes}\n\n`;
+  }
+
+  if (settings.quietHours?.enabled) {
+    message += `🔇 *Тихие часы:* ${settings.quietHours.startTime.hour}:${settings.quietHours.startTime.minute.toString().padStart(2, '0')} - ${settings.quietHours.endTime.hour}:${settings.quietHours.endTime.minute.toString().padStart(2, '0')}\n\n`;
+  }
+
+  message += `🛡️ Только админы: ${settings.adminOnly ? 'Да' : 'Нет'}`;
+
+  await sendMessage(env, chatId, message);
+}
+
+/**
+ * Включить уведомления
+ */
+async function handleNotificationEnable(env: Env, service: NotificationService, chatId: number, userId: string, type?: string) {
+  if (type) {
+    // Включаем конкретный тип уведомлений
+    const availableTypes = service.getAvailableNotificationTypes();
+    if (!availableTypes.includes(type as NotificationType)) {
+      await sendMessage(env, chatId, 
+        `❌ Неизвестный тип уведомлений: ${type}\n\n` +
+        `Доступные типы: ${availableTypes.map(t => getNotificationTypeDisplayName(t)).join(', ')}`
+      );
+      return;
+    }
+
+    await service.enableNotification(chatId.toString(), type as NotificationType, userId);
+    await sendMessage(env, chatId, 
+      `✅ Уведомления "${getNotificationTypeDisplayName(type as NotificationType)}" включены`
+    );
+  } else {
+    // Включаем все уведомления
+    await service.updateChatSettings(chatId.toString(), { enabled: true }, userId);
+    await sendMessage(env, chatId, '✅ Автоматические уведомления включены для чата');
+  }
+}
+
+/**
+ * Отключить уведомления
+ */
+async function handleNotificationDisable(env: Env, service: NotificationService, chatId: number, userId: string, type?: string) {
+  if (type) {
+    // Отключаем конкретный тип уведомлений
+    const availableTypes = service.getAvailableNotificationTypes();
+    if (!availableTypes.includes(type as NotificationType)) {
+      await sendMessage(env, chatId, 
+        `❌ Неизвестный тип уведомлений: ${type}\n\n` +
+        `Доступные типы: ${availableTypes.map(t => getNotificationTypeDisplayName(t)).join(', ')}`
+      );
+      return;
+    }
+
+    await service.disableNotification(chatId.toString(), type as NotificationType, userId);
+    await sendMessage(env, chatId, 
+      `❌ Уведомления "${getNotificationTypeDisplayName(type as NotificationType)}" отключены`
+    );
+  } else {
+    // Отключаем все уведомления
+    await service.updateChatSettings(chatId.toString(), { enabled: false }, userId);
+    await sendMessage(env, chatId, '❌ Автоматические уведомления отключены для чата');
+  }
+}
+
+/**
+ * Настроить расписание уведомлений
+ */
+async function handleNotificationSchedule(env: Env, service: NotificationService, chatId: number, userId: string, type?: string) {
+  if (!type) {
+    await sendMessage(env, chatId, 
+      '❓ Укажите тип уведомлений для настройки расписания\n\n' +
+      'Пример: `/auto_notifications schedule daily_summary`'
+    );
+    return;
+  }
+
+  const availableTypes = service.getAvailableNotificationTypes();
+  if (!availableTypes.includes(type as NotificationType)) {
+    await sendMessage(env, chatId, 
+      `❌ Неизвестный тип уведомлений: ${type}\n\n` +
+      `Доступные типы: ${availableTypes.map(t => getNotificationTypeDisplayName(t)).join(', ')}`
+    );
+    return;
+  }
+
+  // Пока что показываем текущие настройки
+  const settings = await service.getChatSettings(chatId.toString());
+  if (!settings) {
+    await sendMessage(env, chatId, '❌ Сначала включите уведомления командой `/auto_notifications enable`');
+    return;
+  }
+
+  const typeSettings = settings.notifications[type as NotificationType];
+  let message = `⚙️ *Настройки "${getNotificationTypeDisplayName(type as NotificationType)}"*\n\n`;
+  message += `📊 Статус: ${typeSettings.enabled ? '✅ Включено' : '❌ Отключено'}\n`;
+  message += `⏰ Частота: ${getFrequencyDisplayName(typeSettings.frequency)}\n`;
+  
+  if (typeSettings.time) {
+    message += `🕐 Время: ${typeSettings.time.hour}:${typeSettings.time.minute.toString().padStart(2, '0')}\n`;
+  }
+  
+  if (typeSettings.threshold) {
+    message += `📈 Порог: ${typeSettings.threshold}\n`;
+  }
+  
+  message += `📋 Детали: ${typeSettings.includeDetails ? 'Включены' : 'Отключены'}\n`;
+  message += `📊 Макс. элементов: ${typeSettings.maxItemsInReport}\n\n`;
+  message += `💡 Для изменения настроек обратитесь к администратору`;
+
+  await sendMessage(env, chatId, message);
+}
+
+/**
+ * Показать статистику уведомлений
+ */
+async function handleNotificationStats(env: Env, service: NotificationService, chatId: number, type?: NotificationType) {
+  if (!type) {
+    // Показываем общую статистику по всем типам
+    const availableTypes = service.getAvailableNotificationTypes();
+    let message = '📊 *Статистика уведомлений*\n\n';
+
+    for (const notificationType of availableTypes) {
+      const stats = await service.getNotificationStats(chatId.toString(), notificationType);
+      const successRate = (stats.successRate * 100).toFixed(1);
+      
+      message += `📋 *${getNotificationTypeDisplayName(notificationType)}*\n`;
+      message += `• Отправлено: ${stats.totalSent}\n`;
+      message += `• Успешность: ${successRate}%\n`;
+      
+      if (stats.lastSentAt) {
+        message += `• Последнее: ${stats.lastSentAt.toLocaleString('ru-RU')}\n`;
+      }
+      
+      message += '\n';
+    }
+
+    await sendMessage(env, chatId, message);
+  } else {
+    // Показываем детальную статистику по конкретному типу
+    const stats = await service.getNotificationStats(chatId.toString(), type);
+    const successRate = (stats.successRate * 100).toFixed(1);
+    
+    let message = `📊 *Статистика "${getNotificationTypeDisplayName(type)}"*\n\n`;
+    message += `📤 Всего отправлено: ${stats.totalSent}\n`;
+    message += `✅ Успешность: ${successRate}%\n`;
+    message += `❌ Ошибок: ${stats.failureCount}\n`;
+    message += `⏱️ Среднее время отклика: ${stats.averageResponseTime}мс\n`;
+    
+    if (stats.lastSentAt) {
+      message += `📅 Последняя отправка: ${stats.lastSentAt.toLocaleString('ru-RU')}\n`;
+    }
+    
+    if (stats.lastFailureReason) {
+      message += `⚠️ Последняя ошибка: ${stats.lastFailureReason}\n`;
+    }
+
+    await sendMessage(env, chatId, message);
+  }
+}
+
+/**
+ * Показать доступные типы уведомлений
+ */
+async function handleNotificationTypes(env: Env, service: NotificationService, chatId: number) {
+  const availableTypes = service.getAvailableNotificationTypes();
+  
+  let message = '📋 *Доступные типы уведомлений:*\n\n';
+  
+  for (const type of availableTypes) {
+    const template = service.getNotificationTemplate(type);
+    message += `📌 *${getNotificationTypeDisplayName(type)}*\n`;
+    if (template) {
+      message += `   ${template.description}\n`;
+      message += `   Частота по умолчанию: ${getFrequencyDisplayName(template.defaultFrequency)}\n`;
+    }
+    message += '\n';
+  }
+
+  message += '💡 Используйте `/auto_notifications enable <тип>` для включения конкретного типа';
+
+  await sendMessage(env, chatId, message);
+}
+
+/**
+ * Получить отображаемое название типа уведомления
+ */
+function getNotificationTypeDisplayName(type: NotificationType): string {
+  const names: Record<NotificationType, string> = {
+    'criminal_reports': '🚨 Криминальные репорты',
+    'profanity_reports': '🤬 Отчеты о мате',
+    'activity_summary': '📈 Сводка активности',
+    'daily_summary': '📋 Ежедневная сводка',
+    'weekly_summary': '📊 Еженедельная сводка',
+    'monthly_summary': '📈 Месячная сводка'
+  };
+  return names[type] || type;
+}
+
+/**
+ * Получить отображаемое название частоты
+ */
+function getFrequencyDisplayName(frequency: string): string {
+  const names: Record<string, string> = {
+    'instant': '⚡ Мгновенно',
+    'daily': '📅 Ежедневно',
+    'weekly': '📊 Еженедельно',
+    'monthly': '📈 Ежемесячно'
+  };
+  return names[frequency] || frequency;
 }

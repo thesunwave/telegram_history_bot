@@ -479,9 +479,9 @@ export class CriminalCodeAnalyzerDO {
       for (const violation of violations) {
         const stmt = this.env.DB.prepare(`
           INSERT INTO criminal_violations (
-            chat_id, message_id, user_id, article, quote, punishment, 
+            chat_id, message_id, user_id, article, subarticle, quote, punishment, 
             severity, confidence, text_preview, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         `);
         const textPreview = storePreview && text ? text.substring(0, previewLength) : null;
         
@@ -490,6 +490,7 @@ export class CriminalCodeAnalyzerDO {
           messageId || null,
           userId || null,
           violation.article,
+          violation.subarticle || null,
           violation.quote,
           violation.punishment,
           violation.severity,

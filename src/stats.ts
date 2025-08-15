@@ -2,6 +2,7 @@ import { Env, DAY, MONTH_DAYS, WEEK_DAYS } from './env';
 import type { KVNamespace } from '@cloudflare/workers-types';
 import { sendMessage, sendPhoto } from './telegram';
 import { summariseChat } from './summary';
+import { ViolationHandler } from './violation-handler';
 
 export async function topChat(
   env: Env,
@@ -971,67 +972,81 @@ export async function myCriminalStats(
   period?: string
 ) {
   try {
-    if (period) {
-      // Show stats for specific period
-      const validPeriods = ['today', 'week', 'month'];
-      if (!validPeriods.includes(period)) {
-        await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
-        return;
-      }
-
-      const stats = await getUserCriminalStats(env, chatId, userId);
-      let count: number;
-      let periodText: string;
-
-      switch (period) {
-        case 'today':
-          count = stats.today;
-          periodText = 'сегодня';
-          break;
-        case 'week':
-          count = stats.week;
-          periodText = 'за неделю';
-          break;
-        case 'month':
-          count = stats.month;
-          periodText = 'за месяц';
-          break;
-        default:
-          count = stats.today;
-          periodText = 'сегодня';
-      }
-
-      if (count === 0) {
-        await sendMessage(env, chatId, `У вас чистая речь ${periodText}!`);
-      } else {
-        await sendMessage(env, chatId, `Ваша статистика ${periodText}: ${count} нарушений УК РФ`);
-      }
-    } else {
-      // Show stats for all periods
-      const stats = await getUserCriminalStats(env, chatId, userId);
-      
-      if (stats.today === 0 && stats.week === 0 && stats.month === 0) {
-        await sendMessage(env, chatId, 'У вас чистая речь!');
-        return;
-      }
-
-      const lines = [
-        'Ваша статистика нарушений УК РФ:',
-        `Сегодня: ${stats.today}`,
-        `За неделю: ${stats.week}`,
-        `За месяц: ${stats.month}`
-      ];
-      
-      const text = lines.join('\n');
-      await sendMessage(env, chatId, text);
-    }
+    // Use ViolationHandler for enhanced formatting
+    const violationHandler = new ViolationHandler(env);
+    const formattedStats = await violationHandler.getUserStats(userId.toString(), chatId.toString());
+    await sendMessage(env, chatId, formattedStats);
   } catch (error: any) {
     console.error('my criminal stats error', {
       chatId,
       userId,
       error: error.message || String(error)
     });
-    await sendMessage(env, chatId, 'Ошибка при получении вашей статистики');
+    
+    // Fallback to legacy formatting if ViolationHandler fails
+    try {
+      if (period) {
+        // Show stats for specific period
+        const validPeriods = ['today', 'week', 'month'];
+        if (!validPeriods.includes(period)) {
+          await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
+          return;
+        }
+
+        const stats = await getUserCriminalStats(env, chatId, userId);
+        let count: number;
+        let periodText: string;
+
+        switch (period) {
+          case 'today':
+            count = stats.today;
+            periodText = 'сегодня';
+            break;
+          case 'week':
+            count = stats.week;
+            periodText = 'за неделю';
+            break;
+          case 'month':
+            count = stats.month;
+            periodText = 'за месяц';
+            break;
+          default:
+            count = stats.today;
+            periodText = 'сегодня';
+        }
+
+        if (count === 0) {
+          await sendMessage(env, chatId, `У вас чистая речь ${periodText}!`);
+        } else {
+          await sendMessage(env, chatId, `Ваша статистика ${periodText}: ${count} нарушений УК РФ`);
+        }
+      } else {
+        // Show stats for all periods
+        const stats = await getUserCriminalStats(env, chatId, userId);
+        
+        if (stats.today === 0 && stats.week === 0 && stats.month === 0) {
+          await sendMessage(env, chatId, 'У вас чистая речь!');
+          return;
+        }
+
+        const lines = [
+          'Ваша статистика нарушений УК РФ:',
+          `Сегодня: ${stats.today}`,
+          `За неделю: ${stats.week}`,
+          `За месяц: ${stats.month}`
+        ];
+        
+        const text = lines.join('\n');
+        await sendMessage(env, chatId, text);
+      }
+    } catch (fallbackError: any) {
+      console.error('my criminal stats fallback error', {
+        chatId,
+        userId,
+        error: fallbackError.message || String(fallbackError)
+      });
+      await sendMessage(env, chatId, 'Ошибка при получении вашей статистики');
+    }
   }
 }
 
@@ -1049,34 +1064,63 @@ export async function criminalCodeStats(
   }
   
   try {
-    const topUsers = await getTopCriminalUsers(env, chatId, 10, period);
-    
-    if (topUsers.length === 0) {
-      await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
-      return;
+    // Convert period to days for ViolationHandler
+    let days: number;
+    switch (period) {
+      case 'today':
+        days = 1;
+        break;
+      case 'week':
+        days = 7;
+        break;
+      case 'month':
+        days = 30;
+        break;
+      default:
+        days = 1;
     }
 
-    const periodText = period === 'today' ? 'сегодня' : 
-                     period === 'week' ? 'за неделю' : 'за месяц';
-    
-    const lines = [`Статистика нарушений УК РФ ${periodText}:`];
-    const totalViolations = topUsers.reduce((sum, user) => sum + user.count, 0);
-    
-    for (let i = 0; i < Math.min(topUsers.length, 10); i++) {
-      const user = topUsers[i];
-      lines.push(`${i + 1}. ${user.username}: ${user.count}`);
-    }
-    
-    lines.push(`\nВсего нарушений: ${totalViolations}`);
-    
-    const text = lines.join('\n');
-    await sendMessage(env, chatId, text);
+    // Use ViolationHandler for enhanced formatting
+    const violationHandler = new ViolationHandler(env);
+    const formattedStats = await violationHandler.getPeriodStats(chatId.toString(), days);
+    await sendMessage(env, chatId, formattedStats);
   } catch (error: any) {
     console.error('criminal code stats error', {
       chatId,
       error: error.message || String(error)
     });
-    await sendMessage(env, chatId, 'Ошибка при получении статистики УК РФ');
+    
+    // Fallback to legacy formatting if ViolationHandler fails
+    try {
+      const topUsers = await getTopCriminalUsers(env, chatId, 10, period);
+      
+      if (topUsers.length === 0) {
+        await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
+        return;
+      }
+
+      const periodText = period === 'today' ? 'сегодня' : 
+                       period === 'week' ? 'за неделю' : 'за месяц';
+      
+      const lines = [`Статистика нарушений УК РФ ${periodText}:`];
+      const totalViolations = topUsers.reduce((sum, user) => sum + user.count, 0);
+      
+      for (let i = 0; i < Math.min(topUsers.length, 10); i++) {
+        const user = topUsers[i];
+        lines.push(`${i + 1}. ${user.username}: ${user.count}`);
+      }
+      
+      lines.push(`\nВсего нарушений: ${totalViolations}`);
+      
+      const text = lines.join('\n');
+      await sendMessage(env, chatId, text);
+    } catch (fallbackError: any) {
+      console.error('criminal code stats fallback error', {
+        chatId,
+        error: fallbackError.message || String(fallbackError)
+      });
+      await sendMessage(env, chatId, 'Ошибка при получении статистики УК РФ');
+    }
   }
 }
 
