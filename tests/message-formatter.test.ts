@@ -125,6 +125,8 @@ describe('MessageFormatter', () => {
     it('should format single violation analysis', () => {
       const violation: Violation = {
         article: '282',
+        subarticle: null,
+        articleTitle: '',
         quote: 'Тестовая цитата',
         punishment: 'штраф',
         severity: 5,
@@ -151,6 +153,8 @@ describe('MessageFormatter', () => {
       const violations: Violation[] = [
         {
           article: '282',
+          subarticle: null,
+          articleTitle: '',
           quote: 'Первая цитата',
           punishment: 'штраф',
           severity: 5,
@@ -158,6 +162,8 @@ describe('MessageFormatter', () => {
         },
         {
           article: '205',
+          subarticle: null,
+          articleTitle: '',
           quote: 'Вторая цитата',
           punishment: 'лишение свободы',
           severity: 9,
@@ -213,12 +219,12 @@ describe('MessageFormatter', () => {
       const result = formatter.formatUserStats(mockUserStats);
       
       expect(result).toContain('<b>Нарушения по статьям УК РФ:</b>');
-      expect(result).toContain('• <b>Статья 282:</b> 3 раз 🟡 (ср. 6.5)');
-      expect(result).toContain('• <b>Статья 205:</b> 2 раз 🔴 (ср. 8.0)');
+      expect(result).toContain('• <b>Статья 282 УК РФ</b> 3 раз 🟡 (ср. 6.5)');
+      expect(result).toContain('• <b>Статья 205 УК РФ</b> 2 раз 🔴 (ср. 8.0)');
       
       // Check that 282 (3 violations) comes before 205 (2 violations)
-      const index282 = result.indexOf('• <b>Статья 282:</b> 3 раз');
-      const index205 = result.indexOf('• <b>Статья 205:</b> 2 раз');
+      const index282 = result.indexOf('• <b>Статья 282 УК РФ</b> 3 раз');
+      const index205 = result.indexOf('• <b>Статья 205 УК РФ</b> 2 раз');
       expect(index282).toBeLessThan(index205);
     });
 
@@ -311,14 +317,14 @@ describe('MessageFormatter', () => {
       const result = formatter.formatPeriodStats(mockPeriodStats);
       
       expect(result).toContain('<b>Нарушения по статьям УК РФ:</b>');
-      expect(result).toContain('• <b>Статья 282:</b> 8 раз 🟡 (ср. 5.5)');
-      expect(result).toContain('• <b>Статья 205:</b> 4 раз 🔴 (ср. 8.2)');
-      expect(result).toContain('• <b>Статья 130:</b> 3 раз 🟡 (ср. 4.0)');
+      expect(result).toContain('• <b>Статья 282 УК РФ</b> 8 раз 🟡 (ср. 5.5)');
+      expect(result).toContain('• <b>Статья 205 УК РФ</b> 4 раз 🔴 (ср. 8.2)');
+      expect(result).toContain('• <b>Статья 130 УК РФ</b> 3 раз 🟡 (ср. 4.0)');
       
       // Check order: 282 (8) > 205 (4) > 130 (3)
-      const index282 = result.indexOf('• <b>Статья 282:</b> 8 раз');
-      const index205 = result.indexOf('• <b>Статья 205:</b> 4 раз');
-      const index130 = result.indexOf('• <b>Статья 130:</b> 3 раз');
+      const index282 = result.indexOf('• <b>Статья 282 УК РФ</b> 8 раз');
+      const index205 = result.indexOf('• <b>Статья 205 УК РФ</b> 4 раз');
+      const index130 = result.indexOf('• <b>Статья 130 УК РФ</b> 3 раз');
       
       expect(index282).toBeLessThan(index205);
       expect(index205).toBeLessThan(index130);
@@ -380,11 +386,11 @@ describe('MessageFormatter', () => {
       const result = formatter.formatGeneralStats(mockGeneralStats);
       
       expect(result).toContain('<b>🏆 Топ-5 самых частых нарушений:</b>');
-      expect(result).toContain('🥇 <b>Статья 282:</b> 20 раз 🟡 (ср. 6.5)');
-      expect(result).toContain('🥈 <b>Статья 205:</b> 15 раз 🔴 (ср. 8.8)');
-      expect(result).toContain('🥉 <b>Статья 130:</b> 10 раз 🟡 (ср. 4.2)');
-      expect(result).toContain('4. <b>Статья 228:</b> 3 раз 🔴 (ср. 7.0)');
-      expect(result).toContain('5. <b>Статья 159:</b> 2 раз 🟡 (ср. 5.5)');
+      expect(result).toContain('🥇 <b>Статья 282 УК РФ</b> 20 раз 🟡 (ср. 6.5)');
+      expect(result).toContain('🥈 <b>Статья 205 УК РФ</b> 15 раз 🔴 (ср. 8.8)');
+      expect(result).toContain('🥉 <b>Статья 130 УК РФ</b> 10 раз 🟡 (ср. 4.2)');
+      expect(result).toContain('4. <b>Статья 228 УК РФ</b> 3 раз 🔴 (ср. 7.0)');
+      expect(result).toContain('5. <b>Статья 159 УК РФ</b> 2 раз 🟡 (ср. 5.5)');
     });
 
     it('should format top 5 users with usernames and risk levels', () => {
@@ -402,9 +408,9 @@ describe('MessageFormatter', () => {
       const result = formatter.formatGeneralStats(mockGeneralStats);
       
       expect(result).toContain('🚨 <b>Критические нарушения (серьезность ≥ 8):</b>');
-      expect(result).toContain('🔴 <b>Статья 205:</b> серьезность 9/10');
+      expect(result).toContain('🔴 <b>Статья 205 УК РФ</b> серьезность 9/10');
       expect(result).toContain('<i>&quot;Очень серьезное нарушение с высокой степенью опасности для общества&quot;</i>');
-      expect(result).toContain('🔴 <b>Статья 282:</b> серьезность 8/10');
+      expect(result).toContain('🔴 <b>Статья 282 УК РФ</b> серьезность 8/10');
       expect(result).toContain('<i>&quot;Еще одно критическое нарушение&quot;</i>');
     });
 
@@ -463,11 +469,11 @@ describe('MessageFormatter', () => {
       const result = formatter.formatGeneralStats(statsWithManyViolations);
       
       // Should only show first 5
-      expect(result).toContain('🥇 <b>Статья 282:</b>');
-      expect(result).toContain('🥈 <b>Статья 205:</b>');
-      expect(result).toContain('🥉 <b>Статья 130:</b>');
-      expect(result).toContain('4. <b>Статья 228:</b>');
-      expect(result).toContain('5. <b>Статья 159:</b>');
+      expect(result).toContain('🥇 <b>Статья 282 УК РФ</b>');
+      expect(result).toContain('🥈 <b>Статья 205 УК РФ</b>');
+      expect(result).toContain('🥉 <b>Статья 130 УК РФ</b>');
+      expect(result).toContain('4. <b>Статья 228 УК РФ</b>');
+      expect(result).toContain('5. <b>Статья 159 УК РФ</b>');
       expect(result).not.toContain('Статья 111');
       expect(result).not.toContain('Статья 222');
     });
@@ -479,7 +485,7 @@ describe('MessageFormatter', () => {
         userId: 'user123',
         chatId: 'chat456',
         totalViolations: 1,
-        violationsByArticle: new Map(),
+        violationsByArticle: [],
         averageSeverity: 2.0,
         riskLevel: 'low',
         lastViolationDate: new Date(),
@@ -506,6 +512,8 @@ describe('MessageFormatter', () => {
     it('should handle violations with special characters in quotes', () => {
       const violationWithSpecialChars: Violation = {
         article: '282',
+        subarticle: null,
+        articleTitle: '',
         quote: 'Цитата с <script>alert("xss")</script> и & символами',
         punishment: 'штраф',
         severity: 5,
@@ -521,6 +529,8 @@ describe('MessageFormatter', () => {
     it('should handle empty violation data gracefully', () => {
       const emptyViolation: Violation = {
         article: '',
+        subarticle: null,
+        articleTitle: '',
         quote: '',
         punishment: '',
         severity: 1,
@@ -528,13 +538,15 @@ describe('MessageFormatter', () => {
       };
 
       const result = formatter.formatViolation(emptyViolation);
-      expect(result).toContain('<b>Статья  УК РФ</b>'); // Empty article
+      expect(result).toContain('<b>Неизвестная статья</b>'); // Empty article normalized
       expect(result).toContain('<i>&quot;&quot;</i>'); // Empty quote
     });
 
     it('should handle confidence exactly at threshold', () => {
       const thresholdViolation: Violation = {
         article: '282',
+        subarticle: null,
+        articleTitle: '',
         quote: 'Test quote',
         punishment: 'Test punishment',
         severity: 5,

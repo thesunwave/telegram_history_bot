@@ -65,7 +65,7 @@ describe('HTML Formatting Integration', () => {
 
     const message = builder.buildViolationMessage(minimalData);
     expect(message).toContain('🟢'); // Low severity
-    expect(message).toContain('<b>Статья 1</b>');
+    expect(message).toContain('<b>Статья 1 УК РФ</b>');
     
     // Test with low confidence
     const lowConfidenceData = {

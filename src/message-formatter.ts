@@ -6,7 +6,7 @@
  */
 
 import { HTMLBuilder, htmlBuilder } from './html-builder';
-import { getSeverityEmoji, escapeHtml } from './html-utils';
+import { getSeverityEmoji, escapeHtml, formatArticleForDisplay } from './html-utils';
 
 /**
  * Represents a single violation from the analysis
@@ -90,7 +90,7 @@ export class MessageFormatter implements IMessageFormatter {
       '\n⚠️ ' + this.htmlBuilder.italic('Низкий уровень доверия к анализу') : '';
     
     const lines = [
-      `${severityEmoji} ${this.htmlBuilder.bold(`Статья ${article} УК РФ`)}`,
+      `${severityEmoji} ${this.htmlBuilder.bold(`${formatArticleForDisplay(article)}`)}`,
       '',
       this.htmlBuilder.bold('Цитата из текста:'),
       this.htmlBuilder.italic(`"${quote}"`),
@@ -195,10 +195,10 @@ export class MessageFormatter implements IMessageFormatter {
         sortedViolations.forEach(({ article, count, averageSeverity }) => {
           try {
             const severityEmoji = this.getSeverityEmoji(Math.floor(averageSeverity || 1));
-            lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count} раз ${severityEmoji} (ср. ${(averageSeverity || 0).toFixed(1)})`);
+            lines.push(`• ${this.htmlBuilder.bold(`${formatArticleForDisplay(article)}`)} ${count || 0} раз ${severityEmoji} (ср. ${(averageSeverity || 0).toFixed(1)})`);
           } catch (emojiError) {
             console.warn('⚠️ Error formatting violation:', emojiError);
-            lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count} раз (ср. ${(averageSeverity || 0).toFixed(1)})`);
+            lines.push(`• ${this.htmlBuilder.bold(`${formatArticleForDisplay(article)}`)} ${count || 0} раз (ср. ${(averageSeverity || 0).toFixed(1)})`);
           }
         });
       } else {
@@ -284,10 +284,10 @@ export class MessageFormatter implements IMessageFormatter {
         sortedViolations.forEach(({ article, count, averageSeverity }) => {
           try {
             const severityEmoji = this.getSeverityEmoji(Math.floor(averageSeverity || 1));
-            lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count || 0} раз ${severityEmoji} (ср. ${(averageSeverity || 0).toFixed(1)})`);
+            lines.push(`• ${this.htmlBuilder.bold(`${formatArticleForDisplay(article)}`)} ${count || 0} раз ${severityEmoji} (ср. ${(averageSeverity || 0).toFixed(1)})`);
           } catch (emojiError) {
             console.warn('⚠️ Error formatting period violation:', emojiError);
-            lines.push(`• ${this.htmlBuilder.bold(`Статья ${article}:`)} ${count || 0} раз (ср. ${(averageSeverity || 0).toFixed(1)})`);
+            lines.push(`• ${this.htmlBuilder.bold(`${formatArticleForDisplay(article)}`)} ${count || 0} раз (ср. ${(averageSeverity || 0).toFixed(1)})`);
           }
         });
       } else {
@@ -337,10 +337,10 @@ export class MessageFormatter implements IMessageFormatter {
             const positionEmoji = this.getPositionEmoji(position);
             const severityEmoji = this.getSeverityEmoji(Math.floor(violation.averageSeverity || 1));
             
-            lines.push(`${positionEmoji} ${this.htmlBuilder.bold(`Статья ${violation.article}:`)} ${violation.count || 0} раз ${severityEmoji} (ср. ${(violation.averageSeverity || 0).toFixed(1)})`);
+            lines.push(`${positionEmoji} ${this.htmlBuilder.bold(`${formatArticleForDisplay(violation.article)}`)} ${violation.count || 0} раз ${severityEmoji} (ср. ${(violation.averageSeverity || 0).toFixed(1)})`);
           } catch (violationError) {
             console.warn('⚠️ Error formatting top violation:', violationError);
-            lines.push(`${index + 1}. ${this.htmlBuilder.bold(`Статья ${violation.article}:`)} ${violation.count || 0} раз`);
+            lines.push(`${index + 1}. ${this.htmlBuilder.bold(`${formatArticleForDisplay(violation.article)}`)} ${violation.count || 0} раз`);
           }
         });
       } else {
@@ -394,22 +394,22 @@ export class MessageFormatter implements IMessageFormatter {
         validCriticalViolations.forEach((violation) => {
           try {
             const severityEmoji = this.getSeverityEmoji(violation.severity || 8);
-            lines.push(`${severityEmoji} ${this.htmlBuilder.bold(`Статья ${violation.article}:`)} серьезность ${violation.severity || 8}/10`);
-            
-            const quote = violation.quote || 'Цитата недоступна';
-            const truncatedQuote = quote.length > 100 ? 
-              quote.substring(0, 100) + '...' : 
-              quote;
-            lines.push(`   ${this.htmlBuilder.italic(`"${this.escapeHtml(truncatedQuote)}"`)}`)
-          } catch (criticalError) {
-            console.warn('⚠️ Error formatting critical violation:', criticalError);
-            lines.push(`🔴 ${this.htmlBuilder.bold(`Статья ${violation.article}:`)} серьезность ${violation.severity || 8}/10`);
-          }
-        });
-      } else {
-        lines.push(this.htmlBuilder.italic('Критические нарушения не найдены'));
+            lines.push(`${severityEmoji} ${this.htmlBuilder.bold(`${formatArticleForDisplay(violation.article)}`)} серьезность ${violation.severity || 8}/10`);
+              
+              const quote = violation.quote || 'Цитата недоступна';
+              const truncatedQuote = quote.length > 100 ? 
+                quote.substring(0, 100) + '...' : 
+                quote;
+              lines.push(`   ${this.htmlBuilder.italic(`"${this.escapeHtml(truncatedQuote)}"`)}`)
+            } catch (criticalError) {
+              console.warn('⚠️ Error formatting critical violation:', criticalError);
+            lines.push(`🔴 ${this.htmlBuilder.bold(`${formatArticleForDisplay(violation.article)}`)} серьезность ${violation.severity || 8}/10`);
+            }
+          });
+        } else {
+          lines.push(this.htmlBuilder.italic('Критические нарушения не найдены'));
+        }
       }
-    }
 
     return lines.join('\n');
   }

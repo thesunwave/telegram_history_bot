@@ -228,8 +228,8 @@ describe('ViolationHandler Integration Tests', () => {
       expect(result).toContain('<b>Всего нарушений:</b> 5');
       expect(result).toContain('<b>Средняя серьезность:</b> 5.5/10');
       expect(result).toContain('🟡 Средний'); // Medium risk level
-      expect(result).toContain('<b>Статья 282:</b> 3 раз');
-      expect(result).toContain('<b>Статья 130:</b> 2 раз');
+      expect(result).toContain('<b>Статья 282 УК РФ</b> 3 раз');
+      expect(result).toContain('<b>Статья 130 УК РФ</b> 2 раз');
     });
 
     it('должен обрабатывать ошибку при получении статистики пользователя', async () => {

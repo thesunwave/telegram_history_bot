@@ -227,8 +227,8 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       expect(sentMessage).toContain('<b>Всего нарушений:</b> 3');
       expect(sentMessage).toContain('<b>Средняя серьезность:</b> 6.5/10');
       expect(sentMessage).toContain('🟡'); // Medium risk level emoji
-      expect(sentMessage).toContain('<b>Статья 282:</b> 2 раз');
-      expect(sentMessage).toContain('<b>Статья 130:</b> 1 раз');
+      expect(sentMessage).toContain('<b>Статья 282 УК РФ</b> 2 раз');
+      expect(sentMessage).toContain('<b>Статья 130 УК РФ</b> 1 раз');
       expect(sentMessage).toContain('15.01.2024'); // Дата последнего нарушения
 
       // Проверяем, что вызов был с правильными параметрами
@@ -367,7 +367,7 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       expect(sentMessage).toContain('<b>Всего нарушений:</b> 1');
       expect(sentMessage).toContain('<b>Средняя серьезность:</b> 4.0/10');
       expect(sentMessage).toContain('🟡 Средний'); // Medium risk level (4.0 is medium)
-      expect(sentMessage).toContain('<b>Статья 130:</b> 1 раз');
+      expect(sentMessage).toContain('<b>Статья 130 УК РФ</b> 1 раз');
     });
   });
 
@@ -604,6 +604,8 @@ describe('Criminal Statistics E2E Integration Tests', () => {
         violations: [
           {
             article: '282',
+            subarticle: null,
+            articleTitle: 'Возбуждение ненависти либо вражды',
             quote: 'Тестовая цитата нарушения',
             punishment: 'Штраф до 300 000 рублей',
             severity: 8,
