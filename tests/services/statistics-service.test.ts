@@ -70,11 +70,17 @@ describe('StatisticsService', () => {
         violationsByArticle: [
           {
             article: 'Статья 105 УК РФ',
+            subarticle: null,
+            articleTitle: 'Убийство',
+            punishment: 'лишение свободы на срок от шести до пятнадцати лет',
             count: 2,
             averageSeverity: 9.5
           },
           {
             article: 'Статья 158 УК РФ',
+            subarticle: '1',
+            articleTitle: 'Кража',
+            punishment: 'штраф в размере до восьмидесяти тысяч рублей',
             count: 1,
             averageSeverity: 3
           }
@@ -106,6 +112,9 @@ describe('StatisticsService', () => {
         violationsByArticle: [
           {
             article: 'Статья 158 УК РФ',
+            subarticle: null,
+            articleTitle: 'Кража',
+            punishment: 'штраф в размере до восьмидесяти тысяч рублей',
             count: 2,
             averageSeverity: 2.5
           }
@@ -152,11 +161,17 @@ describe('StatisticsService', () => {
         violationsByArticle: [
           {
             article: 'Статья 105 УК РФ',
+            subarticle: null,
+            articleTitle: 'Убийство',
+            punishment: 'лишение свободы на срок от шести до пятнадцати лет',
             count: 1,
             averageSeverity: 10
           },
           {
             article: 'Статья 158 УК РФ',
+            subarticle: null,
+            articleTitle: 'Кража',
+            punishment: 'штраф в размере до восьмидесяти тысяч рублей',
             count: 1,
             averageSeverity: 3
           }
@@ -231,16 +246,25 @@ describe('StatisticsService', () => {
         topViolations: [
           {
             article: 'Статья 105 УК РФ',
+            subarticle: null,
+            articleTitle: 'Убийство',
+            punishment: 'лишение свободы на срок от шести до пятнадцати лет',
             count: 3,
             averageSeverity: 9
           },
           {
             article: 'Статья 158 УК РФ',
+            subarticle: '1',
+            articleTitle: 'Кража',
+            punishment: 'штраф в размере до восьмидесяти тысяч рублей',
             count: 2,
             averageSeverity: 3.5
           },
           {
             article: 'Статья 228 УК РФ',
+            subarticle: null,
+            articleTitle: 'Незаконные приобретение, хранение, перевозка, изготовление, переработка наркотических средств',
+            punishment: 'лишение свободы на срок до трех лет',
             count: 1,
             averageSeverity: 5
           }

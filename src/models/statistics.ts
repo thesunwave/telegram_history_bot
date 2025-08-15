@@ -32,6 +32,9 @@ export interface ViolationAnalysis {
  */
 export interface ViolationCount {
   article: string;
+  subarticle: string | null;
+  articleTitle: string;
+  punishment: string;
   count: number;
   averageSeverity: number;
 }

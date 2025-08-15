@@ -203,6 +203,34 @@ describe('Validation Functions', () => {
     it('should validate correct violation count', () => {
       const violationCount = {
         article: 'Статья 282 УК РФ',
+        subarticle: '1',
+        articleTitle: 'Возбуждение ненависти либо вражды',
+        punishment: 'штраф в размере до трехсот тысяч рублей',
+        count: 5,
+        averageSeverity: 6.5
+      };
+
+      expect(() => validateViolationCount(violationCount)).not.toThrow();
+      expect(validateViolationCount(violationCount)).toBe(true);
+    });
+
+    it('should validate violation count without optional fields', () => {
+      const violationCount = {
+        article: 'Статья 282 УК РФ',
+        count: 5,
+        averageSeverity: 6.5
+      };
+
+      expect(() => validateViolationCount(violationCount)).not.toThrow();
+      expect(validateViolationCount(violationCount)).toBe(true);
+    });
+
+    it('should validate violation count with null subarticle', () => {
+      const violationCount = {
+        article: 'Статья 282 УК РФ',
+        subarticle: null,
+        articleTitle: 'Возбуждение ненависти либо вражды',
+        punishment: 'штраф в размере до трехсот тысяч рублей',
         count: 5,
         averageSeverity: 6.5
       };
