@@ -251,21 +251,18 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   const isCommand = msg.text?.startsWith('/');
   
   if (!isTestEnvironment(env)) {
-  console.log('=== CRIMINAL CODE ANALYSIS CHECK ===', {
-    hasText,
-    isCommand,
-    chatId: chatId.toString(36),
-    messageText: msg.text,
-    envToken: env.TOKEN,
-    envOpenAI: env.OPENAI_API_KEY,
-    nodeEnv: process.env.NODE_ENV
-  });
+    Logger.debug(env, 'CRIMINAL CODE ANALYSIS CHECK', {
+      hasText,
+      isCommand,
+      chatId: chatId.toString(36),
+      textLength: msg.text?.length
+    });
 
-  console.log('=== CONDITION EVALUATION ===', {
-    hasText,
-    notCommand: !isCommand,
-    finalCondition: hasText && !isCommand
-  });
+    Logger.debug(env, 'CONDITION EVALUATION', {
+      hasText,
+      notCommand: !isCommand,
+      finalCondition: hasText && !isCommand
+    });
   }
 
   if (!isTestEnvironment(env) && msg.text && !msg.text.startsWith('/')) {

@@ -69,27 +69,20 @@ export default {
       
       if (typeof console !== 'undefined' && console.log) {
         console.log("webhook auth check", {
-          urlToken: token,
-          envToken: env.TOKEN,
           tokenMatch: token === env.TOKEN,
-          secretHeader: secretHeader,
-          envSecret: env.SECRET,
-          secretMatch: secretHeader === env.SECRET
+          secretMatch: secretHeader === env.SECRET,
+          secretProvided: Boolean(secretHeader)
         });
       }
-      
+
       if (token !== env.TOKEN) {
-         if (typeof console !== 'undefined' && console.log) {
-           console.log("token mismatch", { token, envToken: env.TOKEN });
-         }
-         return new Response("forbidden", { status: 403 });
-       }
-       if (secretHeader !== env.SECRET) {
-         if (typeof console !== 'undefined' && console.log) {
-           console.log("secret mismatch", { secretHeader, envSecret: env.SECRET });
-         }
-         return new Response("forbidden", { status: 403 });
-       }
+        Logger.warn(env, "token mismatch");
+        return new Response("forbidden", { status: 403 });
+      }
+      if (secretHeader !== env.SECRET) {
+        Logger.warn(env, "secret mismatch");
+        return new Response("forbidden", { status: 403 });
+      }
       const update = await req.json();
       Logger.debug(env, "webhook received", {
         updateType: (update as any).message ? "message" : "other",

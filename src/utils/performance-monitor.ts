@@ -141,6 +141,9 @@ export class PerformanceMonitor {
     // Log performance data
     this.logPerformanceData(metric);
 
+    // Clean up old metrics to prevent memory leaks
+    this.cleanupStaleMetrics();
+
     return metric;
   }
 
