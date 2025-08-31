@@ -192,7 +192,7 @@ export async function processBatchesDetailed<T, R>(
         try {
           const result = await processor(item);
           return { success: true, result, index };
-        } catch (error) {
+        } catch (error: unknown) {
           const batchError = createBatchError(error, batchNumber, i + index + 1);
           console.error(`Failed to process item ${i + index + 1}/${totalItems}:`, {
             error: batchError.message,
@@ -290,7 +290,7 @@ export async function processBatchesDetailed<T, R>(
         await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
       }
       
-    } catch (error) {
+    } catch (error: unknown) {
       // Entire batch failed - this is a critical failure
       const batchError = createBatchError(error, batchNumber);
       const batchDuration = Date.now() - batchStartTime;

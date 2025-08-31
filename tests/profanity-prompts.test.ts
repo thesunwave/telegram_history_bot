@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { getProfanityPrompts } from '../src/providers/ai-provider';
 
 describe('Profanity Prompts Configuration', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   it('should use default prompts when env is not provided', () => {
     const { systemPrompt, userPrompt } = getProfanityPrompts();
     

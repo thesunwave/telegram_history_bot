@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { profanityChart } from "../src/stats";
 import type { Env } from "../src/env";
 
@@ -11,18 +11,19 @@ vi.mock("../src/telegram", () => ({
 import { sendMessage, sendPhoto } from "../src/telegram";
 
 // Mock global fetch to prevent real API calls
-global.fetch = vi.fn().mockResolvedValue(
+const mockFetch = vi.fn().mockResolvedValue(
   new Response(JSON.stringify({ ok: true, result: {} }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   }),
 );
+global.fetch = mockFetch;
 
 // Mock environment
 const createMockEnv = (): Env => ({
   COUNTERS: {
-    get: vi.fn().mockResolvedValue(null),
-    put: vi.fn().mockResolvedValue(undefined),
+    get: vi.fn().mockResolvedValue(undefined),
+    put: vi.fn().mockResolvedValue({ success: true }),
     list: vi.fn().mockResolvedValue({ keys: [], list_complete: true }),
   } as any,
   HISTORY: {} as any,
@@ -34,11 +35,11 @@ const createMockEnv = (): Env => ({
       bind: vi.fn(() => ({
         run: vi.fn().mockResolvedValue({ success: true }),
         all: vi.fn().mockResolvedValue({ results: [] }),
-        first: vi.fn().mockResolvedValue(null),
+        first: vi.fn().mockResolvedValue(undefined),
       })),
       run: vi.fn().mockResolvedValue({ success: true }),
       all: vi.fn().mockResolvedValue({ results: [] }),
-      first: vi.fn().mockResolvedValue(null),
+      first: vi.fn().mockResolvedValue(undefined),
     })),
   } as any,
   AI: {} as any,
@@ -52,6 +53,8 @@ const createMockEnv = (): Env => ({
 });
 
 describe("Profanity Charts", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let env: Env;
 
   beforeEach(() => {
@@ -59,7 +62,7 @@ describe("Profanity Charts", () => {
     vi.clearAllMocks();
 
     // Reset fetch mock
-    vi.mocked(global.fetch).mockResolvedValue(
+    mockFetch.mockResolvedValue(
       new Response(JSON.stringify({ ok: true, result: {} }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -67,7 +70,18 @@ describe("Profanity Charts", () => {
     );
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe("profanityChart", () => {
+
     it("should generate weekly profanity chart with ASCII fallback when no data", async () => {
       // Mock empty KV list response
       const mockList = vi.fn().mockResolvedValue({
@@ -224,8 +238,7 @@ describe("Profanity Charts", () => {
       env.COUNTERS.get = mockGet;
 
       // Mock sendPhoto to throw an error
-      const mockSendPhoto = vi.mocked(sendPhoto);
-      mockSendPhoto.mockRejectedValue(new Error("Chart generation failed"));
+      (sendPhoto as any).mockRejectedValue(new Error("Chart generation failed"));
 
       await profanityChart(env, 123, "week");
 

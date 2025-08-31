@@ -54,7 +54,7 @@ export class OpenAIProvider implements AIProvider {
   private model: string;
   private baseUrl: string = 'https://api.openai.com/v1';
   private providerType: 'standard' | 'premium';
-  
+
   private isGPT5Model(model: string): boolean {
     // GPT-5 models use max_completion_tokens parameter
     return model.toLowerCase().includes('gpt-5') || model.toLowerCase().includes('gpt5');
@@ -151,7 +151,7 @@ export class OpenAIProvider implements AIProvider {
       }
 
       return truncateText(raw, TELEGRAM_LIMIT);
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error instanceof ProviderError) {
         throw error;
       }
@@ -293,7 +293,7 @@ export class OpenAIProvider implements AIProvider {
       }
 
       const { systemPrompt, userPrompt } = getProfanityPrompts(env);
-      
+
       // Use 'developer' role for GPT-5 models, 'system' for others
       const roleToUse = this.isGPT5Model(this.model) ? 'developer' : 'system';
       const messages: ChatMessage[] = [
@@ -368,7 +368,7 @@ export class OpenAIProvider implements AIProvider {
       }
 
       return parsedResult;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const duration = Date.now() - startTime;
 
       if (env) {
@@ -447,7 +447,7 @@ export class OpenAIProvider implements AIProvider {
       }
 
       return parsed as ProfanityAnalysisResult;
-    } catch (error) {
+    } catch (error: unknown) {
       Logger.error('OpenAI profanity analysis: response parsing failed', {
         provider: 'openai',
         rawResponse: response,
@@ -493,7 +493,7 @@ export class OpenAIProvider implements AIProvider {
       }
 
       const { systemPrompt, userPrompt } = getCriminalCodePrompts(env);
-      
+
       // Use 'developer' role for GPT-5 models, 'system' for others
       const roleToUse = this.isGPT5Model(this.model) ? 'developer' : 'system';
       const messages: ChatMessage[] = [
@@ -574,7 +574,7 @@ export class OpenAIProvider implements AIProvider {
       }
 
       return parsedResult;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const duration = Date.now() - startTime;
 
       if (env) {
@@ -641,11 +641,11 @@ export class OpenAIProvider implements AIProvider {
 
       // Validate each violation entry
       for (const violation of parsed.violations) {
-        if (typeof violation.article !== 'string' || 
-            (violation.subarticle !== null && typeof violation.subarticle !== 'string') ||
-            typeof violation.articleTitle !== 'string' ||
-            typeof violation.quote !== 'string' ||
-            typeof violation.punishment !== 'string') {
+        if (typeof violation.article !== 'string' ||
+          (violation.subarticle !== null && typeof violation.subarticle !== 'string') ||
+          typeof violation.articleTitle !== 'string' ||
+          typeof violation.quote !== 'string' ||
+          typeof violation.punishment !== 'string') {
           throw new Error('Invalid response: violation entries must have string article, quote, punishment');
         }
         if (typeof violation.severity !== 'number' || violation.severity < 1 || violation.severity > 10) {
@@ -657,7 +657,7 @@ export class OpenAIProvider implements AIProvider {
       }
 
       return parsed as CriminalAnalysisResult;
-    } catch (error) {
+    } catch (error: unknown) {
       Logger.error('OpenAI criminal code analysis: response parsing failed', {
         provider: 'openai',
         rawResponse: response,

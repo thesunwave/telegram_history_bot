@@ -395,7 +395,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         });
 
         return truncateText(resp, TELEGRAM_LIMIT);
-      } catch (error) {
+      } catch (error: unknown) {
         const aiDuration = Date.now() - aiStartTime;
         const e = error as Error;
 
@@ -477,7 +477,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
           `${parts.length}_CHUNKS`,
         ],
       });
-    } catch (error) {
+    } catch (error: unknown) {
       const e = error as Error;
       Logger.error("summarize error", {
         chat: chatId.toString(LOG_ID_RADIX),
@@ -545,7 +545,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
         Logger.debug(env, "summarize DB insert done", {
           chat: chatId.toString(LOG_ID_RADIX),
         });
-      } catch (error) {
+      } catch (error: unknown) {
         const e = error as Error;
         Logger.error("summarize DB insert error", {
           chat: chatId.toString(LOG_ID_RADIX),
@@ -594,7 +594,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
           ],
         });
       }
-    } catch (error) {
+    } catch (error: unknown) {
       const e = error as Error;
       Logger.error("summarize send message error", {
         chat: chatId.toString(LOG_ID_RADIX),
@@ -603,7 +603,7 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
       });
       throw error; // Пробрасываем ошибку для обработки во внешнем блоке
     }
-  } catch (error) {
+  } catch (error: unknown) {
     // Обработка всех необработанных ошибок с улучшенными сообщениями
     const e = error as Error;
     Logger.error("summariseChat unhandled error", {
@@ -803,7 +803,7 @@ export async function summariseChatMessages(
         stage: "ai_single",
         insights: aiDuration > 10000 ? ["SLOW_AI_RESPONSE"] : [],
       });
-    } catch (error) {
+    } catch (error: unknown) {
       const aiDuration = Date.now() - aiStartTime;
       const e = error as Error;
 
@@ -870,7 +870,7 @@ export async function summariseChatMessages(
             summary,
           )
           .run();
-      } catch (error) {
+      } catch (error: unknown) {
         const e = error as Error;
         Logger.error("summariseChatMessages DB insert error", {
           chat: chatId.toString(LOG_ID_RADIX),
@@ -903,7 +903,7 @@ export async function summariseChatMessages(
         ],
       });
     }
-  } catch (error) {
+  } catch (error: unknown) {
     const e = error as Error;
     Logger.error("summariseChatMessages unhandled error", {
       chat: chatId.toString(LOG_ID_RADIX),

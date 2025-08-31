@@ -2,7 +2,7 @@
  * Интеграционные тесты для команды автоматических уведомлений
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { handleUpdate } from '../../src/update';
 import type { Env } from '../../src/env';
 
@@ -20,15 +20,17 @@ vi.mock('../../src/logger', () => ({
 }));
 
 describe('Auto Notifications Integration', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: Env;
 
   beforeEach(() => {
     // Создаем мок окружения
     mockEnv = {
       HISTORY: {
-        get: vi.fn().mockResolvedValue(null),
-        put: vi.fn().mockResolvedValue(undefined),
-        delete: vi.fn().mockResolvedValue(undefined)
+        get: vi.fn().mockResolvedValue(undefined),
+        put: vi.fn().mockResolvedValue({ success: true }),
+    delete: vi.fn().mockResolvedValue({ success: true })
       },
       TOKEN: 'test_token',
       SECRET: 'test_secret'
@@ -38,7 +40,18 @@ describe('Auto Notifications Integration', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('/auto_notifications command', () => {
+
     it('should handle status command for new chat', async () => {
       const mockMessage = {
         chat: { id: 123 },
@@ -308,6 +321,7 @@ describe('Auto Notifications Integration', () => {
   });
 
   describe('Error handling', () => {
+
     it('should handle repository errors gracefully', async () => {
       // Мокаем ошибку в KV Storage для операции записи
       vi.mocked(mockEnv.HISTORY.put).mockRejectedValue(new Error('KV Storage error'));

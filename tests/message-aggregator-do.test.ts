@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { MessageAggregatorDO } from '../src/message-aggregator-do';
 import type { DurableObjectState } from '@cloudflare/workers-types';
 import { Env, StoredMessage } from '../src/env';
@@ -84,6 +84,8 @@ vi.mock('../src/logger', () => ({
 }));
 
 describe('MessageAggregatorDO', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let aggregator: MessageAggregatorDO;
 
   beforeEach(() => {
@@ -91,7 +93,18 @@ describe('MessageAggregatorDO', () => {
     aggregator = new MessageAggregatorDO(mockState, mockEnv);
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('Session Initialization', () => {
+
     it('should initialize a new session successfully', async () => {
       const request = new Request('http://localhost/initialize', {
         method: 'POST',
@@ -135,6 +148,7 @@ describe('MessageAggregatorDO', () => {
   });
 
   describe('Message Aggregation', () => {
+
     beforeEach(async () => {
       // Initialize session first
       const initRequest = new Request('http://localhost/initialize', {
@@ -289,6 +303,7 @@ describe('MessageAggregatorDO', () => {
   });
 
   describe('Results Retrieval', () => {
+
     beforeEach(async () => {
       // Initialize session and add some messages
       const initRequest = new Request('http://localhost/initialize', {
@@ -351,6 +366,7 @@ describe('MessageAggregatorDO', () => {
   });
 
   describe('Status Retrieval', () => {
+
     beforeEach(async () => {
       const initRequest = new Request('http://localhost/initialize', {
         method: 'POST',
@@ -385,6 +401,7 @@ describe('MessageAggregatorDO', () => {
   });
 
   describe('Session Cleanup', () => {
+
     beforeEach(async () => {
       const initRequest = new Request('http://localhost/initialize', {
         method: 'POST',
@@ -433,6 +450,7 @@ describe('MessageAggregatorDO', () => {
   });
 
   describe('Message Validation', () => {
+
     beforeEach(async () => {
       const initRequest = new Request('http://localhost/initialize', {
         method: 'POST',
@@ -488,6 +506,7 @@ describe('MessageAggregatorDO', () => {
   });
 
   describe('Error Handling', () => {
+
     it('should handle invalid endpoints', async () => {
       const request = new Request('http://localhost/invalid-endpoint');
       const response = await aggregator.fetch(request);
@@ -507,6 +526,7 @@ describe('MessageAggregatorDO', () => {
   });
 
   describe('Edge Cases', () => {
+
     it('should handle empty message arrays', async () => {
       const initRequest = new Request('http://localhost/initialize', {
         method: 'POST',

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { MessageFetcherDO } from "../src/message-fetcher-do";
 import { StoredMessage } from "../src/env";
 import {
@@ -72,6 +72,8 @@ const createMockEnv = () => ({
 });
 
 describe("MessageFetcherDO", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let messageFecher: MessageFetcherDO;
   let mockState: any;
   let mockEnv: any;
@@ -82,7 +84,18 @@ describe("MessageFetcherDO", () => {
     messageFecher = new MessageFetcherDO(mockState, mockEnv);
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe("initialization", () => {
+
     it("should handle POST request to /initialize endpoint", async () => {
       const fetchRequest: ParallelFetchRequest = {
         chatId: 12345,
@@ -165,6 +178,7 @@ describe("MessageFetcherDO", () => {
   });
 
   describe("status checking", () => {
+
     it("should return status for existing session", async () => {
       // First initialize a session
       const fetchRequest: ParallelFetchRequest = {
@@ -228,6 +242,7 @@ describe("MessageFetcherDO", () => {
   });
 
   describe("results retrieval", () => {
+
     it("should return 202 for running session", async () => {
       // Mock KV list to make it take longer to complete
       mockEnv.HISTORY.list.mockImplementation(() => {
@@ -289,6 +304,7 @@ describe("MessageFetcherDO", () => {
   });
 
   describe("cleanup", () => {
+
     it("should cleanup specific session", async () => {
       // Initialize session
       const fetchRequest: ParallelFetchRequest = {
@@ -350,6 +366,7 @@ describe("MessageFetcherDO", () => {
   });
 
   describe("parallel fetching logic", () => {
+
     it("should handle empty KV results gracefully", async () => {
       // Mock empty KV list response
       mockEnv.HISTORY.list.mockResolvedValue({
@@ -453,6 +470,7 @@ describe("MessageFetcherDO", () => {
   });
 
   describe("error handling", () => {
+
     it("should handle 404 for unknown endpoints", async () => {
       const request = new Request("http://localhost/unknown", {
         method: "GET",
@@ -529,6 +547,7 @@ describe("MessageFetcherDO", () => {
   });
 
   describe("session management", () => {
+
     it("should generate unique session IDs", async () => {
       const fetchRequest: ParallelFetchRequest = {
         chatId: 12345,

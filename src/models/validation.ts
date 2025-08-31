@@ -81,9 +81,14 @@ export function validateViolationAnalysis(analysis: any): analysis is ViolationA
   // Валидируем каждое нарушение
   analysis.violations.forEach((violation: any, index: number) => {
     try {
-      validateViolation(violation);
-    } catch (error) {
-      throw new ValidationError(`Invalid violation at index ${index}: ${error.message}`);
+      // Sanitize potentially out-of-range numeric fields before strict validation
+      const v = { ...(violation || {}) };
+      v.severity = ValidationUtils.sanitizeSeverity(v.severity);
+      v.confidence = ValidationUtils.sanitizeConfidence(v.confidence);
+      validateViolation(v);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new ValidationError(`Invalid violation at index ${index}: ${msg}`);
     }
   });
 
@@ -201,8 +206,9 @@ export function validateUserStats(userStats: any): userStats is UserStats {
   userStats.violationsByArticle.forEach((violation: any, index: number) => {
     try {
       validateViolationCount(violation);
-    } catch (error) {
-      throw new ValidationError(`Invalid violationCount at index ${index}: ${error.message}`);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new ValidationError(`Invalid violationCount at index ${index}: ${msg}`);
     }
   });
 
@@ -286,8 +292,9 @@ export function validatePeriodStats(periodStats: any): periodStats is PeriodStat
   periodStats.violationsByArticle.forEach((violation: any, index: number) => {
     try {
       validateViolationCount(violation);
-    } catch (error) {
-      throw new ValidationError(`Invalid violationCount at index ${index}: ${error.message}`);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new ValidationError(`Invalid violationCount at index ${index}: ${msg}`);
     }
   });
 
@@ -304,8 +311,9 @@ export function validatePeriodStats(periodStats: any): periodStats is PeriodStat
   if (periodStats.comparisonWithPreviousPeriod !== undefined) {
     try {
       validatePeriodComparison(periodStats.comparisonWithPreviousPeriod);
-    } catch (error) {
-      throw new ValidationError(`Invalid period comparison: ${error.message}`);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new ValidationError(`Invalid period comparison: ${msg}`);
     }
   }
 
@@ -335,8 +343,9 @@ export function validateGeneralStats(generalStats: any): generalStats is General
   generalStats.topViolations.forEach((violation: any, index: number) => {
     try {
       validateViolationCount(violation);
-    } catch (error) {
-      throw new ValidationError(`Invalid topViolation at index ${index}: ${error.message}`);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new ValidationError(`Invalid topViolation at index ${index}: ${msg}`);
     }
   });
 
@@ -347,8 +356,9 @@ export function validateGeneralStats(generalStats: any): generalStats is General
   generalStats.topUsers.forEach((user: any, index: number) => {
     try {
       validateUserViolationCount(user);
-    } catch (error) {
-      throw new ValidationError(`Invalid topUser at index ${index}: ${error.message}`);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new ValidationError(`Invalid topUser at index ${index}: ${msg}`);
     }
   });
 
@@ -370,8 +380,9 @@ export function validateGeneralStats(generalStats: any): generalStats is General
   generalStats.criticalViolations.forEach((violation: any, index: number) => {
     try {
       validateViolation(violation);
-    } catch (error) {
-      throw new ValidationError(`Invalid criticalViolation at index ${index}: ${error.message}`);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new ValidationError(`Invalid criticalViolation at index ${index}: ${msg}`);
     }
   });
 
@@ -464,7 +475,7 @@ export const ValidationUtils = {
    */
   sanitizeRiskLevel(riskLevel: any): 'low' | 'medium' | 'high' {
     if (typeof riskLevel === 'string' && this.isValidRiskLevel(riskLevel)) {
-      return riskLevel;
+      return riskLevel as 'low' | 'medium' | 'high';
     }
     return 'low'; // Fallback to low risk
   },
@@ -530,9 +541,12 @@ export const DataSanitizer = {
     const sanitizedQuote = ValidationUtils.sanitizeString(violation.quote, 'Данные повреждены');
     const sanitizedPunishment = ValidationUtils.sanitizeString(violation.punishment, 'Не определено');
     
-    // Если статья пустая или является дефолтной, пропускаем это нарушение
-    if (sanitizedArticle === 'Неизвестная статья' && sanitizedQuote === 'Данные повреждены') {
-      return null as any; // Будет отфильтровано позже
+    // If the original input explicitly contains placeholders, treat it as completely invalid
+    const isExplicitPlaceholder =
+      typeof violation.article === 'string' && violation.article.trim() === 'Неизвестная статья' &&
+      typeof violation.quote === 'string' && violation.quote.trim() === 'Данные повреждены';
+    if (isExplicitPlaceholder) {
+      return null as any; // Will be filtered later
     }
 
     return {

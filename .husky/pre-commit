@@ -1,0 +1,164 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Enhanced pre-commit hook for comprehensive code quality checks
+echo "🔍 Running enhanced pre-commit quality checks..."
+
+# Get list of staged files
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|js)$')
+
+if [ -z "$STAGED_FILES" ]; then
+  echo "ℹ️  No TypeScript/JavaScript files staged for commit"
+  exit 0
+fi
+
+echo "📁 Checking ${STAGED_FILES} staged files..."
+
+# Function to check if command exists
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# Function to run command with error handling
+run_check() {
+  local check_name="$1"
+  local command="$2"
+  local error_message="$3"
+  local suggestion="$4"
+  
+  echo "🔍 $check_name..."
+  
+  if eval "$command"; then
+    echo "✅ $check_name passed"
+    return 0
+  else
+    echo "❌ $error_message"
+    if [ -n "$suggestion" ]; then
+      echo "💡 $suggestion"
+    fi
+    return 1
+  fi
+}
+
+# Critical checks that must pass
+CRITICAL_FAILED=0
+
+# 1. TypeScript compilation check
+if ! run_check "TypeScript compilation" "npx tsc --noEmit" "TypeScript compilation failed" "Fix type errors before committing"; then
+  CRITICAL_FAILED=1
+fi
+
+# 2. Critical ESLint rules check (only critical rules)
+if ! run_check "Critical ESLint rules" "npx eslint $STAGED_FILES --max-warnings 0 --config .eslintrc.critical.js" "Critical ESLint violations found" "Fix critical violations before committing"; then
+  CRITICAL_FAILED=1
+fi
+
+# 3. Security check
+if command_exists "npm audit"; then
+  if ! run_check "Security audit" "npm audit --audit-level high" "High/critical security vulnerabilities found" "Run 'npm audit fix' to resolve vulnerabilities"; then
+    echo "⚠️  Security vulnerabilities detected but not blocking commit"
+  fi
+fi
+
+# Exit if critical checks failed
+if [ $CRITICAL_FAILED -eq 1 ]; then
+  echo ""
+  echo "❌ Critical pre-commit checks failed!"
+  echo "🚫 Commit blocked to maintain code quality"
+  echo ""
+  echo "🔧 Quick fixes:"
+  echo "   • Run 'npm run lint:fix' to auto-fix ESLint issues"
+  echo "   • Run 'npm run type-check' to see TypeScript errors"
+  echo "   • Use 'git commit --no-verify' to bypass (not recommended)"
+  echo ""
+  exit 1
+fi
+
+# Non-critical checks (warnings only)
+echo ""
+echo "🔍 Running additional quality checks..."
+
+# 4. Full ESLint check (including warnings)
+if ! run_check "Full ESLint check" "npx eslint $STAGED_FILES" "ESLint warnings/errors found" "Run 'npm run lint:fix' to auto-fix issues"; then
+  echo "⚠️  ESLint issues detected but not blocking commit"
+fi
+
+# 5. Code formatting check
+if command_exists "prettier"; then
+  if ! run_check "Code formatting" "npx prettier --check $STAGED_FILES" "Code formatting issues found" "Run 'npm run format' to fix formatting"; then
+    echo "⚠️  Formatting issues detected but not blocking commit"
+  fi
+fi
+
+# 6. Import organization check
+if ! run_check "Import organization" "npx eslint $STAGED_FILES --rule 'import/order: error' --rule 'import/no-duplicates: error'" "Import organization issues found" "Organize imports properly"; then
+  echo "⚠️  Import organization issues detected but not blocking commit"
+fi
+
+# 7. Complexity check
+if ! run_check "Code complexity" "npx eslint $STAGED_FILES --rule 'complexity: [warn, 10]' --rule 'max-depth: [warn, 3]'" "High code complexity detected" "Consider refactoring complex functions"; then
+  echo "⚠️  High complexity detected but not blocking commit"
+fi
+
+# 8. Test coverage for modified files (if test files exist)
+if [ -d "tests" ] && command_exists "vitest"; then
+  echo "🧪 Checking test coverage for modified files..."
+  
+  # Find related test files
+  TEST_FILES=""
+  for file in $STAGED_FILES; do
+    # Convert src/path/file.ts to tests/path/file.test.ts
+    test_file=$(echo "$file" | sed 's|^src/|tests/|' | sed 's|\.ts$|.test.ts|')
+    if [ -f "$test_file" ]; then
+      TEST_FILES="$TEST_FILES $test_file"
+    fi
+  done
+  
+  if [ -n "$TEST_FILES" ]; then
+    if ! run_check "Related tests" "npm run test -- $TEST_FILES --run" "Some related tests are failing" "Fix failing tests before committing"; then
+      echo "⚠️  Test failures detected but not blocking commit"
+    fi
+  else
+    echo "ℹ️  No related test files found for staged changes"
+  fi
+fi
+
+# 9. Check for TODO/FIXME comments in staged files
+echo "🔍 Checking for TODO/FIXME comments..."
+TODO_COUNT=$(grep -n -E "(TODO|FIXME|XXX|HACK)" $STAGED_FILES 2>/dev/null | wc -l)
+if [ "$TODO_COUNT" -gt 0 ]; then
+  echo "⚠️  Found $TODO_COUNT TODO/FIXME comments in staged files"
+  echo "💡 Consider addressing these before committing:"
+  grep -n -E "(TODO|FIXME|XXX|HACK)" $STAGED_FILES 2>/dev/null | head -5
+  if [ "$TODO_COUNT" -gt 5 ]; then
+    echo "   ... and $((TODO_COUNT - 5)) more"
+  fi
+fi
+
+# 10. Check for console.log statements (except allowed ones)
+echo "🔍 Checking for console statements..."
+CONSOLE_COUNT=$(grep -n -E "console\.(log|debug|trace)" $STAGED_FILES 2>/dev/null | wc -l)
+if [ "$CONSOLE_COUNT" -gt 0 ]; then
+  echo "⚠️  Found $CONSOLE_COUNT console.log/debug/trace statements"
+  echo "💡 Consider removing debug console statements:"
+  grep -n -E "console\.(log|debug|trace)" $STAGED_FILES 2>/dev/null | head -3
+fi
+
+# 11. Check file sizes
+echo "🔍 Checking file sizes..."
+LARGE_FILES=$(find $STAGED_FILES -size +100k 2>/dev/null)
+if [ -n "$LARGE_FILES" ]; then
+  echo "⚠️  Large files detected (>100KB):"
+  echo "$LARGE_FILES"
+  echo "💡 Consider splitting large files or optimizing"
+fi
+
+# Summary
+echo ""
+echo "📊 Pre-commit Summary:"
+echo "   • Files checked: $(echo $STAGED_FILES | wc -w)"
+echo "   • Critical checks: ✅ PASSED"
+echo "   • Additional checks: completed with warnings"
+echo ""
+echo "✅ Pre-commit checks completed - commit allowed!"
+echo "💡 Address warnings to improve code quality"

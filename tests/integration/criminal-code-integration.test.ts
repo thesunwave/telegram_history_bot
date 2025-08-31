@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { CriminalCodeAnalyzerDO } from "../../src/criminal-code-analyzer-do";
 import { CountersDO } from "../../src/counters-do";
 import { CriminalAnalysisResult } from "../../src/env";
@@ -64,6 +64,8 @@ vi.mock("../../src/logger", () => ({
 }));
 
 describe("Criminal Code Analysis Integration", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let analyzer: CriminalCodeAnalyzerDO;
   let counters: CountersDO;
   let mockAnalyzerState: any;
@@ -78,15 +80,15 @@ describe("Criminal Code Analysis Integration", () => {
       ...createMockEnv(),
 
       HISTORY: {
-          get: vi.fn().mockResolvedValue(null),
-          put: vi.fn().mockResolvedValue(undefined),
-          delete: vi.fn().mockResolvedValue(undefined),
+          get: vi.fn().mockResolvedValue(undefined),
+          put: vi.fn().mockResolvedValue({ success: true }),
+    delete: vi.fn().mockResolvedValue({ success: true }),
           list: vi.fn().mockResolvedValue({ keys: [] }),
         },
       DB: {
           prepare: vi.fn().mockReturnValue({
             bind: vi.fn().mockReturnThis(),
-            first: vi.fn().mockResolvedValue(null),
+            first: vi.fn().mockResolvedValue(undefined),
             all: vi.fn().mockResolvedValue([]),
             run: vi.fn().mockResolvedValue({ success: true, changes: 0 }),
           }),
@@ -105,10 +107,21 @@ describe("Criminal Code Analysis Integration", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
     vi.clearAllMocks();
   });
 
   describe("End-to-End Criminal Code Analysis", () => {
+
     it("should analyze text, store results, and update counters", async () => {
       const violationText = "Призываю к насилию против определенной группы";
       const chatId = 12345;
@@ -212,6 +225,7 @@ describe("Criminal Code Analysis Integration", () => {
   });
 
   describe("Cache Integration", () => {
+
     it("should use cached results for repeated analysis", async () => {
       const text = "Test text for caching";
       const cachedResult = {
@@ -263,6 +277,7 @@ describe("Criminal Code Analysis Integration", () => {
   });
 
   describe("Error Handling and Resilience", () => {
+
     it("should handle AI provider failures gracefully", async () => {
       // Mock AI provider to fail by directly modifying the analyzer's aiProvider
       const originalProvider = (analyzer as any).aiProvider;
@@ -329,6 +344,7 @@ describe("Criminal Code Analysis Integration", () => {
   });
 
   describe("Concurrency and Race Conditions", () => {
+
     it("should handle concurrent analysis requests safely", async () => {
       const requests = Array.from({ length: 5 }, (_, i) => 
         new Request("http://localhost/analyze", {
@@ -419,6 +435,7 @@ describe("Criminal Code Analysis Integration", () => {
   });
 
   describe("Performance and Optimization", () => {
+
     it("should complete analysis within reasonable time", async () => {
       const startTime = Date.now();
       

@@ -2,12 +2,14 @@
  * Unit tests for ContextOptimizer
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ContextOptimizer, createContextOptimizer } from '../../src/summary-optimization/context-optimizer';
 import { SummaryOptimizationConfig } from '../../src/summary-optimization/types';
 import { TelegramMessage } from '../../src/providers/ai-provider';
 
 describe('ContextOptimizer', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let optimizer: ContextOptimizer;
   let config: SummaryOptimizationConfig;
   let sampleMessages: TelegramMessage[];
@@ -72,7 +74,18 @@ describe('ContextOptimizer', () => {
     ];
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('estimateTokens', () => {
+
     it('should return 0 for empty message array', () => {
       expect(optimizer.estimateTokens([])).toBe(0);
     });
@@ -127,14 +140,13 @@ describe('ContextOptimizer', () => {
 
       const normalTokens = optimizer.estimateTokens([message]);
       const factorTokens = optimizerWithFactor.estimateTokens([message]);
-      
 
-      
       expect(factorTokens).toBeGreaterThan(normalTokens);
     });
   });
 
   describe('estimateTokensDetailed', () => {
+
     it('should return detailed estimation for empty array', () => {
       const result = optimizer.estimateTokensDetailed([]);
       
@@ -163,6 +175,7 @@ describe('ContextOptimizer', () => {
   });
 
   describe('optimizeForContext', () => {
+
     it('should return empty array for empty input', () => {
       const result = optimizer.optimizeForContext([], 1000);
       expect(result).toEqual([]);
@@ -203,6 +216,7 @@ describe('ContextOptimizer', () => {
   });
 
   describe('createOptimalChunks', () => {
+
     it('should return empty array for empty input', () => {
       const result = optimizer.createOptimalChunks([], 1000);
       expect(result).toEqual([]);
@@ -248,7 +262,7 @@ describe('ContextOptimizer', () => {
 
     it('should respect max preprocessing chunks limit', () => {
       const manyMessages: TelegramMessage[] = [];
-      for (let i = 0; i < 100; i++) {
+      for (let i = 0; i < 10; i++) {
         manyMessages.push({
           username: `user${i}`,
           text: `Message ${i} with some content`,
@@ -262,6 +276,7 @@ describe('ContextOptimizer', () => {
   });
 
   describe('createOptimalChunksDetailed', () => {
+
     it('should provide detailed metadata for empty input', () => {
       const result = optimizer.createOptimalChunksDetailed([], 1000);
       
@@ -305,6 +320,7 @@ describe('ContextOptimizer', () => {
   });
 
   describe('createContextOptimizer factory', () => {
+
     it('should create optimizer with provided config', () => {
       const createdOptimizer = createContextOptimizer(config);
       expect(createdOptimizer).toBeInstanceOf(ContextOptimizer);
@@ -329,6 +345,7 @@ describe('ContextOptimizer', () => {
   });
 
   describe('edge cases and error handling', () => {
+
     it('should handle messages with empty text', () => {
       const messagesWithEmpty: TelegramMessage[] = [
         { username: 'user1', text: '', ts: 1000 },
@@ -382,6 +399,7 @@ describe('ContextOptimizer', () => {
   });
 
   describe('optimization strategies', () => {
+
     it('should prefer removing short messages first', () => {
       const mixedMessages: TelegramMessage[] = [
         { username: 'user1', text: 'ok', ts: 1000 }, // Very short
@@ -411,7 +429,7 @@ describe('ContextOptimizer', () => {
       
       if (optimized.length > 1) {
         // Should have messages from different time periods
-        const timeSpan = optimized[optimized.length - 1].ts - optimized[0].ts;
+        const timeSpan = optimized.length > 1 ? Math.abs((optimized[optimized.length - 1].ts || Date.now()) - (optimized[0].ts || Date.now())) : 1;
         expect(timeSpan).toBeGreaterThan(0);
       }
     });

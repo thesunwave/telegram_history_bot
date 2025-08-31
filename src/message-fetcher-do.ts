@@ -60,7 +60,7 @@ export class MessageFetcherDO {
         default:
           return new Response("Not found", { status: 404 });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error("MessageFetcherDO error", {
         endpoint,
         error: error.message || String(error),
@@ -125,7 +125,7 @@ export class MessageFetcherDO {
       return new Response(JSON.stringify({ sessionId }), {
         headers: { "Content-Type": "application/json" },
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error("MessageFetcherDO initialization failed", {
         error: error.message || String(error),
         stack: error.stack,
@@ -293,7 +293,7 @@ export class MessageFetcherDO {
         messagesFound: session.messagesCollected,
         duration: session.endTime - session.startTime,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       session.status = "failed";
       session.endTime = Date.now();
       session.errors.push(error.message || String(error));
@@ -479,7 +479,7 @@ export class MessageFetcherDO {
           );
 
           return messages;
-        } catch (error: any) {
+        } catch (error: unknown) {
           session.fetchesCompleted++;
           const errorMsg = `Fetch ${fetchId} failed: ${error.message || String(error)}`;
           session.errors.push(errorMsg);

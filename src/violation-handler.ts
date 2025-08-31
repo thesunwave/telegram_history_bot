@@ -12,10 +12,12 @@ import type {
   PeriodStats, 
   GeneralStats 
 } from './models/statistics';
-import { MessageFormatter, type IMessageFormatter } from './message-formatter';
-import { StatisticsService, type IStatisticsService } from './services/statistics-service';
-import { ViolationRepository, type IViolationRepository } from './repositories/violation-repository';
+import type { IMessageFormatter } from './message-formatter';
+import type { IStatisticsService } from './services/statistics-service';
+import type { IViolationRepository } from './repositories/violation-repository-adapter';
+import { ServiceRegistry } from './services/service-registry';
 import { validateViolationAnalysis, ValidationError, DataSanitizer, ValidationUtils } from './models/validation';
+import { BaseAppError } from './utils/errors';
 
 /**
  * Интерфейс основного обработчика нарушений
@@ -28,22 +30,80 @@ export interface IViolationHandler {
 }
 
 /**
- * Реализация основного обработчика нарушений
+ * Реализация основного обработчика нарушений с dependency injection
  */
 export class ViolationHandler implements IViolationHandler {
   private messageFormatter: IMessageFormatter;
   private statisticsService: IStatisticsService;
   private violationRepository: IViolationRepository;
+  private serviceRegistry?: ServiceRegistry;
 
   constructor(
     env: Env,
+    serviceRegistry?: ServiceRegistry,
     messageFormatter?: IMessageFormatter,
     statisticsService?: IStatisticsService,
     violationRepository?: IViolationRepository
   ) {
-    this.violationRepository = violationRepository || new ViolationRepository(env);
-    this.statisticsService = statisticsService || new StatisticsService(this.violationRepository);
-    this.messageFormatter = messageFormatter || new MessageFormatter();
+    if (serviceRegistry) {
+      // Use dependency injection
+      this.serviceRegistry = serviceRegistry;
+      this.messageFormatter = messageFormatter || serviceRegistry.getMessageFormatter();
+      this.statisticsService = statisticsService || serviceRegistry.getStatisticsService();
+      this.violationRepository = violationRepository || serviceRegistry.getViolationRepository();
+    } else {
+      // Fallback to direct instantiation for backward compatibility
+      console.warn('⚠️ ViolationHandler: Using direct instantiation instead of dependency injection');
+      
+      // For backward compatibility, require dependencies to be passed explicitly
+      if (!messageFormatter || !statisticsService || !violationRepository) {
+        throw new BaseAppError(
+          'MISSING_DEPENDENCIES',
+          'When not using ServiceRegistry, all dependencies must be provided explicitly'
+        );
+      }
+      
+      this.violationRepository = violationRepository;
+      this.statisticsService = statisticsService;
+      this.messageFormatter = messageFormatter;
+    }
+  }
+
+  /**
+   * Create ViolationHandler with dependency injection
+   */
+  static async create(env: Env): Promise<ViolationHandler> {
+    const serviceRegistry = await ServiceRegistry.createAndInitialize(env);
+    return new ViolationHandler(env, serviceRegistry);
+  }
+
+  /**
+   * Create ViolationHandler with existing service registry
+   */
+  static createWithRegistry(env: Env, serviceRegistry: ServiceRegistry): ViolationHandler {
+    return new ViolationHandler(env, serviceRegistry);
+  }
+
+  /**
+   * Create ViolationHandler without dependency injection (for backward compatibility)
+   */
+  static async createWithoutDI(env: Env): Promise<ViolationHandler> {
+    // Import modules dynamically to avoid circular dependencies
+    const { MessageFormatter } = await import('./message-formatter');
+    const { StatisticsService } = await import('./services/statistics-service');
+    const { ViolationRepositoryAdapter } = await import('./repositories/violation-repository-adapter');
+    
+    const violationRepository = new ViolationRepositoryAdapter(env);
+    const statisticsService = new StatisticsService(env, violationRepository);
+    const messageFormatter = new MessageFormatter();
+    
+    return new ViolationHandler(
+      env,
+      undefined, // no service registry
+      messageFormatter,
+      statisticsService,
+      violationRepository
+    );
   }
 
   /**
@@ -65,7 +125,7 @@ export class ViolationHandler implements IViolationHandler {
 
       return formattedMessage;
 
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ Error formatting violation message:', error);
       
       // Пытаемся восстановить данные и создать fallback сообщение
@@ -97,8 +157,16 @@ export class ViolationHandler implements IViolationHandler {
       // Форматируем сообщение
       return this.messageFormatter.formatUserStats(userStats);
 
-    } catch (error) {
-      console.error('❌ Error getting user stats:', error);
+    } catch (error: unknown) {
+      console.error('❌ Error getting user stats:', error instanceof Error ? error.message : String(error));
+      console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      console.error('❌ Error details:', {
+        userId,
+        chatId,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorType: typeof error,
+        errorConstructor: error?.constructor?.name
+      });
       
       // Возвращаем пустую статистику при ошибке
       try {
@@ -109,6 +177,7 @@ export class ViolationHandler implements IViolationHandler {
         return this.messageFormatter.formatUserStats(fallbackStats) + 
                '\n\n⚠️ Данные могут быть неполными из-за технических проблем';
       } catch (fallbackError) {
+        console.error('❌ Fallback error:', fallbackError);
         return this.createErrorMessage('Не удалось получить статистику пользователя', error);
       }
     }
@@ -142,7 +211,7 @@ export class ViolationHandler implements IViolationHandler {
       // Форматируем сообщение
       return this.messageFormatter.formatPeriodStats(periodStats);
 
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ Error getting period stats:', error);
       
       // Возвращаем пустую статистику при ошибке
@@ -187,7 +256,7 @@ export class ViolationHandler implements IViolationHandler {
       // Форматируем сообщение
       return this.messageFormatter.formatGeneralStats(generalStats);
 
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ Error getting general stats:', error);
       
       // Возвращаем пустую статистику при ошибке
@@ -242,7 +311,7 @@ export class ViolationHandler implements IViolationHandler {
 
     try {
       validateViolationAnalysis(analysis);
-    } catch (error) {
+    } catch (error: unknown) {
       if (error instanceof ValidationError) {
         throw error;
       }
@@ -301,7 +370,7 @@ export class ViolationHandler implements IViolationHandler {
       for (const violation of violations) {
         await this.statisticsService.saveViolation(violation, userId, chatId);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ Error saving violations:', error);
       // Не прерываем выполнение, если не удалось сохранить
     }

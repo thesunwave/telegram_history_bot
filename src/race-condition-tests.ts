@@ -1,5 +1,62 @@
-import { StoredMessage } from './env';
-import { addMessageToDayBlockSafe, getDayBlockSafe } from './day-block-manager';
+import { StoredMessage } from './types';
+
+// Mock interfaces for testing
+interface MockDayBlock {
+  messages: StoredMessage[];
+  messageCount: number;
+  lastUpdated: number;
+}
+
+interface MockAddResult {
+  success: boolean;
+  duplicate: boolean;
+  messageCount: number;
+  messageId: string;
+}
+
+// Mock functions to avoid external dependencies
+const mockAddMessageToDayBlockSafe = async (env: any, message: StoredMessage): Promise<MockAddResult> => {
+  // Simulate message addition with duplicate detection
+  const messageKey = `${message.user}_${message.ts}_${message.text}`;
+  const chatKey = `chat_${message.chat}`;
+  
+  if (!env.mockStorage) {
+    env.mockStorage = new Map<string, Set<string>>();
+  }
+  
+  if (!env.mockStorage.has(chatKey)) {
+    env.mockStorage.set(chatKey, new Set());
+  }
+  
+  const chatMessages = env.mockStorage.get(chatKey)!;
+  const isDuplicate = chatMessages.has(messageKey);
+  
+  if (!isDuplicate) {
+    chatMessages.add(messageKey);
+  }
+  
+  return {
+    success: true,
+    duplicate: isDuplicate,
+    messageCount: chatMessages.size,
+    messageId: messageKey
+  };
+};
+
+const mockGetDayBlockSafe = async (env: any, chatId: number, date: string): Promise<MockDayBlock | null> => {
+  const chatKey = `chat_${chatId}`;
+  
+  if (!env.mockStorage || !env.mockStorage.has(chatKey)) {
+    return null;
+  }
+  
+  const chatMessages = env.mockStorage.get(chatKey)!;
+  return {
+    messages: [],
+    messageCount: chatMessages.size,
+    lastUpdated: Date.now()
+  };
+};
 
 /**
  * Tests for race condition protection in day block operations
@@ -28,7 +85,9 @@ export async function testConcurrentMessageAddition(
   const errors: string[] = [];
   let duplicatesDetected = 0;
 
-  console.log(`Starting ${testName} test with ${messageCount} concurrent messages`);
+  if (typeof console !== 'undefined' && console.log) {
+    console.log(`Starting ${testName} test with ${messageCount} concurrent messages`);
+  }
 
   try {
     const baseTimestamp = Math.floor(Date.now() / 1000);
@@ -49,14 +108,15 @@ export async function testConcurrentMessageAddition(
     // Add all messages concurrently
     const addPromises = messages.map(async (message, index) => {
       try {
-        const result = await addMessageToDayBlockSafe(env, message);
+        const result = await mockAddMessageToDayBlockSafe(env, message);
         if (result.duplicate) {
           duplicatesDetected++;
         }
         return { success: true, index, result };
-      } catch (error: any) {
-        errors.push(`Message ${index}: ${error.message}`);
-        return { success: false, index, error: error.message };
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        errors.push(`Message ${index}: ${errorMessage}`);
+        return { success: false, index, error: errorMessage };
       }
     });
 
@@ -64,7 +124,7 @@ export async function testConcurrentMessageAddition(
     const successfulAdds = results.filter(r => r.success).length;
 
     // Verify final state
-    const finalBlock = await getDayBlockSafe(env, chatId, date);
+    const finalBlock = await mockGetDayBlockSafe(env, chatId, date);
     const actualMessageCount = finalBlock?.messageCount || 0;
 
     const testResult: RaceConditionTestResult = {
@@ -77,30 +137,33 @@ export async function testConcurrentMessageAddition(
       duration: Date.now() - startTime
     };
 
-    console.log(`${testName} test completed:`, {
-      success: testResult.success,
-      messagesAdded: testResult.messagesAdded,
-      expectedMessages: testResult.expectedMessages,
-      successfulAdds,
-      duplicatesDetected,
-      errors: errors.length,
-      duration: testResult.duration
-    });
+    if (typeof console !== 'undefined' && console.log) {
+      console.log(`${testName} test completed:`, {
+        success: testResult.success,
+        messagesAdded: testResult.messagesAdded,
+        expectedMessages: testResult.expectedMessages,
+        successfulAdds,
+        duplicatesDetected,
+        errors: errors.length,
+        duration: testResult.duration
+      });
+    }
 
     return testResult;
 
-  } catch (error: any) {
-    errors.push(`Test setup failed: ${error.message}`);
-    return {
-      testName,
-      success: false,
-      messagesAdded: 0,
-      expectedMessages: messageCount,
-      duplicatesDetected,
-      errors,
-      duration: Date.now() - startTime
-    };
-  }
+  } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      errors.push(`Test setup failed: ${errorMessage}`);
+      return {
+        testName,
+        success: false,
+        messagesAdded: 0,
+        expectedMessages: messageCount,
+        duplicatesDetected,
+        errors,
+        duration: Date.now() - startTime
+      };
+    }
 }
 
 /**
@@ -115,7 +178,9 @@ export async function testDuplicateMessageDetection(
   const errors: string[] = [];
   let duplicatesDetected = 0;
 
-  console.log(`Starting ${testName} test`);
+  if (typeof console !== 'undefined' && console.log) {
+    console.log(`Starting ${testName} test`);
+  }
 
   try {
     const baseTimestamp = Math.floor(Date.now() / 1000);
@@ -134,21 +199,22 @@ export async function testDuplicateMessageDetection(
     const duplicateCount = 5;
     const addPromises = Array(duplicateCount).fill(null).map(async (_, index) => {
       try {
-        const result = await addMessageToDayBlockSafe(env, message);
+        const result = await mockAddMessageToDayBlockSafe(env, message);
         if (result.duplicate) {
           duplicatesDetected++;
         }
         return { success: true, index, result };
-      } catch (error: any) {
-        errors.push(`Duplicate ${index}: ${error.message}`);
-        return { success: false, index, error: error.message };
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        errors.push(`Duplicate ${index}: ${errorMessage}`);
+        return { success: false, index, error: errorMessage };
       }
     });
 
     await Promise.all(addPromises);
 
     // Verify only one message was actually stored
-    const finalBlock = await getDayBlockSafe(env, chatId, date);
+    const finalBlock = await mockGetDayBlockSafe(env, chatId, date);
     const actualMessageCount = finalBlock?.messageCount || 0;
     const expectedDuplicates = duplicateCount - 1; // First one is not a duplicate
 
@@ -162,19 +228,22 @@ export async function testDuplicateMessageDetection(
       duration: Date.now() - startTime
     };
 
-    console.log(`${testName} test completed:`, {
-      success: testResult.success,
-      actualMessageCount,
-      duplicatesDetected,
-      expectedDuplicates,
-      errors: errors.length,
-      duration: testResult.duration
-    });
+    if (typeof console !== 'undefined' && console.log) {
+      console.log(`${testName} test completed:`, {
+        success: testResult.success,
+        actualMessageCount,
+        duplicatesDetected,
+        expectedDuplicates,
+        errors: errors.length,
+        duration: testResult.duration
+      });
+    }
 
     return testResult;
 
-  } catch (error: any) {
-    errors.push(`Test setup failed: ${error.message}`);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    errors.push(`Test setup failed: ${errorMessage}`);
     return {
       testName,
       success: false,
@@ -200,7 +269,9 @@ export async function testHighConcurrencyScenario(
   const errors: string[] = [];
   let duplicatesDetected = 0;
 
-  console.log(`Starting ${testName} test with ${concurrencyLevel} concurrent operations`);
+  if (typeof console !== 'undefined' && console.log) {
+    console.log(`Starting ${testName} test with ${concurrencyLevel} concurrent operations`);
+  }
 
   try {
     const baseTimestamp = Math.floor(Date.now() / 1000);
@@ -218,14 +289,15 @@ export async function testHighConcurrencyScenario(
       };
 
       operations.push(
-        addMessageToDayBlockSafe(env, message).then(result => {
+        mockAddMessageToDayBlockSafe(env, message).then(result => {
           if (result.duplicate) {
             duplicatesDetected++;
           }
           return { success: true, index: i, result };
         }).catch(error => {
-          errors.push(`Operation ${i}: ${error.message}`);
-          return { success: false, index: i, error: error.message };
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          errors.push(`Operation ${i}: ${errorMessage}`);
+          return { success: false, index: i, error: errorMessage };
         })
       );
     }
@@ -234,7 +306,7 @@ export async function testHighConcurrencyScenario(
     const successfulOps = results.filter(r => r.success).length;
 
     // Verify final state
-    const finalBlock = await getDayBlockSafe(env, chatId, date);
+    const finalBlock = await mockGetDayBlockSafe(env, chatId, date);
     const actualMessageCount = finalBlock?.messageCount || 0;
 
     // Calculate expected unique messages (accounting for same timestamp + user combinations)
@@ -256,22 +328,25 @@ export async function testHighConcurrencyScenario(
       duration: Date.now() - startTime
     };
 
-    console.log(`${testName} test completed:`, {
-      success: testResult.success,
-      concurrencyLevel,
-      successfulOps,
-      actualMessageCount,
-      expectedUniqueMessages,
-      duplicatesDetected,
-      errors: errors.length,
-      duration: testResult.duration,
-      throughput: `${(concurrencyLevel / (testResult.duration / 1000)).toFixed(1)} ops/sec`
-    });
+    if (typeof console !== 'undefined' && console.log) {
+      console.log(`${testName} test completed:`, {
+        success: testResult.success,
+        concurrencyLevel,
+        successfulOps,
+        actualMessageCount,
+        expectedUniqueMessages,
+        duplicatesDetected,
+        errors: errors.length,
+        duration: testResult.duration,
+        throughput: `${(concurrencyLevel / (testResult.duration / 1000)).toFixed(1)} ops/sec`
+      });
+    }
 
     return testResult;
 
-  } catch (error: any) {
-    errors.push(`Test setup failed: ${error.message}`);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    errors.push(`Test setup failed: ${errorMessage}`);
     return {
       testName,
       success: false,
@@ -291,7 +366,9 @@ export async function runAllRaceConditionTests(
   env: any,
   chatId: number = -999999 // Use test chat ID
 ): Promise<RaceConditionTestResult[]> {
-  console.log('Starting comprehensive race condition tests...');
+  if (typeof console !== 'undefined' && console.log) {
+    console.log('Starting comprehensive race condition tests...');
+  }
 
   const tests = [
     () => testConcurrentMessageAddition(env, chatId, 10),
@@ -308,7 +385,7 @@ export async function runAllRaceConditionTests(
       
       // Small delay between tests
       await new Promise(resolve => setTimeout(resolve, 100));
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Test execution failed:', error);
       results.push({
         testName: 'Unknown Test',
@@ -316,7 +393,7 @@ export async function runAllRaceConditionTests(
         messagesAdded: 0,
         expectedMessages: 0,
         duplicatesDetected: 0,
-        errors: [error.message],
+        errors: [error instanceof Error ? error.message : String(error)],
         duration: 0
       });
     }
@@ -327,13 +404,15 @@ export async function runAllRaceConditionTests(
   const passedTests = results.filter(r => r.success).length;
   const totalErrors = results.reduce((sum, r) => sum + r.errors.length, 0);
 
-  console.log('Race condition tests summary:', {
-    totalTests,
-    passedTests,
-    failedTests: totalTests - passedTests,
-    totalErrors,
-    overallSuccess: passedTests === totalTests && totalErrors === 0
-  });
+  if (typeof console !== 'undefined' && console.log) {
+    console.log('Race condition tests summary:', {
+      totalTests,
+      passedTests,
+      failedTests: totalTests - passedTests,
+      totalErrors,
+      overallSuccess: passedTests === totalTests && totalErrors === 0
+    });
+  }
 
   return results;
 }

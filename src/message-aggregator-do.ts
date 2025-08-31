@@ -56,7 +56,7 @@ export class MessageAggregatorDO {
         default:
           return new Response("Not found", { status: 404 });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error("MessageAggregatorDO error", {
         endpoint,
         error: error.message || String(error),
@@ -126,7 +126,7 @@ export class MessageAggregatorDO {
       return new Response(JSON.stringify({ success: true, sessionId }), {
         headers: { "Content-Type": "application/json" },
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error("MessageAggregatorDO initialization error", {
         error: error.message || String(error),
         stack: error.stack,
@@ -215,7 +215,7 @@ export class MessageAggregatorDO {
           headers: { "Content-Type": "application/json" },
         });
 
-      } catch (error: any) {
+      } catch (error: unknown) {
         session.errors.push(`Aggregation error: ${error.message}`);
         session.status = "failed";
 
@@ -227,7 +227,7 @@ export class MessageAggregatorDO {
         throw error;
       }
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error("MessageAggregatorDO aggregation error", {
         error: error.message || String(error),
         stack: error.stack,
@@ -308,7 +308,7 @@ export class MessageAggregatorDO {
         headers: { "Content-Type": "application/json" },
       });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error("MessageAggregatorDO get results error", {
         error: error.message || String(error),
         stack: error.stack,
@@ -350,7 +350,7 @@ export class MessageAggregatorDO {
         headers: { "Content-Type": "application/json" },
       });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error("MessageAggregatorDO get status error", {
         error: error.message || String(error),
         stack: error.stack,
@@ -404,7 +404,7 @@ export class MessageAggregatorDO {
         headers: { "Content-Type": "application/json" },
       });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error("MessageAggregatorDO cleanup error", {
         error: error.message || String(error),
         stack: error.stack,

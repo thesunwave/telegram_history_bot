@@ -1,0 +1,40 @@
+{
+  "timestamp": "2025-08-24T19:35:29.394Z",
+  "totalUsages": 1127,
+  "criticalUsages": 320,
+  "warningUsages": 454,
+  "infoUsages": 353,
+  "filesWithIssues": 67,
+  "completedFiles": [],
+  "inProgressFiles": [],
+  "milestones": [
+    {
+      "name": "Critical Issues Resolved",
+      "description": "All critical type issues in public APIs resolved",
+      "targetUsages": 767,
+      "targetDate": "2025-09-07T18:02:33.185Z",
+      "completed": false
+    },
+    {
+      "name": "50% Reduction",
+      "description": "Reduced total any usages by 50%",
+      "targetUsages": 548,
+      "targetDate": "2025-09-23T18:02:33.185Z",
+      "completed": false
+    },
+    {
+      "name": "80% Reduction",
+      "description": "Reduced total any usages by 80%",
+      "targetUsages": 219,
+      "targetDate": "2025-10-23T18:02:33.185Z",
+      "completed": false
+    },
+    {
+      "name": "Type Safety Complete",
+      "description": "All any types replaced with concrete types",
+      "targetUsages": 0,
+      "targetDate": "2025-11-22T19:02:33.185Z",
+      "completed": false
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { 
   processBatches, 
   processBatchesDetailed, 
@@ -7,13 +7,26 @@ import {
 } from '../src/utils';
 
 describe('Enhanced Error Handling', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   describe('Error Classification', () => {
+
     it('should classify API limit errors correctly', async () => {
       const items = [1, 2, 3];
       const processor = vi.fn().mockImplementation(async (item: number) => {
@@ -81,6 +94,7 @@ describe('Enhanced Error Handling', () => {
   });
 
   describe('Adaptive Delay for API Limits', () => {
+
     it('should increase delay when API limits are hit', async () => {
       const items = [1, 2, 3, 4];
       const processor = vi.fn().mockImplementation(async (item: number) => {
@@ -104,6 +118,7 @@ describe('Enhanced Error Handling', () => {
   });
 
   describe('Critical Failure Detection', () => {
+
     it('should detect critical batch failures', async () => {
       const items = Array.from({ length: 10 }, (_, i) => i + 1);
       const processor = vi.fn().mockImplementation(async (item: number) => {
@@ -150,6 +165,7 @@ describe('Enhanced Error Handling', () => {
   });
 
   describe('Success Rate Calculation', () => {
+
     it('should calculate success rate correctly', async () => {
       const items = [1, 2, 3, 4, 5];
       const processor = vi.fn().mockImplementation(async (item: number) => {
@@ -194,6 +210,7 @@ describe('Enhanced Error Handling', () => {
   });
 
   describe('Error Information Preservation', () => {
+
     it('should preserve original error information', async () => {
       const items = [1, 2];
       const originalError = new Error('Original error message');
@@ -232,6 +249,7 @@ describe('Enhanced Error Handling', () => {
   });
 
   describe('Backward Compatibility', () => {
+
     it('should maintain backward compatibility with processBatches', async () => {
       const items = [1, 2, 3, 4, 5];
       const processor = vi.fn().mockImplementation(async (item: number) => {
@@ -250,6 +268,7 @@ describe('Enhanced Error Handling', () => {
   });
 
   describe('Edge Cases', () => {
+
     it('should handle empty arrays', async () => {
       const items: number[] = [];
       const processor = vi.fn();

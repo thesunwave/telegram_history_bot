@@ -8,6 +8,7 @@ import { DayBlockManager } from "./day-block-manager";
 import { CriminalCodeAnalyzerDO } from "./criminal-code-analyzer-do";
 import { ProviderInitializer } from "./providers/provider-init";
 import { Logger } from "./logger";
+import { HealthChecker } from "./utils/health-check";
 import type {
   ExecutionContext,
   ScheduledEvent,
@@ -23,17 +24,41 @@ export default {
     if (!ProviderInitializer.isProviderInitialized()) {
       try {
         await ProviderInitializer.initializeProvider(env);
-      } catch (error: any) {
-        console.error("Failed to initialize provider on request", {
-          error: error.message || String(error),
-          path: new URL(req.url).pathname,
-        });
+      } catch (error: unknown) {
+        if (typeof console !== 'undefined' && console.error) {
+          console.error("Failed to initialize provider on request", {
+            error: error.message || String(error),
+            path: new URL(req.url).pathname,
+          });
+        }
         // Continue processing - provider will be created on-demand if needed
       }
     }
 
     const url = new URL(req.url);
+    
+    // Health check endpoints
     if (url.pathname === "/healthz") return new Response("ok");
+    if (url.pathname === "/health") {
+      try {
+        const healthChecker = new HealthChecker(env);
+        const report = await healthChecker.checkSystemHealth();
+        
+        return new Response(JSON.stringify(report, null, 2), {
+          status: report.overall === 'healthy' ? 200 : 503,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error: unknown) {
+        return new Response(JSON.stringify({
+          overall: 'unhealthy',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: new Date()
+        }, null, 2), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
     if (
       url.pathname.startsWith("/tg/") &&
       url.pathname.endsWith("/webhook") &&
@@ -42,21 +67,27 @@ export default {
       const token = url.pathname.split("/")[2];
       const secretHeader = req.headers.get("X-Telegram-Bot-Api-Secret-Token");
       
-      console.log("webhook auth check", {
-        urlToken: token,
-        envToken: env.TOKEN,
-        tokenMatch: token === env.TOKEN,
-        secretHeader: secretHeader,
-        envSecret: env.SECRET,
-        secretMatch: secretHeader === env.SECRET
-      });
+      if (typeof console !== 'undefined' && console.log) {
+        console.log("webhook auth check", {
+          urlToken: token,
+          envToken: env.TOKEN,
+          tokenMatch: token === env.TOKEN,
+          secretHeader: secretHeader,
+          envSecret: env.SECRET,
+          secretMatch: secretHeader === env.SECRET
+        });
+      }
       
       if (token !== env.TOKEN) {
-         console.log("token mismatch", { token, envToken: env.TOKEN });
+         if (typeof console !== 'undefined' && console.log) {
+           console.log("token mismatch", { token, envToken: env.TOKEN });
+         }
          return new Response("forbidden", { status: 403 });
        }
        if (secretHeader !== env.SECRET) {
-         console.log("secret mismatch", { secretHeader, envSecret: env.SECRET });
+         if (typeof console !== 'undefined' && console.log) {
+           console.log("secret mismatch", { secretHeader, envSecret: env.SECRET });
+         }
          return new Response("forbidden", { status: 403 });
        }
       const update = await req.json();
@@ -103,8 +134,10 @@ export default {
         
         const response = await stub.fetch(new Request(statsUrl.toString()));
         return response;
-      } catch (error: any) {
-        console.error("Criminal stats API error:", error);
+      } catch (error: unknown) {
+        if (typeof console !== 'undefined' && console.error) {
+          console.error("Criminal stats API error:", error);
+        }
         return new Response("Internal server error", { status: 500 });
       }
     }
@@ -129,8 +162,10 @@ export default {
         
         const response = await stub.fetch(analyzeRequest);
         return response;
-      } catch (error: any) {
-        console.error("Criminal report API error:", error);
+      } catch (error: unknown) {
+        if (typeof console !== 'undefined' && console.error) {
+          console.error("Criminal report API error:", error);
+        }
         return new Response("Internal server error", { status: 500 });
       }
     }
@@ -146,10 +181,12 @@ export default {
     if (!ProviderInitializer.isProviderInitialized()) {
       try {
         await ProviderInitializer.initializeProvider(env);
-      } catch (error: any) {
-        console.error("Failed to initialize provider on scheduled event", {
-          error: error.message || String(error),
-        });
+      } catch (error: unknown) {
+        if (typeof console !== 'undefined' && console.error) {
+          console.error("Failed to initialize provider on scheduled event", {
+            error: error.message || String(error),
+          });
+        }
         // Continue processing - provider will be created on-demand if needed
       }
     }

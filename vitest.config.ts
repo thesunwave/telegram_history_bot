@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   test: {
@@ -31,13 +31,13 @@ export default defineConfig({
     // Performance optimizations
     maxConcurrency: 1, // Run one test at a time
     // Environment setup
-    setupFiles: [],
+    setupFiles: ["./tests/setup.ts"],
     globalSetup: [],
     env: {
       NODE_ENV: "test", // Set NODE_ENV to test to disable performance logging
     },
     // Disable file watching and other features that might cause hanging
-    disableConsoleIntercept: true,
+    disableConsoleIntercept: false,
     // Speed up test discovery
     include: ["tests/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"],
     exclude: [

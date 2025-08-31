@@ -63,18 +63,20 @@ function buildAiOptions(env: Env): SummaryOptions {
     case "cloudflare":
       opts = {
         maxTokens:
-          (env as any).CLOUDFLARE_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 400,
+          // Prefer legacy SUMMARY_* for backward compatibility
+          env.SUMMARY_MAX_TOKENS ?? (env as any).CLOUDFLARE_MAX_TOKENS ?? 400,
         temperature:
-          (env as any).CLOUDFLARE_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
-        topP: (env as any).CLOUDFLARE_TOP_P ?? env.SUMMARY_TOP_P ?? 0.95,
+          env.SUMMARY_TEMPERATURE ?? (env as any).CLOUDFLARE_TEMPERATURE ?? 0.0,
+        topP: env.SUMMARY_TOP_P ?? (env as any).CLOUDFLARE_TOP_P ?? 0.95,
       };
       const cloudflareFreqPenalty =
-        (env as any).CLOUDFLARE_FREQUENCY_PENALTY ??
-        env.SUMMARY_FREQUENCY_PENALTY;
+        // Prefer legacy SUMMARY_* first
+        env.SUMMARY_FREQUENCY_PENALTY ??
+        (env as any).CLOUDFLARE_FREQUENCY_PENALTY;
       if (cloudflareFreqPenalty !== undefined) {
         opts.frequencyPenalty = cloudflareFreqPenalty;
       }
-      const cloudflareSeed = (env as any).CLOUDFLARE_SEED ?? env.SUMMARY_SEED;
+      const cloudflareSeed = env.SUMMARY_SEED ?? (env as any).CLOUDFLARE_SEED;
       if (cloudflareSeed !== undefined) {
         opts.seed = cloudflareSeed;
       }
@@ -87,17 +89,19 @@ function buildAiOptions(env: Env): SummaryOptions {
     case "openai":
       opts = {
         maxTokens:
-          (env as any).OPENAI_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 500,
+          // Prefer legacy SUMMARY_* for backward compatibility
+          env.SUMMARY_MAX_TOKENS ?? (env as any).OPENAI_MAX_TOKENS ?? 500,
         temperature:
-          (env as any).OPENAI_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
-        topP: (env as any).OPENAI_TOP_P ?? env.SUMMARY_TOP_P ?? 0.9,
+          env.SUMMARY_TEMPERATURE ?? (env as any).OPENAI_TEMPERATURE ?? 0.0,
+        topP: env.SUMMARY_TOP_P ?? (env as any).OPENAI_TOP_P ?? 0.9,
       };
       const openaiFreqPenalty =
-        (env as any).OPENAI_FREQUENCY_PENALTY ?? env.SUMMARY_FREQUENCY_PENALTY;
+        // Prefer legacy SUMMARY_* first
+        env.SUMMARY_FREQUENCY_PENALTY ?? (env as any).OPENAI_FREQUENCY_PENALTY;
       if (openaiFreqPenalty !== undefined) {
         opts.frequencyPenalty = openaiFreqPenalty;
       }
-      const openaiSeed = (env as any).OPENAI_SEED ?? env.SUMMARY_SEED;
+      const openaiSeed = env.SUMMARY_SEED ?? (env as any).OPENAI_SEED;
       if (openaiSeed !== undefined) {
         opts.seed = openaiSeed;
       }
@@ -118,22 +122,24 @@ function buildAiOptions(env: Env): SummaryOptions {
     case "openai-premium":
       opts = {
         maxTokens:
-          (env as any).OPENAI_PREMIUM_MAX_TOKENS ??
+          // Prefer legacy SUMMARY_* for backward compatibility
           env.SUMMARY_MAX_TOKENS ??
+          (env as any).OPENAI_PREMIUM_MAX_TOKENS ??
           600,
         temperature:
-          (env as any).OPENAI_PREMIUM_TEMPERATURE ??
           env.SUMMARY_TEMPERATURE ??
+          (env as any).OPENAI_PREMIUM_TEMPERATURE ??
           0.0,
-        topP: (env as any).OPENAI_PREMIUM_TOP_P ?? env.SUMMARY_TOP_P ?? 0.85,
+        topP: env.SUMMARY_TOP_P ?? (env as any).OPENAI_PREMIUM_TOP_P ?? 0.85,
       };
       const premiumFreqPenalty =
-        (env as any).OPENAI_PREMIUM_FREQUENCY_PENALTY ??
-        env.SUMMARY_FREQUENCY_PENALTY;
+        // Prefer legacy SUMMARY_* first
+        env.SUMMARY_FREQUENCY_PENALTY ??
+        (env as any).OPENAI_PREMIUM_FREQUENCY_PENALTY;
       if (premiumFreqPenalty !== undefined) {
         opts.frequencyPenalty = premiumFreqPenalty;
       }
-      const premiumSeed = (env as any).OPENAI_PREMIUM_SEED ?? env.SUMMARY_SEED;
+      const premiumSeed = env.SUMMARY_SEED ?? (env as any).OPENAI_PREMIUM_SEED;
       if (premiumSeed !== undefined) {
         opts.seed = premiumSeed;
       }
@@ -443,7 +449,7 @@ export async function summariseChatLegacy(
         });
 
         return truncateText(resp, TELEGRAM_LIMIT);
-      } catch (error) {
+      } catch (error: unknown) {
         const aiDuration = Date.now() - aiStartTime;
         const e = error as Error;
 
@@ -525,7 +531,7 @@ export async function summariseChatLegacy(
           `${parts.length}_CHUNKS`,
         ],
       });
-    } catch (error) {
+    } catch (error: unknown) {
       const e = error as Error;
       Logger.error("summarize error", {
         chat: chatId.toString(LOG_ID_RADIX),
@@ -594,7 +600,7 @@ export async function summariseChatLegacy(
         Logger.debug(env, "summarize DB insert done", {
           chat: chatId.toString(LOG_ID_RADIX),
         });
-      } catch (error) {
+      } catch (error: unknown) {
         const e = error as Error;
         Logger.error("summarize DB insert error", {
           chat: chatId.toString(LOG_ID_RADIX),
@@ -643,7 +649,7 @@ export async function summariseChatLegacy(
           ],
         });
       }
-    } catch (error) {
+    } catch (error: unknown) {
       const e = error as Error;
       Logger.error("summarize send message error", {
         chat: chatId.toString(LOG_ID_RADIX),
@@ -652,7 +658,7 @@ export async function summariseChatLegacy(
       });
       throw error; // Пробрасываем ошибку для обработки во внешнем блоке
     }
-  } catch (error) {
+  } catch (error: unknown) {
     // Обработка всех необработанных ошибок с улучшенными сообщениями
     const e = error as Error;
     Logger.error("summariseChat unhandled error", {
@@ -855,7 +861,7 @@ export async function summariseChatMessagesLegacy(
         stage: "ai_single",
         insights: aiDuration > 10000 ? ["SLOW_AI_RESPONSE"] : [],
       });
-    } catch (error) {
+    } catch (error: unknown) {
       const aiDuration = Date.now() - aiStartTime;
       const e = error as Error;
 
@@ -923,7 +929,7 @@ export async function summariseChatMessagesLegacy(
             summary,
           )
           .run();
-      } catch (error) {
+      } catch (error: unknown) {
         const e = error as Error;
         Logger.error("summariseChatMessages DB insert error", {
           chat: chatId.toString(LOG_ID_RADIX),
@@ -956,7 +962,7 @@ export async function summariseChatMessagesLegacy(
         ],
       });
     }
-  } catch (error) {
+  } catch (error: unknown) {
     const e = error as Error;
     Logger.error("summariseChatMessages unhandled error", {
       chat: chatId.toString(LOG_ID_RADIX),
@@ -1080,7 +1086,7 @@ async function tryOptimizedSummary(
       param,
       resultLength: result.length,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     const e = error as Error;
 
     // Check if this is the special case where legacy already sent the message

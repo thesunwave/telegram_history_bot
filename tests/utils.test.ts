@@ -1,13 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { processBatches, BatchProcessorOptions } from '../src/utils';
 
 describe('processBatches', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   beforeEach(() => {
     // Clear console mocks before each test
     vi.clearAllMocks();
     // Mock console.log and console.error to avoid noise in test output
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
   });
 
   it('should process items in batches of specified size', async () => {
@@ -19,7 +26,7 @@ describe('processBatches', () => {
 
     expect(results).toEqual([2, 4, 6, 8, 10, 12, 14, 16, 18, 20]);
     expect(processor).toHaveBeenCalledTimes(10);
-  });
+  }, testTimeout);
 
   it('should handle batch size of 1', async () => {
     const items = [1, 2, 3];
@@ -30,7 +37,7 @@ describe('processBatches', () => {
 
     expect(results).toEqual([2, 4, 6]);
     expect(processor).toHaveBeenCalledTimes(3);
-  });
+  }, testTimeout);
 
   it('should handle batch size larger than array length', async () => {
     const items = [1, 2, 3];
@@ -41,7 +48,7 @@ describe('processBatches', () => {
 
     expect(results).toEqual([2, 4, 6]);
     expect(processor).toHaveBeenCalledTimes(3);
-  });
+  }, testTimeout);
 
   it('should handle empty array', async () => {
     const items: number[] = [];
@@ -52,7 +59,7 @@ describe('processBatches', () => {
 
     expect(results).toEqual([]);
     expect(processor).not.toHaveBeenCalled();
-  });
+  }, testTimeout);
 
   it('should handle individual item failures gracefully', async () => {
     const items = [1, 2, 3, 4, 5];

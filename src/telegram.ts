@@ -101,7 +101,7 @@ export async function sendMessage(env: Env, chatId: number, text: string) {
       } else {
         successfulParts++;
       }
-    } catch (error) {
+    } catch (error: unknown) {
       const e = error as Error;
       lastError = e;
       console.error("tg send network error", {

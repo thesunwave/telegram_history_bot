@@ -2,7 +2,7 @@
  * Integration tests for optimized summary system
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { summariseChat, summariseChatMessages } from '../../src/summary';
 import { OptimizedSummaryController } from '../../src/summary-optimization';
 import { ProviderInitializer } from '../../src/providers/provider-init';
@@ -15,7 +15,7 @@ import type {
 
 // Mock dependencies
 vi.mock('../../src/telegram', () => ({
-  sendMessage: vi.fn().mockResolvedValue(undefined),
+  sendMessage: vi.fn().mockResolvedValue({ message_id: 123, chat: { id: 456 } }),
 }));
 
 vi.mock('../../src/history', () => ({
@@ -74,6 +74,8 @@ const createTestMessages = (count: number) => {
 };
 
 describe('Optimized Summary System Integration', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: Env;
 
   beforeEach(() => {
@@ -84,7 +86,18 @@ describe('Optimized Summary System Integration', () => {
     ProviderInitializer.initializeProvider(mockEnv);
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('Feature Flag Control', () => {
+
     it('should use optimized system when enabled', async () => {
       const testMessages = createTestMessages(150);
 
@@ -150,6 +163,7 @@ describe('Optimized Summary System Integration', () => {
   });
 
   describe('Fallback Behavior', () => {
+
     it('should fallback to legacy when optimized system fails', async () => {
       const testMessages = createTestMessages(200);
 
@@ -216,6 +230,7 @@ describe('Optimized Summary System Integration', () => {
   });
 
   describe('summariseChatMessages Integration', () => {
+
     it('should use optimized system for message count-based requests', async () => {
       const testMessages = createTestMessages(200);
 
@@ -279,6 +294,7 @@ describe('Optimized Summary System Integration', () => {
   });
 
   describe('Configuration Integration', () => {
+
     it('should properly load configuration with environment variables', async () => {
       const customEnv = createMockEnv({
         SUMMARY_OPT_MAX_WORKERS: 8,
@@ -349,6 +365,7 @@ describe('Optimized Summary System Integration', () => {
   });
 
   describe('Error Handling Integration', () => {
+
     it('should preserve error context when falling back to legacy', async () => {
       const testMessages = createTestMessages(250);
 
@@ -415,6 +432,7 @@ describe('Optimized Summary System Integration', () => {
   });
 
   describe('Performance and Monitoring Integration', () => {
+
     it('should track performance metrics for optimized system', async () => {
       const testMessages = createTestMessages(400);
 
@@ -426,7 +444,7 @@ describe('Optimized Summary System Integration', () => {
       const optimizedControllerSpy = vi.spyOn(OptimizedSummaryController.prototype, 'summarizeChat')
         .mockImplementation(async () => {
           // Simulate processing time
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, 50));
           return 'Performance test summary';
         });
 
@@ -500,6 +518,7 @@ describe('Optimized Summary System Integration', () => {
   });
 
   describe('Backward Compatibility', () => {
+
     it('should maintain same interface for summariseChat', async () => {
       const testMessages = createTestMessages(100);
 
@@ -595,6 +614,7 @@ describe('Optimized Summary System Integration', () => {
   });
 
   describe('Error Message Consistency', () => {
+
     it('should provide consistent error messages between systems', async () => {
       const testMessages = createTestMessages(100);
 
@@ -631,6 +651,7 @@ describe('Optimized Summary System Integration', () => {
   });
 
   describe('System Strategy Selection', () => {
+
     it('should explain strategy selection in logs', async () => {
       const testMessages = createTestMessages(300);
 

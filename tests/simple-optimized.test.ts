@@ -1,8 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OptimizedSummaryController } from '../src/summary-optimization/summary-controller';
 import { Env } from '../src/env';
 
 describe('Simple Optimized System Test', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: Env;
 
   beforeEach(() => {
@@ -48,17 +50,22 @@ describe('Simple Optimized System Test', () => {
     } as any;
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   it('should create controller without errors', () => {
     expect(() => {
       const controller = new OptimizedSummaryController(mockEnv);
       expect(controller).toBeDefined();
     }).not.toThrow();
-  });
+  }, testTimeout);
 
   it('should have summarizeChat method', async () => {
     const controller = new OptimizedSummaryController(mockEnv);
     expect(typeof controller.summarizeChat).toBe('function');
-  });
+  }, testTimeout);
 
   it('should call summarizeChat without throwing', async () => {
     const controller = new OptimizedSummaryController(mockEnv);
@@ -71,9 +78,9 @@ describe('Simple Optimized System Test', () => {
       console.log('📞 HISTORY.get calls:', (mockEnv.HISTORY.get as any).mock.calls.length);
       console.log('📞 AI.run calls:', mockEnv.AI.run.mock.calls.length);
       expect(result).toBeDefined();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ Error:', error);
       throw error;
     }
-  });
+  }, testTimeout);
 });

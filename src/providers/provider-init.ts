@@ -49,18 +49,20 @@ export class ProviderInitializer {
       });
 
       return provider;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const errorMessage =
         error instanceof ProviderError
           ? `Provider error (${error.provider}): ${error.message}`
           : `Provider initialization failed: ${error.message || String(error)}`;
 
-      console.error("Provider initialization failed", {
-        error: errorMessage,
-        stack: error.stack,
-        supportedProviders: ProviderFactory.getSupportedProviders(),
-        defaultProvider: ProviderFactory.getDefaultProvider(),
-      });
+      if (typeof console !== 'undefined' && console.error) {
+        console.error("Provider initialization failed", {
+          error: errorMessage,
+          stack: error.stack,
+          supportedProviders: ProviderFactory.getSupportedProviders(),
+          defaultProvider: ProviderFactory.getDefaultProvider(),
+        });
+      }
 
       throw new Error(errorMessage);
     }
@@ -117,7 +119,7 @@ export class ProviderInitializer {
         version: providerInfo.version,
         initialized: this.isInitialized,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to log provider information", {
         error: error.message || String(error),
         initialized: this.isInitialized,

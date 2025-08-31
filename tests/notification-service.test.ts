@@ -2,7 +2,7 @@
  * Тесты для NotificationService
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { NotificationService } from '../src/services/notification-service';
 import { NotificationRepository } from '../src/repositories/notification-repository';
 import type { Env } from '../src/env';
@@ -16,12 +16,29 @@ vi.mock('../src/telegram', () => ({
 vi.mock('../src/logger', () => ({
   Logger: {
     debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
     error: vi.fn(),
     log: vi.fn()
   }
 }));
 
+// Мокаем StructuredLogger
+vi.mock('../src/utils/structured-logger', () => ({
+  StructuredLogger: vi.fn().mockImplementation(() => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    log: vi.fn(),
+    child: vi.fn().mockReturnThis(),
+    withCorrelationId: vi.fn().mockReturnThis()
+  }))
+}));
+
 describe('NotificationService', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let service: NotificationService;
   let mockRepository: NotificationRepository;
   let mockEnv: Env;
@@ -55,9 +72,15 @@ describe('NotificationService', () => {
     service = new NotificationService(mockEnv, mockRepository);
   });
 
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('getChatSettings', () => {
+
     it('should return null when no settings exist', async () => {
-      vi.mocked(mockRepository.getChatSettings).mockResolvedValue(null);
+      vi.mocked(mockRepository.getChatSettings).mockResolvedValue(undefined);
 
       const result = await service.getChatSettings('123');
 
@@ -124,6 +147,7 @@ describe('NotificationService', () => {
   });
 
   describe('enableNotification', () => {
+
     it('should enable notification type', async () => {
       const mockSettings: ChatNotificationSettings = {
         chatId: '123',
@@ -191,7 +215,7 @@ describe('NotificationService', () => {
     });
 
     it('should create default settings if none exist', async () => {
-      vi.mocked(mockRepository.getChatSettings).mockResolvedValue(null);
+      vi.mocked(mockRepository.getChatSettings).mockResolvedValue(undefined);
       vi.mocked(mockRepository.saveChatSettings).mockResolvedValue(undefined);
 
       await service.enableNotification('123', 'criminal_reports', 'user123');
@@ -210,6 +234,7 @@ describe('NotificationService', () => {
   });
 
   describe('disableNotification', () => {
+
     it('should disable notification type', async () => {
       const mockSettings: ChatNotificationSettings = {
         chatId: '123',
@@ -278,6 +303,7 @@ describe('NotificationService', () => {
   });
 
   describe('getAvailableNotificationTypes', () => {
+
     it('should return all available notification types', () => {
       const types = service.getAvailableNotificationTypes();
 
@@ -293,6 +319,7 @@ describe('NotificationService', () => {
   });
 
   describe('getNotificationTemplate', () => {
+
     it('should return template for valid type', () => {
       const template = service.getNotificationTemplate('criminal_reports');
 
@@ -310,6 +337,7 @@ describe('NotificationService', () => {
   });
 
   describe('scheduleNotification', () => {
+
     it('should throw error when notifications are disabled', async () => {
       const mockSettings: ChatNotificationSettings = {
         chatId: '123',

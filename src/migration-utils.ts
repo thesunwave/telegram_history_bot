@@ -94,7 +94,7 @@ export async function migrateMessagesToDayBlocks(
             });
           }
 
-        } catch (error: any) {
+        } catch (error: unknown) {
           stats.failedMessages++;
           Logger.error('Migration: failed to migrate message', {
             chat: chatId.toString(LOG_ID_RADIX),
@@ -118,7 +118,7 @@ export async function migrateMessagesToDayBlocks(
 
     return stats;
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     stats.duration = Date.now() - startTime;
     Logger.error('Migration: failed', {
       chat: chatId.toString(LOG_ID_RADIX),
@@ -189,7 +189,7 @@ export async function checkMigrationStatus(
       migrationNeeded
     };
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     Logger.error('Migration check: failed', {
       chat: chatId.toString(LOG_ID_RADIX),
       error: error.message || String(error)

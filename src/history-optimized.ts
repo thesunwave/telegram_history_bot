@@ -54,7 +54,7 @@ export async function addMessageToDayBlock(
         messageCount: result.messageCount
       });
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     Logger.error('addMessageToDayBlock: failed', {
       chat: message.chat.toString(LOG_ID_RADIX),
       date,
@@ -124,7 +124,7 @@ export async function fetchMessagesOptimized(
         }
         
         return { date, block, success: true };
-      } catch (error: any) {
+      } catch (error: unknown) {
         Logger.error('fetchMessagesOptimized: day block fetch failed', {
           chat: chatId.toString(LOG_ID_RADIX),
           date,
@@ -183,7 +183,7 @@ export async function fetchMessagesOptimized(
 
     return sortedMessages;
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     const finalMetrics = PerformanceTracker.end(trackerId, {
       result: 'error',
       errorType: error.constructor?.name || 'Unknown'
@@ -255,7 +255,7 @@ export async function fetchMessagesHybrid(
 
     return individualMessages;
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     PerformanceTracker.end(trackerId, {
       result: 'error',
       errorType: error.constructor?.name || 'Unknown'

@@ -16,6 +16,7 @@ yarn-error.log*
 *.njsproj
 *.sln
 *.sw?
+coverage
 
 # Build output
 dist/

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import worker, { CountersDO } from "../../src/index";
 import { KVNamespace } from "@miniflare/kv";
 import { MemoryStorage } from "@miniflare/storage-memory";
@@ -56,6 +56,8 @@ function createCountersNamespace(env: Env) {
 }
 
 describe("Summary Providers Integration Tests", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let env: Env;
   let ctx: any;
   let tasks: Promise<any>[];
@@ -98,6 +100,8 @@ describe("Summary Providers Integration Tests", () => {
       SUMMARY_TEMPERATURE: 0.2,
       SUMMARY_TOP_P: 0.95,
       SUMMARY_FREQUENCY_PENALTY: 0.1,
+      // Disable background analyses to avoid interference with OpenAI request assertions
+      DISABLE_BACKGROUND_ANALYSIS: true as any,
     };
 
     env.COUNTERS_DO = createCountersNamespace(env);
@@ -112,6 +116,7 @@ describe("Summary Providers Integration Tests", () => {
   });
 
   describe("Complete summarization flow with both providers", () => {
+
     async function setupMessages(count: number = 3) {
       const now = Math.floor(Date.now() / 1000);
       const messages = [];
@@ -330,6 +335,7 @@ describe("Summary Providers Integration Tests", () => {
   });
 
   describe("Provider switching functionality", () => {
+
     it("should switch from Cloudflare to OpenAI provider", async () => {
       // First request with Cloudflare
       env.SUMMARY_PROVIDER = "cloudflare";
@@ -466,6 +472,7 @@ describe("Summary Providers Integration Tests", () => {
   });
 
   describe("Error scenarios", () => {
+
     it("should handle missing OpenAI API key", async () => {
       env.SUMMARY_PROVIDER = "openai";
       // OPENAI_API_KEY is undefined
@@ -686,6 +693,7 @@ describe("Summary Providers Integration Tests", () => {
   });
 
   describe("Chunking functionality with both providers", () => {
+
     it("should handle chunking with Cloudflare provider", async () => {
       env.SUMMARY_PROVIDER = "cloudflare";
       env.SUMMARY_CHUNK_SIZE = 100; // Small chunk size to force chunking
@@ -931,6 +939,7 @@ describe("Summary Providers Integration Tests", () => {
   });
 
   describe("Backward compatibility with existing configurations", () => {
+
     it("should default to Cloudflare provider when SUMMARY_PROVIDER is not set", async () => {
       // SUMMARY_PROVIDER is undefined (default behavior)
       fetchMock.mockResolvedValue(new Response(null, { status: 200 }));

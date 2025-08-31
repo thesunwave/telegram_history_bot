@@ -15,10 +15,12 @@ import {
 } from '../../src/models/statistics';
 
 describe('Statistics Models', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   describe('Violation', () => {
+
     it('should have correct structure', () => {
-      const violation: Violation = {
-        article: 'Статья 282 УК РФ',
+      const violation: Violation = { article: 'Статья 282 УК РФ', subarticle: null, articleTitle: "Test Article Title",
         quote: 'Пример цитаты из сообщения',
         punishment: 'Штраф до 300 000 рублей',
         severity: 7,
@@ -30,16 +32,16 @@ describe('Statistics Models', () => {
       expect(violation.punishment).toBe('Штраф до 300 000 рублей');
       expect(violation.severity).toBe(7);
       expect(violation.confidence).toBe(0.85);
-    });
+    }, testTimeout);
   });
 
   describe('ViolationAnalysis', () => {
+
     it('should have correct structure with violations', () => {
       const analysis: ViolationAnalysis = {
         hasViolations: true,
         violations: [
-          {
-            article: 'Статья 282 УК РФ',
+          { article: 'Статья 282 УК РФ', subarticle: null, articleTitle: "Test Article Title",
             quote: 'Пример цитаты',
             punishment: 'Штраф',
             severity: 7,
@@ -56,7 +58,7 @@ describe('Statistics Models', () => {
       expect(analysis.totalSeverity).toBe(7);
       expect(analysis.riskLevel).toBe('high');
       expect(analysis.analysisTimestamp).toBe('2024-01-01T12:00:00Z');
-    });
+    }, testTimeout);
 
     it('should have correct structure without violations', () => {
       const analysis: ViolationAnalysis = {
@@ -71,10 +73,11 @@ describe('Statistics Models', () => {
       expect(analysis.violations).toHaveLength(0);
       expect(analysis.totalSeverity).toBe(0);
       expect(analysis.riskLevel).toBe('low');
-    });
+    }, testTimeout);
   });
 
   describe('ViolationCount', () => {
+
     it('should have correct structure', () => {
       const violationCount: ViolationCount = {
         article: 'Статья 282 УК РФ',
@@ -91,10 +94,11 @@ describe('Statistics Models', () => {
       expect(violationCount.punishment).toBe('штраф в размере до трехсот тысяч рублей');
       expect(violationCount.count).toBe(5);
       expect(violationCount.averageSeverity).toBe(6.5);
-    });
+    }, testTimeout);
   });
 
   describe('UserViolationCount', () => {
+
     it('should have correct structure with username', () => {
       const userViolationCount: UserViolationCount = {
         userId: '12345',
@@ -109,7 +113,7 @@ describe('Statistics Models', () => {
       expect(userViolationCount.count).toBe(3);
       expect(userViolationCount.averageSeverity).toBe(5.5);
       expect(userViolationCount.riskLevel).toBe('medium');
-    });
+    }, testTimeout);
 
     it('should have correct structure without username', () => {
       const userViolationCount: UserViolationCount = {
@@ -122,23 +126,22 @@ describe('Statistics Models', () => {
       expect(userViolationCount.userId).toBe('12345');
       expect(userViolationCount.username).toBeUndefined();
       expect(userViolationCount.count).toBe(3);
-    });
+    }, testTimeout);
   });
 
   describe('UserStats', () => {
+
     it('should have correct structure with all fields', () => {
       const userStats: UserStats = {
         userId: '12345',
         chatId: '-67890',
         totalViolations: 10,
         violationsByArticle: [
-          {
-            article: 'Статья 282 УК РФ',
+          { article: 'Статья 282 УК РФ', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment",
             count: 5,
             averageSeverity: 6.5
           },
-          {
-            article: 'Статья 280 УК РФ',
+          { article: 'Статья 280 УК РФ', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment",
             count: 5,
             averageSeverity: 7.0
           }
@@ -157,7 +160,7 @@ describe('Statistics Models', () => {
       expect(userStats.riskLevel).toBe('high');
       expect(userStats.lastViolationDate).toEqual(new Date('2024-01-01'));
       expect(userStats.mostCommonViolation).toBe('Статья 282 УК РФ');
-    });
+    }, testTimeout);
 
     it('should have correct structure with minimal fields', () => {
       const userStats: UserStats = {
@@ -173,10 +176,11 @@ describe('Statistics Models', () => {
       expect(userStats.violationsByArticle).toHaveLength(0);
       expect(userStats.lastViolationDate).toBeUndefined();
       expect(userStats.mostCommonViolation).toBeUndefined();
-    });
+    }, testTimeout);
   });
 
   describe('PeriodComparison', () => {
+
     it('should have correct structure', () => {
       const comparison: PeriodComparison = {
         violationsChange: 25.5,
@@ -187,10 +191,11 @@ describe('Statistics Models', () => {
       expect(comparison.violationsChange).toBe(25.5);
       expect(comparison.severityChange).toBe(-0.3);
       expect(comparison.usersChange).toBe(10.0);
-    });
+    }, testTimeout);
   });
 
   describe('PeriodStats', () => {
+
     it('should have correct structure with comparison', () => {
       const startDate = new Date('2024-01-01');
       const endDate = new Date('2024-01-31');
@@ -201,13 +206,11 @@ describe('Statistics Models', () => {
         endDate,
         totalViolations: 50,
         violationsByArticle: [
-          {
-            article: 'Статья 282 УК РФ',
+          { article: 'Статья 282 УК РФ', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment",
             count: 30,
             averageSeverity: 6.5
           },
-          {
-            article: 'Статья 280 УК РФ',
+          { article: 'Статья 280 УК РФ', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment",
             count: 20,
             averageSeverity: 7.0
           }
@@ -229,7 +232,7 @@ describe('Statistics Models', () => {
       expect(periodStats.averageSeverity).toBe(6.7);
       expect(periodStats.uniqueUsers).toBe(15);
       expect(periodStats.comparisonWithPreviousPeriod).toBeDefined();
-    });
+    }, testTimeout);
 
     it('should have correct structure without comparison', () => {
       const periodStats: PeriodStats = {
@@ -243,22 +246,21 @@ describe('Statistics Models', () => {
       };
 
       expect(periodStats.comparisonWithPreviousPeriod).toBeUndefined();
-    });
+    }, testTimeout);
   });
 
   describe('GeneralStats', () => {
+
     it('should have correct structure', () => {
       const generalStats: GeneralStats = {
         chatId: '-67890',
         totalViolations: 100,
         topViolations: [
-          {
-            article: 'Статья 282 УК РФ',
+          { article: 'Статья 282 УК РФ', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment",
             count: 40,
             averageSeverity: 6.5
           },
-          {
-            article: 'Статья 280 УК РФ',
+          { article: 'Статья 280 УК РФ', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment",
             count: 30,
             averageSeverity: 7.0
           }
@@ -281,8 +283,7 @@ describe('Statistics Models', () => {
         overallRiskLevel: 'high',
         averageSeverity: 6.8,
         criticalViolations: [
-          {
-            article: 'Статья 205 УК РФ',
+          { article: 'Статья 205 УК РФ', subarticle: null, articleTitle: "Test Article Title",
             quote: 'Критическое нарушение',
             punishment: 'Лишение свободы',
             severity: 9,
@@ -298,7 +299,7 @@ describe('Statistics Models', () => {
       expect(generalStats.overallRiskLevel).toBe('high');
       expect(generalStats.averageSeverity).toBe(6.8);
       expect(generalStats.criticalViolations).toHaveLength(1);
-    });
+    }, testTimeout);
 
     it('should handle empty arrays', () => {
       const generalStats: GeneralStats = {
@@ -315,6 +316,6 @@ describe('Statistics Models', () => {
       expect(generalStats.topViolations).toHaveLength(0);
       expect(generalStats.topUsers).toHaveLength(0);
       expect(generalStats.criticalViolations).toHaveLength(0);
-    });
+    }, testTimeout);
   });
 });

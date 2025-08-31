@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { KVNamespace } from "@miniflare/kv";
 import { MemoryStorage } from "@miniflare/storage-memory";
 import { fetchMessages, fetchLastMessages } from "../../src/history";
@@ -11,6 +11,8 @@ import {
 import { createMockEnv } from "../test-utils";
 
 describe("History Functions Integration Tests", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let env: Env;
   let history: KVNamespace;
 
@@ -78,6 +80,7 @@ describe("History Functions Integration Tests", () => {
   }
 
   describe("fetchMessages function", () => {
+
     it("should fetch messages for 1 day time range", async () => {
       const chatId = 1;
       const now = Math.floor(Date.now() / 1000);
@@ -262,6 +265,7 @@ describe("History Functions Integration Tests", () => {
   });
 
   describe("fetchLastMessages function", () => {
+
     it("should fetch last 10 messages", async () => {
       const chatId = 10;
       const now = Math.floor(Date.now() / 1000);
@@ -463,6 +467,7 @@ describe("History Functions Integration Tests", () => {
   });
 
   describe("Error scenarios and graceful degradation", () => {
+
     it("should handle KV list failures in fetchMessages", async () => {
       const chatId = 20;
       const now = Math.floor(Date.now() / 1000);
@@ -625,6 +630,7 @@ describe("History Functions Integration Tests", () => {
   });
 
   describe("Performance and behavior validation", () => {
+
     it("should maintain consistent performance across different time ranges", async () => {
       const chatId = 26;
       const now = Math.floor(Date.now() / 1000);

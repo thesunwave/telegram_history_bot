@@ -2,9 +2,10 @@
  * Интеграционные тесты для интеграции криминальных уведомлений
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { recordMessage } from '../../src/update';
 import type { Env } from '../../src/env';
+import { sendMessage } from '../../src/telegram';
 
 // Мокаем зависимости
 vi.mock('../../src/telegram', () => ({
@@ -26,6 +27,8 @@ vi.mock('../../src/violation-handler', () => ({
 }));
 
 describe('Criminal Notifications Integration', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: Env;
   let originalNodeEnv: string | undefined;
 
@@ -33,12 +36,17 @@ describe('Criminal Notifications Integration', () => {
     // Настраиваем NODE_ENV чтобы isTestEnvironment возвращала false
     originalNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
+    
+    // Очищаем все моки
+    vi.clearAllMocks();
+    vi.resetAllMocks();
+    
     // Создаем мок окружения
     mockEnv = {
       HISTORY: {
-        get: vi.fn().mockResolvedValue(null),
-        put: vi.fn().mockResolvedValue(undefined),
-        delete: vi.fn().mockResolvedValue(undefined)
+        get: vi.fn().mockResolvedValue(undefined),
+        put: vi.fn().mockResolvedValue({ success: true }),
+    delete: vi.fn().mockResolvedValue({ success: true })
       },
       COUNTERS_DO: {
         idFromName: vi.fn().mockReturnValue('counter-id'),
@@ -57,8 +65,7 @@ describe('Criminal Notifications Integration', () => {
             json: vi.fn().mockResolvedValue({
               hasViolations: true,
               violations: [
-                {
-                  article: '282',
+                { article: '282', subarticle: null, articleTitle: "Test Article Title",
                   quote: 'тестовое нарушение',
                   punishment: 'штраф',
                   severity: 8,
@@ -71,15 +78,19 @@ describe('Criminal Notifications Integration', () => {
           })
         })
       },
-      TOKEN: 'production_token', // Не test_token, чтобы isTestEnvironment возвращала false
-      SECRET: 'test_secret'
+      TOKEN: 'real_token_for_test', // Не test_token, чтобы isTestEnvironment возвращала false
+      SECRET: 'real_secret_for_test',
+      OPENAI_API_KEY: 'real-openai-key-for-test'
     } as any;
 
     // Очищаем все моки
     vi.clearAllMocks();
+    vi.mocked(sendMessage).mockClear();
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
     // Восстанавливаем NODE_ENV
     if (originalNodeEnv !== undefined) {
       process.env.NODE_ENV = originalNodeEnv;
@@ -89,6 +100,7 @@ describe('Criminal Notifications Integration', () => {
   });
 
   describe('Criminal violation detection with notifications disabled', () => {
+
     it('should not send notification when all notifications are disabled', async () => {
       // Настраиваем мок для отключенных уведомлений
       const disabledSettings = {
@@ -108,7 +120,7 @@ describe('Criminal Notifications Integration', () => {
         adminOnly: true
       };
 
-      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(disabledSettings));
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(disabledSettings) as any);
 
       const mockMessage = {
         chat: { id: 123 },
@@ -118,15 +130,25 @@ describe('Criminal Notifications Integration', () => {
         message_id: 789
       };
 
+      // Вызываем recordMessage
+      console.log('Before recordMessage call');
       await recordMessage(mockMessage, mockEnv);
+      console.log('After recordMessage call');
 
       // Ждем завершения асинхронных операций
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('After timeout');
+
+      // Логируем для отладки
+      console.log('sendMessage calls (should be empty):', vi.mocked(sendMessage).mock.calls);
+      console.log('HISTORY.get calls:', vi.mocked(mockEnv.HISTORY.get).mock.calls);
+      console.log('CRIMINAL_CODE_ANALYZER_DO.get calls:', vi.mocked(mockEnv.CRIMINAL_CODE_ANALYZER_DO.get).mock.calls);
+      console.log('mockEnv:', mockEnv);
+      console.log('mockMessage:', mockMessage);
 
       // Проверяем, что сообщение НЕ было отправлено
-      const { sendMessage } = await import('../../src/telegram');
-      expect(sendMessage).not.toHaveBeenCalled();
-    });
+      expect(vi.mocked(sendMessage)).not.toHaveBeenCalled();
+    }, testTimeout);
 
     it('should not send notification when criminal reports are specifically disabled', async () => {
       // Настраиваем мок для включенных уведомлений, но отключенных криминальных репортов
@@ -147,7 +169,7 @@ describe('Criminal Notifications Integration', () => {
         adminOnly: true
       };
 
-      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(partiallyEnabledSettings));
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(partiallyEnabledSettings) as any);
 
       const mockMessage = {
         chat: { id: 123 },
@@ -157,15 +179,23 @@ describe('Criminal Notifications Integration', () => {
         message_id: 789
       };
 
+      // Вызываем recordMessage
+      console.log('Before recordMessage call (criminal disabled)');
       await recordMessage(mockMessage, mockEnv);
+      console.log('After recordMessage call (criminal disabled)');
 
       // Ждем завершения асинхронных операций
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('After timeout (criminal disabled)');
+
+      // Логируем для отладки
+      console.log('sendMessage calls:', vi.mocked(sendMessage).mock.calls);
+      console.log('HISTORY.get calls:', vi.mocked(mockEnv.HISTORY.get).mock.calls);
+      console.log('CRIMINAL_CODE_ANALYZER_DO.get calls:', vi.mocked(mockEnv.CRIMINAL_CODE_ANALYZER_DO.get).mock.calls);
 
       // Проверяем, что сообщение НЕ было отправлено
-      const { sendMessage } = await import('../../src/telegram');
-      expect(sendMessage).not.toHaveBeenCalled();
-    });
+      expect(vi.mocked(sendMessage)).not.toHaveBeenCalled();
+    }, testTimeout);
 
     it('should send notification when criminal reports are enabled', async () => {
       // Настраиваем мок для включенных криминальных репортов
@@ -186,7 +216,34 @@ describe('Criminal Notifications Integration', () => {
         adminOnly: true
       };
 
-      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(enabledSettings));
+      // Мокаем правильный ключ для настроек уведомлений
+      vi.mocked(mockEnv.HISTORY.get).mockImplementation((key: string | string[], options?: any) => {
+        if (key === 'notification_settings:123') {
+          return Promise.resolve(JSON.stringify(enabledSettings) as any);
+        }
+        return Promise.resolve(null as any);
+      });
+
+      // Настраиваем мок анализатора для обнаружения нарушений
+      vi.mocked(mockEnv.CRIMINAL_CODE_ANALYZER_DO.get).mockReturnValue({
+        fetch: vi.fn().mockResolvedValue({
+          ok: true,
+          json: vi.fn().mockResolvedValue({
+            hasViolations: true,
+            violations: [{
+              article: '282',
+              subarticle: null,
+              articleTitle: 'Возбуждение ненависти либо вражды',
+              quote: 'я твою мать выебу',
+              punishment: 'Штраф до 300 000 рублей',
+              severity: 8,
+              confidence: 0.9
+            }],
+            riskLevel: 'high',
+            confidence: 0.9
+          })
+        })
+      } as any);
 
       const mockMessage = {
         chat: { id: 123 },
@@ -196,23 +253,39 @@ describe('Criminal Notifications Integration', () => {
         message_id: 789
       };
 
+      // Вызываем recordMessage
+      console.log('Before recordMessage call (criminal enabled)');
       await recordMessage(mockMessage, mockEnv);
+      console.log('After recordMessage call (criminal enabled)');
 
       // Ждем завершения асинхронных операций
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('After timeout (criminal enabled)');
+
+      // Логируем для отладки
+      console.log('sendMessage calls:', vi.mocked(sendMessage).mock.calls);
+      console.log('HISTORY.get calls:', vi.mocked(mockEnv.HISTORY.get).mock.calls);
+      console.log('ANALYZER.get calls:', vi.mocked(mockEnv.CRIMINAL_CODE_ANALYZER_DO.get).mock.calls);
+      console.log('mockEnv:', mockEnv);
+      console.log('mockMessage:', mockMessage);
+
+      // Проверяем, что анализатор был вызван
+      expect(vi.mocked(mockEnv.CRIMINAL_CODE_ANALYZER_DO.get)).toHaveBeenCalled();
+      
+      // Проверяем, что настройки были запрошены
+      expect(vi.mocked(mockEnv.HISTORY.get)).toHaveBeenCalledWith('notification_settings:123');
 
       // Проверяем, что сообщение БЫЛО отправлено
-      const { sendMessage } = await import('../../src/telegram');
-      expect(sendMessage).toHaveBeenCalledWith(
+      expect(vi.mocked(sendMessage)).toHaveBeenCalledWith(
         mockEnv,
         123,
         expect.stringContaining('Обнаружено нарушение УК РФ')
       );
-    });
+    }, testTimeout);
 
     it('should not send notification when no settings exist (default behavior)', async () => {
       // Настраиваем мок для отсутствующих настроек
-      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null);
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
 
       const mockMessage = {
         chat: { id: 123 },
@@ -222,18 +295,27 @@ describe('Criminal Notifications Integration', () => {
         message_id: 789
       };
 
+      // Вызываем recordMessage
+      console.log('Before recordMessage call (no settings)');
       await recordMessage(mockMessage, mockEnv);
+      console.log('After recordMessage call (no settings)');
 
       // Ждем завершения асинхронных операций
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('After timeout (no settings)');
+
+      // Логируем для отладки
+      console.log('sendMessage calls:', vi.mocked(sendMessage).mock.calls);
+      console.log('HISTORY.get calls:', vi.mocked(mockEnv.HISTORY.get).mock.calls);
+      console.log('CRIMINAL_CODE_ANALYZER_DO.get calls:', vi.mocked(mockEnv.CRIMINAL_CODE_ANALYZER_DO.get).mock.calls);
 
       // Проверяем, что сообщение НЕ было отправлено (по умолчанию уведомления отключены)
-      const { sendMessage } = await import('../../src/telegram');
-      expect(sendMessage).not.toHaveBeenCalled();
-    });
-  });
+      expect(vi.mocked(sendMessage)).not.toHaveBeenCalled();
+    }, testTimeout);
+  }, testTimeout);
 
   describe('Normal message processing', () => {
+
     it('should process normal messages without sending notifications', async () => {
       const mockMessage = {
         chat: { id: 123 },
@@ -256,15 +338,22 @@ describe('Criminal Notifications Integration', () => {
         })
       } as any);
 
+      // Вызываем recordMessage
+      console.log('Before recordMessage call (normal message)');
       await recordMessage(mockMessage, mockEnv);
+      console.log('After recordMessage call (normal message)');
 
       // Ждем завершения асинхронных операций
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('After timeout (normal message)');
+
+      // Логируем для отладки
+      console.log('sendMessage calls:', vi.mocked(sendMessage).mock.calls);
+      console.log('CRIMINAL_CODE_ANALYZER_DO.get calls:', vi.mocked(mockEnv.CRIMINAL_CODE_ANALYZER_DO.get).mock.calls);
 
       // Проверяем, что сообщение НЕ было отправлено
-      const { sendMessage } = await import('../../src/telegram');
-      expect(sendMessage).not.toHaveBeenCalled();
-    });
+      expect(vi.mocked(sendMessage)).not.toHaveBeenCalled();
+    }, testTimeout);
 
     it('should not analyze bot messages', async () => {
       const mockMessage = {
@@ -275,18 +364,25 @@ describe('Criminal Notifications Integration', () => {
         message_id: 789
       };
 
+      // Вызываем recordMessage
+      console.log('Before recordMessage call (bot message)');
       await recordMessage(mockMessage, mockEnv);
+      console.log('After recordMessage call (bot message)');
 
       // Ждем завершения асинхронных операций
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('After timeout (bot message)');
+
+      // Логируем для отладки
+      console.log('sendMessage calls:', vi.mocked(sendMessage).mock.calls);
+      console.log('CRIMINAL_CODE_ANALYZER_DO.get calls:', vi.mocked(mockEnv.CRIMINAL_CODE_ANALYZER_DO.get).mock.calls);
 
       // Проверяем, что анализатор НЕ был вызван
       expect(mockEnv.CRIMINAL_CODE_ANALYZER_DO.get).not.toHaveBeenCalled();
 
       // Проверяем, что сообщение НЕ было отправлено
-      const { sendMessage } = await import('../../src/telegram');
-      expect(sendMessage).not.toHaveBeenCalled();
-    });
+      expect(vi.mocked(sendMessage)).not.toHaveBeenCalled();
+    }, testTimeout);
 
     it('should not analyze command messages', async () => {
       const mockMessage = {
@@ -297,17 +393,26 @@ describe('Criminal Notifications Integration', () => {
         message_id: 789
       };
 
+      // Вызываем recordMessage
+      console.log('Before recordMessage call (command message)');
       await recordMessage(mockMessage, mockEnv);
+      console.log('After recordMessage call (command message)');
 
       // Ждем завершения асинхронных операций
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('After timeout (command message)');
+
+      // Логируем для отладки
+      console.log('sendMessage calls:', vi.mocked(sendMessage).mock.calls);
+      console.log('CRIMINAL_CODE_ANALYZER_DO.get calls:', vi.mocked(mockEnv.CRIMINAL_CODE_ANALYZER_DO.get).mock.calls);
 
       // Проверяем, что анализатор НЕ был вызван для команды
       // (команды обрабатываются отдельно в handleUpdate)
-      const { sendMessage } = await import('../../src/telegram');
+      expect(mockEnv.CRIMINAL_CODE_ANALYZER_DO.get).not.toHaveBeenCalled();
       
       // Команда /help должна отправить справку, но не через систему нарушений
       // Это нормальное поведение
-    });
+      expect(vi.mocked(sendMessage)).not.toHaveBeenCalled();
+    }, testTimeout);
   });
 });

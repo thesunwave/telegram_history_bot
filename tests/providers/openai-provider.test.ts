@@ -3,20 +3,32 @@ import { OpenAIProvider } from '../../src/providers/openai-provider';
 import { Env } from '../../src/env';
 import { SummaryRequest, SummaryOptions, ProviderError } from '../../src/providers/ai-provider';
 
+// Mock fetch globally for all tests
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
+
 // Mock the utils module
 vi.mock('../../src/utils', () => ({
   truncateText: vi.fn((text: string, limit: number) => text.length > limit ? text.substring(0, limit) : text)
 }));
 
-// Mock fetch globally
-const mockFetch = vi.fn();
-global.fetch = mockFetch;
-
 describe('OpenAIProvider', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: any;
   let provider: OpenAIProvider;
 
   beforeEach(() => {
+    // Reset and setup mock fetch
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        choices: [{ message: { content: 'Test response' } }]
+      })
+    });
+
     mockEnv = {
       OPENAI_API_KEY: 'test-api-key',
       OPENAI_MODEL: 'gpt-3.5-turbo',
@@ -33,14 +45,15 @@ describe('OpenAIProvider', () => {
     };
 
     provider = new OpenAIProvider(mockEnv);
-    mockFetch.mockClear();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.clearAllTimers();
   });
 
   describe('constructor', () => {
+
     it('should use provided OPENAI_MODEL', () => {
       const info = provider.getProviderInfo();
       expect(info.model).toBe('gpt-3.5-turbo');
@@ -55,6 +68,7 @@ describe('OpenAIProvider', () => {
   });
 
   describe('summarize', () => {
+
     const mockRequest: SummaryRequest = {
       messages: [
         { username: 'user1', text: 'Hello world', ts: 1234567890 },
@@ -253,6 +267,7 @@ describe('OpenAIProvider', () => {
   });
 
   describe('validateConfig', () => {
+
     it('should pass validation with valid API key', () => {
       expect(() => provider.validateConfig()).not.toThrow();
     });
@@ -273,6 +288,7 @@ describe('OpenAIProvider', () => {
   });
 
   describe('getProviderInfo', () => {
+
     it('should return correct provider info', () => {
       const info = provider.getProviderInfo();
 
@@ -295,6 +311,7 @@ describe('OpenAIProvider', () => {
   });
 
   describe('analyzeProfanity', () => {
+
     const mockProfanityResponse = {
       choices: [
         {
@@ -472,6 +489,7 @@ describe('OpenAIProvider', () => {
   });
 
   describe('GPT-5 model support', () => {
+
     it('should use max_completion_tokens for GPT-5 models', async () => {
       mockEnv.OPENAI_MODEL = 'gpt-5-nano';
       const gpt5Provider = new OpenAIProvider(mockEnv);

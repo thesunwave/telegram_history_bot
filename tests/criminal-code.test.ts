@@ -1,9 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CountersDO, CriminalIncrementPayload } from '../src/counters-do';
 import { Env } from '../src/env';
 import { resetCriminalCounters } from '../src/stats';
 
 describe('Criminal Code Analysis System', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let countersDO: CountersDO;
   let mockState: any;
   let mockEnv: Env;
@@ -29,6 +31,7 @@ describe('Criminal Code Analysis System', () => {
       COUNTERS_DO: {} as any,
       MESSAGE_FETCHER_DO: {} as any,
       MESSAGE_AGGREGATOR_DO: {} as any,
+      DAY_BLOCK_MANAGER_DO: {} as any,
       CRIMINAL_CODE_ANALYZER_DO: {} as any,
       DB: null as any,
       AI: {} as any,
@@ -45,7 +48,18 @@ describe('Criminal Code Analysis System', () => {
     countersDO = new CountersDO(mockState, mockEnv);
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('CriminalCodeIncrementPayload validation', () => {
+
     it('should validate correct criminal code payload', async () => {
       const mockStorage = {
         get: vi.fn().mockResolvedValue(0),
@@ -103,6 +117,7 @@ describe('Criminal Code Analysis System', () => {
   });
 
   describe('Criminal code counter increments', () => {
+
     it('should increment user criminal violation counter', async () => {
       const mockStorage = new Map<string, string>();
       const mockEnvLocal = {
@@ -280,6 +295,7 @@ describe('Criminal Code Analysis System', () => {
   });
 
   describe('Endpoint routing', () => {
+
     it('should route /criminal endpoint correctly', async () => {
       const mockStorage = new Map<string, string>();
       const mockEnvLocal = {
@@ -338,6 +354,7 @@ describe('Criminal Code Analysis System', () => {
   });
 
   describe('Reset functionality', () => {
+
     it('should reset criminal counters', async () => {
       const mockDB = {
         prepare: vi.fn().mockReturnValue({

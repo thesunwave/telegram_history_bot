@@ -17,7 +17,10 @@ import {
 } from '../../src/models/validation';
 
 describe('Validation Functions', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   describe('validateViolation', () => {
+
     it('should validate correct violation', () => {
       const violation = {
         article: '282',
@@ -128,6 +131,7 @@ describe('Validation Functions', () => {
   });
 
   describe('validateViolationAnalysis', () => {
+
     it('should validate correct analysis', () => {
       const analysis = {
         hasViolations: true,
@@ -200,6 +204,7 @@ describe('Validation Functions', () => {
   });
 
   describe('validateViolationCount', () => {
+
     it('should validate correct violation count', () => {
       const violationCount = {
         article: 'Статья 282 УК РФ',
@@ -215,8 +220,7 @@ describe('Validation Functions', () => {
     });
 
     it('should validate violation count without optional fields', () => {
-      const violationCount = {
-        article: 'Статья 282 УК РФ',
+      const violationCount = { article: 'Статья 282 УК РФ', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment",
         count: 5,
         averageSeverity: 6.5
       };
@@ -263,6 +267,7 @@ describe('Validation Functions', () => {
   });
 
   describe('validateUserViolationCount', () => {
+
     it('should validate correct user violation count with username', () => {
       const userViolationCount = {
         userId: '12345',
@@ -313,14 +318,14 @@ describe('Validation Functions', () => {
   });
 
   describe('validateUserStats', () => {
+
     it('should validate correct user stats', () => {
       const userStats = {
         userId: '12345',
         chatId: '-67890',
         totalViolations: 10,
         violationsByArticle: [
-          {
-            article: 'Статья 282 УК РФ',
+          { article: 'Статья 282 УК РФ', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment",
             count: 5,
             averageSeverity: 6.5
           }
@@ -379,6 +384,7 @@ describe('Validation Functions', () => {
   });
 
   describe('validatePeriodComparison', () => {
+
     it('should validate correct period comparison', () => {
       const comparison = {
         violationsChange: 25.5,
@@ -403,6 +409,7 @@ describe('Validation Functions', () => {
   });
 
   describe('validatePeriodStats', () => {
+
     it('should validate correct period stats', () => {
       const periodStats = {
         chatId: '-67890',
@@ -410,8 +417,7 @@ describe('Validation Functions', () => {
         endDate: new Date('2024-01-31'),
         totalViolations: 50,
         violationsByArticle: [
-          {
-            article: 'Статья 282 УК РФ',
+          { article: 'Статья 282 УК РФ', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment",
             count: 30,
             averageSeverity: 6.5
           }
@@ -461,13 +467,13 @@ describe('Validation Functions', () => {
   });
 
   describe('validateGeneralStats', () => {
+
     it('should validate correct general stats', () => {
       const generalStats = {
         chatId: '-67890',
         totalViolations: 100,
         topViolations: [
-          {
-            article: 'Статья 282 УК РФ',
+          { article: 'Статья 282 УК РФ', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment",
             count: 40,
             averageSeverity: 6.5
           }
@@ -554,7 +560,9 @@ describe('Validation Functions', () => {
   });
 
   describe('ValidationUtils', () => {
+
     describe('isValidRiskLevel', () => {
+
       it('should return true for valid risk levels', () => {
         expect(ValidationUtils.isValidRiskLevel('low')).toBe(true);
         expect(ValidationUtils.isValidRiskLevel('medium')).toBe(true);
@@ -569,6 +577,7 @@ describe('Validation Functions', () => {
     });
 
     describe('isValidSeverity', () => {
+
       it('should return true for valid severity values', () => {
         expect(ValidationUtils.isValidSeverity(1)).toBe(true);
         expect(ValidationUtils.isValidSeverity(5)).toBe(true);
@@ -585,6 +594,7 @@ describe('Validation Functions', () => {
     });
 
     describe('isValidConfidence', () => {
+
       it('should return true for valid confidence values', () => {
         expect(ValidationUtils.isValidConfidence(0)).toBe(true);
         expect(ValidationUtils.isValidConfidence(0.5)).toBe(true);
@@ -599,6 +609,7 @@ describe('Validation Functions', () => {
     });
 
     describe('calculateRiskLevel', () => {
+
       it('should return correct risk levels', () => {
         expect(ValidationUtils.calculateRiskLevel(1)).toBe('low');
         expect(ValidationUtils.calculateRiskLevel(3)).toBe('low');

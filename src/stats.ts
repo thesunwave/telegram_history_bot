@@ -3,6 +3,7 @@ import type { KVNamespace } from '@cloudflare/workers-types';
 import { sendMessage, sendPhoto } from './telegram';
 import { summariseChat } from './summary';
 import { ViolationHandler } from './violation-handler';
+import type { OpenAIResponse } from './types';
 
 export async function topChat(
   env: Env,
@@ -248,7 +249,7 @@ export async function activityChart(
     } while (cursor);
   }
 
-  let data: { label: string; value: number }[] = [];
+  const data: { label: string; value: number }[] = [];
   if (period === 'week') {
     const labels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
     for (let i = 6; i >= 0; i--) {
@@ -584,11 +585,11 @@ export async function profanityTopUsers(
     
     const text = lines.join('\n');
     await sendMessage(env, chatId, text);
-  } catch (error: any) {
-    console.error('profanity top users error', {
-      chatId,
-      error: error.message || String(error)
-    });
+  } catch (error: unknown) {
+      console.error('profanity top users error', {
+        chatId,
+        error: (error as Error).message || String(error)
+      });
     await sendMessage(env, chatId, 'Ошибка при получении статистики');
   }
 }
@@ -628,11 +629,11 @@ export async function profanityWordsStats(
     
     const text = lines.join('\n');
     await sendMessage(env, chatId, text);
-  } catch (error: any) {
-    console.error('profanity words stats error', {
-      chatId,
-      error: error.message || String(error)
-    });
+  } catch (error: unknown) {
+      console.error('profanity words stats error', {
+        chatId,
+        error: (error as Error).message || String(error)
+      });
     await sendMessage(env, chatId, 'Ошибка при получении статистики слов');
   }
 }
@@ -699,12 +700,12 @@ export async function myProfanityStats(
       const text = lines.join('\n');
       await sendMessage(env, chatId, text);
     }
-  } catch (error: any) {
-    console.error('my profanity stats error', {
-      chatId,
-      userId,
-      error: error.message || String(error)
-    });
+  } catch (error: unknown) {
+      console.error('my profanity stats error', {
+        chatId,
+        userId,
+        error: (error as Error).message || String(error)
+      });
     await sendMessage(env, chatId, 'Ошибка при получении вашей статистики');
   }
 }
@@ -742,7 +743,7 @@ export async function profanityChart(
     }
   } while (cursor);
 
-  let data: { label: string; value: number }[] = [];
+  const data: { label: string; value: number }[] = [];
   
   if (period === 'week') {
     // Show daily data for the week
@@ -781,11 +782,11 @@ export async function profanityChart(
       const chartTitle = `Матерная лексика ${periodText}`;
       const url = createBarChartUrl(labels, values, 'Количество', chartTitle);
       await sendPhoto(env, chatId, url);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('profanity chart generation error', {
         chatId,
         period,
-        error: error.message || String(error)
+        error: (error as Error).message || String(error)
       });
       // Chart generation failure is not critical, text chart was already sent
     }
@@ -897,6 +898,7 @@ export async function getUserCriminalStats(
     const values = await Promise.all(
       list.keys.map((k: any) => env.COUNTERS.get(k.name)),
     );
+    
     for (let i = 0; i < list.keys.length; i++) {
       const [_, chat, user, day] = list.keys[i].name.split(':');
       const count = parseInt(values[i] || '0', 10);
@@ -955,11 +957,11 @@ export async function criminalTopUsers(
     
     const text = lines.join('\n');
     await sendMessage(env, chatId, text);
-  } catch (error: any) {
-    console.error('criminal top users error', {
-      chatId,
-      error: error.message || String(error)
-    });
+  } catch (error: unknown) {
+      console.error('criminal top users error', {
+        chatId,
+        error: (error as Error).message || String(error)
+      });
     await sendMessage(env, chatId, 'Ошибка при получении топа нарушителей');
   }
 }
@@ -972,55 +974,57 @@ export async function myCriminalStats(
   period?: string
 ) {
   try {
-    // Use ViolationHandler for enhanced formatting
-    const violationHandler = new ViolationHandler(env);
-    const formattedStats = await violationHandler.getUserStats(userId.toString(), chatId.toString());
-    await sendMessage(env, chatId, formattedStats);
-  } catch (error: any) {
-    console.error('my criminal stats error', {
-      chatId,
-      userId,
-      error: error.message || String(error)
-    });
+    if (period) {
+      // Handle period-specific requests with legacy formatting
+      const validPeriods = ['today', 'week', 'month'];
+      if (!validPeriods.includes(period)) {
+        await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
+        return;
+      }
+
+      const stats = await getUserCriminalStats(env, chatId, userId);
+      let count: number;
+      let periodText: string;
+
+      switch (period) {
+        case 'today':
+          count = stats.today;
+          periodText = 'сегодня';
+          break;
+        case 'week':
+          count = stats.week;
+          periodText = 'за неделю';
+          break;
+        case 'month':
+          count = stats.month;
+          periodText = 'за месяц';
+          break;
+        default:
+          count = stats.today;
+          periodText = 'сегодня';
+      }
+
+      if (count === 0) {
+        await sendMessage(env, chatId, `У вас чистая речь ${periodText}!`);
+      } else {
+        await sendMessage(env, chatId, `Ваша статистика ${periodText}: ${count} нарушений УК РФ`);
+      }
+    } else {
+      // Use ViolationHandler for enhanced formatting when no period specified
+      const violationHandler = await ViolationHandler.createWithoutDI(env);
+      const formattedStats = await violationHandler.getUserStats(userId.toString(), chatId.toString());
+      await sendMessage(env, chatId, formattedStats);
+    }
+  } catch (error: unknown) {
+      console.error('my criminal stats error', {
+        chatId,
+        userId,
+        error: (error as Error).message || String(error)
+      });
     
     // Fallback to legacy formatting if ViolationHandler fails
     try {
-      if (period) {
-        // Show stats for specific period
-        const validPeriods = ['today', 'week', 'month'];
-        if (!validPeriods.includes(period)) {
-          await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
-          return;
-        }
-
-        const stats = await getUserCriminalStats(env, chatId, userId);
-        let count: number;
-        let periodText: string;
-
-        switch (period) {
-          case 'today':
-            count = stats.today;
-            periodText = 'сегодня';
-            break;
-          case 'week':
-            count = stats.week;
-            periodText = 'за неделю';
-            break;
-          case 'month':
-            count = stats.month;
-            periodText = 'за месяц';
-            break;
-          default:
-            count = stats.today;
-            periodText = 'сегодня';
-        }
-
-        if (count === 0) {
-          await sendMessage(env, chatId, `У вас чистая речь ${periodText}!`);
-        } else {
-          await sendMessage(env, chatId, `Ваша статистика ${periodText}: ${count} нарушений УК РФ`);
-        }
-      } else {
+      if (!period) {
         // Show stats for all periods
         const stats = await getUserCriminalStats(env, chatId, userId);
         
@@ -1081,14 +1085,14 @@ export async function criminalCodeStats(
     }
 
     // Use ViolationHandler for enhanced formatting
-    const violationHandler = new ViolationHandler(env);
+    const violationHandler = await ViolationHandler.createWithoutDI(env);
     const formattedStats = await violationHandler.getPeriodStats(chatId.toString(), days);
     await sendMessage(env, chatId, formattedStats);
-  } catch (error: any) {
-    console.error('criminal code stats error', {
-      chatId,
-      error: error.message || String(error)
-    });
+  } catch (error: unknown) {
+      console.error('criminal code stats error', {
+        chatId,
+        error: (error as Error).message || String(error)
+      });
     
     // Fallback to legacy formatting if ViolationHandler fails
     try {

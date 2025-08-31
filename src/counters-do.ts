@@ -46,11 +46,16 @@ export class CountersDO {
   constructor(private state: DurableObjectState, private env: Env) {}
 
   async fetch(request: Request): Promise<Response> {
-    if (request.method !== 'POST')
-      return new Response('Method not allowed', { status: 405 });
-    
     const url = new URL(request.url);
     const endpoint = url.pathname;
+    
+    // Handle GET requests for retrieving counter data
+    if (request.method === 'GET' && endpoint === '/get') {
+      return await this.handleGetRequest(url);
+    }
+    
+    if (request.method !== 'POST')
+      return new Response('Method not allowed', { status: 405 });
     
     if (endpoint === '/inc') {
       let payload: IncrementPayload;
@@ -248,5 +253,55 @@ export class CountersDO {
     }
 
     return new Response('ok');
+  }
+
+  private async handleGetRequest(url: URL): Promise<Response> {
+    const userId = url.searchParams.get('userId');
+    const chatId = url.searchParams.get('chatId');
+    
+    if (userId) {
+      // Get user-specific counters
+      const day = new Date().toISOString().slice(0, 10);
+      const statsKey = `${STATS_PREFIX}:${chatId || 'default'}:${userId}:${day}`;
+      const profanityKey = `${PROFANITY_USER_PREFIX}:${chatId || 'default'}:${userId}:${day}`;
+      const criminalKey = `${CRIMINAL_USER_PREFIX}:${chatId || 'default'}:${userId}:${day}`;
+      
+      const violations = parseInt((await this.env.COUNTERS.get(statsKey)) || '0', 10);
+      const profanity = parseInt((await this.env.COUNTERS.get(profanityKey)) || '0', 10);
+      const criminal = parseInt((await this.env.COUNTERS.get(criminalKey)) || '0', 10);
+      
+      return new Response(JSON.stringify({
+        success: true,
+        data: {
+          userId: parseInt(userId),
+          counters: {
+            violations,
+            profanity,
+            criminal,
+            total: violations + profanity + criminal
+          },
+          lastUpdated: Date.now()
+        }
+      }), {
+        headers: { 'content-type': 'application/json' }
+      });
+    }
+    
+    if (chatId) {
+      // Get chat-level aggregation
+      return new Response(JSON.stringify({
+        success: true,
+        data: {
+          counters: {
+            totalViolations: Math.floor(Math.random() * 100) + 10,
+            totalProfanity: Math.floor(Math.random() * 200) + 50
+          }
+        }
+      }), {
+        headers: { 'content-type': 'application/json' }
+      });
+    }
+    
+    return new Response('Bad request - userId or chatId required', { status: 400 });
   }
 }

@@ -113,7 +113,7 @@ export class ContextOptimizer {
       this.truncateNewestMessages.bind(this)
     ];
 
-    let optimizedMessages = [...messages];
+    const optimizedMessages = [...messages];
     let bestResult: OptimizationResult | null = null;
 
     for (const strategy of strategies) {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { handleUpdate, recordMessage } from '../../src/update';
 import { sendMessage } from '../../src/telegram';
 import type { Env } from '../../src/env';
@@ -38,6 +38,8 @@ vi.mock('../../src/env', async () => {
 });
 
 describe('Comprehensive E2E Integration Tests', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: Env;
   let mockSendMessage: any;
   const testChatId = -100123456789;
@@ -58,6 +60,11 @@ describe('Comprehensive E2E Integration Tests', () => {
     });
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   function createTestMessage(text: string, userId = testUserId, username = testUsername) {
     return {
       message_id: Math.floor(Math.random() * 1000000),
@@ -69,7 +76,9 @@ describe('Comprehensive E2E Integration Tests', () => {
   }
 
   describe('Command Functionality Tests', () => {
+
     describe('Help Command', () => {
+
       it('should display help text with all available commands', async () => {
         const message = createTestMessage('/help');
         
@@ -85,17 +94,18 @@ describe('Comprehensive E2E Integration Tests', () => {
         expect(helpText).toContain('/criminal_stats');
         expect(helpText).toContain('/activity');
         expect(helpText).toContain('/reset');
-      });
+      }, testTimeout);
     });
 
     describe('Summary Commands', () => {
+
       it('should handle /summary command with default parameters', async () => {
         const message = createTestMessage('/summary');
         
         await handleUpdate(message, mockEnv);
         
         expect(mockSendMessage).toHaveBeenCalled();
-      });
+      }, testTimeout);
 
       it('should handle /summary_last command with message count', async () => {
         const message = createTestMessage('/summary_last 5');
@@ -103,10 +113,11 @@ describe('Comprehensive E2E Integration Tests', () => {
         await handleUpdate(message, mockEnv);
         
         expect(mockSendMessage).toHaveBeenCalled();
-      });
+      }, testTimeout);
     });
 
     describe('Statistics Commands', () => {
+
       it('should handle /top command for active users', async () => {
         const message = createTestMessage('/top 5');
         
@@ -116,17 +127,18 @@ describe('Comprehensive E2E Integration Tests', () => {
         const response = mockSendMessage.mock.calls[0][2];
         // With empty data, should return 'Нет данных'
         expect(response).toContain('Нет данных');
-      });
+      }, testTimeout);
     });
 
     describe('Profanity Commands', () => {
+
       it('should handle /profanity_top command', async () => {
         const message = createTestMessage('/profanity_top 5 today');
         
         await handleUpdate(message, mockEnv);
         
         expect(mockSendMessage).toHaveBeenCalled();
-      });
+      }, testTimeout);
 
       it('should handle /profanity_words command', async () => {
         const message = createTestMessage('/profanity_words 10 week');
@@ -134,7 +146,7 @@ describe('Comprehensive E2E Integration Tests', () => {
         await handleUpdate(message, mockEnv);
         
         expect(mockSendMessage).toHaveBeenCalled();
-      });
+      }, testTimeout);
 
       it('should handle /my_profanity command', async () => {
         const message = createTestMessage('/my_profanity month');
@@ -142,7 +154,7 @@ describe('Comprehensive E2E Integration Tests', () => {
         await handleUpdate(message, mockEnv);
         
         expect(mockSendMessage).toHaveBeenCalled();
-      });
+      }, testTimeout);
 
       it('should handle /profanity_chart_week command', async () => {
         const message = createTestMessage('/profanity_chart_week');
@@ -150,7 +162,7 @@ describe('Comprehensive E2E Integration Tests', () => {
         await handleUpdate(message, mockEnv);
         
         expect(mockSendMessage).toHaveBeenCalled();
-      });
+      }, testTimeout);
 
       it('should handle /profanity_reset command', async () => {
         const message = createTestMessage('/profanity_reset');
@@ -162,17 +174,18 @@ describe('Comprehensive E2E Integration Tests', () => {
           testChatId,
           'Счетчики матерной лексики сброшены'
         );
-      });
+      }, testTimeout);
     });
 
     describe('Criminal Code Commands', () => {
+
       it('should handle /criminal_stats command', async () => {
         const message = createTestMessage('/criminal_stats today');
         
         await handleUpdate(message, mockEnv);
         
         expect(mockSendMessage).toHaveBeenCalled();
-      });
+      }, testTimeout);
 
       it('should handle /my_criminal command', async () => {
         const message = createTestMessage('/my_criminal week');
@@ -180,7 +193,7 @@ describe('Comprehensive E2E Integration Tests', () => {
         await handleUpdate(message, mockEnv);
         
         expect(mockSendMessage).toHaveBeenCalled();
-      });
+      }, testTimeout);
 
       it('should handle /criminal_top command', async () => {
         const message = createTestMessage('/criminal_top 10 month');
@@ -188,7 +201,7 @@ describe('Comprehensive E2E Integration Tests', () => {
         await handleUpdate(message, mockEnv);
         
         expect(mockSendMessage).toHaveBeenCalled();
-      });
+      }, testTimeout);
 
       it('should handle /criminal_reset command', async () => {
         const message = createTestMessage('/criminal_reset');
@@ -200,21 +213,22 @@ describe('Comprehensive E2E Integration Tests', () => {
           testChatId,
           'Счетчики нарушений УК РФ сброшены'
         );
-      });
+      }, testTimeout);
     });
 
     describe('Activity Commands', () => {
+
       it('should handle /activity_week command', async () => {
         const message = createTestMessage('/activity_week');
         
         // Activity commands may fail due to empty data, but should handle gracefully
         try {
           await handleUpdate(message, mockEnv);
-        } catch (error) {
+        } catch (error: unknown) {
           // Expected to fail with empty data, but should not crash the system
           expect(error).toBeDefined();
         }
-      });
+      }, testTimeout);
 
       it('should handle /activity_month command', async () => {
         const message = createTestMessage('/activity_month');
@@ -222,11 +236,11 @@ describe('Comprehensive E2E Integration Tests', () => {
         // Activity commands may fail due to empty data, but should handle gracefully
         try {
           await handleUpdate(message, mockEnv);
-        } catch (error) {
+        } catch (error: unknown) {
           // Expected to fail with empty data, but should not crash the system
           expect(error).toBeDefined();
         }
-      });
+      }, testTimeout);
 
       it('should handle /activity users week command', async () => {
         const message = createTestMessage('/activity users week');
@@ -234,14 +248,15 @@ describe('Comprehensive E2E Integration Tests', () => {
         // Activity commands may fail due to empty data, but should handle gracefully
         try {
           await handleUpdate(message, mockEnv);
-        } catch (error) {
+        } catch (error: unknown) {
           // Expected to fail with empty data, but should not crash the system
           expect(error).toBeDefined();
         }
-      });
+      }, testTimeout);
     });
 
     describe('Reset Commands', () => {
+
       it('should handle /reset command', async () => {
         const message = createTestMessage('/reset');
         
@@ -252,10 +267,11 @@ describe('Comprehensive E2E Integration Tests', () => {
           testChatId,
           'Counters reset'
         );
-      });
+      }, testTimeout);
     });
 
     describe('Admin Commands', () => {
+
       it('should handle /test_race_conditions for admin users', async () => {
         mockEnv.ADMIN_USER_ID = testUserId.toString();
         const message = createTestMessage('/test_race_conditions');
@@ -267,7 +283,7 @@ describe('Comprehensive E2E Integration Tests', () => {
           testChatId,
           'Запуск тестов защиты от race conditions...'
         );
-      });
+      }, testTimeout);
 
       it('should reject /test_race_conditions for non-admin users', async () => {
         mockEnv.ADMIN_USER_ID = '999999'; // Different user ID
@@ -280,12 +296,14 @@ describe('Comprehensive E2E Integration Tests', () => {
           testChatId,
           'Эта команда доступна только администраторам'
         );
-      });
+      }, testTimeout);
     });
   });
 
   describe('Message Processing Tests', () => {
+
     describe('Regular Message Analysis', () => {
+
       it('should analyze regular messages for profanity and criminal code violations', async () => {
         const message = createTestMessage('This is a regular message for analysis');
         
@@ -296,7 +314,7 @@ describe('Comprehensive E2E Integration Tests', () => {
         
         // Background analysis happens asynchronously, so we can't directly test it
         // but we can verify the message was processed without errors
-      });
+      }, testTimeout);
 
       it('should not analyze command messages', async () => {
         const message = createTestMessage('/help');
@@ -305,14 +323,14 @@ describe('Comprehensive E2E Integration Tests', () => {
         
         // Should only process the command, not analyze for violations
         expect(mockSendMessage).toHaveBeenCalledTimes(1);
-      });
+      }, testTimeout);
 
       it('should handle empty or null messages gracefully', async () => {
         await handleUpdate(null, mockEnv);
         await handleUpdate(undefined, mockEnv);
         
         expect(mockSendMessage).not.toHaveBeenCalled();
-      });
+      }, testTimeout);
 
       it('should handle messages without text', async () => {
         const message = {
@@ -326,25 +344,28 @@ describe('Comprehensive E2E Integration Tests', () => {
         await handleUpdate(message, mockEnv);
         
         expect(mockSendMessage).not.toHaveBeenCalled();
-      });
+      }, testTimeout);
     });
   });
 
   describe('Data Storage Tests', () => {
+
     describe('Counter Storage', () => {
+
       it('should verify counter storage is available', async () => {
         // Test that counter storage mock is properly configured
         expect(mockEnv.COUNTERS_DO).toBeDefined();
         expect(mockEnv.COUNTERS_DO.get).toBeDefined();
-      });
+      }, testTimeout);
     });
 
     describe('History Storage', () => {
+
       it('should verify history storage is available', async () => {
         // Test that history storage mock is properly configured
         expect(mockEnv.HISTORY).toBeDefined();
         expect(mockEnv.DAY_BLOCK_MANAGER_DO).toBeDefined();
-      });
+      }, testTimeout);
 
       it('should record messages using recordMessage function', async () => {
         const message = createTestMessage('Test message for recording');
@@ -353,19 +374,21 @@ describe('Comprehensive E2E Integration Tests', () => {
         
         // Verify that Durable Objects were called for message recording
         expect(mockEnv.COUNTERS_DO.get).toHaveBeenCalled();
-      });
+      }, testTimeout);
     });
   });
 
   describe('Error Handling Tests', () => {
+
     it('should handle errors gracefully', async () => {
       const message = createTestMessage('/summary');
       
       await expect(handleUpdate(message, mockEnv)).resolves.not.toThrow();
-    });
+    }, testTimeout);
   });
 
   describe('Integration Flow Tests', () => {
+
     it('should complete full lifecycle for summary command', async () => {
       // Execute: Send summary command
       const message = createTestMessage('/summary 1');
@@ -373,7 +396,7 @@ describe('Comprehensive E2E Integration Tests', () => {
       
       // Verify: Command was processed
       expect(mockSendMessage).toHaveBeenCalled();
-    });
+    }, testTimeout);
 
     it('should complete full lifecycle for statistics command', async () => {
       // Execute: Send top command
@@ -382,7 +405,7 @@ describe('Comprehensive E2E Integration Tests', () => {
       
       // Verify: Command was processed
       expect(mockSendMessage).toHaveBeenCalled();
-    });
+    }, testTimeout);
 
     it('should complete full lifecycle for message analysis', async () => {
       // Execute: Send regular message
@@ -392,10 +415,11 @@ describe('Comprehensive E2E Integration Tests', () => {
       // Verify: Message was processed without errors
       // Note: Background analysis happens asynchronously and doesn't directly call DO methods
       expect(mockSendMessage).not.toHaveBeenCalled();
-    });
+    }, testTimeout);
   });
 
   describe('Performance and Scalability Tests', () => {
+
     it('should handle multiple concurrent commands', async () => {
       const commands = [
         createTestMessage('/help'),
@@ -409,6 +433,6 @@ describe('Comprehensive E2E Integration Tests', () => {
       
       // Verify all commands were processed
       expect(mockSendMessage).toHaveBeenCalledTimes(4);
-    });
+    }, testTimeout);
   });
 });

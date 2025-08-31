@@ -94,7 +94,7 @@ export class NotificationRepository implements INotificationRepository {
 
       return sanitized;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('Failed to get chat notification settings', {
         chatId,
         error: error.message || String(error)
@@ -128,7 +128,7 @@ export class NotificationRepository implements INotificationRepository {
         updatedBy: settings.updatedBy
       });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('Failed to save chat notification settings', {
         chatId: settings.chatId,
         error: error.message || String(error)
@@ -150,7 +150,7 @@ export class NotificationRepository implements INotificationRepository {
 
       Logger.debug(this.env, 'Deleted notification settings for chat', { chatId });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('Failed to delete chat notification settings', {
         chatId,
         error: error.message || String(error)
@@ -183,7 +183,7 @@ export class NotificationRepository implements INotificationRepository {
 
       return parsed;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('Failed to get notification stats', {
         chatId,
         type,
@@ -215,7 +215,7 @@ export class NotificationRepository implements INotificationRepository {
         successRate: stats.successRate
       });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('Failed to update notification stats', {
         chatId: stats.chatId,
         type: stats.notificationType,
@@ -260,7 +260,7 @@ export class NotificationRepository implements INotificationRepository {
 
       await this.updateNotificationStats(stats);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('Failed to record notification result', {
         chatId,
         type,
@@ -308,7 +308,7 @@ export class NotificationRepository implements INotificationRepository {
             validateScheduledNotification(parsed);
             notifications.push(parsed);
           }
-        } catch (error) {
+        } catch (error: unknown) {
           Logger.error('Failed to parse scheduled notification', { id, error: error.message });
           // Удаляем поврежденное уведомление из списка
           await this.removeNotificationFromList(id);
@@ -317,7 +317,7 @@ export class NotificationRepository implements INotificationRepository {
 
       return notifications.sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('Failed to get scheduled notifications', {
         chatId,
         status,
@@ -357,7 +357,7 @@ export class NotificationRepository implements INotificationRepository {
         scheduledAt: notification.scheduledAt.toISOString()
       });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('Failed to save scheduled notification', {
         id: notification.id,
         chatId: notification.chatId,
@@ -413,7 +413,7 @@ export class NotificationRepository implements INotificationRepository {
         retryCount: updated.retryCount
       });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('Failed to update scheduled notification', {
         id,
         error: error.message || String(error)
@@ -435,7 +435,7 @@ export class NotificationRepository implements INotificationRepository {
 
       Logger.debug(this.env, 'Deleted scheduled notification', { id });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('Failed to delete scheduled notification', {
         id,
         error: error.message || String(error)
@@ -457,7 +457,7 @@ export class NotificationRepository implements INotificationRepository {
 
       return JSON.parse(stored);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('Failed to get chat list', {
         error: error.message || String(error)
       });
@@ -493,7 +493,7 @@ export class NotificationRepository implements INotificationRepository {
 
       return deletedCount;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('Failed to cleanup old notifications', {
         olderThanDays,
         error: error.message || String(error)
@@ -516,7 +516,7 @@ export class NotificationRepository implements INotificationRepository {
           expirationTtl: 365 * 24 * 60 * 60 // 1 год
         });
       }
-    } catch (error) {
+    } catch (error: unknown) {
       Logger.error('Failed to add chat to list', { chatId, error: error.message });
     }
   }
@@ -537,7 +537,7 @@ export class NotificationRepository implements INotificationRepository {
           expirationTtl: 365 * 24 * 60 * 60
         });
       }
-    } catch (error) {
+    } catch (error: unknown) {
       Logger.error('Failed to remove chat from list', { chatId, error: error.message });
     }
   }
@@ -557,7 +557,7 @@ export class NotificationRepository implements INotificationRepository {
           expirationTtl: 365 * 24 * 60 * 60 // 1 год
         });
       }
-    } catch (error) {
+    } catch (error: unknown) {
       Logger.error('Failed to add notification to list', { notificationId, error: error.message });
     }
   }
@@ -579,7 +579,7 @@ export class NotificationRepository implements INotificationRepository {
           expirationTtl: 365 * 24 * 60 * 60
         });
       }
-    } catch (error) {
+    } catch (error: unknown) {
       Logger.error('Failed to remove notification from list', { notificationId, error: error.message });
     }
   }
