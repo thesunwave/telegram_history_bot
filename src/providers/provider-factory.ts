@@ -33,19 +33,7 @@ export class ProviderFactory {
     
     this.validateProviderType(providerType);
     
-    switch (providerType as ProviderType) {
-      case 'cloudflare':
-        return new CloudflareAIProvider(env);
-      case 'openai':
-        return new OpenAIProvider(env, 'standard');
-      case 'openai-premium':
-        return new OpenAIProvider(env, 'premium');
-      case 'mock':
-        return new MockProvider();
-      default:
-        // This should never happen due to validation, but TypeScript requires it
-        throw new Error(`Unsupported provider: ${providerType}`);
-    }
+    return this.createProviderFromType(env, providerType as ProviderType);
   }
 
   /**
@@ -74,6 +62,25 @@ export class ProviderFactory {
       throw new Error(
         `Unsupported provider: ${providerType}. Supported providers: ${this.SUPPORTED_PROVIDERS.join(', ')}`
       );
+    }
+  }
+
+  /**
+   * Creates provider instance for a specific type
+   */
+  private static createProviderFromType(env: Env, providerType: ProviderType): AIProvider {
+    switch (providerType) {
+      case 'cloudflare':
+        return new CloudflareAIProvider(env);
+      case 'openai':
+        return new OpenAIProvider(env, 'standard');
+      case 'openai-premium':
+        return new OpenAIProvider(env, 'premium');
+      case 'mock':
+        return new MockProvider();
+      default:
+        // Type guard already restricts values, but keep exhaustive check for safety
+        throw new Error(`Unsupported provider: ${providerType}`);
     }
   }
 
@@ -216,8 +223,12 @@ export class ProviderFactory {
         }
       );
     }
-    
-    return this.createProvider(env);
+
+    if (type !== 'mock') {
+      this.validateProviderType(String(type));
+    }
+
+    return this.createProviderFromType(env, type as ProviderType);
   }
 
   /**

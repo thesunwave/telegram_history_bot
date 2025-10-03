@@ -235,7 +235,7 @@ export class HealthChecker {
    * Полная проверка системы
    */
   async checkSystemHealth(): Promise<SystemHealthReport> {
-    Logger.info('Starting system health check...');
+    Logger.info(this.env, 'Starting system health check...');
     
     const checks = await Promise.all([
       this.checkDatabase(),
@@ -263,7 +263,7 @@ export class HealthChecker {
       timestamp: new Date()
     };
 
-    Logger.info('System health check completed', { 
+    Logger.info(this.env, 'System health check completed', { 
       overall, 
       healthyChecks: checks.filter(c => c.status === 'healthy').length,
       totalChecks: checks.length 

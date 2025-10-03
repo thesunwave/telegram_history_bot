@@ -52,6 +52,7 @@
 		"glob": "^11.0.3",
 		"husky": "^8.0.3",
 		"prettier": "^3.0.0",
+		"ts-node": "^10.9.2",
 		"typescript": "^5.9.2",
 		"vitest": "^3.2.3",
 		"wrangler": "^4.26.1"
