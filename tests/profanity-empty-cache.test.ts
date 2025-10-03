@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ProfanityAnalyzer } from '../src/profanity';
 import { Env } from '../src/env';
 import { AIProvider, ProfanityAnalysisResult } from '../src/providers/ai-provider';
@@ -50,6 +50,8 @@ class ProfanityResultAIProvider implements AIProvider {
 }
 
 describe('Profanity Empty Cache Behavior', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
     let mockEnv: Env;
     let analyzer: ProfanityAnalyzer;
     let kvStorage: Map<string, string>;
@@ -68,6 +70,16 @@ describe('Profanity Empty Cache Behavior', () => {
             }
         } as any;
     });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
 
     it('should not cache empty profanity results', async () => {
         const emptyProvider = new EmptyResultAIProvider();

@@ -1,0 +1,446 @@
+name: Code Quality Checks
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  NODE_VERSION: '20.x'
+  CI_DATABASE_URL: 'file:./test.db'
+
+jobs:
+  setup-test-database:
+    name: Setup Test Database
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Setup test database
+      run: bash scripts/ci-database-setup.sh
+      env:
+        DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        
+    - name: Cache test database
+      uses: actions/cache@v3
+      with:
+        path: ./test.db
+        key: test-db-${{ github.sha }}
+        restore-keys: |
+          test-db-
+
+  quality-checks:
+    name: Code Quality & Testing
+    runs-on: ubuntu-latest
+    needs: [setup-test-database]
+    
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Restore test database
+      uses: actions/cache@v3
+      with:
+        path: ./test.db
+        key: test-db-${{ github.sha }}
+        
+    - name: Type Safety Audit
+      run: |
+        echo "🔍 Running type safety audit..."
+        npx ts-node scripts/type-safety-auditor.ts
+        if [ -f type-safety-audit-report.json ]; then
+          echo "📊 Type safety report generated"
+          cat type-safety-audit-report-summary.md || echo "No summary available"
+        fi
+      
+    - name: TypeScript compilation check
+      run: |
+        echo "🔧 Checking TypeScript compilation..."
+        npm run type-check
+        
+    - name: Critical ESLint check (Build Breaking)
+      run: |
+        echo "🚨 Running critical linter checks..."
+        npx eslint src tests scripts --config .eslintrc.critical.js --max-warnings 0
+        
+    - name: Linter Audit
+      run: |
+        echo "📋 Running comprehensive linter audit..."
+        npx ts-node scripts/linter-audit.ts
+        if [ -f linter-audit-report.json ]; then
+          echo "📊 Linter audit report generated"
+        fi
+      
+    - name: Full ESLint check
+      run: |
+        echo "🔍 Running full linter checks..."
+        npm run lint
+      continue-on-error: true
+      
+    - name: Prettier format check
+      run: |
+        echo "💅 Checking code formatting..."
+        npm run format:check
+        
+    - name: Validate fixes
+      run: |
+        echo "✅ Validating automated fixes..."
+        npx ts-node scripts/validate-fixes.ts
+      continue-on-error: true
+      
+    - name: Run unit tests
+      run: |
+        echo "🧪 Running unit tests..."
+        npm run test -- --reporter=verbose
+      env:
+        DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        
+    - name: Run integration tests
+      run: |
+        echo "🔗 Running integration tests..."
+        npm run test -- tests/integration --reporter=verbose
+      env:
+        DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        
+    - name: Run MessageFormatter tests
+      run: |
+        echo "📝 Running MessageFormatter tests..."
+        npm run test -- tests/message-formatter --reporter=verbose
+      env:
+        DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        
+    - name: Run tests with coverage
+      run: |
+        echo "📊 Running tests with coverage..."
+        npm run test:coverage
+      env:
+        DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+        
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/lcov.info
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+        
+    - name: Record CI performance metrics
+      if: always()
+      run: |
+        echo "📊 Recording CI performance metrics..."
+        npx ts-node scripts/ci-performance-monitor.ts
+      env:
+        CI_START_TIME: ${{ env.CI_START_TIME }}
+        TEST_RESULTS: ${{ toJson(steps.*.outcome) }}
+        
+    - name: Upload performance metrics
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: ci-performance-metrics
+        path: |
+          ci-performance-metrics.json
+          ci-performance-report.md
+        retention-days: 30
+        
+    - name: Cleanup test database
+      if: always()
+      run: bash scripts/ci-database-teardown.sh
+      env:
+        DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run security audit
+      run: npm audit --audit-level=moderate
+      
+    - name: Run ESLint security rules
+      run: npm run lint -- --config .eslintrc.security.js
+      continue-on-error: true
+
+  build-test:
+    name: Build & Deploy Test
+    runs-on: ubuntu-latest
+    needs: [quality-checks]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build project
+      run: npm run cf-typegen
+      
+    - name: Validate Wrangler configuration
+      run: npx wrangler validate
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        
+    - name: Run smoke tests
+      run: npm run smoke-test
+      continue-on-error: true
+
+  performance-test:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [quality-checks]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run performance benchmarks
+      run: npm run test:performance
+      continue-on-error: true
+      
+    - name: Upload performance results
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-results
+        path: performance-results.json
+        retention-days: 30
+
+  code-analysis:
+    name: Code Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Shallow clones should be disabled for better analysis
+        
+    - name: SonarCloud Scan
+      uses: SonarSource/sonarcloud-github-action@master
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      continue-on-error: true
+      
+    - name: CodeQL Analysis
+      uses: github/codeql-action/init@v2
+      with:
+        languages: typescript, javascript
+        
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v2
+      
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+
+  dependency-check:
+    name: Dependency Security Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Check for known vulnerabilities
+      run: npm audit --audit-level=high
+      
+    - name: Check for outdated dependencies
+      run: npm outdated
+      continue-on-error: true
+      
+    - name: License compliance check
+      run: npx license-checker --summary
+      continue-on-error: true
+
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [quality-checks, security-scan, build-test, performance-test]
+    if: always()
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Generate quality metrics report
+      run: |
+        echo "📊 Generating quality metrics report..."
+        npx ts-node scripts/type-improvement-tracker.ts
+        
+        # Create quality gate report
+        cat > quality-gate-report.md << EOF
+        # Quality Gate Report
+        
+        ## Test Results
+        - **Quality Checks:** ${{ needs.quality-checks.result }}
+        - **Security Scan:** ${{ needs.security-scan.result }}
+        - **Build Test:** ${{ needs.build-test.result }}
+        - **Performance Test:** ${{ needs.performance-test.result }}
+        
+        ## Quality Metrics
+        $(if [ -f type-improvement-progress-report.md ]; then cat type-improvement-progress-report.md; else echo "No type improvement report available"; fi)
+        
+        ## Timestamp
+        Generated at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+        EOF
+        
+    - name: Check critical quality gates
+      run: |
+        echo "🚪 Checking quality gates..."
+        
+        # Critical failures that block deployment
+        CRITICAL_FAILURES=0
+        
+        if [[ "${{ needs.quality-checks.result }}" != "success" ]]; then
+          echo "❌ Quality checks failed - CRITICAL"
+          CRITICAL_FAILURES=$((CRITICAL_FAILURES + 1))
+        fi
+        
+        if [[ "${{ needs.build-test.result }}" != "success" ]]; then
+          echo "❌ Build test failed - CRITICAL"
+          CRITICAL_FAILURES=$((CRITICAL_FAILURES + 1))
+        fi
+        
+        # Non-critical failures that warn but don't block
+        if [[ "${{ needs.security-scan.result }}" != "success" ]]; then
+          echo "⚠️ Security scan had issues - WARNING"
+        fi
+        
+        if [[ "${{ needs.performance-test.result }}" != "success" ]]; then
+          echo "⚠️ Performance test had issues - WARNING"
+        fi
+        
+        # Check if we should fail the quality gate
+        if [[ $CRITICAL_FAILURES -gt 0 ]]; then
+          echo "❌ Quality gate FAILED - $CRITICAL_FAILURES critical failures"
+          exit 1
+        fi
+        
+        echo "✅ Quality gate PASSED - All critical checks successful"
+        
+    - name: Upload quality gate report
+      uses: actions/upload-artifact@v3
+      with:
+        name: quality-gate-report
+        path: quality-gate-report.md
+        retention-days: 30
+
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [quality-gate]
+    if: always() && github.event_name == 'pull_request'
+    
+    steps:
+    - name: Comment PR
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          
+          const botComment = comments.find(comment => 
+            comment.user.type === 'Bot' && 
+            comment.body.includes('Code Quality Report')
+          );
+          
+          const status = '${{ needs.quality-gate.result }}' === 'success' ? '✅' : '❌';
+          const body = `## ${status} Code Quality Report
+          
+          **Quality Checks:** ${{ needs.quality-checks.result }}
+          **Security Scan:** ${{ needs.security-scan.result }}  
+          **Build Test:** ${{ needs.build-test.result }}
+          
+          ${status === '✅' ? 'All quality checks passed! 🎉' : 'Some quality checks failed. Please review the logs.'}
+          
+          ---
+          *This comment was automatically generated by the Code Quality workflow.*`;
+          
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: body
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+          }

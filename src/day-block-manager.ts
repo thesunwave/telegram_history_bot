@@ -43,7 +43,7 @@ export class DayBlockManager {
       }
 
       return new Response('Not Found', { status: 404 });
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('DayBlockManager: request failed', {
         error: error.message || String(error),
         stack: error.stack,
@@ -159,7 +159,7 @@ export class DayBlockManager {
         version: meta.version
       }), { headers: { 'Content-Type': 'application/json' } });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('DayBlockManager: add message failed', {
         chat: message.chat.toString(LOG_ID_RADIX),
         error: error.message || String(error),
@@ -219,7 +219,7 @@ export class DayBlockManager {
         headers: { 'Content-Type': 'application/json' }
       });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('DayBlockManager: get block failed', {
         chat: chatId.toString(LOG_ID_RADIX),
         date,
@@ -435,7 +435,7 @@ export async function addMessageToDayBlockSafe(
     const result = await response.json();
     return result;
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     Logger.error('addMessageToDayBlockSafe: failed', {
       chat: message.chat.toString(LOG_ID_RADIX),
       date,
@@ -470,7 +470,7 @@ export async function getDayBlockSafe(
     const result = await response.json();
     return result.block;
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     Logger.error('getDayBlockSafe: failed', {
       chat: chatId.toString(LOG_ID_RADIX),
       date,

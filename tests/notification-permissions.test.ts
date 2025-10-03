@@ -7,7 +7,10 @@ import { NotificationValidationUtils } from '../src/models/notification-validati
 import type { ChatNotificationSettings } from '../src/models/notification-settings';
 
 describe('Notification Permissions', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   describe('canUserModifySettings', () => {
+
     it('should allow any user when adminOnly is false', () => {
       const settings: ChatNotificationSettings = {
         chatId: '-123456789',
@@ -168,6 +171,7 @@ describe('Notification Permissions', () => {
   });
 
   describe('Default settings', () => {
+
     it('should work with current default settings', async () => {
       const { DEFAULT_NOTIFICATION_SETTINGS } = await import('../src/models/notification-settings');
       // Проверяем что настройки определены

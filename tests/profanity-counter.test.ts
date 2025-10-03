@@ -1,9 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CountersDO, ProfanityIncrementPayload } from '../src/counters-do';
 import { Env } from '../src/env';
 import { resetProfanityCounters, resetCounters } from '../src/stats';
 
 describe('Profanity Counter System', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let countersDO: CountersDO;
   let mockState: any;
   let mockEnv: Env;
@@ -44,7 +46,18 @@ describe('Profanity Counter System', () => {
     countersDO = new CountersDO(mockState, mockEnv);
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('ProfanityIncrementPayload validation', () => {
+
     it('should validate correct profanity payload', async () => {
       const payload: ProfanityIncrementPayload = {
         chatId: 123,
@@ -87,6 +100,7 @@ describe('Profanity Counter System', () => {
   });
 
   describe('Profanity counter increments', () => {
+
     it('should increment user profanity counter', async () => {
       // Create fresh instance with proper mocking
       const mockStorage = new Map<string, string>();
@@ -258,6 +272,7 @@ describe('Profanity Counter System', () => {
   });
 
   describe('Endpoint routing', () => {
+
     it('should handle /inc endpoint for regular counters', async () => {
       // Create fresh instance with proper mocking
       const mockStorage = new Map<string, string>();
@@ -363,6 +378,7 @@ describe('Profanity Counter System', () => {
   });
 
   describe('Profanity reset functionality', () => {
+
     it('should reset only profanity counters for a chat', async () => {
       // Set up test data with both regular and profanity counters
       const mockKV = new Map([

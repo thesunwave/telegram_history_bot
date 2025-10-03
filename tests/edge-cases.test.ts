@@ -3,7 +3,7 @@
  * Tests all possible edge cases including corrupted data, missing fields, and error scenarios
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ViolationHandler } from '../src/violation-handler';
 import { MessageFormatter } from '../src/message-formatter';
 import { StatisticsService } from '../src/services/statistics-service';
@@ -41,6 +41,8 @@ const mockEnv: Env = {
 };
 
 describe('Edge Cases Tests', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let violationHandler: ViolationHandler;
   let messageFormatter: MessageFormatter;
   let mockStatisticsService: StatisticsService;
@@ -52,13 +54,25 @@ describe('Edge Cases Tests', () => {
     messageFormatter = new MessageFormatter();
     violationHandler = new ViolationHandler(
       mockEnv,
+      undefined, // no service registry
       messageFormatter,
       mockStatisticsService,
       mockViolationRepository
     );
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('ViolationAnalysis Edge Cases', () => {
+
     it('должен обрабатывать null ViolationAnalysis', async () => {
       const result = await violationHandler.formatViolationMessage(null as any);
       
@@ -111,8 +125,7 @@ describe('Edge Cases Tests', () => {
             severity: 'invalid', // Неверный тип серьезности
             confidence: 2.5 // Неверное значение доверия
           },
-          {
-            article: 'Статья 282 УК РФ',
+          { article: 'Статья 282 УК РФ', subarticle: null, articleTitle: "Test Article Title",
             quote: 'Валидная цитата',
             punishment: 'Валидное наказание',
             severity: 7,
@@ -188,6 +201,7 @@ describe('Edge Cases Tests', () => {
   });
 
   describe('Statistics Edge Cases', () => {
+
     it('должен обрабатывать пустую статистику пользователя', async () => {
       vi.spyOn(mockStatisticsService, 'getUserStats').mockResolvedValue(
         DataSanitizer.createEmptyUserStats('123', '456')
@@ -286,6 +300,7 @@ describe('Edge Cases Tests', () => {
   });
 
   describe('MessageFormatter Edge Cases', () => {
+
     it('должен обрабатывать null статистику в formatUserStats', () => {
       const result = messageFormatter.formatUserStats(null as any);
       
@@ -319,9 +334,9 @@ describe('Edge Cases Tests', () => {
         totalViolations: 3,
         violationsByArticle: [
           null as any, // Null нарушение
-          { article: '', count: 0, averageSeverity: 0 }, // Пустое нарушение
-          { article: '282', count: 2, averageSeverity: 15 }, // Неверная серьезность
-          { article: '205', count: 1, averageSeverity: 8 } // Валидное нарушение
+          { article: '', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment", count: 0, averageSeverity: 0 }, // Пустое нарушение
+          { article: '282', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment", count: 2, averageSeverity: 15 }, // Неверная серьезность
+          { article: '205', subarticle: null, articleTitle: "Test Article Title", punishment: "Test punishment", count: 1, averageSeverity: 8 } // Валидное нарушение
         ],
         averageSeverity: 6,
         riskLevel: 'medium'
@@ -337,12 +352,12 @@ describe('Edge Cases Tests', () => {
     });
 
     it('должен обрабатывать экстремальные значения серьезности в getSeverityEmoji', () => {
-      expect(() => messageFormatter.getSeverityEmoji(0)).toThrow();
-      expect(() => messageFormatter.getSeverityEmoji(11)).toThrow();
-      expect(() => messageFormatter.getSeverityEmoji(-1)).toThrow();
-      // NaN проходит проверку severity < 1, поэтому не выбрасывает ошибку
-      expect(() => messageFormatter.getSeverityEmoji(NaN)).toThrow();
-      expect(() => messageFormatter.getSeverityEmoji(Infinity)).toThrow();
+      // Функция теперь обрабатывает недопустимые значения gracefully
+      expect(messageFormatter.getSeverityEmoji(0)).toBe('🟢'); // Clamped to 1 (low)
+      expect(messageFormatter.getSeverityEmoji(11)).toBe('🔴'); // Clamped to 10 (high)
+      expect(messageFormatter.getSeverityEmoji(-1)).toBe('🟢'); // Clamped to 1 (low)
+      expect(messageFormatter.getSeverityEmoji(NaN)).toBe('🟢'); // Default to low
+      expect(messageFormatter.getSeverityEmoji(Infinity)).toBe('🔴'); // Clamped to 10 (high)
     });
 
     it('должен правильно экранировать HTML в цитатах', () => {
@@ -364,6 +379,7 @@ describe('Edge Cases Tests', () => {
   });
 
   describe('DataSanitizer Edge Cases', () => {
+
     it('должен санитизировать поврежденное нарушение', () => {
       const corruptedViolation = {
         article: 'Статья 282', // Валидная статья
@@ -407,6 +423,7 @@ describe('Edge Cases Tests', () => {
   });
 
   describe('ValidationUtils Edge Cases', () => {
+
     it('должен санитизировать экстремальные значения серьезности', () => {
       expect(ValidationUtils.sanitizeSeverity(-10)).toBe(1);
       expect(ValidationUtils.sanitizeSeverity(0)).toBe(1);
@@ -463,6 +480,7 @@ describe('Edge Cases Tests', () => {
   });
 
   describe('Network and Database Error Scenarios', () => {
+
     it('должен обрабатывать таймаут базы данных', async () => {
       vi.spyOn(mockStatisticsService, 'getUserStats').mockRejectedValue(new Error('Connection timeout'));
 
@@ -492,6 +510,7 @@ describe('Edge Cases Tests', () => {
   });
 
   describe('Memory and Performance Edge Cases', () => {
+
     it('должен обрабатывать очень длинные цитаты', () => {
       const longQuote = 'A'.repeat(10000); // 10KB строка
       const violation: Violation = {

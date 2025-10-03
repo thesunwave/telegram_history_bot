@@ -20,7 +20,7 @@ import {
   NotificationValidationUtils,
   NotificationDataSanitizer
 } from '../models/notification-validation';
-import { Logger } from '../logger';
+import { BaseService, type ServiceConfig } from './base-service';
 import { sendMessage } from '../telegram';
 
 /**
@@ -54,20 +54,30 @@ export interface INotificationService {
 /**
  * Реализация сервиса уведомлений
  */
-export class NotificationService implements INotificationService {
+export class NotificationService extends BaseService implements INotificationService {
   constructor(
-    private env: Env,
+    env: Env,
     private notificationRepository: INotificationRepository
-  ) {}
+  ) {
+    const config: ServiceConfig = {
+      name: 'NotificationService',
+      version: '1.0.0',
+      description: 'Service for managing automatic notifications',
+      dependencies: ['NotificationRepository'],
+      healthCheckInterval: 120000 // 2 minutes
+    };
+    super(env, config);
+  }
 
   /**
    * Получить настройки уведомлений для чата
    */
   async getChatSettings(chatId: string): Promise<ChatNotificationSettings | null> {
     try {
-      return await this.notificationRepository.getChatSettings(chatId);
-    } catch (error: any) {
-      Logger.error('Failed to get chat notification settings', {
+      const settings = await this.notificationRepository.getChatSettings(chatId);
+      return settings || null;
+    } catch (error: unknown) {
+      this.log('error', 'Failed to get chat notification settings', {
         chatId,
         error: error.message || String(error)
       });
@@ -103,7 +113,7 @@ export class NotificationService implements INotificationService {
       // Сохраняем обновленные настройки
       await this.notificationRepository.saveChatSettings(updatedSettings);
 
-      Logger.debug(this.env, 'Updated chat notification settings', {
+      this.log('debug', 'Updated chat notification settings', {
         chatId,
         updatedBy,
         enabled: updatedSettings.enabled
@@ -111,8 +121,8 @@ export class NotificationService implements INotificationService {
 
       return updatedSettings;
 
-    } catch (error: any) {
-      Logger.error('Failed to update chat notification settings', {
+    } catch (error: unknown) {
+      this.log('error', 'Failed to update chat notification settings', {
         chatId,
         updatedBy,
         error: error.message || String(error)
@@ -129,15 +139,15 @@ export class NotificationService implements INotificationService {
       const defaultSettings = NotificationValidationUtils.createDefaultChatSettings(chatId, updatedBy);
       await this.notificationRepository.saveChatSettings(defaultSettings);
 
-      Logger.debug(this.env, 'Reset chat notification settings to defaults', {
+      this.log('debug', 'Reset chat notification settings to defaults', {
         chatId,
         updatedBy
       });
 
       return defaultSettings;
 
-    } catch (error: any) {
-      Logger.error('Failed to reset chat notification settings', {
+    } catch (error: unknown) {
+      this.log('error', 'Failed to reset chat notification settings', {
         chatId,
         updatedBy,
         error: error.message || String(error)
@@ -160,14 +170,14 @@ export class NotificationService implements INotificationService {
 
       await this.notificationRepository.saveChatSettings(settings);
 
-      Logger.debug(this.env, 'Enabled notification type', {
+      this.log('debug', 'Enabled notification type', {
         chatId,
         type,
         updatedBy
       });
 
-    } catch (error: any) {
-      Logger.error('Failed to enable notification', {
+    } catch (error: unknown) {
+      this.log('error', 'Failed to enable notification', {
         chatId,
         type,
         updatedBy,
@@ -198,14 +208,14 @@ export class NotificationService implements INotificationService {
 
       await this.notificationRepository.saveChatSettings(settings);
 
-      Logger.debug(this.env, 'Disabled notification type', {
+      this.log('debug', 'Disabled notification type', {
         chatId,
         type,
         updatedBy
       });
 
-    } catch (error: any) {
-      Logger.error('Failed to disable notification', {
+    } catch (error: unknown) {
+      this.log('error', 'Failed to disable notification', {
         chatId,
         type,
         updatedBy,
@@ -239,7 +249,7 @@ export class NotificationService implements INotificationService {
 
       await this.notificationRepository.saveChatSettings(chatSettings);
 
-      Logger.debug(this.env, 'Updated notification type settings', {
+      this.log('debug', 'Updated notification type settings', {
         chatId,
         type,
         updatedBy,
@@ -247,8 +257,8 @@ export class NotificationService implements INotificationService {
         frequency: chatSettings.notifications[type].frequency
       });
 
-    } catch (error: any) {
-      Logger.error('Failed to update notification type settings', {
+    } catch (error: unknown) {
+      this.log('error', 'Failed to update notification type settings', {
         chatId,
         type,
         updatedBy,
@@ -296,7 +306,7 @@ export class NotificationService implements INotificationService {
 
       await this.notificationRepository.saveScheduledNotification(notification);
 
-      Logger.debug(this.env, 'Scheduled notification', {
+      this.log('debug', 'Scheduled notification', {
         id: notification.id,
         chatId,
         type,
@@ -305,8 +315,8 @@ export class NotificationService implements INotificationService {
 
       return notification.id;
 
-    } catch (error: any) {
-      Logger.error('Failed to schedule notification', {
+    } catch (error: unknown) {
+      this.log('error', 'Failed to schedule notification', {
         chatId,
         type,
         error: error.message || String(error)
@@ -349,7 +359,7 @@ export class NotificationService implements INotificationService {
         result
       );
 
-      Logger.debug(this.env, 'Notification sent successfully', {
+      this.log('debug', 'Notification sent successfully', {
         chatId: context.chatId,
         type: context.notificationType,
         messageId: result.messageId,
@@ -358,7 +368,7 @@ export class NotificationService implements INotificationService {
 
       return result;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       const result: NotificationResult = {
         success: false,
         error: error.message || String(error),
@@ -374,7 +384,7 @@ export class NotificationService implements INotificationService {
         result
       );
 
-      Logger.error('Failed to send notification', {
+      this.log('error', 'Failed to send notification', {
         chatId: context.chatId,
         type: context.notificationType,
         error: error.message || String(error),
@@ -401,8 +411,8 @@ export class NotificationService implements INotificationService {
           try {
             await this.processScheduledNotification(notification);
             processedCount++;
-          } catch (error: any) {
-            Logger.error('Failed to process scheduled notification', {
+          } catch (error: unknown) {
+            this.log('error', 'Failed to process scheduled notification', {
               id: notification.id,
               chatId: notification.chatId,
               type: notification.notificationType,
@@ -413,7 +423,7 @@ export class NotificationService implements INotificationService {
       }
 
       if (processedCount > 0) {
-        Logger.debug(this.env, 'Processed scheduled notifications', {
+        this.log('debug', 'Processed scheduled notifications', {
           processedCount,
           totalPending: pendingNotifications.length
         });
@@ -421,8 +431,8 @@ export class NotificationService implements INotificationService {
 
       return processedCount;
 
-    } catch (error: any) {
-      Logger.error('Failed to process scheduled notifications', {
+    } catch (error: unknown) {
+      this.log('error', 'Failed to process scheduled notifications', {
         error: error.message || String(error)
       });
       return 0;
@@ -442,8 +452,8 @@ export class NotificationService implements INotificationService {
 
       return stats;
 
-    } catch (error: any) {
-      Logger.error('Failed to get notification stats', {
+    } catch (error: unknown) {
+      this.log('error', 'Failed to get notification stats', {
         chatId,
         type,
         error: error.message || String(error)
@@ -465,8 +475,8 @@ export class NotificationService implements INotificationService {
 
       return NotificationValidationUtils.canUserModifySettings(userId, settings);
 
-    } catch (error: any) {
-      Logger.error('Failed to check user permissions', {
+    } catch (error: unknown) {
+      this.log('error', 'Failed to check user permissions', {
         userId,
         chatId,
         error: error.message || String(error)
@@ -567,8 +577,8 @@ export class NotificationService implements INotificationService {
         }
       }
 
-    } catch (error: any) {
-      Logger.error('Failed to process scheduled notification', {
+    } catch (error: unknown) {
+      this.log('error', 'Failed to process scheduled notification', {
         id: notification.id,
         chatId: notification.chatId,
         type: notification.notificationType,
@@ -670,5 +680,85 @@ export class NotificationService implements INotificationService {
     message = message.replace(/\{\{chatId\}\}/g, context.chatId);
     
     return message;
+  }
+
+  /**
+   * Service initialization
+   */
+  protected async onInitialize(): Promise<void> {
+    this.log('info', 'Initializing NotificationService');
+    
+    // Verify repository connection
+    if (!this.notificationRepository) {
+      throw this.createError('MISSING_DEPENDENCY', 'NotificationRepository is required');
+    }
+
+    // Validate notification templates
+    const availableTypes = this.getAvailableNotificationTypes();
+    for (const type of availableTypes) {
+      const template = this.getNotificationTemplate(type);
+      if (!template) {
+        this.log('warn', `No template found for notification type: ${type}`);
+      }
+    }
+  }
+
+  /**
+   * Service shutdown
+   */
+  protected async onShutdown(): Promise<void> {
+    this.log('info', 'Shutting down NotificationService');
+    // Cancel any pending scheduled notifications processing
+    // This would be implemented if we had background processing
+  }
+
+  /**
+   * Health check implementation
+   */
+  protected async onHealthCheck(): Promise<boolean> {
+    try {
+      // Test repository connectivity
+      if (!this.notificationRepository) {
+        return false;
+      }
+
+      // Test basic functionality by checking if we can get available types
+      const types = this.getAvailableNotificationTypes();
+      return types.length > 0;
+    } catch (error: unknown) {
+      this.log('error', 'Health check failed', { error });
+      return false;
+    }
+  }
+
+  /**
+   * Configuration validation
+   */
+  protected async onValidateConfig(): Promise<boolean> {
+    try {
+      // Validate that we have required dependencies
+      if (!this.notificationRepository) {
+        return false;
+      }
+
+      // Validate that we have notification templates
+      const availableTypes = this.getAvailableNotificationTypes();
+      if (availableTypes.length === 0) {
+        return false;
+      }
+
+      // Validate that templates exist for all types
+      for (const type of availableTypes) {
+        const template = this.getNotificationTemplate(type);
+        if (!template) {
+          this.log('warn', `Missing template for notification type: ${type}`);
+        }
+      }
+
+      return true;
+    } catch (error: unknown) {
+      this.log('error', 'Configuration validation failed', { error });
+      return false;
+    }
   }
 }

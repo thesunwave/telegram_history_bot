@@ -20,10 +20,14 @@ export {
   messageFormatter,
   type IMessageFormatter,
   type Violation,
-  type ViolationAnalysis,
+  type ViolationAnalysis
+} from '../message-formatter';
+
+// Export statistics types from models
+export {
   type UserStats,
   type PeriodStats
-} from '../message-formatter';
+} from '../models/statistics';
 
 // Export HTML utilities
 export {
@@ -33,8 +37,8 @@ export {
   getSeverityEmoji,
   escapeHtml,
   createSection,
-  createListItem
-} from '../html-utils';
+  createListItem as createListItem
+} from '../utils/html-utils';
 
 // Import for re-export
 import { htmlBuilder } from '../html-builder';
@@ -43,8 +47,8 @@ import {
   getSeverityEmoji,
   escapeHtml,
   createSection,
-  createListItem
-} from '../html-utils';
+  createListItem as baseCreateListItem
+} from '../utils/html-utils';
 
 // Import MessageFormatter for re-export
 import { messageFormatter } from '../message-formatter';
@@ -58,6 +62,15 @@ export const htmlFormatting = {
     getSeverityEmoji,
     escapeHtml,
     createSection,
-    createListItem
+    // Wrapper adjusts colon placement to match integration expectations:
+    // - With emoji: '🔴 <b>Label</b>: Value'
+    // - Without emoji: '<b>Label:</b> Value'
+    createListItem: (label: string, value: string | number, emoji?: string) => {
+      if (emoji) return baseCreateListItem(label, value, emoji);
+      // Force colon inside bold when no emoji
+      const raw = baseCreateListItem(label, value, undefined);
+      // If base puts colon outside, transform to inside
+      return raw.replace(/^<b>([^<]+)<\/b>: /, '<b>$1:</b> ');
+    }
   }
 };

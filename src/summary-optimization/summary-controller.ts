@@ -102,7 +102,7 @@ export class OptimizedSummaryController implements SummaryController {
         // Fall back to legacy implementation for small volumes
         return await this.processLegacy("chat", chatId, days);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       const e = error as Error;
       Logger.error("OptimizedSummaryController: summarizeChat error", {
         chatId: chatId.toString(LOG_ID_RADIX),
@@ -173,7 +173,7 @@ export class OptimizedSummaryController implements SummaryController {
         // Fall back to legacy implementation for small volumes
         return await this.processLegacy("messages", chatId, count);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       const e = error as Error;
       Logger.error("OptimizedSummaryController: summarizeChatMessages error", {
         chatId: chatId.toString(LOG_ID_RADIX),
@@ -340,7 +340,7 @@ export class OptimizedSummaryController implements SummaryController {
       });
 
       return result;
-    } catch (error) {
+    } catch (error: unknown) {
       const e = error as Error;
       session.status = "failed";
       session.errors.push({
@@ -477,7 +477,7 @@ export class OptimizedSummaryController implements SummaryController {
       });
 
       return result;
-    } catch (error) {
+    } catch (error: unknown) {
       const e = error as Error;
       session.status = "failed";
       session.errors.push({

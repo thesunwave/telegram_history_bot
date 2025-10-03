@@ -2,9 +2,10 @@
  * Unit тесты для StatisticsService
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { StatisticsService } from '../../src/services/statistics-service';
-import type { IViolationRepository } from '../../src/repositories/violation-repository';
+import type { IViolationRepository } from '../../src/repositories/violation-repository-adapter';
+import type { Env } from '../../src/env';
 import type { 
   Violation, 
   UserStats, 
@@ -13,6 +14,24 @@ import type {
   ViolationCount,
   UserViolationCount
 } from '../../src/models/statistics';
+import { createTestViolation } from '../test-helpers';
+
+// Mock environment
+const mockEnv: Env = {
+  HISTORY: {} as any,
+  COUNTERS: {} as any,
+  COUNTERS_DO: {} as any,
+  MESSAGE_FETCHER_DO: {} as any,
+  MESSAGE_AGGREGATOR_DO: {} as any,
+  DAY_BLOCK_MANAGER_DO: {} as any,
+  CRIMINAL_CODE_ANALYZER_DO: {} as any,
+  DB: {} as any,
+  AI: {} as any,
+  TOKEN: 'test-token',
+  SECRET: 'test-secret',
+  SUMMARY_MODEL: 'test-model',
+  SUMMARY_PROMPT: 'test-prompt'
+};
 
 // Мок репозитория
 const mockViolationRepository: IViolationRepository = {
@@ -26,14 +45,27 @@ const mockViolationRepository: IViolationRepository = {
 };
 
 describe('StatisticsService', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let statisticsService: StatisticsService;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    statisticsService = new StatisticsService(mockViolationRepository);
+    statisticsService = new StatisticsService(mockEnv, mockViolationRepository);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
   });
 
   describe('getUserStats', () => {
+
     it('должен возвращать пустую статистику для пользователя без нарушений', async () => {
       // Arrange
       const userId = '123';
@@ -148,6 +180,7 @@ describe('StatisticsService', () => {
   });
 
   describe('getPeriodStats', () => {
+
     it('должен возвращать статистику за период с подсчетом изменений', async () => {
       // Arrange
       const chatId = '456';
@@ -236,6 +269,7 @@ describe('StatisticsService', () => {
   });
 
   describe('getGeneralStats', () => {
+
     it('должен возвращать общую статистику с топ-5 нарушений', async () => {
       // Arrange
       const chatId = '456';
@@ -338,10 +372,10 @@ describe('StatisticsService', () => {
   });
 
   describe('saveViolation', () => {
+
     it('должен сохранять нарушение через репозиторий', async () => {
       // Arrange
-      const violation: Violation = {
-        article: 'Статья 105 УК РФ',
+      const violation: Violation = { article: 'Статья 105 УК РФ', subarticle: null, articleTitle: "Test Article Title",
         quote: 'Убийство',
         punishment: 'Лишение свободы',
         severity: 10,
@@ -361,8 +395,7 @@ describe('StatisticsService', () => {
 
     it('должен обрабатывать ошибки сохранения', async () => {
       // Arrange
-      const violation: Violation = {
-        article: 'Статья 105 УК РФ',
+      const violation: Violation = { article: 'Статья 105 УК РФ', subarticle: null, articleTitle: "Test Article Title",
         quote: 'Убийство',
         punishment: 'Лишение свободы',
         severity: 10,
@@ -374,11 +407,16 @@ describe('StatisticsService', () => {
 
       vi.mocked(mockViolationRepository.save).mockRejectedValue(error);
 
+      // Mock the log method to avoid logger issues in tests
+      const logSpy = vi.spyOn(statisticsService as any, 'log').mockImplementation(() => {});
+
       // Act & Assert
       await expect(statisticsService.saveViolation(violation, userId, chatId))
         .rejects.toThrow('Failed to save violation: Save error');
+      
+      // Verify log was called
+      expect(logSpy).toHaveBeenCalledWith('error', 'Error saving violation', { error, userId, chatId });
     });
   });
-
 
 });

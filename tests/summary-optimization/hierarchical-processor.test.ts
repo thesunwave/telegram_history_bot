@@ -3,12 +3,14 @@
  * Tests real behavior with minimal mocking
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { HierarchicalProcessor } from "../../src/summary-optimization/hierarchical-processor";
 import { TelegramMessage } from "../../src/providers/ai-provider";
 import { Env } from "../../src/env";
 
 describe("HierarchicalProcessor", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let processor: HierarchicalProcessor;
   let mockEnv: Env;
   let mockMessages: TelegramMessage[];
@@ -52,10 +54,21 @@ describe("HierarchicalProcessor", () => {
         text: `Message ${i}: This is test content for hierarchical processing`,
         ts: 1704067200 + i * 60,
       });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
     }
   });
 
   describe("process", () => {
+
     it("should process messages and return a summary", async () => {
       const result = await processor.process(mockMessages, mockEnv);
 

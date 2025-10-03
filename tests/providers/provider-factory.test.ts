@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ProviderFactory } from "../../src/providers/provider-factory";
 import { CloudflareAIProvider } from "../../src/providers/cloudflare-provider";
 import { OpenAIProvider } from "../../src/providers/openai-provider";
 import { Env } from "../../src/env";
 
 describe("ProviderFactory", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: Env;
 
   beforeEach(() => {
@@ -27,7 +29,18 @@ describe("ProviderFactory", () => {
     } as Env;
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe("createProvider", () => {
+
     it('should create CloudflareAIProvider when SUMMARY_PROVIDER is "cloudflare"', () => {
       (mockEnv as any).SUMMARY_PROVIDER = "cloudflare";
 
@@ -121,6 +134,7 @@ describe("ProviderFactory", () => {
   });
 
   describe("getSupportedProviders", () => {
+
     it("should return array of supported provider types", () => {
       const supportedProviders = ProviderFactory.getSupportedProviders();
 
@@ -142,6 +156,7 @@ describe("ProviderFactory", () => {
   });
 
   describe("getDefaultProvider", () => {
+
     it('should return "cloudflare" as default provider', () => {
       const defaultProvider = ProviderFactory.getDefaultProvider();
 
@@ -150,6 +165,7 @@ describe("ProviderFactory", () => {
   });
 
   describe("provider validation and edge cases", () => {
+
     it("should validate cloudflare provider configuration", () => {
       (mockEnv as any).SUMMARY_PROVIDER = "cloudflare";
 

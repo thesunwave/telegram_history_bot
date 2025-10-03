@@ -93,7 +93,7 @@ export class DirectProcessor implements IDirectProcessor {
 
       return summary;
 
-    } catch (error) {
+    } catch (error: unknown) {
       const e = error as Error;
       Logger.error('DirectProcessor: Processing failed', {
         error: e.message,

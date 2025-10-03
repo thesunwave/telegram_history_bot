@@ -3,7 +3,7 @@
  * Supports Telegram's HTML formatting tags: <b>, <i>, <u>, <s>, <code>, <pre>
  */
 
-import { formatArticleForDisplay } from './html-utils';
+import { formatArticleForDisplay } from './utils/html-utils';
 
 export interface IHTMLBuilder {
   bold(text: string): string;

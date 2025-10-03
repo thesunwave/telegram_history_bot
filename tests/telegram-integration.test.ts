@@ -2,7 +2,7 @@
  * End-to-end тесты для интеграции ViolationHandler с Telegram ботом
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { handleUpdate, recordMessage, getTextMessage } from '../src/update';
 import { ViolationHandler } from '../src/violation-handler';
 import { sendMessage } from '../src/telegram';
@@ -40,6 +40,8 @@ vi.mock('../src/stats', () => ({
 }));
 
 describe('Telegram Integration Tests', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: Env;
   let mockViolationHandler: any;
   let mockSendMessage: any;
@@ -96,7 +98,18 @@ describe('Telegram Integration Tests', () => {
     } as any;
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('Enhanced Criminal Statistics Integration', () => {
+
     it('should call criminalCodeStats function for /criminal_stats command', async () => {
       const { criminalCodeStats } = await import('../src/stats');
       const mockCriminalCodeStats = vi.mocked(criminalCodeStats);
@@ -179,13 +192,13 @@ describe('Telegram Integration Tests', () => {
   });
 
   describe('Violation Processing Integration', () => {
+
     it('should format and send violation messages when violations are detected', async () => {
       // Mock violation analysis result
       const mockAnalysisResult: ViolationAnalysis = {
         hasViolations: true,
         violations: [
-          {
-            article: 'Статья 282 УК РФ',
+          { article: 'Статья 282 УК РФ', subarticle: null, articleTitle: "Test Article Title",
             quote: 'экстремистские высказывания',
             punishment: 'штраф до 300 000 рублей',
             severity: 8,
@@ -221,8 +234,7 @@ describe('Telegram Integration Tests', () => {
       const mockAnalysisResult: ViolationAnalysis = {
         hasViolations: true,
         violations: [
-          {
-            article: 'Статья 282 УК РФ',
+          { article: 'Статья 282 УК РФ', subarticle: null, articleTitle: "Test Article Title",
             quote: 'экстремистские высказывания',
             punishment: 'штраф до 300 000 рублей',
             severity: 8,
@@ -264,6 +276,7 @@ describe('Telegram Integration Tests', () => {
   });
 
   describe('Message Filtering', () => {
+
     it('should not process bot messages', () => {
       const botMessage = {
         message: {
@@ -307,6 +320,7 @@ describe('Telegram Integration Tests', () => {
   });
 
   describe('Help Command Integration', () => {
+
     it('should include existing criminal statistics commands in help text', async () => {
       const mockMessage = {
         chat: { id: 12345 },

@@ -2,18 +2,31 @@
  * Специальные тесты для проверки новых полей articleTitle и punishment в ViolationCount
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { MessageFormatter } from '../src/message-formatter';
 import { UserStats, PeriodStats, GeneralStats } from '../src/models/statistics';
 
 describe('ViolationCount Fields Test', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let formatter: MessageFormatter;
 
   beforeEach(() => {
     formatter = new MessageFormatter();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('articleTitle and punishment fields', () => {
+
     it('should display articleTitle and punishment in user stats', () => {
       const userStats: UserStats = {
         userId: 'test-user',

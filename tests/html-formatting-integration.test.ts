@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { htmlFormatting, HTMLBuilder, getSeverityEmoji, escapeHtml } from '../src/html-formatting';
 
 describe('HTML Formatting Integration', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   it('should provide all components through main export', () => {
     expect(htmlFormatting.builder).toBeInstanceOf(HTMLBuilder);
     expect(htmlFormatting.utils.getSeverityEmoji).toBe(getSeverityEmoji);
@@ -46,8 +48,8 @@ describe('HTML Formatting Integration', () => {
     const statsMessage = utils.createSection('Статистика пользователя', statsItems.join('\n'));
     
     expect(statsMessage).toContain('<b>Статистика пользователя</b>');
-    expect(statsMessage).toContain('🔴 <b>Всего нарушений:</b> 15');
-    expect(statsMessage).toContain('🟡 <b>Средняя серьезность:</b> 6.2');
+    expect(statsMessage).toContain('🔴 <b>Всего нарушений</b>: 15');
+    expect(statsMessage).toContain('🟡 <b>Средняя серьезность</b>: 6.2');
     expect(statsMessage).toContain('<b>Последнее нарушение:</b> Вчера');
   });
 
@@ -55,8 +57,7 @@ describe('HTML Formatting Integration', () => {
     const builder = new HTMLBuilder();
     
     // Test with minimal data
-    const minimalData = {
-      article: '1',
+    const minimalData = { article: '1', subarticle: null, articleTitle: "Test Article Title",
       quote: '',
       punishment: '',
       severity: 1,

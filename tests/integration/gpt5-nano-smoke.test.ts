@@ -1,16 +1,46 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OpenAIProvider } from '../../src/providers/openai-provider';
 import { SummaryRequest, SummaryOptions } from '../../src/providers/ai-provider';
 
-// Mock fetch globally
+// Mock fetch at global level
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
 
 describe('GPT-5-nano Smoke Tests', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: any;
   let provider: OpenAIProvider;
 
   beforeEach(() => {
+    // Setup global fetch mock
+    vi.stubGlobal('fetch', mockFetch);
+    
+    // Reset mock before each test
+    mockFetch.mockReset();
+    
+    // Set up default mock response
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: 'Test response'
+          },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          total_tokens: 100,
+          prompt_tokens: 50,
+          completion_tokens: 50
+        }
+      })
+    });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
     mockEnv = {
       OPENAI_API_KEY: 'test-api-key',
       OPENAI_MODEL: 'gpt-5-nano',
@@ -27,7 +57,11 @@ describe('GPT-5-nano Smoke Tests', () => {
     };
 
     provider = new OpenAIProvider(mockEnv);
-    mockFetch.mockClear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
   });
 
   it('should make a successful GPT-5-nano request with correct parameters', async () => {
@@ -66,6 +100,7 @@ describe('GPT-5-nano Smoke Tests', () => {
 
     mockFetch.mockResolvedValue({
       ok: true,
+      status: 200,
       json: () => Promise.resolve(mockOpenAIResponse)
     });
 
@@ -140,6 +175,7 @@ describe('GPT-5-nano Smoke Tests', () => {
 
     mockFetch.mockResolvedValue({
       ok: true,
+      status: 200,
       json: () => Promise.resolve(mockOpenAIResponse)
     });
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CloudflareAIProvider } from '../../src/providers/cloudflare-provider';
 import { Env } from '../../src/env';
 import { SummaryRequest, SummaryOptions, ProviderError } from '../../src/providers/ai-provider';
@@ -9,6 +9,8 @@ vi.mock('../../src/utils', () => ({
 }));
 
 describe('CloudflareAIProvider', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: Env;
   let provider: CloudflareAIProvider;
   let mockAI: any;
@@ -37,7 +39,18 @@ describe('CloudflareAIProvider', () => {
     provider = new CloudflareAIProvider(mockEnv);
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('summarize', () => {
+
     const mockRequest: SummaryRequest = {
       messages: [
         { username: 'user1', text: 'Hello world', ts: 1234567890 },
@@ -143,6 +156,7 @@ describe('CloudflareAIProvider', () => {
   });
 
   describe('validateConfig', () => {
+
     it('should pass validation with valid config', () => {
       expect(() => provider.validateConfig()).not.toThrow();
     });
@@ -163,6 +177,7 @@ describe('CloudflareAIProvider', () => {
   });
 
   describe('getProviderInfo', () => {
+
     it('should return correct provider info', () => {
       const info = provider.getProviderInfo();
 

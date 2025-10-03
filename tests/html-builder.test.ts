@@ -1,14 +1,27 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { HTMLBuilder, ViolationMessageData, StatsMessageData } from '../src/html-builder';
 
 describe('HTMLBuilder', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let htmlBuilder: HTMLBuilder;
 
   beforeEach(() => {
     htmlBuilder = new HTMLBuilder();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('HTML escaping', () => {
+
     it('should escape HTML special characters', () => {
       expect(htmlBuilder.escapeHtml('<script>alert("xss")</script>'))
         .toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
@@ -29,6 +42,7 @@ describe('HTMLBuilder', () => {
   });
 
   describe('HTML formatting methods', () => {
+
     it('should create bold text', () => {
       expect(htmlBuilder.bold('test')).toBe('<b>test</b>');
     });
@@ -58,6 +72,7 @@ describe('HTMLBuilder', () => {
     });
   }); 
  describe('Severity emoji indicators', () => {
+
     it('should return green emoji for low severity (1-3)', () => {
       expect(htmlBuilder.getSeverityEmoji(1)).toBe('🟢');
       expect(htmlBuilder.getSeverityEmoji(2)).toBe('🟢');
@@ -85,9 +100,9 @@ describe('HTMLBuilder', () => {
   });
 
   describe('Violation message building', () => {
+
     it('should build a complete violation message', () => {
-      const data: ViolationMessageData = {
-        article: '282 УК РФ',
+      const data: ViolationMessageData = { article: '282 УК РФ', subarticle: null, articleTitle: "Test Article Title",
         quote: 'Пример нарушения',
         punishment: 'Штраф до 300 000 рублей',
         severity: 5,
@@ -106,8 +121,7 @@ describe('HTMLBuilder', () => {
     });
 
     it('should add confidence warning for low confidence', () => {
-      const data: ViolationMessageData = {
-        article: '282 УК РФ',
+      const data: ViolationMessageData = { article: '282 УК РФ', subarticle: null, articleTitle: "Test Article Title",
         quote: 'Пример нарушения',
         punishment: 'Штраф до 300 000 рублей',
         severity: 5,
@@ -119,8 +133,7 @@ describe('HTMLBuilder', () => {
     });
 
     it('should not add confidence warning for high confidence', () => {
-      const data: ViolationMessageData = {
-        article: '282 УК РФ',
+      const data: ViolationMessageData = { article: '282 УК РФ', subarticle: null, articleTitle: "Test Article Title",
         quote: 'Пример нарушения',
         punishment: 'Штраф до 300 000 рублей',
         severity: 5,
@@ -133,6 +146,7 @@ describe('HTMLBuilder', () => {
   });
 
   describe('Statistics message building', () => {
+
     it('should build a basic stats message', () => {
       const data: StatsMessageData = {
         title: 'Статистика пользователя',

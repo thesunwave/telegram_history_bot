@@ -300,7 +300,7 @@ export class ProfanityAnalyzer {
       
       return profanityResult;
       
-    } catch (error) {
+    } catch (error: unknown) {
       const totalDuration = Date.now() - startTime;
       
       // Record failure
@@ -390,7 +390,7 @@ export class ProfanityAnalyzer {
           reason: 'key-not-found-or-empty-result'
         });
       }
-    } catch (error) {
+    } catch (error: unknown) {
       const retrievalTime = Date.now() - retrievalStart;
       
       Logger.error('Profanity cache: retrieval failed with detailed error', { 
@@ -463,7 +463,7 @@ export class ProfanityAnalyzer {
         memoryCacheSize: this.currentCacheSize,
         memoryCacheEntries: this.cacheEntries.size
       });
-    } catch (error) {
+    } catch (error: unknown) {
       const totalStorageTime = Date.now() - storageStart;
       
       Logger.error('Profanity cache: storage failed with detailed error', { 
@@ -570,7 +570,7 @@ export class ProfanityAnalyzer {
       });
       
       return finalResult;
-    } catch (error) {
+    } catch (error: unknown) {
       const duration = Date.now() - startTime;
       if (error instanceof Error && error.message === 'Analysis timeout') {
         Logger.error('Profanity AI analysis: timeout exceeded - this indicates AI API is slow or unavailable', { 
@@ -660,7 +660,7 @@ export class ProfanityAnalyzer {
             words: profanityWords,
             totalCount: analysisResult.words.length
           });
-        } catch (error) {
+        } catch (error: unknown) {
           Logger.error('Batch item analysis failed', { 
             itemIndex: i, 
             textLength: batch[i].text.length,
@@ -675,7 +675,7 @@ export class ProfanityAnalyzer {
         request.resolve(results[index]);
       });
 
-    } catch (error) {
+    } catch (error: unknown) {
       Logger.error('Batch AI analysis failed via provider', { 
         error: error instanceof Error ? error.message : String(error), 
         batchSize: batch.length,

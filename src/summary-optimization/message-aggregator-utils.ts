@@ -99,7 +99,7 @@ export class MessageAggregatorUtils {
 
       return result.success;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('MessageAggregator initialization error', {
         sessionId,
         chatId: chatId.toString(36),
@@ -172,7 +172,7 @@ export class MessageAggregatorUtils {
 
       return result.success;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('MessageAggregator aggregation error', {
         sessionId,
         messagesCount: messages.length,
@@ -240,7 +240,7 @@ export class MessageAggregatorUtils {
 
       return result;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('MessageAggregator get results error', {
         sessionId,
         error: error.message || String(error),
@@ -285,7 +285,7 @@ export class MessageAggregatorUtils {
 
       return await response.json() as AggregationStatus;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('MessageAggregator get status error', {
         sessionId,
         error: error.message || String(error),
@@ -347,7 +347,7 @@ export class MessageAggregatorUtils {
 
       return result.success;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       Logger.error('MessageAggregator cleanup error', {
         sessionId,
         error: error.message || String(error),
@@ -437,7 +437,7 @@ export class MessageAggregatorUtils {
 
         return result.messages;
 
-      } catch (error: any) {
+      } catch (error: unknown) {
         lastError = error;
         attempt++;
 

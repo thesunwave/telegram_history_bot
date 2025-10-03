@@ -2,7 +2,7 @@
  * Tests for basic optimized summarization infrastructure
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { 
   loadOptimizationConfig, 
   getDefaultConfig,
@@ -30,13 +30,26 @@ const createMockEnv = (overrides: Partial<Env> = {}): Env => ({
 });
 
 describe('Summary Optimization Infrastructure', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: Env;
 
   beforeEach(() => {
     mockEnv = createMockEnv();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('Configuration', () => {
+
     it('should load default configuration', () => {
       const config = loadOptimizationConfig(mockEnv);
       
@@ -79,12 +92,23 @@ describe('Summary Optimization Infrastructure', () => {
   });
 
   describe('Strategy Selector', () => {
+
     let strategySelector: OptimizedStrategySelector;
 
     beforeEach(() => {
       const config = loadOptimizationConfig(mockEnv);
       strategySelector = new OptimizedStrategySelector(config, mockEnv);
     });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
 
     it('should determine when to use parallel processing', () => {
       expect(strategySelector.shouldUseParallelProcessing(50)).toBe(false);
@@ -120,11 +144,22 @@ describe('Summary Optimization Infrastructure', () => {
   });
 
   describe('Summary Controller', () => {
+
     let controller: OptimizedSummaryController;
 
     beforeEach(() => {
       controller = new OptimizedSummaryController(mockEnv);
     });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
 
     it('should initialize with configuration', () => {
       expect(controller).toBeDefined();
@@ -148,6 +183,7 @@ describe('Summary Optimization Infrastructure', () => {
   });
 
   describe('Type Safety', () => {
+
     it('should have proper TypeScript types', () => {
       const config = loadOptimizationConfig(mockEnv);
       

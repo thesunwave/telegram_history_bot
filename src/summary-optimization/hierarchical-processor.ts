@@ -119,7 +119,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
 
       return finalSummary;
 
-    } catch (error) {
+    } catch (error: unknown) {
       const e = error as Error;
       Logger.error('HierarchicalProcessor: Processing failed', {
         error: e.message,
@@ -173,7 +173,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
           users: parsed.userSummaries.length
         });
 
-      } catch (error) {
+      } catch (error: unknown) {
         const e = error as Error;
         Logger.error(`HierarchicalProcessor: Failed to process chunk ${i + 1} (per-user)`, {
           chunkIndex: i,
@@ -414,7 +414,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
           resultLength: chunkResult.length
         });
 
-      } catch (error) {
+      } catch (error: unknown) {
         const e = error as Error;
         Logger.error(`HierarchicalProcessor: Failed to process chunk ${i + 1}`, {
           chunkIndex: i,
@@ -578,7 +578,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
     const baseMaxTokens = config.contextManagement.preprocessingMaxTokens;
     const reducedMaxTokens = Math.floor(baseMaxTokens * 0.6); // Use 60% of max for preprocessing
 
-    let opts: SummaryOptions = {
+    const opts: SummaryOptions = {
       maxTokens: reducedMaxTokens,
       temperature: 0.2, // Lower temperature for consistency in JSON
       topP: 0.9

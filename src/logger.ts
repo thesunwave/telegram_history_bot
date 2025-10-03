@@ -30,7 +30,7 @@ export class PerformanceTracker {
 
     this.activeTrackers.set(trackerId, metrics);
 
-    if (process.env.NODE_ENV !== "test") {
+    if (process.env.NODE_ENV !== "test" && typeof console !== 'undefined' && console.log) {
       console.log(
         `[PERF_TRACKER] Started tracking ${functionName}${chatId ? ` for chat ${chatId}` : ""}`,
         {
@@ -50,9 +50,11 @@ export class PerformanceTracker {
   ): PerformanceMetrics | null {
     const metrics = this.activeTrackers.get(trackerId);
     if (!metrics) {
-      console.warn(
-        `[PERF_TRACKER] No active tracker found for ID: ${trackerId}`,
-      );
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn(
+          `[PERF_TRACKER] No active tracker found for ID: ${trackerId}`,
+        );
+      }
       return null;
     }
 
@@ -63,7 +65,7 @@ export class PerformanceTracker {
       metrics.additionalData = { ...metrics.additionalData, ...additionalData };
     }
 
-    if (process.env.NODE_ENV !== "test") {
+    if (process.env.NODE_ENV !== "test" && typeof console !== 'undefined' && console.log) {
       console.log(
         `[PERF_TRACKER] Completed ${metrics.functionName}${metrics.chatId ? ` for chat ${metrics.chatId}` : ""} in ${metrics.duration}ms`,
         {
@@ -90,9 +92,11 @@ export class PerformanceTracker {
 
     for (const [trackerId, metrics] of Array.from(this.activeTrackers.entries())) {
       if (now - metrics.startTime > staleThreshold) {
-        console.warn(
-          `[PERF_TRACKER] Cleaning up stale tracker: ${metrics.functionName} (${trackerId}), started ${Math.round((now - metrics.startTime) / 1000)}s ago`,
-        );
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn(
+            `[PERF_TRACKER] Cleaning up stale tracker: ${metrics.functionName} (${trackerId}), started ${Math.round((now - metrics.startTime) / 1000)}s ago`,
+          );
+        }
         this.activeTrackers.delete(trackerId);
       }
     }
@@ -105,7 +109,7 @@ export class Logger {
   }
 
   static debug(env: Env, message: string, data?: any): void {
-    if (this.isDebugEnabled(env)) {
+    if (this.isDebugEnabled(env) && typeof console !== 'undefined' && console.debug) {
       if (data) {
         console.debug(message, data);
       } else {
@@ -115,10 +119,12 @@ export class Logger {
   }
 
   static log(message: string, data?: any): void {
-    if (data) {
-      console.log(message, data);
-    } else {
-      console.log(message);
+    if (typeof console !== 'undefined' && console.log) {
+      if (data) {
+        console.log(message, data);
+      } else {
+        console.log(message);
+      }
     }
   }
 
@@ -136,28 +142,34 @@ export class Logger {
       data = arg3;
     }
 
-    if (data) {
-      console.warn(message, data);
-    } else {
-      console.warn(message);
+    if (typeof console !== 'undefined' && console.warn) {
+      if (data) {
+        console.warn(message, data);
+      } else {
+        console.warn(message);
+      }
     }
   }
 
   static error(message: string, data?: any): void {
-    if (data) {
-      console.error(message, data);
-    } else {
-      console.error(message);
+    if (typeof console !== 'undefined' && console.error) {
+      if (data) {
+        console.error(message, data);
+      } else {
+        console.error(message);
+      }
     }
   }
 
   // Removed duplicate warn implementation; unified via overloads above
 
   static info(env: Env, message: string, data?: any): void {
-    if (data) {
-      console.info(message, data);
-    } else {
-      console.info(message);
+    if (typeof console !== 'undefined' && console.info) {
+      if (data) {
+        console.info(message, data);
+      } else {
+        console.info(message);
+      }
     }
   }
 
@@ -176,7 +188,7 @@ export class Logger {
       chatId?: string;
     },
   ): void {
-    if (!this.isDebugEnabled(env)) return;
+    if (!this.isDebugEnabled(env) || typeof console === 'undefined' || !console.log) return;
     console.log(`[API_PATTERN] ${operation}`, {
       timestamp: new Date().toISOString(),
       operation,
@@ -212,7 +224,7 @@ export class Logger {
       insights?: string[];
     },
   ): void {
-    if (!this.isDebugEnabled(env)) return;
+    if (!this.isDebugEnabled(env) || typeof console === 'undefined' || !console.log) return;
     const insights = data.insights || [];
 
     // Add automatic insights based on performance data

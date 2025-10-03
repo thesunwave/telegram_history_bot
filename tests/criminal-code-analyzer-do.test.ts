@@ -1,4 +1,25 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Ensure module mocks are applied before importing the SUT
+vi.mock("../src/providers/provider-factory", () => ({
+  ProviderFactory: {
+    createProvider: vi.fn().mockReturnValue({
+      analyzeCriminalCode: vi.fn().mockResolvedValue({
+        hasViolations: true,
+        violations: [{ article: "282", subarticle: null, articleTitle: "Test Article Title",
+          quote: "Призываю к насилию против определенной группы людей",
+          punishment: "Штраф до 300 000 рублей",
+          severity: 5,
+          confidence: 0.9
+        }],
+        totalSeverity: 5,
+        riskLevel: "high",
+        analysisTimestamp: Date.now()
+      })
+    })
+  }
+}));
+
 import { CriminalCodeAnalyzerDO } from "../src/criminal-code-analyzer-do";
 import type { CriminalAnalysisResult } from "../src/env";
 import { ProviderFactory } from "../src/providers/provider-factory";
@@ -21,8 +42,7 @@ vi.mock("../src/providers/provider-factory", () => ({
     createProvider: vi.fn().mockReturnValue({
       analyzeCriminalCode: vi.fn().mockResolvedValue({
         hasViolations: true,
-        violations: [{
-          article: "282",
+        violations: [{ article: "282", subarticle: null, articleTitle: "Test Article Title",
           quote: "Призываю к насилию против определенной группы людей",
           punishment: "Штраф до 300 000 рублей",
           severity: 5,
@@ -78,7 +98,7 @@ const createMockEnv = () => ({
   },
   HISTORY: {
     get: vi.fn(),
-    put: vi.fn(),
+    put: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn(),
     list: vi.fn(),
   },
@@ -87,7 +107,7 @@ const createMockEnv = () => ({
       bind: vi.fn().mockReturnValue({
         run: vi.fn().mockResolvedValue({ success: true }),
         all: vi.fn().mockResolvedValue({ results: [] }),
-        first: vi.fn().mockResolvedValue(null),
+        first: vi.fn().mockResolvedValue(undefined),
       }),
     }),
   },
@@ -103,6 +123,8 @@ const createMockEnv = () => ({
 });
 
 describe("CriminalCodeAnalyzerDO", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let analyzer: CriminalCodeAnalyzerDO;
   let mockState: any;
   let mockEnv: any;
@@ -116,9 +138,11 @@ describe("CriminalCodeAnalyzerDO", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.clearAllTimers();
   });
 
   describe("initialization", () => {
+
     it("should initialize successfully", () => {
       expect(analyzer).toBeDefined();
       expect(analyzer).toBeInstanceOf(CriminalCodeAnalyzerDO);
@@ -126,6 +150,7 @@ describe("CriminalCodeAnalyzerDO", () => {
   });
 
   describe("analyze endpoint", () => {
+
     it("should analyze text for criminal code violations", async () => {
       const requestBody = {
         text: "Призываю к насилию против определенной группы людей",
@@ -240,6 +265,7 @@ describe("CriminalCodeAnalyzerDO", () => {
   });
 
   describe("stats endpoint", () => {
+
     it("should return user statistics", async () => {
       mockEnv.DB.prepare().bind().all.mockResolvedValue({
         results: [
@@ -292,6 +318,7 @@ describe("CriminalCodeAnalyzerDO", () => {
   });
 
   describe("error handling", () => {
+
     it("should handle AI provider errors gracefully", async () => {
       // Mock ProviderFactory to return a provider that throws errors
       const errorProvider = {
@@ -346,6 +373,7 @@ describe("CriminalCodeAnalyzerDO", () => {
   });
 
   describe("concurrency control", () => {
+
     it("should use blockConcurrencyWhile for analyze requests", async () => {
       const requestBody = {
         text: "Test text",
@@ -376,6 +404,7 @@ describe("CriminalCodeAnalyzerDO", () => {
   });
 
   describe("caching behavior", () => {
+
     it("should cache analysis results", async () => {
       // Ensure HISTORY.put is called by mocking cache miss
       mockEnv.HISTORY.get.mockResolvedValueOnce(null);
@@ -424,9 +453,10 @@ describe("CriminalCodeAnalyzerDO", () => {
   });
 
   describe("database operations", () => {
+
     it("should store violations in database when found", async () => {
       // Mock cache miss to ensure fresh analysis
-      mockEnv.HISTORY.get.mockResolvedValue(null);
+      mockEnv.HISTORY.get.mockResolvedValue(undefined);
       
       // Restore the original mock provider that returns violations
       const violationProvider = {

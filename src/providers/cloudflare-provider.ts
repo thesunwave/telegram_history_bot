@@ -58,7 +58,7 @@ export class CloudflareAIProvider implements AIProvider {
       
       const raw = (response.response ?? response) as string;
       return truncateText(raw, TELEGRAM_LIMIT);
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw new ProviderError(
         `Cloudflare AI error: ${error.message || String(error)}`,
         'cloudflare',
@@ -202,7 +202,7 @@ export class CloudflareAIProvider implements AIProvider {
       }
       
       return parsedResult;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const duration = Date.now() - startTime;
       
       if (env) {
@@ -384,7 +384,7 @@ export class CloudflareAIProvider implements AIProvider {
       }
 
       return parsedResult;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const duration = Date.now() - startTime;
 
       if (env) {
@@ -456,7 +456,7 @@ export class CloudflareAIProvider implements AIProvider {
       }
 
       return parsed as CriminalAnalysisResult;
-    } catch (error) {
+    } catch (error: unknown) {
       Logger.error('Cloudflare criminal code analysis: response parsing failed', {
         provider: 'cloudflare',
         rawResponse: response,

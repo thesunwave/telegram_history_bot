@@ -2,7 +2,7 @@
  * Unit tests for summary integration helper functions
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { Env } from "../../src/env";
 import type {
   KVNamespace,
@@ -17,7 +17,7 @@ import { ProviderInitializer } from "../../src/providers/provider-init";
 
 // Mock dependencies
 vi.mock("../../src/telegram", () => ({
-  sendMessage: vi.fn().mockResolvedValue(undefined),
+  sendMessage: vi.fn().mockResolvedValue({ message_id: 123, chat: { id: 456 } }),
 }));
 
 vi.mock("../../src/history", () => ({
@@ -46,11 +46,11 @@ const createMockEnv = (overrides: Partial<Env> = {}): Env => ({
       bind: vi.fn((...params: any[]) => ({
         run: vi.fn().mockResolvedValue({ success: true }),
         all: vi.fn().mockResolvedValue({ results: [] }),
-        first: vi.fn().mockResolvedValue(null),
+        first: vi.fn().mockResolvedValue(undefined),
       })),
       run: vi.fn().mockResolvedValue({ success: true }),
       all: vi.fn().mockResolvedValue({ results: [] }),
-      first: vi.fn().mockResolvedValue(null),
+      first: vi.fn().mockResolvedValue(undefined),
     })),
     exec: vi.fn().mockResolvedValue({ results: [] }),
     dump: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
@@ -81,6 +81,8 @@ const createTestMessages = (count: number) => {
 };
 
 describe("Summary Integration Helper Functions", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: Env;
 
   beforeEach(() => {
@@ -90,11 +92,22 @@ describe("Summary Integration Helper Functions", () => {
     // Make AI.run a spy
     mockEnv.AI.run = vi.fn().mockResolvedValue({ response: "Test AI response" });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
     // Initialize provider system
     ProviderInitializer.initializeProvider(mockEnv);
   });
 
   describe("Environment Variable Parsing", () => {
+
     it("should parse boolean string values correctly", async () => {
       const testCases = [
         { value: "true", expected: true },
@@ -171,6 +184,7 @@ describe("Summary Integration Helper Functions", () => {
   });
 
   describe("Message Filtering Integration", () => {
+
     it("should filter out system messages and commands", async () => {
       const env = createMockEnv();
 
@@ -283,6 +297,7 @@ describe("Summary Integration Helper Functions", () => {
   });
 
   describe("AI Provider Integration", () => {
+
     it("should handle AI provider errors gracefully", async () => {
       const env = createMockEnv();
 
@@ -426,6 +441,7 @@ describe("Summary Integration Helper Functions", () => {
   });
 
   describe("Integration with Existing Error Handling", () => {
+
     it("should maintain existing error message format in fallback scenarios", async () => {
       const env = createMockEnv({
         SUMMARY_OPT_ENABLED: true,

@@ -1,0 +1,143 @@
+{
+  "phases": [
+    {
+      "name": "Phase 1: Critical API Types",
+      "description": "Fix critical type issues in public APIs and exported functions",
+      "files": [
+        "src/summary-legacy.ts"
+      ],
+      "estimatedEffort": "2-3 weeks",
+      "priority": "high",
+      "dependencies": [
+        "Test coverage verification"
+      ],
+      "risks": [
+        "Breaking changes to public APIs",
+        "Integration test failures"
+      ]
+    },
+    {
+      "name": "Phase 2: Core Utilities",
+      "description": "Replace any types in utility functions and shared modules",
+      "files": [
+        "src/stats.ts",
+        "src/message-formatter.ts",
+        "src/summary.ts",
+        "src/summary-legacy.ts",
+        "src/summary-optimization/hierarchical-processor.ts",
+        "src/update.ts",
+        "src/models/validation.ts",
+        "src/providers/openai-provider.ts",
+        "src/providers/cloudflare-provider.ts",
+        "src/profanity.ts"
+      ],
+      "estimatedEffort": "2-3 weeks",
+      "priority": "high",
+      "dependencies": [
+        "Phase 1 completion",
+        "Runtime validation system"
+      ],
+      "risks": [
+        "Cascading type errors",
+        "Performance impact"
+      ]
+    },
+    {
+      "name": "Phase 3: Service Layer",
+      "description": "Improve type safety in service layer and business logic",
+      "files": [
+        "src/utils/metrics-collector.ts",
+        "src/criminal-code-analyzer-do.ts",
+        "src/summary-optimization/message-aggregator-utils.ts",
+        "src/summary-optimization/context-optimizer.ts",
+        "src/summary-optimization/direct-processor.ts",
+        "src/services/logging-metrics-service.ts",
+        "src/race-condition-tests.ts",
+        "src/repositories/notification-repository.ts",
+        "src/day-block-manager.ts",
+        "src/services/notification-service.ts",
+        "src/utils/cache-manager.ts",
+        "src/models/notification-validation.ts",
+        "src/violation-handler.ts",
+        "src/utils.ts",
+        "src/services/di-container.ts",
+        "src/utils/database-types.ts",
+        "src/utils/shared-utils.ts",
+        "src/services/service-health-monitor.ts",
+        "src/services/base-service.ts",
+        "src/utils/cache-invalidation.ts"
+      ],
+      "estimatedEffort": "3-4 weeks",
+      "priority": "medium",
+      "dependencies": [
+        "Phase 2 completion"
+      ],
+      "risks": [
+        "Complex generic constraints",
+        "Database type mismatches"
+      ]
+    },
+    {
+      "name": "Phase 4: Remaining Files",
+      "description": "Complete type safety improvements in remaining files",
+      "files": [
+        "src/repositories/violation-repository.ts",
+        "src/message-aggregator-do.ts",
+        "src/logger.ts",
+        "src/counters-do.ts",
+        "src/utils/performance-monitor.ts",
+        "src/history-optimized.ts",
+        "src/providers/provider-manager.ts",
+        "src/utils/structured-logger.ts",
+        "src/message-fetcher-do.ts",
+        "src/index.ts",
+        "src/history.ts",
+        "src/services/cache-service.ts",
+        "src/utils/validation.ts",
+        "src/services/service-config-validator.ts",
+        "src/utils/health-check.ts",
+        "src/utils/database-performance.ts",
+        "src/providers/provider-factory.ts",
+        "src/providers/provider-health-monitor.ts",
+        "src/services/service-registry.ts",
+        "src/migration-utils.ts",
+        "src/summary-optimization/summary-controller.ts",
+        "src/services/statistics-service.ts",
+        "src/providers/mock-provider.ts",
+        "src/providers/ai-provider.ts",
+        "src/services/performance-service.ts",
+        "src/utils/performance-middleware.ts",
+        "src/summary-optimization/config.ts",
+        "src/utils/html-utils.ts",
+        "src/telegram.ts",
+        "src/html-builder.ts",
+        "src/models/notification-settings.ts",
+        "src/providers/provider-init.ts",
+        "src/env.ts",
+        "src/utils/errors.ts"
+      ],
+      "estimatedEffort": "2-3 weeks",
+      "priority": "low",
+      "dependencies": [
+        "Phase 3 completion"
+      ],
+      "risks": [
+        "Legacy code compatibility",
+        "Test maintenance overhead"
+      ]
+    }
+  ],
+  "estimatedDuration": "9-13 weeks",
+  "riskAssessment": [
+    "Breaking changes may require API versioning",
+    "Complex generic types may impact compilation time",
+    "Runtime validation may affect performance",
+    "Large refactoring may introduce bugs"
+  ],
+  "dependencies": [
+    "Comprehensive test suite",
+    "Runtime type validation system",
+    "Type guard utilities",
+    "Migration testing strategy"
+  ]
+}

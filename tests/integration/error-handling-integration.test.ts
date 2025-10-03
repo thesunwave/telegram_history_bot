@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { KVNamespace } from "@miniflare/kv";
 import { MemoryStorage } from "@miniflare/storage-memory";
 import { summariseChat, summariseChatMessages } from "../../src/summary";
@@ -23,6 +23,8 @@ const mockFetchLastMessages = vi.mocked(fetchLastMessages);
 const mockProviderInitializer = vi.mocked(ProviderInitializer);
 
 describe("Error Handling Integration Tests", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let env: Env;
 
   beforeEach(() => {
@@ -57,6 +59,16 @@ describe("Error Handling Integration Tests", () => {
         .fn()
         .mockResolvedValue({ hasProfanity: false, words: [] }),
     });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
     mockSendMessage.mockResolvedValue(undefined);
   });
 
@@ -65,6 +77,7 @@ describe("Error Handling Integration Tests", () => {
   });
 
   describe("API Limit Error Handling", () => {
+
     it("should provide specific error message when API limits are exceeded in fetchMessages", async () => {
       const chatId = 12345;
       const days = 7;
@@ -133,6 +146,7 @@ describe("Error Handling Integration Tests", () => {
   });
 
   describe("Provider Error Handling", () => {
+
     it("should handle provider rate limit errors with specific message", async () => {
       const chatId = 12345;
       const days = 1;
@@ -213,6 +227,7 @@ describe("Error Handling Integration Tests", () => {
   });
 
   describe("Fallback Error Handling", () => {
+
     it("should use fallback message when primary error notification fails", async () => {
       const chatId = 12345;
       const days = 7;
@@ -266,6 +281,7 @@ describe("Error Handling Integration Tests", () => {
   });
 
   describe("Timeout Error Handling", () => {
+
     it("should handle timeout errors with appropriate user message", async () => {
       const chatId = 12345;
       const days = 7;
@@ -308,6 +324,7 @@ describe("Error Handling Integration Tests", () => {
   });
 
   describe("Generic Rate Limit Handling", () => {
+
     it("should handle generic rate limit errors", async () => {
       const chatId = 12345;
       const days = 3;
@@ -348,6 +365,7 @@ describe("Error Handling Integration Tests", () => {
   });
 
   describe("Error Message Preservation", () => {
+
     it("should preserve custom error messages from batch processing", async () => {
       const chatId = 12345;
       const days = 7;

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ProviderInitializer } from "../../src/providers/provider-init";
 import { CloudflareAIProvider } from "../../src/providers/cloudflare-provider";
 import { OpenAIProvider } from "../../src/providers/openai-provider";
@@ -17,6 +17,8 @@ vi.stubGlobal("console", {
 });
 
 describe("ProviderInitializer", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: Env;
 
   beforeEach(() => {
@@ -44,7 +46,18 @@ describe("ProviderInitializer", () => {
     } as Env;
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe("initializeProvider", () => {
+
     it("should initialize Cloudflare provider successfully", async () => {
       const provider = await ProviderInitializer.initializeProvider(mockEnv);
 
@@ -111,6 +124,7 @@ describe("ProviderInitializer", () => {
   });
 
   describe("getProvider", () => {
+
     it("should return initialized provider", async () => {
       // First initialize
       const initializedProvider =
@@ -150,6 +164,7 @@ describe("ProviderInitializer", () => {
   });
 
   describe("isProviderInitialized", () => {
+
     it("should return false when not initialized", () => {
       expect(ProviderInitializer.isProviderInitialized()).toBe(false);
     });
@@ -166,6 +181,7 @@ describe("ProviderInitializer", () => {
   });
 
   describe("reset", () => {
+
     it("should reset provider state", async () => {
       // Initialize first
       await ProviderInitializer.initializeProvider(mockEnv);
@@ -188,6 +204,7 @@ describe("ProviderInitializer", () => {
   });
 
   describe("logProviderInfo", () => {
+
     it("should log provider information when initialized", async () => {
       await ProviderInitializer.initializeProvider(mockEnv);
 
@@ -234,6 +251,7 @@ describe("ProviderInitializer", () => {
   });
 
   describe("provider functionality validation", () => {
+
     it("should create provider that can validate its own config", async () => {
       const provider = await ProviderInitializer.initializeProvider(mockEnv);
 

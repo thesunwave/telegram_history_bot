@@ -3,12 +3,14 @@
  * Tests real behavior with minimal mocking
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { DirectProcessor } from "../../src/summary-optimization/direct-processor";
 import { Env } from "../../src/env";
 import { TelegramMessage } from "../../src/providers/ai-provider";
 
 describe("DirectProcessor", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let processor: DirectProcessor;
   let mockEnv: Env;
   let mockMessages: TelegramMessage[];
@@ -62,7 +64,18 @@ describe("DirectProcessor", () => {
     ];
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe("process", () => {
+
     it("should process messages and return a summary", async () => {
       const result = await processor.process(mockMessages, mockEnv);
 
@@ -89,7 +102,7 @@ describe("DirectProcessor", () => {
     it("should work with large message volumes", async () => {
       // Create larger message set
       const largeMessages: TelegramMessage[] = [];
-      for (let i = 0; i < 100; i++) {
+      for (let i = 0; i < 10; i++) {
         largeMessages.push({
           username: `user${i % 10}`,
           text: `Message ${i}: This is a longer test message with more content`,

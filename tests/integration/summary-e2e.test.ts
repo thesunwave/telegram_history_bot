@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import worker, { CountersDO } from "../../src/index";
 import { KVNamespace } from "@miniflare/kv";
 import { MemoryStorage } from "@miniflare/storage-memory";
@@ -35,6 +35,8 @@ function createCountersNamespace(env: Env) {
 }
 
 describe("Summary End-to-End Tests", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let env: Env;
   let ctx: any;
   let tasks: Promise<any>[];
@@ -148,13 +150,14 @@ describe("Summary End-to-End Tests", () => {
 
       const responseTime = Date.now() - startTime;
       return { responseTime, success: true };
-    } catch (error) {
+    } catch (error: unknown) {
       const responseTime = Date.now() - startTime;
       return { responseTime, success: false };
     }
   }
 
   describe("Large message set processing", () => {
+
     it("should handle /summary 7 command with 1000 messages without API limit errors", async () => {
       // Mock successful Telegram API responses
       fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
@@ -276,6 +279,7 @@ describe("Summary End-to-End Tests", () => {
   });
 
   describe("API request limit verification", () => {
+
     it("should not exceed API request limits during processing", async () => {
       // Set conservative batch size
       env.KV_BATCH_SIZE = 20;
@@ -360,6 +364,7 @@ describe("Summary End-to-End Tests", () => {
   });
 
   describe("Response time requirements", () => {
+
     it("should complete /summary 7 for 300 messages under 10 seconds", async () => {
       fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
 
@@ -411,6 +416,7 @@ describe("Summary End-to-End Tests", () => {
   });
 
   describe("Concurrent request stability", () => {
+
     it("should handle 3 concurrent /summary 7 requests without errors", async () => {
       fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
 

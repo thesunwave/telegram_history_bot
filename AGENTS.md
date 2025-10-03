@@ -94,6 +94,15 @@ If tests fail, prefer minimal fixes over large refactors.
 - **README updates**: document any new features or breaking changes
 - **Code examples**: provide usage examples for complex functions
 
+## 🗂 Documentation Structure
+- **Location**: place all project documentation under `docs/`.
+- **Features**: put feature-specific docs in `docs/features/<feature-slug>/` (include a `README.md`).
+- **Guides**: onboarding, troubleshooting, code-quality guides live in `docs/` (or `docs/guides/` if categorized later).
+- **Specs/Design**: detailed requirements and design docs go to `docs/specs/` (per-topic subfolders allowed).
+- **Notes/History**: ad-hoc fix summaries and progress notes go to `docs/notes/`.
+- **Reports**: generated audit reports (JSON/MD) live in `docs/reports/`.
+- **Rule**: do not leave stray `.md` files in the repo root.
+
 ## 🔐 Security & Privacy Rules
 - Do **not** log full Telegram payloads.  
 - Strip PII before saving metrics.  

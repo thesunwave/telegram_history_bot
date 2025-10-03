@@ -4,7 +4,7 @@
  */
 
 import { ViolationHandler } from '../src/violation-handler';
-import type { ViolationAnalysis, Env } from '../src/env';
+import type { CriminalAnalysisResult, Env } from '../src/env';
 
 // Пример mock окружения для демонстрации
 const mockEnv: Env = {

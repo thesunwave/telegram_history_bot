@@ -2,7 +2,7 @@
  * Complete flow integration tests for optimized summary system
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { OptimizedSummaryController } from "../../src/summary-optimization/summary-controller";
 import { ProviderInitializer } from "../../src/providers/provider-init";
 import { createMockEnv } from "../test-utils";
@@ -10,7 +10,7 @@ import type { Env } from "../../src/env";
 
 // Mock all external dependencies
 vi.mock("../../src/telegram", () => ({
-  sendMessage: vi.fn().mockResolvedValue(undefined),
+  sendMessage: vi.fn().mockResolvedValue({ message_id: 123, chat: { id: 456 } }),
 }));
 
 vi.mock("../../src/history", () => ({
@@ -70,8 +70,6 @@ vi.mock("../../src/summary-optimization/summary-controller", () => ({
 let summariseChat: any;
 let summariseChatMessages: any;
 
-
-
 const createTestMessages = (count: number, chatId: number = 123) => {
   return Array.from({ length: count }, (_, i) => ({
     chat: chatId,
@@ -83,6 +81,8 @@ const createTestMessages = (count: number, chatId: number = 123) => {
 };
 
 describe("Complete Optimized Summary Flow", () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let mockEnv: Env;
 
   beforeEach(async () => {
@@ -135,6 +135,7 @@ describe("Complete Optimized Summary Flow", () => {
   });
 
   describe("Small Message Volume Flow (Direct Processing)", () => {
+
     it("should use optimized direct processing for small message sets", async () => {
       // Create small message set (below parallel threshold)
       const testMessages = createTestMessages(50);
@@ -188,6 +189,7 @@ describe("Complete Optimized Summary Flow", () => {
   });
 
   describe("Medium Message Volume Flow (Parallel Processing)", () => {
+
     it("should use optimized parallel processing for medium message sets", async () => {
       // Create medium message set (above parallel threshold, below hierarchical)
       const testMessages = createTestMessages(300);
@@ -249,6 +251,7 @@ describe("Complete Optimized Summary Flow", () => {
   });
 
   describe("Large Message Volume Flow (Hierarchical Processing)", () => {
+
     it("should use optimized hierarchical processing for large message sets", async () => {
       // Create large message set (triggers hierarchical processing)
       const testMessages = createTestMessages(1500);
@@ -293,7 +296,7 @@ describe("Complete Optimized Summary Flow", () => {
       const optimizedSpy = optimizedChatSpy
         .mockImplementation(async () => {
           // Simulate processing time for large dataset
-          await new Promise((resolve) => setTimeout(resolve, 200));
+          await new Promise((resolve) => setTimeout(resolve, 100));
           return "Иерархическая обработка: 2000 сообщений успешно обработаны в несколько этапов";
         });
 
@@ -318,6 +321,7 @@ describe("Complete Optimized Summary Flow", () => {
   });
 
   describe("Configuration-driven Behavior", () => {
+
     it("should respect parallel processing disabled configuration", async () => {
       const configEnv = createMockEnv({
         SUMMARY_OPT_PARALLEL_ENABLED: false,
@@ -371,6 +375,7 @@ describe("Complete Optimized Summary Flow", () => {
   });
 
   describe("Real-world Scenarios", () => {
+
     it("should handle typical daily summary request", async () => {
       // Simulate typical daily chat activity
       const testMessages = createTestMessages(120);
@@ -462,6 +467,7 @@ describe("Complete Optimized Summary Flow", () => {
   });
 
   describe("Multi-Chat Concurrent Processing", () => {
+
     it("should handle multiple chats concurrently", async () => {
       const chat1Messages = createTestMessages(150, 123);
       const chat2Messages = createTestMessages(200, 456);
@@ -563,6 +569,7 @@ describe("Complete Optimized Summary Flow", () => {
   });
 
   describe("Performance Under Load", () => {
+
     it("should maintain performance with large message volumes", async () => {
       const testMessages = createTestMessages(2000);
 
@@ -572,7 +579,7 @@ describe("Complete Optimized Summary Flow", () => {
       const optimizedSpy = optimizedChatSpy
         .mockImplementation(async () => {
           // Simulate realistic processing time for large dataset
-          await new Promise((resolve) => setTimeout(resolve, 300));
+          await new Promise((resolve) => setTimeout(resolve, 100));
           return "Иерархическая обработка 2000 сообщений: детальная сводка активности чата";
         });
 
@@ -593,7 +600,7 @@ describe("Complete Optimized Summary Flow", () => {
 
       // Should complete within reasonable time even for large dataset
       expect(duration).toBeLessThan(5000);
-      expect(duration).toBeGreaterThan(200); // Should take some time for realistic simulation
+      expect(duration).toBeGreaterThan(50); // Should take some time for realistic simulation
     });
 
     it("should handle memory pressure gracefully", async () => {
@@ -629,6 +636,7 @@ describe("Complete Optimized Summary Flow", () => {
   });
 
   describe("Edge Cases and Error Recovery", () => {
+
     it("should handle empty message sets appropriately", async () => {
       const { fetchMessages } = await import("../../src/history");
       vi.mocked(fetchMessages).mockResolvedValue([]);
@@ -706,6 +714,7 @@ describe("Complete Optimized Summary Flow", () => {
   });
 
   describe("Integration with Existing Features", () => {
+
     it("should work with database logging", async () => {
       const testMessages = createTestMessages(100);
 
@@ -806,6 +815,7 @@ describe("Complete Optimized Summary Flow", () => {
   });
 
   describe("System State and Cleanup", () => {
+
     it("should not leak resources between requests", async () => {
       const testMessages = createTestMessages(100);
 

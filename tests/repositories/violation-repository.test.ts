@@ -3,7 +3,7 @@
  * Тестируют работу с базой данных D1
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ViolationRepository } from '../../src/repositories/violation-repository';
 import type { Env } from '../../src/env';
 import type { Violation } from '../../src/models/statistics';
@@ -17,11 +17,14 @@ const mockDB = {
 };
 
 const mockStmt = {
-  bind: vi.fn().mockReturnThis(),
-  run: vi.fn(),
-  all: vi.fn(),
-  first: vi.fn()
+  all: vi.fn().mockResolvedValue({ success: true, results: [] }),
+  first: vi.fn().mockResolvedValue(undefined),
+  run: vi.fn().mockResolvedValue({ success: true, meta: { changes: 1 } }),
+  bind: vi.fn()
 };
+
+// Настраиваем bind чтобы он возвращал сам объект
+mockStmt.bind.mockReturnValue(mockStmt);
 
 const mockEnv: Env = {
   DB: mockDB as any,
@@ -29,25 +32,48 @@ const mockEnv: Env = {
 } as Env;
 
 describe('ViolationRepository Integration Tests', () => {
+  const testTimeout = 10000; // 10 seconds max per test
+
   let repository: ViolationRepository;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    
+    // Настраиваем базовые моки
+    mockStmt.bind.mockReturnValue(mockStmt);
+    mockStmt.all.mockResolvedValue({ results: [] });
+    mockStmt.first.mockResolvedValue({ result: null });
+    mockStmt.run.mockResolvedValue({ success: true, meta: { changes: 1 } });
+    
+    // Важно: настраиваем prepare ПОСЛЕ clearAllMocks
     mockDB.prepare.mockReturnValue(mockStmt);
     repository = new ViolationRepository(mockEnv);
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllTimers();
+  });
+
   describe('save()', () => {
+
     it('должен сохранить нарушение в базу данных', async () => {
       const violation: Violation = {
         article: 'Статья 282',
+        subarticle: null,
+        articleTitle: 'Экстремизм',
         quote: 'экстремистские высказывания',
         punishment: 'штраф до 500 тысяч рублей',
         severity: 7,
         confidence: 0.85
       };
 
-      mockStmt.run.mockResolvedValue({ success: true });
+      mockStmt.run = vi.fn().mockResolvedValue({ success: true });
 
       await repository.save(violation, '12345', '-1001234567890');
 
@@ -57,7 +83,7 @@ describe('ViolationRepository Integration Tests', () => {
         -1001234567890,
         'Статья 282',
         null,
-        '',
+        'Экстремизм',
         'экстремистские высказывания',
         'штраф до 500 тысяч рублей',
         7,
@@ -70,6 +96,8 @@ describe('ViolationRepository Integration Tests', () => {
       const repositoryWithoutDB = new ViolationRepository({ DB: null } as any);
       const violation: Violation = {
         article: 'Статья 282',
+        subarticle: null,
+        articleTitle: 'Test Title',
         quote: 'test',
         punishment: 'test',
         severity: 5,
@@ -82,6 +110,7 @@ describe('ViolationRepository Integration Tests', () => {
   });
 
   describe('getUserViolations()', () => {
+
     it('должен получить все нарушения пользователя', async () => {
       const mockResults = [
         {
@@ -104,7 +133,20 @@ describe('ViolationRepository Integration Tests', () => {
         }
       ];
 
-      mockStmt.all.mockResolvedValue({ results: mockResults });
+      mockStmt.all = vi.fn().mockResolvedValue({
+        success: true,
+        meta: {
+          served_by: 'test',
+          duration: 1,
+          changes: 0,
+          last_row_id: 0,
+          changed_db: false,
+          size_after: 0,
+          rows_read: 2,
+          rows_written: 0
+        },
+        results: mockResults
+      });
 
       const result = await repository.getUserViolations('12345', '-1001234567890');
 
@@ -115,7 +157,20 @@ describe('ViolationRepository Integration Tests', () => {
     });
 
     it('должен вернуть пустой массив если нарушений нет', async () => {
-      mockStmt.all.mockResolvedValue({ results: [] });
+      mockStmt.all = vi.fn().mockResolvedValue({
+        success: true,
+        meta: {
+          served_by: 'test',
+          duration: 1,
+          changes: 0,
+          last_row_id: 0,
+          changed_db: false,
+          size_after: 0,
+          rows_read: 0,
+          rows_written: 0
+        },
+        results: []
+      });
 
       const result = await repository.getUserViolations('12345', '-1001234567890');
 
@@ -124,6 +179,7 @@ describe('ViolationRepository Integration Tests', () => {
   });
 
   describe('getPeriodViolations()', () => {
+
     it('должен получить нарушения за указанный период', async () => {
       const mockResults = [
         {
@@ -137,7 +193,20 @@ describe('ViolationRepository Integration Tests', () => {
         }
       ];
 
-      mockStmt.all.mockResolvedValue({ results: mockResults });
+      mockStmt.all = vi.fn().mockResolvedValue({
+        success: true,
+        meta: {
+          served_by: 'test',
+          duration: 1,
+          changes: 0,
+          last_row_id: 0,
+          changed_db: false,
+          size_after: 0,
+          rows_read: 1,
+          rows_written: 0
+        },
+        results: mockResults
+      });
 
       const result = await repository.getPeriodViolations('-1001234567890', 7);
 
@@ -149,6 +218,7 @@ describe('ViolationRepository Integration Tests', () => {
   });
 
   describe('getAllViolations()', () => {
+
     it('должен получить все нарушения в чате', async () => {
       const mockResults = [
         {
@@ -162,7 +232,20 @@ describe('ViolationRepository Integration Tests', () => {
         }
       ];
 
-      mockStmt.all.mockResolvedValue({ results: mockResults });
+      mockStmt.all = vi.fn().mockResolvedValue({
+        success: true,
+        meta: {
+          served_by: 'test',
+          duration: 1,
+          changes: 0,
+          last_row_id: 0,
+          changed_db: false,
+          size_after: 0,
+          rows_read: 1,
+          rows_written: 0
+        },
+        results: mockResults
+      });
 
       const result = await repository.getAllViolations('-1001234567890');
 
@@ -174,19 +257,58 @@ describe('ViolationRepository Integration Tests', () => {
   });
 
   describe('getUserStats()', () => {
+
     it('должен получить статистику пользователя', async () => {
       // Mock для общей статистики пользователя
-      mockStmt.first.mockResolvedValueOnce({
-        total_violations: 5,
-        average_severity: 6.2,
-        last_violation_date: '2024-01-15 10:30:00'
+      mockStmt.first = vi.fn().mockResolvedValueOnce({
+        success: true,
+        meta: {
+          served_by: 'test',
+          duration: 1,
+          changes: 0,
+          last_row_id: 0,
+          changed_db: false,
+          size_after: 0,
+          rows_read: 1,
+          rows_written: 0
+        },
+        result: {
+          total_violations: 5,
+          average_severity: 6.2,
+          last_violation_date: '2024-01-15 10:30:00'
+        }
       });
 
       // Mock для нарушений по статьям
-      mockStmt.all.mockResolvedValueOnce({
+      mockStmt.all = vi.fn().mockResolvedValueOnce({
+        success: true,
+        meta: {
+          served_by: 'test',
+          duration: 1,
+          changes: 0,
+          last_row_id: 0,
+          changed_db: false,
+          size_after: 0,
+          rows_read: 2,
+          rows_written: 0
+        },
         results: [
-          { article: 'Статья 282', count: 3, average_severity: 7.0 },
-          { article: 'Статья 130', count: 2, average_severity: 5.0 }
+          { 
+            article: 'Статья 282', 
+            subarticle: null,
+            article_title: 'Экстремизм',
+            punishment: 'штраф',
+            count: 3, 
+            average_severity: 7.0 
+          },
+          { 
+            article: 'Статья 130', 
+            subarticle: null,
+            article_title: 'Оскорбление',
+            punishment: 'штраф',
+            count: 2, 
+            average_severity: 5.0 
+          }
         ]
       });
 
@@ -203,13 +325,39 @@ describe('ViolationRepository Integration Tests', () => {
     });
 
     it('должен обработать случай отсутствия нарушений', async () => {
-      mockStmt.first.mockResolvedValueOnce({
-        total_violations: 0,
-        average_severity: 0,
-        last_violation_date: null
+      mockStmt.first = vi.fn().mockResolvedValueOnce({
+        success: true,
+        meta: {
+          served_by: 'test',
+          duration: 1,
+          changes: 0,
+          last_row_id: 0,
+          changed_db: false,
+          size_after: 0,
+          rows_read: 0,
+          rows_written: 0
+        },
+        result: {
+          total_violations: 0,
+          average_severity: 0,
+          last_violation_date: null
+        }
       });
 
-      mockStmt.all.mockResolvedValueOnce({ results: [] });
+      mockStmt.all = vi.fn().mockResolvedValueOnce({
+        success: true,
+        meta: {
+          served_by: 'test',
+          duration: 1,
+          changes: 0,
+          last_row_id: 0,
+          changed_db: false,
+          size_after: 0,
+          rows_read: 0,
+          rows_written: 0
+        },
+        results: []
+      });
 
       const result = await repository.getUserStats('12345', '-1001234567890');
 
@@ -223,27 +371,78 @@ describe('ViolationRepository Integration Tests', () => {
   });
 
   describe('getPeriodStats()', () => {
+
     it('должен получить статистику за период с сравнением', async () => {
-      // Mock для текущего периода
-      mockStmt.first.mockResolvedValueOnce({
-        total_violations: 10,
-        average_severity: 5.5,
-        unique_users: 3
-      });
+      // Mock для текущего периода и предыдущего периода
+      mockStmt.first = vi.fn()
+        .mockResolvedValueOnce({
+          success: true,
+          meta: {
+            served_by: 'test',
+            duration: 1,
+            changes: 0,
+            last_row_id: 0,
+            changed_db: false,
+            size_after: 0,
+            rows_read: 1,
+            rows_written: 0
+          },
+          result: {
+            total_violations: 10,
+            average_severity: 5.5,
+            unique_users: 3
+          }
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          meta: {
+            served_by: 'test',
+            duration: 1,
+            changes: 0,
+            last_row_id: 0,
+            changed_db: false,
+            size_after: 0,
+            rows_read: 1,
+            rows_written: 0
+          },
+          result: {
+            total_violations: 8,
+            average_severity: 6.0,
+            unique_users: 2
+          }
+        });
 
       // Mock для нарушений по статьям
-      mockStmt.all.mockResolvedValueOnce({
+      mockStmt.all = vi.fn().mockResolvedValueOnce({
+        success: true,
+        meta: {
+          served_by: 'test',
+          duration: 1,
+          changes: 0,
+          last_row_id: 0,
+          changed_db: false,
+          size_after: 0,
+          rows_read: 2,
+          rows_written: 0
+        },
         results: [
-          { article: 'Статья 282', count: 6, average_severity: 7.0 },
-          { article: 'Статья 130', count: 4, average_severity: 4.0 }
+          { 
+            article: 'Статья 282', 
+            subarticle: null,
+            article_title: 'Экстремизм',
+            punishment: 'штраф',
+            count: 6, 
+            average_severity: 7.0 
+          },
+          { 
+            article: 'Статья 130', 
+            subarticle: null,
+            article_title: 'Оскорбление',
+            punishment: 'штраф',
+            count: 4, 
+            average_severity: 4.0 
+          }
         ]
-      });
-
-      // Mock для предыдущего периода
-      mockStmt.first.mockResolvedValueOnce({
-        total_violations: 8,
-        average_severity: 6.0,
-        unique_users: 2
       });
 
       const result = await repository.getPeriodStats('-1001234567890', 7);
@@ -260,51 +459,127 @@ describe('ViolationRepository Integration Tests', () => {
     });
   }); 
  describe('getGeneralStats()', () => {
+
     it('должен получить общую статистику чата', async () => {
       // Mock для общей статистики
-      mockStmt.first.mockResolvedValueOnce({
-        total_violations: 25,
-        average_severity: 6.8
+      mockStmt.first = vi.fn().mockResolvedValueOnce({
+        success: true,
+        meta: {
+          served_by: 'test',
+          duration: 1,
+          changes: 0,
+          last_row_id: 0,
+          changed_db: false,
+          size_after: 0,
+          rows_read: 1,
+          rows_written: 0
+        },
+        result: {
+          total_violations: 25,
+          average_severity: 6.8
+        }
       });
 
-      // Mock для топ нарушений
-      mockStmt.all.mockResolvedValueOnce({
-        results: [
-          { article: 'Статья 282', count: 10, average_severity: 7.5 },
-          { article: 'Статья 130', count: 8, average_severity: 4.2 },
-          { article: 'Статья 319', count: 5, average_severity: 6.0 },
-          { article: 'Статья 213', count: 2, average_severity: 8.0 }
-        ]
-      });
-
-      // Mock для топ пользователей
-      mockStmt.all.mockResolvedValueOnce({
-        results: [
-          { user_id: 12345, count: 8, average_severity: 7.0 },
-          { user_id: 12346, count: 6, average_severity: 5.5 },
-          { user_id: 12347, count: 4, average_severity: 6.8 }
-        ]
-      });
-
-      // Mock для критических нарушений
-      mockStmt.all.mockResolvedValueOnce({
-        results: [
-          {
-            article: 'Статья 282',
-            quote: 'экстремистские высказывания',
-            punishment: 'штраф до 500 тысяч рублей',
-            severity: 9,
-            confidence: 0.95
+      // Mock для топ нарушений, топ пользователей и критических нарушений
+      mockStmt.all = vi.fn()
+        .mockResolvedValueOnce({
+          success: true,
+          meta: {
+            served_by: 'test',
+            duration: 1,
+            changes: 0,
+            last_row_id: 0,
+            changed_db: false,
+            size_after: 0,
+            rows_read: 4,
+            rows_written: 0
           },
-          {
-            article: 'Статья 213',
-            quote: 'хулиганство',
-            punishment: 'лишение свободы до 2 лет',
-            severity: 8,
-            confidence: 0.88
-          }
-        ]
-      });
+          results: [
+            { 
+              article: 'Статья 282', 
+              subarticle: null,
+              article_title: 'Экстремизм',
+              punishment: 'штраф',
+              count: 10, 
+              average_severity: 7.5 
+            },
+            { 
+              article: 'Статья 130', 
+              subarticle: null,
+              article_title: 'Оскорбление',
+              punishment: 'штраф',
+              count: 8, 
+              average_severity: 4.2 
+            },
+            { 
+              article: 'Статья 319', 
+              subarticle: null,
+              article_title: 'Оскорбление представителя власти',
+              punishment: 'штраф',
+              count: 5, 
+              average_severity: 6.0 
+            },
+            { 
+              article: 'Статья 213', 
+              subarticle: null,
+              article_title: 'Хулиганство',
+              punishment: 'штраф',
+              count: 2, 
+              average_severity: 8.0 
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          meta: {
+            served_by: 'test',
+            duration: 1,
+            changes: 0,
+            last_row_id: 0,
+            changed_db: false,
+            size_after: 0,
+            rows_read: 3,
+            rows_written: 0
+          },
+          results: [
+            { user_id: 12345, count: 8, average_severity: 7.0 },
+            { user_id: 12346, count: 6, average_severity: 5.5 },
+            { user_id: 12347, count: 4, average_severity: 6.8 }
+          ]
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          meta: {
+            served_by: 'test',
+            duration: 1,
+            changes: 0,
+            last_row_id: 0,
+            changed_db: false,
+            size_after: 0,
+            rows_read: 2,
+            rows_written: 0
+          },
+          results: [
+            {
+              article: 'Статья 282',
+              subarticle: null,
+              article_title: 'Экстремизм',
+              quote: 'экстремистские высказывания',
+              punishment: 'штраф до 500 тысяч рублей',
+              severity: 9,
+              confidence: 0.95
+            },
+            {
+              article: 'Статья 213',
+              subarticle: null,
+              article_title: 'Хулиганство',
+              quote: 'хулиганство',
+              punishment: 'лишение свободы до 2 лет',
+              severity: 8,
+              confidence: 0.88
+            }
+          ]
+        });
 
       const result = await repository.getGeneralStats('-1001234567890');
 
@@ -331,12 +606,38 @@ describe('ViolationRepository Integration Tests', () => {
     });
 
     it('должен обработать случай отсутствия данных', async () => {
-      mockStmt.first.mockResolvedValueOnce({
-        total_violations: 0,
-        average_severity: 0
+      mockStmt.first = vi.fn().mockResolvedValueOnce({
+        success: true,
+        meta: {
+          served_by: 'test',
+          duration: 1,
+          changes: 0,
+          last_row_id: 0,
+          changed_db: false,
+          size_after: 0,
+          rows_read: 0,
+          rows_written: 0
+        },
+        result: {
+          total_violations: 0,
+          average_severity: 0
+        }
       });
 
-      mockStmt.all.mockResolvedValue({ results: [] });
+      mockStmt.all = vi.fn().mockResolvedValue({
+        success: true,
+        meta: {
+          served_by: 'test',
+          duration: 1,
+          changes: 0,
+          last_row_id: 0,
+          changed_db: false,
+          size_after: 0,
+          rows_read: 0,
+          rows_written: 0
+        },
+        results: []
+      });
 
       const result = await repository.getGeneralStats('-1001234567890');
 
@@ -350,11 +651,20 @@ describe('ViolationRepository Integration Tests', () => {
   });
 
   describe('Error Handling', () => {
+
     it('должен обработать ошибки базы данных при сохранении', async () => {
-      mockStmt.run.mockRejectedValue(new Error('Database error'));
+      // Переопределяем мок для этого теста
+      const errorStmt = {
+        ...mockStmt,
+        run: vi.fn().mockRejectedValue(new Error('Database error')),
+        bind: vi.fn().mockReturnThis()
+      };
+      mockDB.prepare.mockReturnValue(errorStmt);
 
       const violation: Violation = {
         article: 'Статья 282',
+        subarticle: null,
+        articleTitle: 'Test Article',
         quote: 'test',
         punishment: 'test',
         severity: 5,
@@ -366,7 +676,13 @@ describe('ViolationRepository Integration Tests', () => {
     });
 
     it('должен обработать ошибки базы данных при получении данных', async () => {
-      mockStmt.all.mockRejectedValue(new Error('Database error'));
+      // Переопределяем мок для этого теста
+      const errorStmt = {
+        ...mockStmt,
+        all: vi.fn().mockRejectedValue(new Error('Database error')),
+        bind: vi.fn().mockReturnThis()
+      };
+      mockDB.prepare.mockReturnValue(errorStmt);
 
       await expect(repository.getUserViolations('123', '456'))
         .rejects.toThrow('Failed to get user violations: Database error');
