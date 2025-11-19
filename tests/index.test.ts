@@ -179,52 +179,73 @@ describe("webhook", () => {
     const fetchMock = vi
       .spyOn(global, "fetch")
       .mockResolvedValue(new Response(null, { status: 200 }));
+    const aiSpy = env.AI.run as vi.Mock;
+    aiSpy.mockClear();
+
     const now = Math.floor(Date.now() / 1000);
-    const m = {
+    // Use unique chat ID to avoid interference from other tests
+    const uniqueChatId = 999999;
+
+    // Store a command message in history – it should be ignored during summarisation
+    const commandOnlyMessage = {
       message: {
         message_id: 1,
-        text: "hello world",
-        chat: { id: 1 },
+        text: "/just_command",
+        chat: { id: uniqueChatId },
         from: { id: 2, username: "u" },
         date: now,
       },
     };
-    const req = new Request("http://localhost/tg/t/webhook", {
+    const commandOnlyRequest = new Request("http://localhost/tg/t/webhook", {
       method: "POST",
       headers: {
         "X-Telegram-Bot-Api-Secret-Token": "s",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(m),
+      body: JSON.stringify(commandOnlyMessage),
     });
-    const response = await worker.fetch(req, env, ctx);
-    expect(response.status).toBe(200);
+    const commandOnlyResponse = await worker.fetch(
+      commandOnlyRequest,
+      env,
+      ctx,
+    );
+    expect(commandOnlyResponse.status).toBe(200);
     await waitForAllAsync();
 
-    const cmd = {
+    const summaryCommand = {
       message: {
         message_id: 2,
         text: "/summary 1",
-        chat: { id: 1 },
+        chat: { id: uniqueChatId },
         from: { id: 2, username: "u" },
         date: now + 1,
       },
     };
-    const req2 = new Request("http://localhost/tg/t/webhook", {
+    const summaryRequest = new Request("http://localhost/tg/t/webhook", {
       method: "POST",
       headers: {
         "X-Telegram-Bot-Api-Secret-Token": "s",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(cmd),
+      body: JSON.stringify(summaryCommand),
     });
-    const response2 = await worker.fetch(req2, env, ctx);
-    expect(response2.status).toBe(200);
+    const summaryResponse = await worker.fetch(summaryRequest, env, ctx);
+    expect(summaryResponse.status).toBe(200);
     await waitForAllAsync();
 
-    // Check that the response was successful
-    expect(response2.status).toBe(200);
+    expect(aiSpy).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalled();
+    const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
+    expect(lastCall).toBeDefined();
+    const payload = JSON.parse(lastCall[1]?.body as string);
+    const allowedResponses = [
+      "В данном периоде содержательных обсуждений не было",
+      "Нет сообщений для суммаризации в указанном периоде.",
+      "Нет сообщений для суммаризации.",
+    ];
+    expect(
+      allowedResponses.some((snippet) => payload.text.includes(snippet)),
+    ).toBe(true);
   });
 
   it("summarises last N messages", async () => {

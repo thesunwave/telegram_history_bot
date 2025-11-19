@@ -307,7 +307,7 @@ async function analyzeProfanityAsync(
       chatId: chatId.toString(36),
       userId: userId.toString(36),
       username,
-      command: msg.text,
+      command: msg.text?.split(' ')[0] || 'unknown',
       messageId: msg.message_id,
       day
     });
@@ -324,7 +324,6 @@ async function analyzeProfanityAsync(
       timestamp: new Date().toISOString(),
       day,
       isCommand: msg.text?.startsWith('/'),
-      fullText: msg.text // Временно для отладки
     });
 
     // Create AI provider and profanity analyzer
@@ -509,7 +508,7 @@ async function analyzeCriminalCodeAsync(
       chatId: chatId.toString(36),
       userId: userId.toString(36),
       username,
-      command: msg.text,
+      command: msg.text?.split(' ')[0] || 'unknown',
       messageId: msg.message_id
     });
     return; // Немедленный выход для команд
