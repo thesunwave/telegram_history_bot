@@ -1,5 +1,6 @@
 import type { DurableObjectState } from '@cloudflare/workers-types';
 import { Env } from './env';
+import { Logger } from './logger';
 
 const STATS_PREFIX = 'stats';
 const USER_PREFIX = 'user';
@@ -156,8 +157,12 @@ export class CountersDO {
   private async incrementProfanityCounters(payload: ProfanityIncrementPayload) {
     const { chatId, userId, username, day, count, words } = payload;
     
-    // Critical logging for profanity detection
-    console.log(`CRITICAL: Profanity detected - User: ${username} (${userId}), Chat: ${chatId}, Count: ${count}, Words: ${words.map(w => w.baseForm).join(', ')}`);
+    Logger.debug(this.env, 'Profanity counters update', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
+      totalCount: count,
+      uniqueWords: words.length,
+    });
     
     const profanityUserKey = `${PROFANITY_USER_PREFIX}:${chatId}:${userId}:${day}`;
     
@@ -176,8 +181,12 @@ export class CountersDO {
   private async incrementCriminalCounters(payload: CriminalIncrementPayload) {
     const { chatId, userId, username, day, violations, totalSeverity } = payload;
     
-    // Critical logging for criminal code violations
-    console.log(`CRITICAL: Criminal code violations detected - User: ${username} (${userId}), Chat: ${chatId}, Total Severity: ${totalSeverity}, Articles: ${violations.map(v => v.article).join(', ')}`);
+    Logger.debug(this.env, 'Criminal counters update', {
+      chatId: chatId.toString(36),
+      userId: userId.toString(36),
+      totalSeverity,
+      violationCount: violations.length,
+    });
     
     const criminalUserKey = `${CRIMINAL_USER_PREFIX}:${chatId}:${userId}:${day}`;
     const criminalSeverityKey = `${CRIMINAL_SEVERITY_PREFIX}:${chatId}:${userId}:${day}`;

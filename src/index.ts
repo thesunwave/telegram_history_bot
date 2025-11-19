@@ -42,23 +42,29 @@ export default {
       const token = url.pathname.split("/")[2];
       const secretHeader = req.headers.get("X-Telegram-Bot-Api-Secret-Token");
       
-      console.log("webhook auth check", {
-        urlToken: token,
-        envToken: env.TOKEN,
-        tokenMatch: token === env.TOKEN,
-        secretHeader: secretHeader,
-        envSecret: env.SECRET,
-        secretMatch: secretHeader === env.SECRET
+      const tokenMatches = token === env.TOKEN;
+      const secretMatches = secretHeader === env.SECRET;
+
+      Logger.debug(env, "webhook auth check", {
+        tokenProvided: Boolean(token),
+        tokenMatches,
+        secretProvided: Boolean(secretHeader),
+        secretMatches,
       });
-      
-      if (token !== env.TOKEN) {
-         console.log("token mismatch", { token, envToken: env.TOKEN });
-         return new Response("forbidden", { status: 403 });
-       }
-       if (secretHeader !== env.SECRET) {
-         console.log("secret mismatch", { secretHeader, envSecret: env.SECRET });
-         return new Response("forbidden", { status: 403 });
-       }
+
+      if (!tokenMatches) {
+        Logger.warn(env, "webhook token mismatch", {
+          tokenProvided: Boolean(token),
+        });
+        return new Response("forbidden", { status: 403 });
+      }
+
+      if (!secretMatches) {
+        Logger.warn(env, "webhook secret mismatch", {
+          secretProvided: Boolean(secretHeader),
+        });
+        return new Response("forbidden", { status: 403 });
+      }
       const update = await req.json();
       Logger.debug(env, "webhook received", {
         updateType: (update as any).message ? "message" : "other",
@@ -70,8 +76,9 @@ export default {
 
       const msg = getTextMessage(update);
       Logger.debug(env, "getTextMessage result", {
-        hasMessage: !!msg,
-        text: msg?.text?.substring(0, 50),
+        hasMessage: Boolean(msg),
+        textLength: msg?.text?.length ?? 0,
+        isCommand: msg?.text?.startsWith("/") ?? false,
       });
 
       await recordMessage(msg, env, ctx);

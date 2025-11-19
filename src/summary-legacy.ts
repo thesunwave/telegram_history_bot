@@ -327,12 +327,11 @@ export async function summariseChat(env: Env, chatId: number, days: number) {
     Logger.debug(env, "summarize messages sample", {
       chat: chatId.toString(LOG_ID_RADIX),
       totalMessages: messages.length,
-      sampleMessages: messages.slice(0, 5).map((m) => ({
-        username: m.username,
-        text: m.text.substring(0, 100),
+      sampleMetrics: messages.slice(0, 5).map((m) => ({
         textLength: m.text.length,
       })),
-      contentPreview: content.substring(0, 500),
+      participantCount: new Set(messages.map((m) => m.username)).size,
+      contentLength: content.length,
     });
 
     Logger.debug(env, "summarize chunks", {
@@ -758,11 +757,10 @@ export async function summariseChatMessages(
     Logger.debug(env, "summariseChatMessages messages sample", {
       chat: chatId.toString(LOG_ID_RADIX),
       totalMessages: messages.length,
-      sampleMessages: messages.slice(0, 5).map((m) => ({
-        username: m.username,
-        text: m.text.substring(0, 100),
+      sampleMetrics: messages.slice(0, 5).map((m) => ({
         textLength: m.text.length,
       })),
+      participantCount: new Set(messages.map((m) => m.username)).size,
     });
 
     const aiStartTime = Date.now();
