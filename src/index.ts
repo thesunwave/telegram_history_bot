@@ -1,3 +1,4 @@
+import { migrateStatsBatch, MIGRATION_PAGE } from "./migrate";
 import { Env } from "./env";
 import { dailySummary } from "./stats";
 import { handleUpdate, recordMessage, getTextMessage } from "./update";
@@ -33,6 +34,20 @@ export default {
     }
 
     const url = new URL(req.url);
+
+    // Migration endpoints
+    if (url.pathname === "/migrate") {
+      return new Response(MIGRATION_PAGE, {
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    if (url.pathname === "/api/migrate" && req.method === "POST") {
+      const cursor = url.searchParams.get("cursor") || undefined;
+      const result = await migrateStatsBatch(env, cursor);
+      return Response.json(result);
+    }
+
     if (url.pathname === "/healthz") return new Response("ok");
     if (
       url.pathname.startsWith("/tg/") &&
@@ -41,7 +56,7 @@ export default {
     ) {
       const token = url.pathname.split("/")[2];
       const secretHeader = req.headers.get("X-Telegram-Bot-Api-Secret-Token");
-      
+
       const tokenMatches = token === env.TOKEN;
       const secretMatches = secretHeader === env.SECRET;
 
@@ -89,25 +104,25 @@ export default {
       await dailySummary(env);
       return Response.json({});
     }
-    
+
     // Criminal Code Analysis API endpoints
     if (url.pathname === "/api/criminal-stats" && req.method === "GET") {
       try {
         const chatId = url.searchParams.get("chatId");
         const userId = url.searchParams.get("userId");
         const days = url.searchParams.get("days") || "30";
-        
+
         if (!chatId) {
           return new Response("Missing chatId parameter", { status: 400 });
         }
-        
+
         const id = env.CRIMINAL_CODE_ANALYZER_DO.idFromName(`criminal-analyzer-${chatId}`);
         const stub = env.CRIMINAL_CODE_ANALYZER_DO.get(id);
-        
+
         const statsUrl = new URL("/stats", "http://localhost");
         if (userId) statsUrl.searchParams.set("userId", userId);
         statsUrl.searchParams.set("days", days);
-        
+
         const response = await stub.fetch(new Request(statsUrl.toString()));
         return response;
       } catch (error: any) {
@@ -115,25 +130,25 @@ export default {
         return new Response("Internal server error", { status: 500 });
       }
     }
-    
+
     if (url.pathname === "/api/criminal-report" && req.method === "POST") {
       try {
         const body = await req.json();
         const { chatId, text, userId } = body;
-        
+
         if (!chatId || !text) {
           return new Response("Missing required parameters", { status: 400 });
         }
-        
+
         const id = env.CRIMINAL_CODE_ANALYZER_DO.idFromName(`criminal-analyzer-${chatId}`);
         const stub = env.CRIMINAL_CODE_ANALYZER_DO.get(id);
-        
+
         const analyzeRequest = new Request("http://localhost/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text, userId })
         });
-        
+
         const response = await stub.fetch(analyzeRequest);
         return response;
       } catch (error: any) {

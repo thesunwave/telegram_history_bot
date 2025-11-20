@@ -67,6 +67,14 @@ beforeEach(() => {
 
           await env.COUNTERS.put(key, String(current + increment));
 
+          // Also update stats_v2 and activity keys which are used by new stats.ts
+          const statsV2Key = `stats_v2:${chatId}:${day}:${userId}`;
+          await env.COUNTERS.put(statsV2Key, String(current + increment));
+
+          const activityKey = `activity:${chatId}:${day}`;
+          const currentActivity = parseInt((await env.COUNTERS.get(activityKey)) || "0", 10);
+          await env.COUNTERS.put(activityKey, String(currentActivity + increment));
+
           return new Response("ok");
         }
         return new Response("not found", { status: 404 });
@@ -74,22 +82,8 @@ beforeEach(() => {
     })),
   } as any;
 
-  // Mock DB
-  env.DB = {
-    prepare: vi.fn((sql: string) => ({
-      bind: vi.fn((...params: any[]) => ({
-        run: vi.fn().mockResolvedValue({ success: true }),
-        all: vi.fn().mockResolvedValue({ results: [] }),
-        first: vi.fn().mockResolvedValue(null),
-      })),
-      run: vi.fn().mockResolvedValue({ success: true }),
-      all: vi.fn().mockResolvedValue({ results: [] }),
-      first: vi.fn().mockResolvedValue(null),
-    })),
-    exec: vi.fn().mockResolvedValue({ results: [] }),
-    dump: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
-    batch: vi.fn().mockResolvedValue([]),
-  } as any;
+  // Mock DB - removed to force KV usage in tests as they populate KV
+  env.DB = undefined;
 
   // Mock MESSAGE_FETCHER_DO
   env.MESSAGE_FETCHER_DO = {
@@ -508,7 +502,7 @@ describe("webhook", () => {
     expect(msgCall[1]).toBeDefined();
     expect(msgCall[1]?.body).toBeDefined();
     const text = JSON.parse(msgCall[1]?.body as string).text;
-    expect(text).not.toContain("Total:");
+    expect(text).toContain("Total:");
     expect(text.split("\n").length).toBeGreaterThanOrEqual(7);
     const photoCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
     expect(photoCall).toBeDefined();
@@ -743,8 +737,8 @@ describe("cron", () => {
     const event = {
       scheduledTime: Date.now(),
       cron: "* * * * *",
-      noRetry: () => {},
-      waitUntil: () => {},
+      noRetry: () => { },
+      waitUntil: () => { },
     } as any;
     await worker.scheduled(event, env, ctx);
     expect(spy).toHaveBeenCalled();
