@@ -48,6 +48,13 @@ export default {
       return Response.json(result);
     }
 
+    if (url.pathname === "/api/reset-activity" && req.method === "POST") {
+      const { resetActivityBatch } = await import("./migrate");
+      const cursor = url.searchParams.get("cursor") || undefined;
+      const result = await resetActivityBatch(env, cursor);
+      return Response.json(result);
+    }
+
     if (url.pathname === "/healthz") return new Response("ok");
     if (
       url.pathname.startsWith("/tg/") &&
