@@ -44,15 +44,15 @@ export interface CriminalIncrementPayload {
 }
 
 export class CountersDO {
-  constructor(private state: DurableObjectState, private env: Env) {}
+  constructor(private state: DurableObjectState, private env: Env) { }
 
   async fetch(request: Request): Promise<Response> {
     if (request.method !== 'POST')
       return new Response('Method not allowed', { status: 405 });
-    
+
     const url = new URL(request.url);
     const endpoint = url.pathname;
-    
+
     if (endpoint === '/inc') {
       let payload: IncrementPayload;
       try {
@@ -106,7 +106,7 @@ export class CountersDO {
     } else if (endpoint === '/batch') {
       return await this.processBatchRequest(request);
     }
-    
+
     return new Response('Not found', { status: 404 });
   }
 
@@ -129,6 +129,12 @@ export class CountersDO {
     const statsKey = `${STATS_PREFIX}:${chatId}:${userId}:${day}`;
     const count = parseInt((await this.env.COUNTERS.get(statsKey)) || '0', 10) + 1;
     await this.env.COUNTERS.put(statsKey, String(count));
+
+    // New optimized key format: stats_v2:chatId:day:userId
+    // This allows listing all users for a specific day efficiently
+    const statsV2Key = `stats_v2:${chatId}:${day}:${userId}`;
+    await this.env.COUNTERS.put(statsV2Key, String(count));
+
     await this.env.COUNTERS.put(`${USER_PREFIX}:${userId}`, username);
 
     const activityKey = `${ACTIVITY_PREFIX}:${chatId}:${day}`;
@@ -139,7 +145,7 @@ export class CountersDO {
       try {
         await this.env.DB.prepare(
           'INSERT INTO activity (chat_id, day, count) VALUES (?, ?, 1) ' +
-            'ON CONFLICT(chat_id, day) DO UPDATE SET count = count + 1',
+          'ON CONFLICT(chat_id, day) DO UPDATE SET count = count + 1',
         )
           .bind(chatId, day)
           .run();
@@ -156,20 +162,20 @@ export class CountersDO {
 
   private async incrementProfanityCounters(payload: ProfanityIncrementPayload) {
     const { chatId, userId, username, day, count, words } = payload;
-    
+
     Logger.debug(this.env, 'Profanity counters update', {
       chatId: chatId.toString(36),
       userId: userId.toString(36),
       totalCount: count,
       uniqueWords: words.length,
     });
-    
+
     const profanityUserKey = `${PROFANITY_USER_PREFIX}:${chatId}:${userId}:${day}`;
-    
+
     // Update user profanity count in KV
     const currentUserCount = parseInt((await this.env.COUNTERS.get(profanityUserKey)) || '0', 10);
     await this.env.COUNTERS.put(profanityUserKey, String(currentUserCount + count));
-    
+
     // Update word-specific counts in KV
     for (const word of words) {
       const wordKey = `${PROFANITY_WORDS_PREFIX}:${chatId}:${word.baseForm}:${day}`;
@@ -180,25 +186,25 @@ export class CountersDO {
 
   private async incrementCriminalCounters(payload: CriminalIncrementPayload) {
     const { chatId, userId, username, day, violations, totalSeverity } = payload;
-    
+
     Logger.debug(this.env, 'Criminal counters update', {
       chatId: chatId.toString(36),
       userId: userId.toString(36),
       totalSeverity,
       violationCount: violations.length,
     });
-    
+
     const criminalUserKey = `${CRIMINAL_USER_PREFIX}:${chatId}:${userId}:${day}`;
     const criminalSeverityKey = `${CRIMINAL_SEVERITY_PREFIX}:${chatId}:${userId}:${day}`;
-    
+
     // Update user criminal violations count in KV
     const currentUserCount = parseInt((await this.env.COUNTERS.get(criminalUserKey)) || '0', 10);
     await this.env.COUNTERS.put(criminalUserKey, String(currentUserCount + violations.length));
-    
+
     // Update user total severity in KV
     const currentSeverity = parseInt((await this.env.COUNTERS.get(criminalSeverityKey)) || '0', 10);
     await this.env.COUNTERS.put(criminalSeverityKey, String(currentSeverity + totalSeverity));
-    
+
     // Update article-specific counts in KV
     for (const violation of violations) {
       const articleKey = `${CRIMINAL_ARTICLE_PREFIX}:${chatId}:${violation.article}:${day}`;

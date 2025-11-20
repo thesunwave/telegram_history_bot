@@ -10,7 +10,9 @@ export async function topChat(
   n: number,
   day: string,
 ) {
-  const prefix = `stats:${chatId}:`;
+  // Use new optimized key format: stats_v2:chatId:day:userId
+  // This allows listing only keys for the specific day, avoiding full history scan
+  const prefix = `stats_v2:${chatId}:${day}:`;
   let cursor: string | undefined = undefined;
   const counts: Record<string, number> = {};
   do {
@@ -21,8 +23,8 @@ export async function topChat(
     );
     for (let i = 0; i < list.keys.length; i++) {
       const key = list.keys[i];
-      const [_, chat, user, d] = key.name.split(':');
-      if (d !== day) continue;
+      const [_, chat, d, user] = key.name.split(':');
+      // No need to check d === day because prefix ensures it
       const c = parseInt(values[i] || '0');
       counts[user] = (counts[user] || 0) + c;
     }
@@ -62,7 +64,7 @@ export async function resetCounters(env: Env, chatId: number) {
       await env.COUNTERS.delete(key.name);
     }
   } while (cursor);
-  
+
   // Reset profanity user counters
   const pPrefix = `profanity:${chatId}:`;
   cursor = undefined;
@@ -73,7 +75,7 @@ export async function resetCounters(env: Env, chatId: number) {
       await env.COUNTERS.delete(key.name);
     }
   } while (cursor);
-  
+
   // Reset profanity word counters
   const pwPrefix = `profanity_words:${chatId}:`;
   cursor = undefined;
@@ -84,7 +86,7 @@ export async function resetCounters(env: Env, chatId: number) {
       await env.COUNTERS.delete(key.name);
     }
   } while (cursor);
-  
+
   if (env.DB) {
     try {
       await env.DB.prepare('DELETE FROM activity WHERE chat_id = ?')
@@ -179,7 +181,7 @@ function createBarChartUrl(
   ) {
     throw new Error(
       `Invalid chart data: labels and data arrays must have equal lengths and contain at least one element each. ` +
-        `Received labels.length=${labels.length}, data.length=${data.length}.`,
+      `Received labels.length=${labels.length}, data.length=${data.length}.`,
     );
   }
   const chart: ChartConfig = {
@@ -277,7 +279,7 @@ export async function activityByUser(
   chatId: number,
   period: 'week' | 'month',
 ) {
-  const prefix = `stats:${chatId}:`;
+  const prefix = `stats_v2:${chatId}:`;
   let cursor: string | undefined = undefined;
   const totals: Record<string, number> = {};
   const today = new Date();
@@ -295,7 +297,7 @@ export async function activityByUser(
       list.keys.map((k: any) => env.COUNTERS.get(k.name)),
     );
     for (let i = 0; i < list.keys.length; i++) {
-      const [_, , user, day] = list.keys[i].name.split(':');
+      const [_, chat, day, user] = list.keys[i].name.split(':');
       if (day >= startStr) {
         const c = parseInt(values[i] || '0', 10);
         totals[user] = (totals[user] || 0) + c;
@@ -340,7 +342,7 @@ function getDateRange(period: string): { startStr: string; endStr: string } {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const endStr = today.toISOString().slice(0, 10);
-  
+
   let startStr: string;
   switch (period) {
     case 'week':
@@ -358,7 +360,7 @@ function getDateRange(period: string): { startStr: string; endStr: string } {
       startStr = endStr;
       break;
   }
-  
+
   return { startStr, endStr };
 }
 
@@ -366,14 +368,14 @@ function getDateRange(period: string): { startStr: string; endStr: string } {
 function censorWord(word: string): string {
   if (word.length <= 2) return word;
   if (word.length <= 4) return word[0] + '*'.repeat(word.length - 2) + word[word.length - 1];
-  
+
   const visibleChars = Math.ceil(word.length * 0.3);
   const startChars = Math.ceil(visibleChars / 2);
   const endChars = visibleChars - startChars;
-  
-  return word.slice(0, startChars) + 
-         '*'.repeat(word.length - startChars - endChars) + 
-         word.slice(-endChars);
+
+  return word.slice(0, startChars) +
+    '*'.repeat(word.length - startChars - endChars) +
+    word.slice(-endChars);
 }
 
 // Get top users by profanity count for a specific period
@@ -394,15 +396,15 @@ export async function getTopProfanityUsers(
     const values = await Promise.all(
       list.keys.map((k: any) => env.COUNTERS.get(k.name)),
     );
-    
+
     for (let i = 0; i < list.keys.length; i++) {
       const key = list.keys[i];
       const [_, chat, user, day] = key.name.split(':');
-      
+
       // Filter by period
       if (period === 'today' && day !== startStr) continue;
       if (period !== 'today' && day < startStr) continue;
-      
+
       const count = parseInt(values[i] || '0', 10);
       totals[user] = (totals[user] || 0) + count;
     }
@@ -443,15 +445,15 @@ export async function getTopProfanityWords(
     const values = await Promise.all(
       list.keys.map((k: any) => env.COUNTERS.get(k.name)),
     );
-    
+
     for (let i = 0; i < list.keys.length; i++) {
       const key = list.keys[i];
       const [_, chat, word, day] = key.name.split(':');
-      
+
       // Filter by period
       if (period === 'today' && day !== startStr) continue;
       if (period !== 'today' && day < startStr) continue;
-      
+
       const count = parseInt(values[i] || '0', 10);
       totals[word] = (totals[word] || 0) + count;
     }
@@ -478,11 +480,11 @@ export async function getUserProfanityStats(
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const todayStr = today.toISOString().slice(0, 10);
-  
+
   const weekStart = new Date(today);
   weekStart.setUTCDate(weekStart.getUTCDate() - WEEK_DAYS);
   const weekStartStr = weekStart.toISOString().slice(0, 10);
-  
+
   const monthStart = new Date(today);
   monthStart.setUTCDate(monthStart.getUTCDate() - MONTH_DAYS);
   const monthStartStr = monthStart.toISOString().slice(0, 10);
@@ -499,12 +501,12 @@ export async function getUserProfanityStats(
     const values = await Promise.all(
       list.keys.map((k: any) => env.COUNTERS.get(k.name)),
     );
-    
+
     for (let i = 0; i < list.keys.length; i++) {
       const key = list.keys[i];
       const [_, chat, user, day] = key.name.split(':');
       const count = parseInt(values[i] || '0', 10);
-      
+
       if (day === todayStr) {
         todayCount += count;
       }
@@ -536,7 +538,7 @@ export async function resetProfanityCounters(env: Env, chatId: number) {
       await env.COUNTERS.delete(key.name);
     }
   } while (cursor);
-  
+
   // Reset profanity word counters
   const pwPrefix = `profanity_words:${chatId}:`;
   cursor = undefined;
@@ -564,24 +566,24 @@ export async function profanityTopUsers(
   }
 
   const limit = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
-  
+
   try {
     const topUsers = await getTopProfanityUsers(env, chatId, limit, period);
-    
+
     if (topUsers.length === 0) {
       await sendMessage(env, chatId, 'Нет данных о матерной лексике');
       return;
     }
 
-    const periodText = period === 'today' ? 'сегодня' : 
-                     period === 'week' ? 'за неделю' : 'за месяц';
-    
+    const periodText = period === 'today' ? 'сегодня' :
+      period === 'week' ? 'за неделю' : 'за месяц';
+
     const lines = [`Топ матершинников ${periodText}:`];
     for (let i = 0; i < topUsers.length; i++) {
       const user = topUsers[i];
       lines.push(`${i + 1}. ${user.username}: ${user.count}`);
     }
-    
+
     const text = lines.join('\n');
     await sendMessage(env, chatId, text);
   } catch (error: any) {
@@ -608,24 +610,24 @@ export async function profanityWordsStats(
   }
 
   const limit = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
-  
+
   try {
     const topWords = await getTopProfanityWords(env, chatId, limit, period);
-    
+
     if (topWords.length === 0) {
       await sendMessage(env, chatId, 'Нет данных о матерных словах');
       return;
     }
 
-    const periodText = period === 'today' ? 'сегодня' : 
-                     period === 'week' ? 'за неделю' : 'за месяц';
-    
+    const periodText = period === 'today' ? 'сегодня' :
+      period === 'week' ? 'за неделю' : 'за месяц';
+
     const lines = [`Топ матерных слов ${periodText}:`];
     for (let i = 0; i < topWords.length; i++) {
       const word = topWords[i];
       lines.push(`${i + 1}. ${word.word}: ${word.count}`);
     }
-    
+
     const text = lines.join('\n');
     await sendMessage(env, chatId, text);
   } catch (error: any) {
@@ -683,7 +685,7 @@ export async function myProfanityStats(
     } else {
       // Show stats for all periods
       const stats = await getUserProfanityStats(env, chatId, userId);
-      
+
       if (stats.today === 0 && stats.week === 0 && stats.month === 0) {
         await sendMessage(env, chatId, 'У вас чистая речь!');
         return;
@@ -695,7 +697,7 @@ export async function myProfanityStats(
         `За неделю: ${stats.week}`,
         `За месяц: ${stats.month}`
       ];
-      
+
       const text = lines.join('\n');
       await sendMessage(env, chatId, text);
     }
@@ -743,7 +745,7 @@ export async function profanityChart(
   } while (cursor);
 
   let data: { label: string; value: number }[] = [];
-  
+
   if (period === 'week') {
     // Show daily data for the week
     const labels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -795,13 +797,13 @@ export async function profanityChart(
 // Helper function to format profanity activity text with ASCII chart
 function formatProfanityActivityText(data: { label: string; value: number }[], title: string): string {
   if (data.length === 0) return 'Нет данных о матерной лексике';
-  
+
   const hasData = data.some(d => d.value > 0);
   if (!hasData) return 'Нет данных о матерной лексике';
-  
+
   const text = drawGraph(data);
   const total = data.reduce((sum, d) => sum + d.value, 0);
-  
+
   return `${title}\n${text}\nВсего: ${total}`;
 }
 
@@ -876,11 +878,11 @@ export async function getUserCriminalStats(
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const todayStr = today.toISOString().slice(0, 10);
-  
+
   const weekStart = new Date(today);
   weekStart.setUTCDate(weekStart.getUTCDate() - WEEK_DAYS);
   const weekStartStr = weekStart.toISOString().slice(0, 10);
-  
+
   const monthStart = new Date(today);
   monthStart.setUTCDate(monthStart.getUTCDate() - MONTH_DAYS);
   const monthStartStr = monthStart.toISOString().slice(0, 10);
@@ -900,7 +902,7 @@ export async function getUserCriminalStats(
     for (let i = 0; i < list.keys.length; i++) {
       const [_, chat, user, day] = list.keys[i].name.split(':');
       const count = parseInt(values[i] || '0', 10);
-      
+
       if (day === todayStr) {
         todayCount += count;
       }
@@ -935,24 +937,24 @@ export async function criminalTopUsers(
   }
 
   const limit = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
-  
+
   try {
     const topUsers = await getTopCriminalUsers(env, chatId, limit, period);
-    
+
     if (topUsers.length === 0) {
       await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
       return;
     }
 
-    const periodText = period === 'today' ? 'сегодня' : 
-                     period === 'week' ? 'за неделю' : 'за месяц';
-    
+    const periodText = period === 'today' ? 'сегодня' :
+      period === 'week' ? 'за неделю' : 'за месяц';
+
     const lines = [`Топ нарушителей УК РФ ${periodText}:`];
     for (let i = 0; i < topUsers.length; i++) {
       const user = topUsers[i];
       lines.push(`${i + 1}. ${user.username}: ${user.count}`);
     }
-    
+
     const text = lines.join('\n');
     await sendMessage(env, chatId, text);
   } catch (error: any) {
@@ -982,7 +984,7 @@ export async function myCriminalStats(
       userId,
       error: error.message || String(error)
     });
-    
+
     // Fallback to legacy formatting if ViolationHandler fails
     try {
       if (period) {
@@ -1023,7 +1025,7 @@ export async function myCriminalStats(
       } else {
         // Show stats for all periods
         const stats = await getUserCriminalStats(env, chatId, userId);
-        
+
         if (stats.today === 0 && stats.week === 0 && stats.month === 0) {
           await sendMessage(env, chatId, 'У вас чистая речь!');
           return;
@@ -1035,7 +1037,7 @@ export async function myCriminalStats(
           `За неделю: ${stats.week}`,
           `За месяц: ${stats.month}`
         ];
-        
+
         const text = lines.join('\n');
         await sendMessage(env, chatId, text);
       }
@@ -1062,7 +1064,7 @@ export async function criminalCodeStats(
     await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
     return;
   }
-  
+
   try {
     // Convert period to days for ViolationHandler
     let days: number;
@@ -1089,29 +1091,29 @@ export async function criminalCodeStats(
       chatId,
       error: error.message || String(error)
     });
-    
+
     // Fallback to legacy formatting if ViolationHandler fails
     try {
       const topUsers = await getTopCriminalUsers(env, chatId, 10, period);
-      
+
       if (topUsers.length === 0) {
         await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
         return;
       }
 
-      const periodText = period === 'today' ? 'сегодня' : 
-                       period === 'week' ? 'за неделю' : 'за месяц';
-      
+      const periodText = period === 'today' ? 'сегодня' :
+        period === 'week' ? 'за неделю' : 'за месяц';
+
       const lines = [`Статистика нарушений УК РФ ${periodText}:`];
       const totalViolations = topUsers.reduce((sum, user) => sum + user.count, 0);
-      
+
       for (let i = 0; i < Math.min(topUsers.length, 10); i++) {
         const user = topUsers[i];
         lines.push(`${i + 1}. ${user.username}: ${user.count}`);
       }
-      
+
       lines.push(`\nВсего нарушений: ${totalViolations}`);
-      
+
       const text = lines.join('\n');
       await sendMessage(env, chatId, text);
     } catch (fallbackError: any) {
@@ -1136,7 +1138,7 @@ export async function resetCriminalCounters(env: Env, chatId: number) {
       await env.COUNTERS.delete(key.name);
     }
   } while (cursor);
-  
+
   // Reset criminal violations in database if available
   if (env.DB) {
     try {
