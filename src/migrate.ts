@@ -3,7 +3,7 @@ import { Env } from './env';
 export async function migrateStatsBatch(env: Env, cursor?: string): Promise<{ processed: number; nextCursor?: string; error?: string }> {
   const prefix = 'stats:';
   let processed = 0;
-  const activityUpdates = new Map<string, number>();
+  const activityTotals = new Map<string, number>();
 
   try {
     const list = await env.COUNTERS.list({ prefix, cursor, limit: 100 }); // Process 100 at a time to be safe within timeout
@@ -16,7 +16,7 @@ export async function migrateStatsBatch(env: Env, cursor?: string): Promise<{ pr
       const [_, chatId, userId, day] = parts;
 
       // Create new key: stats_v2:chatId:day:userId
-      const newKey = `stats_v2:${chatId}:${day}:${userId} `;
+      const newKey = `stats_v2:${chatId}:${day}:${userId}`;
 
       // Read value
       const value = await env.COUNTERS.get(key.name);
@@ -26,19 +26,35 @@ export async function migrateStatsBatch(env: Env, cursor?: string): Promise<{ pr
 
         // Aggregate for activity key
         // We blindly add here because we assume we are running a fresh migration or have reset activity keys.
-        const activityKey = `activity:${chatId}:${day} `;
         const count = parseInt(value, 10);
-        activityUpdates.set(activityKey, (activityUpdates.get(activityKey) || 0) + count);
+        const activityKey = `${chatId}:${day}`;
+        activityTotals.set(activityKey, (activityTotals.get(activityKey) || 0) + count);
 
         processed++;
       }
     }
 
     // Update activity keys
-    for (const [key, count] of activityUpdates) {
-      const current = await env.COUNTERS.get(key);
+    for (const [key, count] of activityTotals) {
+      const [chatId, day] = key.split(':');
+      const activityKey = `activity:${chatId}:${day}`;
+      const current = await env.COUNTERS.get(activityKey);
       const currentVal = current ? parseInt(current, 10) : 0;
-      await env.COUNTERS.put(key, (currentVal + count).toString());
+      const nextVal = currentVal + count;
+      await env.COUNTERS.put(activityKey, nextVal.toString());
+
+      if (env.DB) {
+        try {
+          await env.DB.prepare(
+            'INSERT INTO activity (chat_id, day, count) VALUES (?, ?, ?) ' +
+            'ON CONFLICT(chat_id, day) DO UPDATE SET count = count + ?',
+          )
+            .bind(Number(chatId), day, count, count)
+            .run();
+        } catch (e: any) {
+          return { processed, error: e.message };
+        }
+      }
     }
 
     return {
@@ -55,6 +71,10 @@ export async function resetActivityBatch(env: Env, cursor?: string): Promise<{ p
   let processed = 0;
 
   try {
+    if (!cursor && env.DB) {
+      await env.DB.prepare('DELETE FROM activity').run();
+    }
+
     const list = await env.COUNTERS.list({ prefix, cursor, limit: 100 });
 
     for (const key of list.keys) {

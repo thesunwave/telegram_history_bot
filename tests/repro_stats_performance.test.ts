@@ -54,7 +54,7 @@ describe('Stats Performance Repro', () => {
         const numDays = 365; // 1 year of history
 
         // Populate KV with extensive history using OLD keys
-        console.time('Populate KV (Old)');
+        const populateStart = performance.now();
         for (let u = 1; u <= numUsers; u++) {
             for (let d = 0; d < numDays; d++) {
                 const date = new Date(2025, 0, 1 + d).toISOString().slice(0, 10);
@@ -63,7 +63,7 @@ describe('Stats Performance Repro', () => {
                 kvData.set(`user:${u}`, `User${u}`);
             }
         }
-        console.timeEnd('Populate KV (Old)');
+        console.log(`Populate KV (Old): ${(performance.now() - populateStart).toFixed(3)}ms`);
         console.log(`Total keys (Old): ${kvData.size}`);
 
         // Run migration using the new batch function
@@ -80,9 +80,9 @@ describe('Stats Performance Repro', () => {
         vi.clearAllMocks();
 
         // Measure time to get top chat for today using NEW logic
-        console.time('topChat V2');
+        const topChatStart = performance.now();
         await topChat(env, chatId, 5, today);
-        console.timeEnd('topChat V2');
+        console.log(`topChat V2: ${(performance.now() - topChatStart).toFixed(3)}ms`);
 
         // With v2 keys, we expect to only list keys for the specific day
         // The prefix is `stats_v2:${chatId}:${day}:`
@@ -95,4 +95,3 @@ describe('Stats Performance Repro', () => {
         }));
     });
 });
-

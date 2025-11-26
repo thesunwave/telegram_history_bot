@@ -222,10 +222,11 @@ export async function activityChart(
       )
         .bind(chatId, startStr)
         .all();
-      for (const row of res.results as { day: string; count: number }[]) {
+      const rows = (res.results as { day: string; count: number }[]) || [];
+      for (const row of rows) {
         totals[row.day] = row.count;
       }
-      dbOk = true;
+      dbOk = rows.length > 0;
     } catch (e) {
       console.error('activity db read error', {
         chat: chatId.toString(36),
