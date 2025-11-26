@@ -280,8 +280,6 @@ export async function activityByUser(
   chatId: number,
   period: 'week' | 'month',
 ) {
-  const prefix = `stats_v2:${chatId}:`;
-  let cursor: string | undefined = undefined;
   const totals: Record<string, number> = {};
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
@@ -291,20 +289,34 @@ export async function activityByUser(
   );
   const startStr = start.toISOString().slice(0, 10);
   const endStr = today.toISOString().slice(0, 10);
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    const values = await Promise.all(
-      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
-    );
-    for (let i = 0; i < list.keys.length; i++) {
-      const [_, chat, day, user] = list.keys[i].name.split(':');
-      if (day >= startStr) {
+
+  // Limit KV scans to the required date range to avoid exceeding subrequest limits
+  const days: string[] = [];
+  for (
+    let d = new Date(start);
+    d.getTime() <= today.getTime();
+    d.setUTCDate(d.getUTCDate() + 1)
+  ) {
+    days.push(d.toISOString().slice(0, 10));
+  }
+
+  for (const day of days) {
+    const prefix = `stats_v2:${chatId}:${day}:`;
+    let cursor: string | undefined;
+    do {
+      const list: any = await env.COUNTERS.list({ prefix, cursor });
+      cursor = !list.list_complete ? list.cursor : undefined;
+      const values = await Promise.all(
+        list.keys.map((k: any) => env.COUNTERS.get(k.name)),
+      );
+      for (let i = 0; i < list.keys.length; i++) {
+        const [, , , user] = list.keys[i].name.split(':');
         const c = parseInt(values[i] || '0', 10);
         totals[user] = (totals[user] || 0) + c;
       }
     }
-  } while (cursor);
+    while (cursor);
+  }
 
   const sorted = Object.entries(totals)
     .sort((a, b) => b[1] - a[1])
