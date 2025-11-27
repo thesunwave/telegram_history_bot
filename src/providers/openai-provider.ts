@@ -414,15 +414,23 @@ export class OpenAIProvider implements AIProvider {
       return response.output_text;
     }
     if (Array.isArray(response.output)) {
-      const first = response.output[0];
-      if (typeof first === 'string') {
-        return first;
-      }
-      const content = first?.content || first?.message?.content;
-      if (Array.isArray(content)) {
-        const textPart = content.find((c: any) => c?.text?.value || c?.text);
-        if (textPart?.text?.value) return textPart.text.value;
-        if (typeof textPart?.text === 'string') return textPart.text;
+      // Prefer message-type items; fallback to any item with text
+      const orderedOutputs = [
+        ...response.output.filter((item: any) => item?.type === 'message' || item?.role === 'assistant'),
+        ...response.output
+      ];
+
+      for (const item of orderedOutputs) {
+        if (typeof item === 'string') return item;
+
+        const content = item?.content || item?.message?.content;
+        if (typeof content === 'string') return content;
+        if (Array.isArray(content)) {
+          const textPart = content.find((c: any) => c?.text?.value || c?.text || typeof c === 'string');
+          if (textPart?.text?.value) return textPart.text.value;
+          if (typeof textPart?.text === 'string') return textPart.text;
+          if (typeof textPart === 'string') return textPart;
+        }
       }
     }
     return typeof response === 'string' ? response : JSON.stringify(response);
