@@ -47,9 +47,11 @@ interface OpenAIResponsesRequest {
   max_output_tokens?: number;
   temperature?: number;
   top_p?: number;
-  verbosity?: 'low' | 'medium' | 'high';
   reasoning?: {
     effort: 'minimal' | 'low' | 'medium' | 'high';
+  };
+  text?: {
+    verbosity?: 'low' | 'medium' | 'high';
   };
   response_format?: {
     type: 'json_object' | 'text';
@@ -159,10 +161,27 @@ export class OpenAIProvider implements AIProvider {
   ): OpenAIResponsesRequest {
     const payload: any = { ...body };
 
+    // Clone nested objects before mutation
+    if (payload.text) {
+      payload.text = { ...payload.text };
+    }
+
     if (!allowed.temperature) delete payload.temperature;
     if (!allowed.top_p) delete payload.top_p;
-    if (!allowed.verbosity) delete payload.verbosity;
     if (!allowed.reasoning_effort) delete payload.reasoning;
+
+    // The Responses API now expects verbosity under text.verbosity
+    // Ensure old top-level verbosity is never sent
+    if ('verbosity' in payload) delete payload.verbosity;
+
+    if (payload.text) {
+      if (!allowed.verbosity) delete payload.text.verbosity;
+      if (payload.text.verbosity === undefined) delete payload.text.verbosity;
+
+      if (Object.keys(payload.text).length === 0) {
+        delete payload.text;
+      }
+    }
 
     for (const key of Object.keys(payload)) {
       if (payload[key] === undefined) {
@@ -283,7 +302,7 @@ export class OpenAIProvider implements AIProvider {
       }
 
       if (allowedParams.verbosity && options.verbosity !== undefined) {
-        responsesBody.verbosity = options.verbosity;
+        responsesBody.text = { verbosity: options.verbosity };
       }
 
       if (allowedParams.reasoning_effort && options.reasoningEffort !== undefined) {

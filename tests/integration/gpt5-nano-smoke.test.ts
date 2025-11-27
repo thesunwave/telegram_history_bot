@@ -89,7 +89,7 @@ describe('GPT-5-nano Smoke Tests', () => {
     expect(requestBody).not.toHaveProperty('presence_penalty');
     
     // Should have GPT-5 specific parameters
-    expect(requestBody.verbosity).toBe('low');
+    expect(requestBody.text?.verbosity).toBe('low');
     expect(requestBody.reasoning?.effort).toBe('minimal');
     
     // Should have basic required fields
@@ -137,7 +137,7 @@ describe('GPT-5-nano Smoke Tests', () => {
     const requestBody = JSON.parse(callArgs[1].body);
     
     // Should not include optional GPT-5 parameters when not provided
-    expect(requestBody).not.toHaveProperty('verbosity');
+    expect(requestBody.text).toBeUndefined();
     expect(requestBody.reasoning).toBeUndefined();
     
     // Should still exclude sampling parameters

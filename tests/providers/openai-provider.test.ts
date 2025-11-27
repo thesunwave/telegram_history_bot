@@ -768,7 +768,7 @@ describe('OpenAIProvider', () => {
       expect(requestBody.top_p).toBe(0.9);
       expect(requestBody.frequency_penalty).toBeUndefined();
       expect(requestBody.presence_penalty).toBeUndefined();
-      expect(requestBody.verbosity).toBe('low');
+      expect(requestBody.text?.verbosity).toBe('low');
       expect(requestBody.reasoning?.effort).toBe('medium');
     });
 
@@ -820,6 +820,7 @@ describe('OpenAIProvider', () => {
       expect(requestBody.max_tokens).toBe(150);
       expect(requestBody.temperature).toBe(0.7);
       expect(requestBody.top_p).toBe(0.9);
+      expect(requestBody.text).toBeUndefined();
       expect(requestBody).not.toHaveProperty('verbosity');
       expect(requestBody).not.toHaveProperty('reasoning_effort');
     });
