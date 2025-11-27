@@ -97,7 +97,7 @@ describe("ProviderFactory", () => {
       (mockEnv as any).SUMMARY_PROVIDER = "unsupported-provider";
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider: unsupported-provider. Supported providers: cloudflare, openai, openai-premium",
+        "Unsupported provider: unsupported-provider. Supported providers: cloudflare, openai, openai-premium, mock",
       );
     });
 
@@ -105,7 +105,7 @@ describe("ProviderFactory", () => {
       (mockEnv as any).SUMMARY_PROVIDER = "anthropic";
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider: anthropic. Supported providers: cloudflare, openai, openai-premium",
+        "Unsupported provider: anthropic. Supported providers: cloudflare, openai, openai-premium, mock",
       );
     });
 
@@ -128,6 +128,7 @@ describe("ProviderFactory", () => {
         "cloudflare",
         "openai",
         "openai-premium",
+        "mock",
       ]);
       expect(Array.isArray(supportedProviders)).toBe(true);
     });
@@ -164,7 +165,7 @@ describe("ProviderFactory", () => {
 
       // Should fail because we don't trim whitespace
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider:   openai  . Supported providers: cloudflare, openai, openai-premium",
+        "Unsupported provider:   openai  . Supported providers: cloudflare, openai, openai-premium, mock",
       );
     });
 
@@ -172,7 +173,7 @@ describe("ProviderFactory", () => {
       (mockEnv as any).SUMMARY_PROVIDER = 123;
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider: 123. Supported providers: cloudflare, openai, openai-premium",
+        "Unsupported provider: 123. Supported providers: cloudflare, openai, openai-premium, mock",
       );
     });
 
@@ -180,7 +181,7 @@ describe("ProviderFactory", () => {
       (mockEnv as any).SUMMARY_PROVIDER = true;
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider: true. Supported providers: cloudflare, openai, openai-premium",
+        "Unsupported provider: true. Supported providers: cloudflare, openai, openai-premium, mock",
       );
     });
 
@@ -202,6 +203,27 @@ describe("ProviderFactory", () => {
       expect(info2).toHaveProperty("name");
       expect(info2).toHaveProperty("model");
       expect(info2.name).toBe("openai");
+    });
+
+    it("should use capability-specific provider when configured", () => {
+      (mockEnv as any).SUMMARY_PROVIDER = "cloudflare";
+      (mockEnv as any).PROFANITY_PROVIDER = "openai";
+      (mockEnv as any).OPENAI_API_KEY = "test-key";
+
+      const provider = ProviderFactory.createProvider(mockEnv, "profanity");
+
+      expect(provider).toBeInstanceOf(OpenAIProvider);
+      expect(provider.getProviderInfo().name).toBe("openai");
+    });
+
+    it("should apply capability-specific model override", () => {
+      (mockEnv as any).PROFANITY_PROVIDER = "openai";
+      (mockEnv as any).PROFANITY_MODEL = "gpt-4.1";
+      (mockEnv as any).OPENAI_API_KEY = "test-key";
+
+      const provider = ProviderFactory.createProvider(mockEnv, "profanity");
+
+      expect(provider.getProviderInfo().model).toBe("gpt-4.1");
     });
 
     it("should handle missing required configuration gracefully", () => {

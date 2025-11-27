@@ -75,15 +75,20 @@
     "binding": "AI",
   },
   "vars": {
-    // Available values: "cloudflare", "openai", "mock"
+    // Available values: "cloudflare", "openai", "openai-premium", "mock"
     "SUMMARY_PROVIDER": "openai",
+    "PROFANITY_PROVIDER": "openai",
+    "CRIMINAL_PROVIDER": "openai",
+    // Capability-specific model overrides (optional)
+    "OPENAI_MODEL": "gpt-5-mini",
+    "PROFANITY_MODEL": "gpt-4.1-nano",
+    "CRIMINAL_MODEL": "gpt-5-mini",
     "CLOUDFLARE_MODEL": "@cf/meta/llama-3.1-70b-instruct",
     "CLOUDFLARE_MAX_TOKENS": 500,
     "CLOUDFLARE_TEMPERATURE": 0.1,
     "CLOUDFLARE_TOP_P": 0.95,
     "CLOUDFLARE_FREQUENCY_PENALTY": 0.1,
     "CLOUDFLARE_PRESENCE_PENALTY": 0.05,   // Lower value for Cloudflare models
-    "OPENAI_MODEL": "gpt-4.1-nano",
     "OPENAI_MAX_TOKENS": 1500,
     "OPENAI_TEMPERATURE": 0.1,
     "OPENAI_TOP_P": 0.9,
@@ -192,16 +197,15 @@
     },
   ],
   // ========================================
-  // � ПРИМЕРЫ ОПЕРЕКЛЮЧЕНИЯ ПРОВАЙДЕРОВ
+  // 🌐 ПЕРЕКЛЮЧЕНИЕ ПРОВАЙДЕРОВ ПО ФУНКЦИЯМ
   // ========================================
+  // SUMMARY_PROVIDER     - генерация саммари
+  // PROFANITY_PROVIDER   - проверка мата/обсценной лексики
+  // CRIMINAL_PROVIDER    - проверка на нарушения УК РФ
   //
-  // Для Cloudflare AI:
-  // "SUMMARY_PROVIDER": "cloudflare"
-  // (API ключ не нужен, все остальное уже настроено)
-  //
-  // Для OpenAI Standard:
-  // "SUMMARY_PROVIDER": "openai"
-  // (не забудьте добавить ваш API ключ в OPENAI_API_KEY)
+  // Для OpenAI Standard: "openai" + OPENAI_API_KEY
+  // Для OpenAI Premium: "openai-premium" + OPENAI_PREMIUM_API_KEY
+  // (Cloudflare варианты доступны, но сейчас отключены)
   //
   // ========================================
   // 🔐 БЕЗОПАСНОСТЬ API КЛЮЧЕЙ
@@ -237,21 +241,8 @@
   // 🔧 КАК РАБОТАЕТ ЛОГИКА ПРОВАЙДЕРОВ
   // ========================================
   //
-  // Код автоматически выбирает нужные настройки на основе SUMMARY_PROVIDER:
-  //
-  // if (SUMMARY_PROVIDER === "cloudflare") {
-  //   model = CLOUDFLARE_MODEL
-  //   maxTokens = CLOUDFLARE_MAX_TOKENS
-  //   // и т.д.
-  // } else if (SUMMARY_PROVIDER === "openai") {
-  //   apiKey = OPENAI_API_KEY
-  //   model = OPENAI_MODEL
-  //   maxTokens = OPENAI_MAX_TOKENS
-  //   // и т.д.
-  // } else if (SUMMARY_PROVIDER === "openai-premium") {
-  //   apiKey = OPENAI_PREMIUM_API_KEY
-  //   model = OPENAI_PREMIUM_MODEL
-  //   maxTokens = OPENAI_PREMIUM_MAX_TOKENS
-  //   // и т.д.
-  // }
+  // - SUMMARY_PROVIDER управляет генерацией саммари
+  // - PROFANITY_PROVIDER управляет проверкой мата
+  // - CRIMINAL_PROVIDER управляет проверкой УК РФ
+  // - Если специализированный провайдер не указан, используется SUMMARY_PROVIDER
 }

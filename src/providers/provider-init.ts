@@ -20,7 +20,7 @@ export class ProviderInitializer {
       console.log("Provider initialization started");
 
       // Create provider instance
-      const provider = ProviderFactory.createProvider(env);
+      const provider = ProviderFactory.createProvider(env, 'summary');
       const providerInfo = provider.getProviderInfo();
 
       console.log("Provider created", {
@@ -77,7 +77,7 @@ export class ProviderInitializer {
       console.warn("Provider not initialized, performing lazy initialization");
       // For backward compatibility, create provider on-demand
       // This should ideally not happen if proper initialization is done
-      this.instance = ProviderFactory.createProvider(env);
+      this.instance = ProviderFactory.createProvider(env, 'summary');
       this.instance.validateConfig();
       this.isInitialized = true;
       return this.instance;

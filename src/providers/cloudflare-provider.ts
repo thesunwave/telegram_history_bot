@@ -16,7 +16,19 @@ import {
 } from "./ai-provider";
 
 export class CloudflareAIProvider implements AIProvider {
-  constructor(private env: Env) {}
+  constructor(private env: Env, private modelOverride?: string) {
+    if (this.modelOverride) {
+      this.modelOverride = this.modelOverride.trim();
+    }
+  }
+
+  private getModel(): string {
+    return (
+      this.modelOverride ||
+      (this.env as any).CLOUDFLARE_MODEL ||
+      this.env.SUMMARY_MODEL
+    );
+  }
 
   async summarize(request: SummaryRequest, options: SummaryOptions, env?: Env): Promise<string> {
     // Format messages as "username: text"
@@ -26,7 +38,7 @@ export class CloudflareAIProvider implements AIProvider {
       let response: any;
       
       // Support both new and old configuration variables for backward compatibility
-      const model = (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL;
+      const model = this.getModel();
       
       if (model.includes('chat')) {
         const contentForChat = request.messages
@@ -85,7 +97,7 @@ export class CloudflareAIProvider implements AIProvider {
       throw new Error('AI binding is required for Cloudflare provider');
     }
     // Support both new and old configuration variables for backward compatibility
-    const model = (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL;
+    const model = this.getModel();
     if (!model) {
       throw new Error('CLOUDFLARE_MODEL or SUMMARY_MODEL is required for Cloudflare provider');
     }
@@ -93,7 +105,7 @@ export class CloudflareAIProvider implements AIProvider {
 
   async analyzeProfanity(text: string, env?: any): Promise<ProfanityAnalysisResult> {
     const startTime = Date.now();
-    const model = (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL;
+    const model = this.getModel();
     
     try {
       if (env) {
@@ -277,7 +289,7 @@ export class CloudflareAIProvider implements AIProvider {
 
   async analyzeCriminalCode(text: string, env?: any): Promise<CriminalAnalysisResult> {
     const startTime = Date.now();
-    const model = (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL;
+    const model = this.getModel();
 
     try {
       if (env) {
@@ -475,7 +487,7 @@ export class CloudflareAIProvider implements AIProvider {
 
   getProviderInfo(): ProviderInfo {
     // Support both new and old configuration variables for backward compatibility
-    const model = (this.env as any).CLOUDFLARE_MODEL || this.env.SUMMARY_MODEL;
+    const model = this.getModel();
     return {
       name: 'cloudflare',
       model

@@ -40,7 +40,7 @@ export class CriminalCodeAnalyzerDO {
 
   private async doInitialize(): Promise<void> {
     try {
-      this.aiProvider = await ProviderFactory.createProvider(this.env);
+      this.aiProvider = await ProviderFactory.createProvider(this.env, 'criminal');
       console.log('✅ CriminalCodeAnalyzerDO initialized successfully');
     } catch (error) {
       console.error('❌ Failed to initialize CriminalCodeAnalyzerDO:', error);

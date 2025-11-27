@@ -63,7 +63,7 @@ export class DirectProcessor implements IDirectProcessor {
       }
 
       // Create AI provider
-      const provider = ProviderFactory.createProvider(env);
+      const provider = ProviderFactory.createProvider(env, 'summary');
 
       // Build summary request with existing prompts
       const summaryRequest = this.buildSummaryRequest(optimizedMessages, env);

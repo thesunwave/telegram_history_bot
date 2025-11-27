@@ -144,7 +144,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
     chunks: TelegramMessage[][],
     env: Env
   ): Promise<ChunkUserSummaries[]> {
-    const provider = ProviderFactory.createProvider(env);
+    const provider = ProviderFactory.createProvider(env, 'summary');
     const config = loadOptimizationConfig(env);
     const results: ChunkUserSummaries[] = [];
 
@@ -238,7 +238,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
     originalMessages: TelegramMessage[],
     env: Env
   ): Promise<string> {
-    const provider = ProviderFactory.createProvider(env);
+    const provider = ProviderFactory.createProvider(env, 'summary');
 
     // Create synthetic messages where each message represents a user's aggregated summary
     const baseTs = originalMessages.length > 0 ? originalMessages[0].ts : Math.floor(Date.now() / 1000);
@@ -387,7 +387,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
     chunks: TelegramMessage[][], 
     env: Env
   ): Promise<string[]> {
-    const provider = ProviderFactory.createProvider(env);
+    const provider = ProviderFactory.createProvider(env, 'summary');
     const config = loadOptimizationConfig(env);
     const results: string[] = [];
 
@@ -438,7 +438,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
     originalMessages: TelegramMessage[],
     env: Env
   ): Promise<string> {
-    const provider = ProviderFactory.createProvider(env);
+    const provider = ProviderFactory.createProvider(env, 'summary');
     const config = loadOptimizationConfig(env);
 
     // Create synthetic messages from intermediate results

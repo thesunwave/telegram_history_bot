@@ -1,4 +1,4 @@
-type ProviderType = 'cloudflare' | 'openai';
+type ProviderType = 'cloudflare' | 'openai' | 'openai-premium' | 'mock';
 
 interface Env {
   HISTORY: KVNamespace;
@@ -17,6 +17,10 @@ interface Env {
   SUMMARY_TOP_P?: number;
   SUMMARY_FREQUENCY_PENALTY?: number;
   SUMMARY_PROVIDER?: ProviderType;
+  PROFANITY_PROVIDER?: ProviderType;
+  CRIMINAL_PROVIDER?: ProviderType;
+  PROFANITY_MODEL?: string;
+  CRIMINAL_MODEL?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
 }

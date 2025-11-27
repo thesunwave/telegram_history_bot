@@ -1,4 +1,4 @@
-export type ProviderType = "cloudflare" | "openai" | "openai-premium";
+export type ProviderType = "cloudflare" | "openai" | "openai-premium" | "mock";
 
 export interface Env {
   HISTORY: import("@cloudflare/workers-types").KVNamespace;
@@ -23,6 +23,10 @@ export interface Env {
   SUMMARY_FREQUENCY_PENALTY?: number;
   SUMMARY_SEED?: number;
   SUMMARY_PROVIDER?: ProviderType;
+  PROFANITY_PROVIDER?: ProviderType;
+  CRIMINAL_PROVIDER?: ProviderType;
+  PROFANITY_MODEL?: string;
+  CRIMINAL_MODEL?: string;
   PROFANITY_SYSTEM_PROMPT?: string;
   PROFANITY_USER_PROMPT?: string;
   OPENAI_API_KEY?: string;

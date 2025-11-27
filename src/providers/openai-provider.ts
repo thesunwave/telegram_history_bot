@@ -95,15 +95,19 @@ export class OpenAIProvider implements AIProvider {
     };
   }
 
-  constructor(env: Env, providerType: 'standard' | 'premium' = 'standard') {
+  constructor(env: Env, providerType: 'standard' | 'premium' = 'standard', modelOverride?: string) {
     this.providerType = providerType;
 
     if (providerType === 'premium') {
       this.apiKey = (env as any).OPENAI_PREMIUM_API_KEY || (env as any).OPENAI_API_KEY;
-      this.model = (env as any).OPENAI_PREMIUM_MODEL || (env as any).OPENAI_MODEL || 'gpt-4-turbo';
+      this.model =
+        modelOverride?.trim() ||
+        (env as any).OPENAI_PREMIUM_MODEL ||
+        (env as any).OPENAI_MODEL ||
+        'gpt-4-turbo';
     } else {
       this.apiKey = (env as any).OPENAI_API_KEY;
-      this.model = (env as any).OPENAI_MODEL || 'gpt-3.5-turbo';
+      this.model = modelOverride?.trim() || (env as any).OPENAI_MODEL || 'gpt-3.5-turbo';
     }
   }
 

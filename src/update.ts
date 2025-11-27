@@ -332,7 +332,7 @@ async function analyzeProfanityAsync(
       chatId: chatId.toString(36),
       textLength: msg.text?.length
     });
-    const aiProvider = ProviderFactory.createProvider(env);
+    const aiProvider = ProviderFactory.createProvider(env, 'profanity');
     const profanityAnalyzer = new ProfanityAnalyzer(aiProvider);
     timings.providerCreation = Date.now() - providerStart;
     Logger.log('PROFANITY: AI provider created successfully', {
