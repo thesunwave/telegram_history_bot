@@ -870,6 +870,49 @@ describe('OpenAIProvider', () => {
       expect(requestBody.presence_penalty).toBe(0.5);
     });
 
+    it('should throw ProviderError when Responses API returns no text output', async () => {
+      mockEnv.OPENAI_MODEL = 'gpt-5-mini';
+      const gpt5Provider = new OpenAIProvider(mockEnv);
+
+      const mockRequest: SummaryRequest = {
+        messages: [
+          { username: 'user1', text: 'Hello world', ts: 1234567890 }
+        ],
+        systemPrompt: 'You are a helpful assistant',
+        userPrompt: 'Summarize this conversation',
+        limitNote: 'Keep it under 100 characters'
+      };
+
+      const mockOptions: SummaryOptions = {
+        maxTokens: 150,
+        temperature: 0.7,
+        topP: 0.9
+      };
+
+      const mockOpenAIResponse = {
+        id: 'resp_test',
+        status: 'incomplete',
+        incomplete_details: { reason: 'max_output_tokens' },
+        output: [
+          { id: 'rs_1', type: 'reasoning', summary: [] }
+        ],
+        usage: {
+          input_tokens: 50,
+          output_tokens: 150,
+          output_tokens_details: { reasoning_tokens: 150 },
+          total_tokens: 200
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockOpenAIResponse)
+      });
+
+      await expect(gpt5Provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow(ProviderError);
+      await expect(gpt5Provider.summarize(mockRequest, mockOptions, undefined)).rejects.toThrow(/incomplete result/i);
+    });
+
     it('should handle 400 errors with parameter information', async () => {
       const mockRequest: SummaryRequest = {
         messages: [

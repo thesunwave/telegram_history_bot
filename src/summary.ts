@@ -543,7 +543,10 @@ export async function summariseChatLegacy(
 
       if (error instanceof ProviderError) {
         // Provider-specific errors
-        if (/rate limit|too many requests/i.test(e.message)) {
+        if (/incomplete result|did not return any text output/i.test(e.message)) {
+          userMessage =
+            "AI не смог завершить сводку: закончились токены. Попробуйте сократить период или количество сообщений.";
+        } else if (/rate limit|too many requests/i.test(e.message)) {
           userMessage =
             "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
         } else if (/timeout/i.test(e.message)) {
@@ -885,7 +888,10 @@ export async function summariseChatMessagesLegacy(
 
       if (error instanceof ProviderError) {
         // Provider-specific errors
-        if (/rate limit|too many requests/i.test(e.message)) {
+        if (/incomplete result|did not return any text output/i.test(e.message)) {
+          userMessage =
+            "AI не смог завершить сводку: закончились токены. Попробуйте запросить меньше сообщений.";
+        } else if (/rate limit|too many requests/i.test(e.message)) {
           userMessage =
             "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
         } else if (/timeout/i.test(e.message)) {

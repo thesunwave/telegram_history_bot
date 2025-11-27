@@ -409,10 +409,21 @@ export class OpenAIProvider implements AIProvider {
   }
 
   private extractResponsesContent(response: any): string {
-    if (!response) return '';
-    if (typeof response.output_text === 'string') {
-      return response.output_text;
+    if (!response) {
+      throw new ProviderError('OpenAI Responses API returned empty response', 'openai');
     }
+
+    if (typeof response === 'string') {
+      return response;
+    }
+
+    const status = response.status;
+    const incompleteReason = response.incomplete_details?.reason;
+
+    if (typeof response.output_text === 'string' && response.output_text.trim()) {
+      return response.output_text.trim();
+    }
+
     if (Array.isArray(response.output)) {
       // Prefer message-type items; fallback to any item with text
       const orderedOutputs = [
@@ -421,19 +432,30 @@ export class OpenAIProvider implements AIProvider {
       ];
 
       for (const item of orderedOutputs) {
-        if (typeof item === 'string') return item;
+        if (typeof item === 'string' && item.trim()) return item.trim();
 
         const content = item?.content || item?.message?.content;
-        if (typeof content === 'string') return content;
+        if (typeof content === 'string' && content.trim()) return content.trim();
         if (Array.isArray(content)) {
           const textPart = content.find((c: any) => c?.text?.value || c?.text || typeof c === 'string');
-          if (textPart?.text?.value) return textPart.text.value;
-          if (typeof textPart?.text === 'string') return textPart.text;
-          if (typeof textPart === 'string') return textPart;
+          if (textPart?.text?.value?.trim()) return textPart.text.value.trim();
+          if (typeof textPart?.text === 'string' && textPart.text.trim()) return textPart.text.trim();
+          if (typeof textPart === 'string' && textPart.trim()) return textPart.trim();
+        }
+
+        if (Array.isArray(item?.summary) && item.summary.length > 0) {
+          const summaryText = item.summary.join(' ').trim();
+          if (summaryText) return summaryText;
         }
       }
     }
-    return typeof response === 'string' ? response : JSON.stringify(response);
+
+    if (status && status !== 'completed') {
+      const reasonSuffix = incompleteReason ? ` (${incompleteReason})` : '';
+      throw new ProviderError(`OpenAI Responses API returned incomplete result${reasonSuffix}`, 'openai');
+    }
+
+    throw new ProviderError('OpenAI Responses API did not return any text output', 'openai');
   }
 
   validateConfig(): void {
