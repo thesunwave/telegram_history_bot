@@ -1336,15 +1336,15 @@ describe("Summary Providers Integration Tests", () => {
       await worker.fetch(req, env, ctx);
       await Promise.all(tasks);
       
-      // Verify GPT-5 uses max_completion_tokens
+      // Verify GPT-5 uses Responses API with max_output_tokens
       const openaiCall = fetchMock.mock.calls.find((call: any[]) => 
-        call[0].includes('chat/completions')
+        call[0].includes('responses')
       );
       expect(openaiCall).toBeDefined();
       const requestBody = JSON.parse(openaiCall[1].body);
       
       expect(requestBody.model).toBe('gpt-5-nano');
-      expect(requestBody.max_completion_tokens).toBeDefined();
+      expect(requestBody.max_output_tokens).toBeDefined();
       expect(requestBody).not.toHaveProperty('max_tokens');
     });
   });

@@ -19,7 +19,6 @@ interface OpenAIChatRequest {
   model: string;
   messages: ChatMessage[];
   max_tokens?: number;
-  max_completion_tokens?: number;
   temperature?: number;
   top_p?: number;
   frequency_penalty?: number;
@@ -27,6 +26,22 @@ interface OpenAIChatRequest {
   seed?: number;
   verbosity?: 'low' | 'medium' | 'high';
   reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
+  response_format?: {
+    type: 'json_object' | 'text';
+  };
+}
+
+interface OpenAIResponsesRequest {
+  model: string;
+  input: Array<string | { role: string; content: string }>;
+  instructions?: string;
+  max_output_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  verbosity?: 'low' | 'medium' | 'high';
+  reasoning?: {
+    effort: 'minimal' | 'low' | 'medium' | 'high';
+  };
   response_format?: {
     type: 'json_object' | 'text';
   };
@@ -56,7 +71,6 @@ export class OpenAIProvider implements AIProvider {
   private providerType: 'standard' | 'premium';
   
   private isGPT5Model(model: string): boolean {
-    // GPT-5 models use max_completion_tokens parameter
     return model.toLowerCase().includes('gpt-5') || model.toLowerCase().includes('gpt5');
   }
 
@@ -78,8 +92,9 @@ export class OpenAIProvider implements AIProvider {
       return {
         temperature: true,
         top_p: true,
-        presence_penalty: true,
-        frequency_penalty: true,
+        // GPT-5.1 family currently rejects frequency/presence penalties
+        presence_penalty: false,
+        frequency_penalty: false,
         verbosity: true,
         reasoning_effort: true
       };
@@ -172,63 +187,100 @@ export class OpenAIProvider implements AIProvider {
   private async callOpenAI(messages: ChatMessage[], options: SummaryOptions, forceJsonResponse?: boolean): Promise<OpenAIChatResponse> {
     const isGPT5 = this.isGPT5Model(this.model);
     const allowedParams = this.allowedParamsFor(this.model);
-
-    const requestBody: OpenAIChatRequest = {
-      model: this.model,
-      messages
-    };
-
-    // Use appropriate token parameter based on model generation
-    if (isGPT5) {
-      requestBody.max_completion_tokens = options.maxTokens;
-    } else {
-      requestBody.max_tokens = options.maxTokens;
-    }
-
-    // Add sampling parameters only if supported by the model
-    if (allowedParams.temperature) {
-      requestBody.temperature = options.temperature;
-    }
-
-    if (allowedParams.top_p) {
-      requestBody.top_p = options.topP;
-    }
-
-    if (allowedParams.frequency_penalty && options.frequencyPenalty !== undefined) {
-      requestBody.frequency_penalty = options.frequencyPenalty;
-    }
-    if (allowedParams.presence_penalty && options.presencePenalty !== undefined) {
-      requestBody.presence_penalty = options.presencePenalty;
-    }
-
-    // Add GPT-5 specific parameters if supported
-    if (allowedParams.verbosity && options.verbosity !== undefined) {
-      requestBody.verbosity = options.verbosity;
-    }
-
-    if (allowedParams.reasoning_effort && options.reasoningEffort !== undefined) {
-      requestBody.reasoning_effort = options.reasoningEffort;
-    }
-
-    // Always include seed if provided
-    if (options.seed !== undefined) {
-      requestBody.seed = options.seed;
-    }
-
-    // Force JSON response format when requested (used by profanity analysis and per-user preprocessing)
-    if (forceJsonResponse) {
-      requestBody.response_format = { type: 'json_object' };
-    }
-
     const headers: Record<string, string> = {
       'Authorization': `Bearer ${this.apiKey}`,
       'Content-Type': 'application/json'
     };
 
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+    const useResponsesApi = isGPT5;
+    let url = `${this.baseUrl}/chat/completions`;
+    let body: OpenAIChatRequest | OpenAIResponsesRequest;
+
+    if (useResponsesApi) {
+      // Responses API payload for GPT-5.*
+      const instructionsMessage = messages.find((m) => m.role === 'system' || m.role === 'developer');
+      const remainingMessages = messages.filter((m) => m !== instructionsMessage);
+
+      const responsesBody: OpenAIResponsesRequest = {
+        model: this.model,
+        input: remainingMessages.map((m) => ({ role: m.role, content: m.content })),
+        max_output_tokens: options.maxTokens
+      };
+
+      if (instructionsMessage) {
+        responsesBody.instructions = instructionsMessage.content;
+      }
+
+      if (allowedParams.temperature) {
+        responsesBody.temperature = options.temperature;
+      }
+
+      if (allowedParams.top_p) {
+        responsesBody.top_p = options.topP;
+      }
+
+      if (allowedParams.verbosity && options.verbosity !== undefined) {
+        responsesBody.verbosity = options.verbosity;
+      }
+
+      if (allowedParams.reasoning_effort && options.reasoningEffort !== undefined) {
+        responsesBody.reasoning = { effort: options.reasoningEffort };
+      }
+
+      if (forceJsonResponse) {
+        responsesBody.response_format = { type: 'json_object' };
+      }
+
+      url = `${this.baseUrl}/responses`;
+      body = responsesBody;
+    } else {
+      const requestBody: OpenAIChatRequest = {
+        model: this.model,
+        messages,
+        max_tokens: options.maxTokens
+      };
+
+      // Add sampling parameters only if supported by the model
+      if (allowedParams.temperature) {
+        requestBody.temperature = options.temperature;
+      }
+
+      if (allowedParams.top_p) {
+        requestBody.top_p = options.topP;
+      }
+
+      if (allowedParams.frequency_penalty && options.frequencyPenalty !== undefined) {
+        requestBody.frequency_penalty = options.frequencyPenalty;
+      }
+      if (allowedParams.presence_penalty && options.presencePenalty !== undefined) {
+        requestBody.presence_penalty = options.presencePenalty;
+      }
+
+      if (allowedParams.verbosity && options.verbosity !== undefined) {
+        requestBody.verbosity = options.verbosity;
+      }
+
+      if (allowedParams.reasoning_effort && options.reasoningEffort !== undefined) {
+        requestBody.reasoning_effort = options.reasoningEffort;
+      }
+
+      // Always include seed if provided
+      if (options.seed !== undefined) {
+        requestBody.seed = options.seed;
+      }
+
+      // Force JSON response format when requested (used by profanity analysis and per-user preprocessing)
+      if (forceJsonResponse) {
+        requestBody.response_format = { type: 'json_object' };
+      }
+
+      body = requestBody;
+    }
+
+    const response = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) {
@@ -272,7 +324,45 @@ export class OpenAIProvider implements AIProvider {
       }
     }
 
-    return (await response.json()) as OpenAIChatResponse;
+    const parsed = await response.json();
+    if (useResponsesApi) {
+      const content = this.extractResponsesContent(parsed);
+      return {
+        choices: [
+          {
+            message: { content },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: parsed.usage || {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0
+        }
+      } as OpenAIChatResponse;
+    }
+
+    return parsed as OpenAIChatResponse;
+  }
+
+  private extractResponsesContent(response: any): string {
+    if (!response) return '';
+    if (typeof response.output_text === 'string') {
+      return response.output_text;
+    }
+    if (Array.isArray(response.output)) {
+      const first = response.output[0];
+      if (typeof first === 'string') {
+        return first;
+      }
+      const content = first?.content || first?.message?.content;
+      if (Array.isArray(content)) {
+        const textPart = content.find((c: any) => c?.text?.value || c?.text);
+        if (textPart?.text?.value) return textPart.text.value;
+        if (typeof textPart?.text === 'string') return textPart.text;
+      }
+    }
+    return typeof response === 'string' ? response : JSON.stringify(response);
   }
 
   validateConfig(): void {

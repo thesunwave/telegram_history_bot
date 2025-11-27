@@ -472,7 +472,7 @@ describe('OpenAIProvider', () => {
   });
 
   describe('GPT-5 model support', () => {
-    it('should use max_completion_tokens for GPT-5 models', async () => {
+    it('should use max_output_tokens via Responses API for GPT-5 models', async () => {
       mockEnv.OPENAI_MODEL = 'gpt-5-nano';
       const gpt5Provider = new OpenAIProvider(mockEnv);
 
@@ -492,14 +492,7 @@ describe('OpenAIProvider', () => {
       };
 
       const mockOpenAIResponse = {
-        choices: [
-          {
-            message: {
-              content: 'Test summary from GPT-5'
-            },
-            finish_reason: 'stop'
-          }
-        ],
+        output_text: 'Test summary from GPT-5',
         usage: {
           prompt_tokens: 50,
           completion_tokens: 25,
@@ -514,7 +507,7 @@ describe('OpenAIProvider', () => {
 
       await gpt5Provider.summarize(mockRequest, mockOptions, undefined);
 
-      expect(mockFetch).toHaveBeenCalledWith('https://api.openai.com/v1/chat/completions', {
+      expect(mockFetch).toHaveBeenCalledWith('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
           'Authorization': 'Bearer test-api-key',
@@ -527,10 +520,12 @@ describe('OpenAIProvider', () => {
       const callArgs = mockFetch.mock.calls[0];
       const requestBody = JSON.parse(callArgs[1].body);
       expect(requestBody.model).toBe('gpt-5-nano');
-      expect(requestBody.max_completion_tokens).toBe(150);
+      expect(requestBody.max_output_tokens).toBe(150);
       expect(requestBody).not.toHaveProperty('max_tokens');
       expect(requestBody).not.toHaveProperty('temperature'); // GPT-5-nano doesn't support sampling params
       expect(requestBody).not.toHaveProperty('top_p');
+      expect(requestBody.input).toBeDefined();
+      expect(requestBody.instructions).toBeDefined();
     });
 
     it('should use max_tokens for non-GPT-5 models', async () => {
@@ -612,14 +607,7 @@ describe('OpenAIProvider', () => {
       };
 
       const mockOpenAIResponse = {
-        choices: [
-          {
-            message: {
-              content: 'Test summary from GPT-5-nano'
-            },
-            finish_reason: 'stop'
-          }
-        ],
+        output_text: 'Test summary from GPT-5-nano',
         usage: {
           prompt_tokens: 50,
           completion_tokens: 25,
@@ -664,14 +652,7 @@ describe('OpenAIProvider', () => {
       };
 
       const mockOpenAIResponse = {
-        choices: [
-          {
-            message: {
-              content: 'Test summary from GPT-5-turbo'
-            },
-            finish_reason: 'stop'
-          }
-        ],
+        output_text: 'Test summary from GPT-5-turbo',
         usage: {
           prompt_tokens: 50,
           completion_tokens: 25,
@@ -718,14 +699,7 @@ describe('OpenAIProvider', () => {
       };
 
       const mockOpenAIResponse = {
-        choices: [
-          {
-            message: {
-              content: 'Test summary with reasoning'
-            },
-            finish_reason: 'stop'
-          }
-        ],
+        output_text: 'Test summary with reasoning',
         usage: {
           prompt_tokens: 50,
           completion_tokens: 25,
@@ -743,13 +717,13 @@ describe('OpenAIProvider', () => {
       const callArgs = mockFetch.mock.calls[0];
       const requestBody = JSON.parse(callArgs[1].body);
       expect(requestBody.model).toBe('gpt-5-turbo');
-      expect(requestBody.max_completion_tokens).toBe(150);
+      expect(requestBody.max_output_tokens).toBe(150);
       expect(requestBody.temperature).toBe(0.7);
       expect(requestBody.top_p).toBe(0.9);
-      expect(requestBody.frequency_penalty).toBe(0.1);
-      expect(requestBody.presence_penalty).toBe(0.2);
+      expect(requestBody.frequency_penalty).toBeUndefined();
+      expect(requestBody.presence_penalty).toBeUndefined();
       expect(requestBody.verbosity).toBe('low');
-      expect(requestBody.reasoning_effort).toBe('medium');
+      expect(requestBody.reasoning?.effort).toBe('medium');
     });
 
     it('should exclude GPT-5 parameters for non-GPT-5 models', async () => {

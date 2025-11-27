@@ -49,14 +49,7 @@ describe('GPT-5-nano Smoke Tests', () => {
     };
 
     const mockOpenAIResponse = {
-      choices: [
-        {
-          message: {
-            content: 'Brief greeting exchange'
-          },
-          finish_reason: 'stop'
-        }
-      ],
+      output_text: 'Brief greeting exchange',
       usage: {
         prompt_tokens: 30,
         completion_tokens: 10,
@@ -72,7 +65,7 @@ describe('GPT-5-nano Smoke Tests', () => {
     const result = await provider.summarize(mockRequest, mockOptions);
 
     expect(result).toBe('Brief greeting exchange');
-    expect(mockFetch).toHaveBeenCalledWith('https://api.openai.com/v1/chat/completions', {
+    expect(mockFetch).toHaveBeenCalledWith('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Authorization': 'Bearer test-api-key',
@@ -86,10 +79,10 @@ describe('GPT-5-nano Smoke Tests', () => {
     const requestBody = JSON.parse(callArgs[1].body);
     
     // Should have GPT-5 token parameter
-    expect(requestBody.max_completion_tokens).toBe(100);
+    expect(requestBody.max_output_tokens).toBe(100);
     expect(requestBody).not.toHaveProperty('max_tokens');
     
-    // Should NOT have sampling parameters
+    // Should NOT have sampling parameters for nano
     expect(requestBody).not.toHaveProperty('temperature');
     expect(requestBody).not.toHaveProperty('top_p');
     expect(requestBody).not.toHaveProperty('frequency_penalty');
@@ -97,13 +90,13 @@ describe('GPT-5-nano Smoke Tests', () => {
     
     // Should have GPT-5 specific parameters
     expect(requestBody.verbosity).toBe('low');
-    expect(requestBody.reasoning_effort).toBe('minimal');
+    expect(requestBody.reasoning?.effort).toBe('minimal');
     
     // Should have basic required fields
     expect(requestBody.model).toBe('gpt-5-nano');
-    expect(requestBody.messages).toHaveLength(2);
-    expect(requestBody.messages[0].role).toBe('system');
-    expect(requestBody.messages[1].role).toBe('user');
+    expect(requestBody.instructions).toContain('You are a helpful assistant');
+    expect(requestBody.input).toHaveLength(1);
+    expect(requestBody.input[0]).toEqual({ role: 'user', content: expect.any(String) });
   });
 
   it('should handle GPT-5-nano without optional parameters', async () => {
@@ -123,14 +116,7 @@ describe('GPT-5-nano Smoke Tests', () => {
     };
 
     const mockOpenAIResponse = {
-      choices: [
-        {
-          message: {
-            content: 'Test summary'
-          },
-          finish_reason: 'stop'
-        }
-      ],
+      output_text: 'Test summary',
       usage: {
         prompt_tokens: 20,
         completion_tokens: 5,
@@ -152,12 +138,15 @@ describe('GPT-5-nano Smoke Tests', () => {
     
     // Should not include optional GPT-5 parameters when not provided
     expect(requestBody).not.toHaveProperty('verbosity');
-    expect(requestBody).not.toHaveProperty('reasoning_effort');
+    expect(requestBody.reasoning).toBeUndefined();
     
     // Should still exclude sampling parameters
     expect(requestBody).not.toHaveProperty('temperature');
     expect(requestBody).not.toHaveProperty('top_p');
     expect(requestBody).not.toHaveProperty('frequency_penalty');
     expect(requestBody).not.toHaveProperty('presence_penalty');
+
+    expect(requestBody.max_output_tokens).toBe(50);
+    expect(requestBody.model).toBe('gpt-5-nano');
   });
 });
