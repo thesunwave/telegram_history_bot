@@ -528,6 +528,52 @@ describe('OpenAIProvider', () => {
       expect(requestBody.instructions).toBeDefined();
     });
 
+    it('should omit sampling params for GPT-5-mini models', async () => {
+      mockEnv.OPENAI_MODEL = 'gpt-5-mini';
+      const gpt5MiniProvider = new OpenAIProvider(mockEnv);
+
+      const mockRequest: SummaryRequest = {
+        messages: [
+          { username: 'user1', text: 'Hello world', ts: 1234567890 }
+        ],
+        systemPrompt: 'You are a helpful assistant',
+        userPrompt: 'Summarize this conversation',
+        limitNote: 'Keep it under 100 characters'
+      };
+
+      const mockOptions: SummaryOptions = {
+        maxTokens: 150,
+        temperature: 0.7,
+        topP: 0.9,
+        frequencyPenalty: 0.1
+      };
+
+      const mockOpenAIResponse = {
+        output_text: 'Test summary from GPT-5-mini',
+        usage: {
+          prompt_tokens: 50,
+          completion_tokens: 25,
+          total_tokens: 75
+        }
+      };
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockOpenAIResponse)
+      });
+
+      await gpt5MiniProvider.summarize(mockRequest, mockOptions, undefined);
+
+      const callArgs = mockFetch.mock.calls[0];
+      const requestBody = JSON.parse(callArgs[1].body);
+      expect(requestBody.model).toBe('gpt-5-mini');
+      expect(requestBody.max_output_tokens).toBe(150);
+      expect(requestBody).not.toHaveProperty('temperature');
+      expect(requestBody).not.toHaveProperty('top_p');
+      expect(requestBody).not.toHaveProperty('frequency_penalty');
+      expect(requestBody).not.toHaveProperty('presence_penalty');
+    });
+
     it('should use max_tokens for non-GPT-5 models', async () => {
       // This test uses the default gpt-3.5-turbo model
       const mockRequest: SummaryRequest = {

@@ -15,6 +15,15 @@ import {
   getCriminalCodePrompts,
 } from "./ai-provider";
 
+type AllowedParams = {
+  temperature: boolean;
+  top_p: boolean;
+  presence_penalty: boolean;
+  frequency_penalty: boolean;
+  verbosity: boolean;
+  reasoning_effort: boolean;
+};
+
 interface OpenAIChatRequest {
   model: string;
   messages: ChatMessage[];
@@ -74,11 +83,23 @@ export class OpenAIProvider implements AIProvider {
     return model.toLowerCase().includes('gpt-5') || model.toLowerCase().includes('gpt5');
   }
 
-  private allowedParamsFor(model: string) {
+  private allowedParamsFor(model: string): AllowedParams {
     const modelLower = model.toLowerCase();
 
     if (modelLower.includes('gpt-5-nano')) {
       return {
+        temperature: false,
+        top_p: false,
+        presence_penalty: false,
+        frequency_penalty: false,
+        verbosity: true,
+        reasoning_effort: true
+      };
+    }
+
+    if (modelLower.includes('gpt-5-mini')) {
+      return {
+        // GPT-5-mini currently rejects sampling params like temperature
         temperature: false,
         top_p: false,
         presence_penalty: false,
@@ -108,6 +129,48 @@ export class OpenAIProvider implements AIProvider {
       verbosity: false,
       reasoning_effort: false
     };
+  }
+
+  private sanitizeChatPayload(
+    body: OpenAIChatRequest,
+    allowed: AllowedParams
+  ): OpenAIChatRequest {
+    const payload: any = { ...body };
+
+    if (!allowed.temperature) delete payload.temperature;
+    if (!allowed.top_p) delete payload.top_p;
+    if (!allowed.frequency_penalty) delete payload.frequency_penalty;
+    if (!allowed.presence_penalty) delete payload.presence_penalty;
+    if (!allowed.verbosity) delete payload.verbosity;
+    if (!allowed.reasoning_effort) delete payload.reasoning_effort;
+
+    for (const key of Object.keys(payload)) {
+      if (payload[key] === undefined) {
+        delete payload[key];
+      }
+    }
+
+    return payload as OpenAIChatRequest;
+  }
+
+  private sanitizeResponsesPayload(
+    body: OpenAIResponsesRequest,
+    allowed: AllowedParams
+  ): OpenAIResponsesRequest {
+    const payload: any = { ...body };
+
+    if (!allowed.temperature) delete payload.temperature;
+    if (!allowed.top_p) delete payload.top_p;
+    if (!allowed.verbosity) delete payload.verbosity;
+    if (!allowed.reasoning_effort) delete payload.reasoning;
+
+    for (const key of Object.keys(payload)) {
+      if (payload[key] === undefined) {
+        delete payload[key];
+      }
+    }
+
+    return payload as OpenAIResponsesRequest;
   }
 
   constructor(env: Env, providerType: 'standard' | 'premium' = 'standard', modelOverride?: string) {
@@ -232,7 +295,7 @@ export class OpenAIProvider implements AIProvider {
       }
 
       url = `${this.baseUrl}/responses`;
-      body = responsesBody;
+      body = this.sanitizeResponsesPayload(responsesBody, allowedParams);
     } else {
       const requestBody: OpenAIChatRequest = {
         model: this.model,
@@ -274,7 +337,7 @@ export class OpenAIProvider implements AIProvider {
         requestBody.response_format = { type: 'json_object' };
       }
 
-      body = requestBody;
+      body = this.sanitizeChatPayload(requestBody, allowedParams);
     }
 
     const response = await fetch(url, {
