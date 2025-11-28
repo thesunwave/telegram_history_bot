@@ -5,13 +5,14 @@
  * optimizing for full context utilization within OpenAI limits
  */
 
-import { DirectProcessor as IDirectProcessor } from './types';
+import { DirectProcessor as IDirectProcessor, SummaryContext } from './types';
 import { TelegramMessage, SummaryRequest, SummaryOptions } from '../providers/ai-provider';
-import { Env, LOG_ID_RADIX } from '../env';
+import { Env, LOG_ID_RADIX, TELEGRAM_LIMIT } from '../env';
 import { ProviderFactory } from '../providers/provider-factory';
 import { ContextOptimizer } from './context-optimizer';
 import { loadOptimizationConfig } from './config';
 import { Logger, PerformanceTracker } from '../logger';
+import { truncateText } from '../utils';
 
 export class DirectProcessor implements IDirectProcessor {
   private contextOptimizer: ContextOptimizer;
@@ -25,15 +26,29 @@ export class DirectProcessor implements IDirectProcessor {
    * Processes messages directly using a single AI request
    * Optimizes for full context utilization
    */
-  async process(messages: TelegramMessage[], env: Env): Promise<string> {
+  async process(messages: TelegramMessage[], env: Env, context?: SummaryContext): Promise<string> {
     const trackerId = PerformanceTracker.start('directProcessor', 'process', { 
       messageCount: messages.length 
     });
 
     Logger.debug(env, 'DirectProcessor: Starting direct processing', {
       messageCount: messages.length,
+      chat: context?.chatId ? context.chatId.toString(LOG_ID_RADIX) : undefined,
       trackerId
     });
+
+    if (!messages || messages.length === 0) {
+      Logger.warn('DirectProcessor: No messages provided for processing', {
+        trackerId,
+        chat: context?.chatId ? context.chatId.toString(LOG_ID_RADIX) : undefined
+      });
+      PerformanceTracker.end(trackerId, {
+        messageCount: 0,
+        success: false,
+        error: 'No messages provided'
+      });
+      throw new Error('No messages provided');
+    }
 
     try {
       // Load configuration
@@ -66,7 +81,7 @@ export class DirectProcessor implements IDirectProcessor {
       const provider = ProviderFactory.createProvider(env, 'summary');
 
       // Build summary request with existing prompts
-      const summaryRequest = this.buildSummaryRequest(optimizedMessages, env);
+      const summaryRequest = this.buildSummaryRequest(optimizedMessages, env, context);
 
       // Build AI options based on provider
       const aiOptions = this.buildAIOptions(env);
@@ -75,11 +90,12 @@ export class DirectProcessor implements IDirectProcessor {
       const processingStart = Date.now();
       const summary = await provider.summarize(summaryRequest, aiOptions, env);
       const processingDuration = Date.now() - processingStart;
+      const safeSummary = truncateText(summary, TELEGRAM_LIMIT);
 
       Logger.debug(env, 'DirectProcessor: Processing completed', {
         messageCount: optimizedMessages.length,
         processingDuration,
-        resultLength: summary.length,
+        resultLength: safeSummary.length,
         trackerId
       });
 
@@ -91,7 +107,7 @@ export class DirectProcessor implements IDirectProcessor {
         success: true
       });
 
-      return summary;
+      return safeSummary;
 
     } catch (error) {
       const e = error as Error;
@@ -114,15 +130,24 @@ export class DirectProcessor implements IDirectProcessor {
   /**
    * Builds a summary request compatible with existing prompts
    */
-  private buildSummaryRequest(messages: TelegramMessage[], env: Env): SummaryRequest {
+  private buildSummaryRequest(
+    messages: TelegramMessage[],
+    env: Env,
+    context?: SummaryContext
+  ): SummaryRequest {
     // Extract participant information
     const participants = [...new Set(messages.map(m => m.username))];
     
+    const chatTitle = context?.chatId
+      ? `Чат ${context.chatId.toString(LOG_ID_RADIX)}`
+      : 'Неизвестный чат';
+    const limitMessages = context?.requestedMessageCount ?? messages.length;
+
     // Calculate time range
-    const firstMsg = messages[0];
-    const lastMsg = messages[messages.length - 1];
-    const startDate = new Date(firstMsg.ts * 1000).toLocaleDateString('ru-RU');
-    const endDate = new Date(lastMsg.ts * 1000).toLocaleDateString('ru-RU');
+    const startTs = context?.periodStart ?? messages[0]?.ts;
+    const endTs = context?.periodEnd ?? messages[messages.length - 1]?.ts;
+    const startDate = startTs ? new Date(startTs * 1000).toLocaleDateString('ru-RU') : 'неизвестно';
+    const endDate = endTs ? new Date(endTs * 1000).toLocaleDateString('ru-RU') : 'неизвестно';
     
     // Create participant stats
     const participantStats = participants.map(username => {
@@ -135,34 +160,38 @@ export class DirectProcessor implements IDirectProcessor {
       : 'нет данных';
 
     // Calculate period info
-    const durationInSeconds = lastMsg.ts - firstMsg.ts;
-    const durationInDays = Math.floor(durationInSeconds / (24 * 60 * 60));
+    const durationInSeconds = startTs !== undefined && endTs !== undefined ? endTs - startTs : 0;
+    const durationInDays = startTs !== undefined && endTs !== undefined
+      ? Math.ceil(durationInSeconds / (24 * 60 * 60))
+      : 0;
     const periodInfo = `${startDate} - ${endDate}${durationInDays > 0 ? ` (${durationInDays} дн.)` : ' (в тот же день)'}`;
 
     // Build user prompt with placeholders replaced
     let userPrompt = env.SUMMARY_PROMPT || this.getDefaultUserPrompt();
-    userPrompt = userPrompt.replace('{chatTitle}', 'Direct Processing Chat');
+    userPrompt = userPrompt.replace('{chatTitle}', chatTitle);
     userPrompt = userPrompt.replace('{startDate}', startDate);
     userPrompt = userPrompt.replace('{endDate}', endDate);
     userPrompt = userPrompt.replace('{totalMessages}', messages.length.toString());
     userPrompt = userPrompt.replace('{participants}', participantsInfo);
     userPrompt = userPrompt.replace('{period}', periodInfo);
+    userPrompt = userPrompt.replace('{limitMessages}', limitMessages.toString());
     userPrompt = userPrompt.replace('{messages}', ''); // Messages are added separately by provider
 
     // Get system prompt
     let systemPrompt = env.SUMMARY_SYSTEM || this.getDefaultSystemPrompt();
-    systemPrompt = systemPrompt.replace('{chatTitle}', 'Direct Processing Chat');
+    systemPrompt = systemPrompt.replace('{chatTitle}', chatTitle);
     systemPrompt = systemPrompt.replace('{startDate}', startDate);
     systemPrompt = systemPrompt.replace('{endDate}', endDate);
     systemPrompt = systemPrompt.replace('{totalMessages}', messages.length.toString());
     systemPrompt = systemPrompt.replace('{participants}', participantsInfo);
     systemPrompt = systemPrompt.replace('{period}', periodInfo);
+    systemPrompt = systemPrompt.replace('{limitMessages}', limitMessages.toString());
 
     return {
       messages,
       systemPrompt,
       userPrompt,
-      limitNote: `Обработано ${messages.length} сообщений напрямую`
+      limitNote: `Ответ не длиннее ${TELEGRAM_LIMIT} символов. Обработано ${limitMessages} сообщений напрямую.`
     };
   }
 

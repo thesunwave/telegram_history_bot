@@ -179,6 +179,7 @@ function createSummaryRequest(
 ): SummaryRequest {
   // Собираем информацию для замены плейсхолдеров
   const participants = [...new Set(messages.map((m) => m.username))];
+  const limitMessages = messages.length;
   const startDate = start
     ? new Date(start * 1000).toLocaleDateString("ru-RU")
     : "неизвестно";
@@ -238,6 +239,7 @@ function createSummaryRequest(
   );
   systemPrompt = systemPrompt.replace("{participants}", participantsInfo);
   systemPrompt = systemPrompt.replace("{period}", periodInfo);
+  systemPrompt = systemPrompt.replace("{limitMessages}", limitMessages.toString());
 
   // Replace placeholders in user prompt
   userPrompt = userPrompt.replace("{chatTitle}", chatTitle);
@@ -246,6 +248,7 @@ function createSummaryRequest(
   userPrompt = userPrompt.replace("{totalMessages}", messages.length.toString());
   userPrompt = userPrompt.replace("{participants}", participantsInfo);
   userPrompt = userPrompt.replace("{period}", periodInfo);
+  userPrompt = userPrompt.replace("{limitMessages}", limitMessages.toString());
   userPrompt = userPrompt.replace("{messages}", ""); // Messages are added separately by provider
 
   return {

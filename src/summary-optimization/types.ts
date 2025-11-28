@@ -83,6 +83,13 @@ export interface ProcessingStrategySelector {
   ): ProcessingStrategy;
 }
 
+export interface SummaryContext {
+  chatId?: number;
+  periodStart?: number;
+  periodEnd?: number;
+  requestedMessageCount?: number;
+}
+
 // Message fetching interfaces
 export interface ParallelFetchRequest {
   chatId: number;
@@ -135,11 +142,11 @@ export interface SummaryController {
 
 // Processor interfaces
 export interface DirectProcessor {
-  process(messages: TelegramMessage[], env: Env): Promise<string>;
+  process(messages: TelegramMessage[], env: Env, context?: SummaryContext): Promise<string>;
 }
 
 export interface HierarchicalProcessor {
-  process(messages: TelegramMessage[], env: Env): Promise<string>;
+  process(messages: TelegramMessage[], env: Env, context?: SummaryContext): Promise<string>;
 }
 
 // Durable Object interfaces

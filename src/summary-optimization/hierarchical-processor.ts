@@ -5,13 +5,14 @@
  * for handling large message volumes that exceed single context limits
  */
 
-import { HierarchicalProcessor as IHierarchicalProcessor, ProcessingPhase, ChunkUserSummaries, AggregatedUserSummary } from './types';
+import { HierarchicalProcessor as IHierarchicalProcessor, ProcessingPhase, ChunkUserSummaries, AggregatedUserSummary, SummaryContext } from './types';
 import { TelegramMessage, SummaryRequest, SummaryOptions } from '../providers/ai-provider';
-import { Env, LOG_ID_RADIX } from '../env';
+import { Env, LOG_ID_RADIX, TELEGRAM_LIMIT } from '../env';
 import { ProviderFactory } from '../providers/provider-factory';
 import { ContextOptimizer } from './context-optimizer';
 import { loadOptimizationConfig } from './config';
 import { Logger, PerformanceTracker } from '../logger';
+import { truncateText } from '../utils';
 
 export class HierarchicalProcessor implements IHierarchicalProcessor {
   private contextOptimizer: ContextOptimizer;
@@ -27,13 +28,14 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
    * Stage 2: Aggregate per-user summaries across chunks
    * Stage 3: Final summarization of aggregated user summaries
    */
-  async process(messages: TelegramMessage[], env: Env): Promise<string> {
+  async process(messages: TelegramMessage[], env: Env, context?: SummaryContext): Promise<string> {
     const trackerId = PerformanceTracker.start('hierarchicalProcessor', 'process', { 
       messageCount: messages.length 
     });
 
     Logger.debug(env, 'HierarchicalProcessor: Starting hierarchical processing (per-user)', {
       messageCount: messages.length,
+      chat: context?.chatId ? context.chatId.toString(LOG_ID_RADIX) : undefined,
       trackerId
     });
 
@@ -98,7 +100,8 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
       const finalSummary = await this.processFinalSummaryForUsers(
         aggregated,
         messages,
-        env
+        env,
+        context
       );
       const finalProcessingDuration = Date.now() - finalProcessingStart;
 
@@ -117,7 +120,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
         success: true
       });
 
-      return finalSummary;
+      return truncateText(finalSummary, TELEGRAM_LIMIT);
 
     } catch (error) {
       const e = error as Error;
@@ -236,7 +239,8 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
   private async processFinalSummaryForUsers(
     aggregated: AggregatedUserSummary[],
     originalMessages: TelegramMessage[],
-    env: Env
+    env: Env,
+    context?: SummaryContext
   ): Promise<string> {
     const provider = ProviderFactory.createProvider(env, 'summary');
 
@@ -253,7 +257,8 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
       originalMessages,
       aggregated,
       env,
-      loadOptimizationConfig(env)
+      loadOptimizationConfig(env),
+      context
     );
 
     const options = this.buildFinalSummaryOptions(env);
@@ -298,14 +303,21 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
     originalMessages: TelegramMessage[],
     aggregated: AggregatedUserSummary[],
     env: Env,
-    config: any
+    config: any,
+    context?: SummaryContext
   ): SummaryRequest {
     // Extract participant information from original messages
     const participants = [...new Set(originalMessages.map(m => m.username))];
-    const firstMsg = originalMessages[0] || { ts: Math.floor(Date.now() / 1000) } as TelegramMessage;
+    const chatTitle = context?.chatId
+      ? `Чат ${context.chatId.toString(LOG_ID_RADIX)}`
+      : 'Неизвестный чат';
+    const limitMessages = context?.requestedMessageCount ?? originalMessages.length;
+    const firstMsg = originalMessages[0] || { ts: context?.periodStart ?? Math.floor(Date.now() / 1000) } as TelegramMessage;
     const lastMsg = originalMessages[originalMessages.length - 1] || firstMsg;
-    const startDate = new Date(firstMsg.ts * 1000).toLocaleDateString('ru-RU');
-    const endDate = new Date(lastMsg.ts * 1000).toLocaleDateString('ru-RU');
+    const startTs = context?.periodStart ?? firstMsg.ts;
+    const endTs = context?.periodEnd ?? lastMsg.ts;
+    const startDate = new Date(startTs * 1000).toLocaleDateString('ru-RU');
+    const endDate = new Date(endTs * 1000).toLocaleDateString('ru-RU');
 
     // Create participant stats
     const participantStats = participants.map(username => {
@@ -318,18 +330,19 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
       : 'нет данных';
 
     // Calculate period info
-    const durationInSeconds = lastMsg.ts - firstMsg.ts;
-    const durationInDays = Math.floor(durationInSeconds / (24 * 60 * 60));
+    const durationInSeconds = endTs - startTs;
+    const durationInDays = Math.ceil(durationInSeconds / (24 * 60 * 60));
     const periodInfo = `${startDate} - ${endDate}${durationInDays > 0 ? ` (${durationInDays} дн.)` : ' (в тот же день)'}`;
 
     // Build user prompt with placeholders replaced
     let userPrompt = env.SUMMARY_PROMPT || this.getDefaultFinalPrompt();
-    userPrompt = userPrompt.replace('{chatTitle}', 'Hierarchical Processing Chat');
+    userPrompt = userPrompt.replace('{chatTitle}', chatTitle);
     userPrompt = userPrompt.replace('{startDate}', startDate);
     userPrompt = userPrompt.replace('{endDate}', endDate);
     userPrompt = userPrompt.replace('{totalMessages}', originalMessages.length.toString());
     userPrompt = userPrompt.replace('{participants}', participantsInfo);
     userPrompt = userPrompt.replace('{period}', periodInfo);
+    userPrompt = userPrompt.replace('{limitMessages}', limitMessages.toString());
     userPrompt = userPrompt.replace('{messages}', ''); // Messages are added separately by provider
 
     // Add context note about per-user aggregation
@@ -338,18 +351,19 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
 
     // System prompt
     let systemPrompt = env.SUMMARY_SYSTEM || this.getDefaultFinalSystemPrompt();
-    systemPrompt = systemPrompt.replace('{chatTitle}', 'Hierarchical Processing Chat');
+    systemPrompt = systemPrompt.replace('{chatTitle}', chatTitle);
     systemPrompt = systemPrompt.replace('{startDate}', startDate);
     systemPrompt = systemPrompt.replace('{endDate}', endDate);
     systemPrompt = systemPrompt.replace('{totalMessages}', originalMessages.length.toString());
     systemPrompt = systemPrompt.replace('{participants}', participantsInfo);
     systemPrompt = systemPrompt.replace('{period}', periodInfo);
+    systemPrompt = systemPrompt.replace('{limitMessages}', limitMessages.toString());
 
     return {
       messages: syntheticMessages,
       systemPrompt,
       userPrompt,
-      limitNote: `Финальная обработка агрегированных пользовательских выжимок (${aggregated.length} пользователей)`
+      limitNote: `Ответ не длиннее ${TELEGRAM_LIMIT} символов. Финальная обработка агрегированных пользовательских выжимок (${aggregated.length} пользователей).`
     };
   }
 
@@ -436,7 +450,8 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
   private async processFinalSummary(
     intermediateResults: string[], 
     originalMessages: TelegramMessage[],
-    env: Env
+    env: Env,
+    context?: SummaryContext
   ): Promise<string> {
     const provider = ProviderFactory.createProvider(env, 'summary');
     const config = loadOptimizationConfig(env);
@@ -454,7 +469,8 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
       originalMessages, 
       intermediateResults,
       env,
-      config
+      config,
+      context
     );
     const options = this.buildFinalSummaryOptions(env);
 
@@ -466,7 +482,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
     // Process final summary
     const finalSummary = await provider.summarize(request, options, env);
 
-    return finalSummary;
+    return truncateText(finalSummary, TELEGRAM_LIMIT);
   }
 
   /**
@@ -508,14 +524,21 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
     originalMessages: TelegramMessage[],
     intermediateResults: string[],
     env: Env,
-    config: any
+    config: any,
+    context?: SummaryContext
   ): SummaryRequest {
     // Extract participant information from original messages
     const participants = [...new Set(originalMessages.map(m => m.username))];
-    const firstMsg = originalMessages[0];
-    const lastMsg = originalMessages[originalMessages.length - 1];
-    const startDate = new Date(firstMsg.ts * 1000).toLocaleDateString('ru-RU');
-    const endDate = new Date(lastMsg.ts * 1000).toLocaleDateString('ru-RU');
+    const chatTitle = context?.chatId
+      ? `Чат ${context.chatId.toString(LOG_ID_RADIX)}`
+      : 'Неизвестный чат';
+    const limitMessages = context?.requestedMessageCount ?? originalMessages.length;
+    const firstMsg = originalMessages[0] || { ts: context?.periodStart ?? Math.floor(Date.now() / 1000) } as TelegramMessage;
+    const lastMsg = originalMessages[originalMessages.length - 1] || firstMsg;
+    const startTs = context?.periodStart ?? firstMsg.ts;
+    const endTs = context?.periodEnd ?? lastMsg.ts;
+    const startDate = new Date(startTs * 1000).toLocaleDateString('ru-RU');
+    const endDate = new Date(endTs * 1000).toLocaleDateString('ru-RU');
     
     // Create participant stats
     const participantStats = participants.map(username => {
@@ -528,18 +551,19 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
       : 'нет данных';
 
     // Calculate period info
-    const durationInSeconds = lastMsg.ts - firstMsg.ts;
-    const durationInDays = Math.floor(durationInSeconds / (24 * 60 * 60));
+    const durationInSeconds = endTs - startTs;
+    const durationInDays = Math.ceil(durationInSeconds / (24 * 60 * 60));
     const periodInfo = `${startDate} - ${endDate}${durationInDays > 0 ? ` (${durationInDays} дн.)` : ' (в тот же день)'}`;
 
     // Build user prompt with placeholders replaced
     let userPrompt = env.SUMMARY_PROMPT || this.getDefaultFinalPrompt();
-    userPrompt = userPrompt.replace('{chatTitle}', 'Hierarchical Processing Chat');
+    userPrompt = userPrompt.replace('{chatTitle}', chatTitle);
     userPrompt = userPrompt.replace('{startDate}', startDate);
     userPrompt = userPrompt.replace('{endDate}', endDate);
     userPrompt = userPrompt.replace('{totalMessages}', originalMessages.length.toString());
     userPrompt = userPrompt.replace('{participants}', participantsInfo);
     userPrompt = userPrompt.replace('{period}', periodInfo);
+    userPrompt = userPrompt.replace('{limitMessages}', limitMessages.toString());
     userPrompt = userPrompt.replace('{messages}', ''); // Messages are added separately by provider
 
     // Add context about intermediate processing
@@ -552,18 +576,19 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
 
     // Get system prompt
     let systemPrompt = env.SUMMARY_SYSTEM || this.getDefaultFinalSystemPrompt();
-    systemPrompt = systemPrompt.replace('{chatTitle}', 'Hierarchical Processing Chat');
+    systemPrompt = systemPrompt.replace('{chatTitle}', chatTitle);
     systemPrompt = systemPrompt.replace('{startDate}', startDate);
     systemPrompt = systemPrompt.replace('{endDate}', endDate);
     systemPrompt = systemPrompt.replace('{totalMessages}', originalMessages.length.toString());
     systemPrompt = systemPrompt.replace('{participants}', participantsInfo);
     systemPrompt = systemPrompt.replace('{period}', periodInfo);
+    systemPrompt = systemPrompt.replace('{limitMessages}', limitMessages.toString());
 
     return {
       messages: syntheticMessages,
       systemPrompt,
       userPrompt,
-      limitNote: `Финальная обработка ${intermediateResults.length} промежуточных результатов`
+      limitNote: `Ответ не длиннее ${TELEGRAM_LIMIT} символов. Финальная обработка ${intermediateResults.length} промежуточных результатов.`
     };
   }
 

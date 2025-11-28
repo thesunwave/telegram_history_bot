@@ -7,6 +7,7 @@ import {
   ProcessingSession,
   ProcessingStrategy,
   SummaryOptimizationConfig,
+  SummaryContext,
 } from "./types";
 import { OptimizedStrategySelector } from "./strategy-selector";
 import { loadOptimizationConfig } from "./config";
@@ -287,6 +288,13 @@ export class OptimizedSummaryController implements SummaryController {
       );
       session.strategy = strategy;
 
+      const summaryContext: SummaryContext = {
+        chatId,
+        periodStart: start,
+        periodEnd: end,
+        requestedMessageCount: messages.length,
+      };
+
       Logger.debug(this.env, "processOptimized: Strategy selected", {
         sessionId: session.sessionId,
         strategy,
@@ -300,12 +308,12 @@ export class OptimizedSummaryController implements SummaryController {
       switch (strategy) {
         case "direct":
           const directProcessor = new DirectProcessor();
-          result = await directProcessor.process(messages, this.env);
+          result = await directProcessor.process(messages, this.env, summaryContext);
           break;
 
         case "hierarchical":
           const hierarchicalProcessor = new HierarchicalProcessor();
-          result = await hierarchicalProcessor.process(messages, this.env);
+          result = await hierarchicalProcessor.process(messages, this.env, summaryContext);
           break;
 
         case "parallel":
@@ -318,7 +326,7 @@ export class OptimizedSummaryController implements SummaryController {
             },
           );
           const parallelFallback = new DirectProcessor();
-          result = await parallelFallback.process(messages, this.env);
+          result = await parallelFallback.process(messages, this.env, summaryContext);
           break;
 
         default:
@@ -424,6 +432,13 @@ export class OptimizedSummaryController implements SummaryController {
       );
       session.strategy = strategy;
 
+      const summaryContext: SummaryContext = {
+        chatId,
+        periodStart: messages[0]?.ts,
+        periodEnd: messages[messages.length - 1]?.ts,
+        requestedMessageCount: count,
+      };
+
       Logger.debug(this.env, "processOptimizedMessages: Strategy selected", {
         sessionId: session.sessionId,
         strategy,
@@ -437,12 +452,12 @@ export class OptimizedSummaryController implements SummaryController {
       switch (strategy) {
         case "direct":
           const directProcessor = new DirectProcessor();
-          result = await directProcessor.process(messages, this.env);
+          result = await directProcessor.process(messages, this.env, summaryContext);
           break;
 
         case "hierarchical":
           const hierarchicalProcessor = new HierarchicalProcessor();
-          result = await hierarchicalProcessor.process(messages, this.env);
+          result = await hierarchicalProcessor.process(messages, this.env, summaryContext);
           break;
 
         case "parallel":
@@ -455,7 +470,7 @@ export class OptimizedSummaryController implements SummaryController {
             },
           );
           const parallelFallback = new DirectProcessor();
-          result = await parallelFallback.process(messages, this.env);
+          result = await parallelFallback.process(messages, this.env, summaryContext);
           break;
 
         default:
