@@ -80,9 +80,9 @@
     "PROFANITY_PROVIDER": "openai",
     "CRIMINAL_PROVIDER": "openai",
     // Capability-specific model overrides (optional)
-    "OPENAI_MODEL": "gpt-5-mini",
+    "OPENAI_MODEL": "gpt-5-nano",
     "PROFANITY_MODEL": "gpt-4.1-nano",
-    "CRIMINAL_MODEL": "gpt-5-mini",
+    "CRIMINAL_MODEL": "gpt-5-nano",
     "CLOUDFLARE_MODEL": "@cf/meta/llama-3.1-70b-instruct",
     "CLOUDFLARE_MAX_TOKENS": 500,
     "CLOUDFLARE_TEMPERATURE": 0.1,
