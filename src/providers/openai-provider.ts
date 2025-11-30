@@ -814,8 +814,13 @@ export class OpenAIProvider implements AIProvider {
     } catch (error: any) {
       const duration = Date.now() - startTime;
 
+      const isIncomplete =
+        error instanceof ProviderError &&
+        /incomplete result|max_output_tokens/i.test(error.message || '');
+
       if (env) {
-        Logger.error('OpenAI criminal code analysis: failed', {
+        const logMethod = isIncomplete ? Logger.warn : Logger.error;
+        logMethod('OpenAI criminal code analysis: failed', {
           provider: 'openai',
           model: this.model,
           providerType: this.providerType,
@@ -823,8 +828,19 @@ export class OpenAIProvider implements AIProvider {
           duration,
           error: error.message || String(error),
           errorType: error.constructor.name,
-          stack: error.stack
+          stack: error.stack,
+          incompleteResult: isIncomplete
         });
+      }
+
+      if (isIncomplete) {
+        return {
+          hasViolations: false,
+          violations: [],
+          totalSeverity: 0,
+          riskLevel: 'low',
+          analysisTimestamp: Date.now()
+        };
       }
 
       if (error instanceof ProviderError) {

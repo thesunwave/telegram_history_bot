@@ -208,8 +208,6 @@ function createSummaryRequest(
   // Создаем информацию о периоде
   let periodInfo = "";
   if (start && end) {
-    const startDateTime = new Date(start * 1000);
-    const endDateTime = new Date(end * 1000);
     const duration = Math.ceil((end - start) / DAY);
     periodInfo = `${startDate} - ${endDate} (${duration} дн.)`;
   } else if (messages.length > 0) {
@@ -329,11 +327,6 @@ export async function summariseChatLegacy(
         originalCount: allMessages.length,
       });
 
-      const metrics = PerformanceTracker.end(trackerId, {
-        result: "no_messages",
-        totalMessages: allMessages.length,
-        filteredMessages: 0,
-      });
 
       if (allMessages.length > 0) {
         await sendMessage(
@@ -774,11 +767,6 @@ export async function summariseChatMessagesLegacy(
         originalCount: allMessages.length,
       });
 
-      const metrics = PerformanceTracker.end(trackerId, {
-        result: "no_messages",
-        totalMessages: allMessages.length,
-        filteredMessages: 0,
-      });
 
       if (allMessages.length > 0) {
         await sendMessage(
@@ -1063,7 +1051,6 @@ async function tryOptimizedSummary(
       param,
     });
 
-    const config = loadOptimizationConfig(env);
     const controller = new OptimizedSummaryController(env);
 
     let result: string;

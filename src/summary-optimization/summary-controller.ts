@@ -105,6 +105,13 @@ export class OptimizedSummaryController implements SummaryController {
       }
     } catch (error) {
       const e = error as Error;
+      if (e.message === "LEGACY_MESSAGE_SENT") {
+        Logger.debug(this.env, "OptimizedSummaryController: legacy already sent response (chat)", {
+          chatId: chatId.toString(LOG_ID_RADIX),
+          sessionId,
+        });
+        throw e;
+      }
       Logger.error("OptimizedSummaryController: summarizeChat error", {
         chatId: chatId.toString(LOG_ID_RADIX),
         sessionId,
@@ -176,6 +183,13 @@ export class OptimizedSummaryController implements SummaryController {
       }
     } catch (error) {
       const e = error as Error;
+      if (e.message === "LEGACY_MESSAGE_SENT") {
+        Logger.debug(this.env, "OptimizedSummaryController: legacy already sent response (messages)", {
+          chatId: chatId.toString(LOG_ID_RADIX),
+          sessionId,
+        });
+        throw e;
+      }
       Logger.error("OptimizedSummaryController: summarizeChatMessages error", {
         chatId: chatId.toString(LOG_ID_RADIX),
         sessionId,
@@ -374,7 +388,6 @@ export class OptimizedSummaryController implements SummaryController {
             sessionId: session.sessionId,
             chatId: chatId.toString(LOG_ID_RADIX),
           });
-          return "";
         }
         throw legacyError;
       }
@@ -528,7 +541,6 @@ export class OptimizedSummaryController implements SummaryController {
             sessionId: session.sessionId,
             chatId: chatId.toString(LOG_ID_RADIX),
           });
-          return "";
         }
         throw legacyError;
       }
