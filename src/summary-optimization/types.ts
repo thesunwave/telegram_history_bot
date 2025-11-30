@@ -38,7 +38,16 @@ export interface ProcessingError {
 }
 
 // Configuration interfaces
+export interface ModelLimits {
+  name: string;
+  maxContextTokens: number;
+  maxOutputTokens: number;
+  defaultOutputTokensTarget: number;
+}
+
 export interface SummaryOptimizationConfig {
+  modelLimits: ModelLimits;
+
   // Parallel processing
   parallelProcessing: {
     enabled: boolean;
@@ -53,6 +62,7 @@ export interface SummaryOptimizationConfig {
     maxTokensPerRequest: number;
     preprocessingMaxTokens: number;
     finalMaxTokens: number;
+    outputTokensTarget: number;
     tokenEstimationFactor: number;
   };
 

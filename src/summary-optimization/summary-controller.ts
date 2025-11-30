@@ -366,7 +366,18 @@ export class OptimizedSummaryController implements SummaryController {
 
       // Try fallback to legacy system
       const days = Math.ceil((end - start) / DAY);
-      return await this.processLegacy("chat", chatId, days);
+      try {
+        return await this.processLegacy("chat", chatId, days);
+      } catch (legacyError) {
+        if ((legacyError as Error).message === "LEGACY_MESSAGE_SENT") {
+          Logger.debug(this.env, "processOptimized: legacy already handled response", {
+            sessionId: session.sessionId,
+            chatId: chatId.toString(LOG_ID_RADIX),
+          });
+          return "";
+        }
+        throw legacyError;
+      }
     }
   }
 
@@ -509,7 +520,18 @@ export class OptimizedSummaryController implements SummaryController {
       });
 
       // Try fallback to legacy system
-      return await this.processLegacy("messages", chatId, count);
+      try {
+        return await this.processLegacy("messages", chatId, count);
+      } catch (legacyError) {
+        if ((legacyError as Error).message === "LEGACY_MESSAGE_SENT") {
+          Logger.debug(this.env, "processOptimizedMessages: legacy already handled response", {
+            sessionId: session.sessionId,
+            chatId: chatId.toString(LOG_ID_RADIX),
+          });
+          return "";
+        }
+        throw legacyError;
+      }
     }
   }
 

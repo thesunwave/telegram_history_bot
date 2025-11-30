@@ -12,7 +12,6 @@ import { ProviderFactory } from '../providers/provider-factory';
 import { ContextOptimizer } from './context-optimizer';
 import { loadOptimizationConfig } from './config';
 import { Logger, PerformanceTracker } from '../logger';
-import { truncateText } from '../utils';
 
 export class DirectProcessor implements IDirectProcessor {
   private contextOptimizer: ContextOptimizer;
@@ -54,20 +53,34 @@ export class DirectProcessor implements IDirectProcessor {
       // Load configuration
       const config = loadOptimizationConfig(env);
       this.contextOptimizer = new ContextOptimizer(config);
+      const { modelLimits } = config;
 
-      // Get max tokens for direct processing from config
-      const maxTokens = config.contextManagement.maxTokensPerRequest;
+      // Calculate budgets: leave room for output inside model context
+      const outputTokensBudget = Math.min(
+        config.contextManagement.outputTokensTarget,
+        config.contextManagement.finalMaxTokens || modelLimits.maxOutputTokens,
+        modelLimits.maxOutputTokens
+      );
+      const maxInputTokens = Math.max(
+        1000,
+        Math.min(
+          config.contextManagement.maxTokensPerRequest,
+          modelLimits.maxContextTokens - outputTokensBudget
+        )
+      );
 
       // Estimate tokens and optimize if needed
       const estimatedTokens = this.contextOptimizer.estimateTokens(messages);
       Logger.debug(env, 'DirectProcessor: Token estimation', {
         originalMessages: messages.length,
         estimatedTokens,
-        maxTokens
+        maxInputTokens,
+        outputTokensBudget,
+        model: modelLimits.name
       });
 
       // Optimize messages to fit within context limit
-      const optimizedMessages = this.contextOptimizer.optimizeForContext(messages, maxTokens);
+      const optimizedMessages = this.contextOptimizer.optimizeForContext(messages, maxInputTokens);
       
       if (optimizedMessages.length < messages.length) {
         Logger.debug(env, 'DirectProcessor: Messages optimized for context', {
@@ -85,12 +98,17 @@ export class DirectProcessor implements IDirectProcessor {
 
       // Build AI options based on provider
       const aiOptions = this.buildAIOptions(env);
+      aiOptions.maxTokens = Math.min(
+        aiOptions.maxTokens ?? outputTokensBudget,
+        outputTokensBudget,
+        modelLimits.maxOutputTokens
+      );
 
       // Process with AI provider
       const processingStart = Date.now();
       const summary = await provider.summarize(summaryRequest, aiOptions, env);
       const processingDuration = Date.now() - processingStart;
-      const safeSummary = truncateText(summary, TELEGRAM_LIMIT);
+      const safeSummary = summary;
 
       Logger.debug(env, 'DirectProcessor: Processing completed', {
         messageCount: optimizedMessages.length,

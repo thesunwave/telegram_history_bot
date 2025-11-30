@@ -410,6 +410,14 @@ export async function addMessageToDayBlockSafe(
   env: any,
   message: StoredMessage
 ): Promise<{ success: boolean; messageCount: number; duplicate?: boolean }> {
+  if (!env?.DAY_BLOCK_MANAGER_DO || typeof env.DAY_BLOCK_MANAGER_DO.idFromName !== 'function') {
+    Logger.warn('addMessageToDayBlockSafe: DAY_BLOCK_MANAGER_DO not configured, falling back', {
+      chat: message.chat.toString(LOG_ID_RADIX),
+      date: new Date(message.ts * 1000).toISOString().slice(0, 10),
+    });
+    throw new Error('DAY_BLOCK_MANAGER_DO not configured');
+  }
+
   const date = new Date(message.ts * 1000).toISOString().slice(0, 10);
   const doId = env.DAY_BLOCK_MANAGER_DO.idFromName(`dayblock:${message.chat}:${date}`);
   const doStub = env.DAY_BLOCK_MANAGER_DO.get(doId);
@@ -454,6 +462,14 @@ export async function getDayBlockSafe(
   chatId: number,
   date: string
 ): Promise<DayBlock | null> {
+  if (!env?.DAY_BLOCK_MANAGER_DO || typeof env.DAY_BLOCK_MANAGER_DO.idFromName !== 'function') {
+    Logger.warn('getDayBlockSafe: DAY_BLOCK_MANAGER_DO not configured, returning null', {
+      chat: chatId.toString(LOG_ID_RADIX),
+      date,
+    });
+    return null;
+  }
+
   const doId = env.DAY_BLOCK_MANAGER_DO.idFromName(`dayblock:${chatId}:${date}`);
   const doStub = env.DAY_BLOCK_MANAGER_DO.get(doId);
 

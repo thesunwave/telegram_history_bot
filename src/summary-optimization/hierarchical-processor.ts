@@ -12,7 +12,6 @@ import { ProviderFactory } from '../providers/provider-factory';
 import { ContextOptimizer } from './context-optimizer';
 import { loadOptimizationConfig } from './config';
 import { Logger, PerformanceTracker } from '../logger';
-import { truncateText } from '../utils';
 
 export class HierarchicalProcessor implements IHierarchicalProcessor {
   private contextOptimizer: ContextOptimizer;
@@ -57,11 +56,25 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
       // Load configuration
       const config = loadOptimizationConfig(env);
       this.contextOptimizer = new ContextOptimizer(config);
+      const { modelLimits } = config;
+
+      const outputTokensBudget = Math.min(
+        config.contextManagement.outputTokensTarget,
+        config.contextManagement.finalMaxTokens,
+        modelLimits.maxOutputTokens
+      );
+      const preprocessingInputBudget = Math.max(
+        1000,
+        Math.min(
+          config.contextManagement.preprocessingMaxTokens,
+          modelLimits.maxContextTokens - outputTokensBudget
+        )
+      );
 
       // Create optimal chunks for preprocessing
       const chunks = this.contextOptimizer.createOptimalChunks(
         messages,
-        config.contextManagement.preprocessingMaxTokens
+        preprocessingInputBudget
       );
 
       Logger.debug(env, 'HierarchicalProcessor: Messages chunked for preprocessing', {
@@ -71,7 +84,12 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
           index: idx,
           messageCount: chunk.length,
           estimatedTokens: this.contextOptimizer.estimateTokens(chunk)
-        }))
+        })),
+        budgets: {
+          outputTokensBudget,
+          preprocessingInputBudget,
+          model: modelLimits.name
+        }
       });
 
       // Stage 1: Preprocess each chunk into per-user summaries
@@ -120,7 +138,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
         success: true
       });
 
-      return truncateText(finalSummary, TELEGRAM_LIMIT);
+      return finalSummary;
 
     } catch (error) {
       const e = error as Error;
@@ -482,7 +500,7 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
     // Process final summary
     const finalSummary = await provider.summarize(request, options, env);
 
-    return truncateText(finalSummary, TELEGRAM_LIMIT);
+    return finalSummary;
   }
 
   /**
@@ -597,32 +615,32 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
    */
   private buildPreprocessingOptions(env: Env): SummaryOptions {
     const config = loadOptimizationConfig(env);
+    const { modelLimits } = config;
     const provider = (env as any).SUMMARY_PROVIDER || 'cloudflare';
 
-    // Use reduced tokens for preprocessing to save resources
-    const baseMaxTokens = config.contextManagement.preprocessingMaxTokens;
-    const reducedMaxTokens = Math.floor(baseMaxTokens * 0.6); // Use 60% of max for preprocessing
+    const outputBudget = Math.min(
+      config.contextManagement.outputTokensTarget,
+      config.contextManagement.finalMaxTokens,
+      modelLimits.maxOutputTokens
+    );
 
-    let opts: SummaryOptions = {
-      maxTokens: reducedMaxTokens,
+    // Keep preprocessing responses compact to reduce downstream cost
+    const baseMaxTokens = Math.floor(outputBudget * 0.25);
+    const compactBudget = Math.max(500, Math.min(baseMaxTokens, 4000));
+
+    const providerCaps: Record<string, number> = {
+      cloudflare: 1200,
+      openai: 4000,
+      'openai-premium': 6000
+    };
+
+    const providerCap = providerCaps[provider] ?? compactBudget;
+
+    return {
+      maxTokens: Math.min(compactBudget, providerCap, modelLimits.maxOutputTokens),
       temperature: 0.2, // Lower temperature for consistency in JSON
       topP: 0.9
     };
-
-    // Provider-specific adjustments
-    switch (provider) {
-      case 'cloudflare':
-        opts.maxTokens = Math.min(reducedMaxTokens, 350);
-        break;
-      case 'openai':
-        opts.maxTokens = Math.min(reducedMaxTokens, 450);
-        break;
-      case 'openai-premium':
-        opts.maxTokens = Math.min(reducedMaxTokens, 550);
-        break;
-    }
-
-    return opts;
   }
 
   /**
@@ -631,6 +649,13 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
   private buildFinalSummaryOptions(env: Env): SummaryOptions {
     const config = loadOptimizationConfig(env);
     const provider = (env as any).SUMMARY_PROVIDER || 'cloudflare';
+    const { modelLimits } = config;
+
+    const outputBudget = Math.min(
+      config.contextManagement.outputTokensTarget,
+      config.contextManagement.finalMaxTokens,
+      modelLimits.maxOutputTokens
+    );
 
     let opts: SummaryOptions;
 
@@ -667,8 +692,8 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
         };
     }
 
-    // Use higher max tokens for final summary
-    opts.maxTokens = Math.floor(opts.maxTokens * 1.5);
+    // Clamp to detected model/output budget
+    opts.maxTokens = Math.min(opts.maxTokens ?? outputBudget, outputBudget, modelLimits.maxOutputTokens);
 
     return opts;
   }

@@ -1,5 +1,4 @@
-import { Env, TELEGRAM_LIMIT } from "../env";
-import { truncateText } from "../utils";
+import { Env } from "../env";
 import { Logger } from "../logger";
 import {
   AIProvider,
@@ -80,6 +79,12 @@ export class OpenAIProvider implements AIProvider {
   private model: string;
   private baseUrl: string = 'https://api.openai.com/v1';
   private providerType: 'standard' | 'premium';
+  private readonly modelCaps: Record<string, { maxOutput: number }> = {
+    'gpt-5-nano': { maxOutput: 128000 },
+    'gpt-4.1-nano': { maxOutput: 32000 },
+    'gpt-4o-mini': { maxOutput: 12000 },
+    'gpt-4o': { maxOutput: 32000 },
+  };
   
   private isGPT5Model(model: string): boolean {
     return model.toLowerCase().includes('gpt-5') || model.toLowerCase().includes('gpt5');
@@ -238,8 +243,21 @@ export class OpenAIProvider implements AIProvider {
       }
     ];
 
+    // Clamp max tokens to model capability to avoid max_output_tokens errors
+    const maxOutputTokens = this.getModelOutputCap(this.model);
+    const safeMaxTokens = this.clamp(options.maxTokens ?? maxOutputTokens, 1, maxOutputTokens);
+    const safeOptions = { ...options, maxTokens: safeMaxTokens };
+
+    if (env && safeMaxTokens !== options.maxTokens) {
+      Logger.debug(env, 'OpenAI provider: maxTokens clamped', {
+        requested: options.maxTokens,
+        used: safeMaxTokens,
+        model: this.model
+      });
+    }
+
     try {
-      const response = await this.callOpenAI(messages, options, options.forceJsonResponse ?? false); // Text or JSON response
+      const response = await this.callOpenAI(messages, safeOptions, safeOptions.forceJsonResponse ?? false); // Text or JSON response
       const raw = response.choices[0].message.content;
 
       if (env) {
@@ -251,7 +269,7 @@ export class OpenAIProvider implements AIProvider {
         });
       }
 
-      return truncateText(raw, TELEGRAM_LIMIT);
+      return raw;
     } catch (error: any) {
       if (error instanceof ProviderError) {
         throw error;
@@ -475,6 +493,19 @@ export class OpenAIProvider implements AIProvider {
     }
 
     throw new ProviderError('OpenAI Responses API did not return any text output', 'openai');
+  }
+
+  private getModelOutputCap(model: string): number {
+    const key = Object.keys(this.modelCaps).find((m) => model.toLowerCase().includes(m));
+    if (key) return this.modelCaps[key].maxOutput;
+    // Conservative default to avoid hitting max_output_tokens
+    return 8192;
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
   }
 
   validateConfig(): void {

@@ -58,6 +58,7 @@ export interface Env {
   SUMMARY_OPT_ENABLE_DETAILED_METRICS?: string | boolean;
   SUMMARY_OPT_LOG_PERFORMANCE_INSIGHTS?: string | boolean;
   SUMMARY_OPT_TRACK_TOKEN_USAGE?: string | boolean;
+  SUMMARY_OPT_OUTPUT_TOKENS?: string | number;
 
   // Cache TTL configuration (in seconds)
   CRIMINAL_ANALYSIS_CACHE_TTL?: string | number;

@@ -1,5 +1,4 @@
-import { Env, TELEGRAM_LIMIT } from "../env";
-import { truncateText } from "../utils";
+import { Env } from "../env";
 import { Logger } from "../logger";
 import {
   AIProvider,
@@ -69,7 +68,7 @@ export class CloudflareAIProvider implements AIProvider {
       }
       
       const raw = (response.response ?? response) as string;
-      return truncateText(raw, TELEGRAM_LIMIT);
+      return raw;
     } catch (error: any) {
       throw new ProviderError(
         `Cloudflare AI error: ${error.message || String(error)}`,

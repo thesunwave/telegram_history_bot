@@ -7,7 +7,7 @@ import {
 } from "./env";
 import { fetchMessages, fetchLastMessages } from "./history";
 import { fetchMessagesHybrid } from "./history-optimized";
-import { chunkText, truncateText } from "./utils";
+import { chunkText } from "./utils";
 import { sendMessage } from "./telegram";
 import { ProviderFactory } from "./providers/provider-factory";
 import { ProviderInitializer } from "./providers/provider-init";
@@ -444,7 +444,7 @@ export async function summariseChatLegacy(
           insights: aiDuration > 10000 ? ["SLOW_AI_RESPONSE"] : [],
         });
 
-        return truncateText(resp, TELEGRAM_LIMIT);
+        return resp;
       } catch (error) {
         const aiDuration = Date.now() - aiStartTime;
         const e = error as Error;
@@ -833,7 +833,7 @@ export async function summariseChatMessagesLegacy(
     try {
       const request = createSummaryRequest(messages, env, limitNote, chatId);
       const aiResp = await provider.summarize(request, summaryOptions, env);
-      summary = truncateText(aiResp, TELEGRAM_LIMIT);
+      summary = aiResp;
       const aiDuration = Date.now() - aiStartTime;
 
       Logger.debug(env, "summariseChatMessages AI response received", {
