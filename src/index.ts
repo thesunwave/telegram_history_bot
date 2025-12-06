@@ -202,8 +202,17 @@ export default {
 
       console.log(`[DEBUG] Starting summary for chat ${chatId} (days=${days})`);
 
+      // Check if mock mode is requested
+      const useMock = url.searchParams.get("mock") === "true";
+
       // Force enable debug logs and dry run for this operation
-      const debugEnv = { ...env, DEBUG_LOGS: "true", DRY_RUN: "true" };
+      // If mock is requested, override provider to 'mock'
+      const debugEnv = {
+        ...env,
+        DEBUG_LOGS: "true",
+        DRY_RUN: "true",
+        ...(useMock ? { SUMMARY_PROVIDER: "mock" as any } : {})
+      };
 
       // Await summarization to keep request open and prevent premature timeout
       try {
@@ -211,7 +220,7 @@ export default {
 
         // If we got a string result back (from dry run), return it
         if (typeof result === 'string') {
-          return Response.json({ status: "completed", chatId, days, summary: result });
+          return Response.json({ status: "completed", chatId, days, summary: result, provider: useMock ? "mock" : "real" });
         }
 
         return Response.json({ status: "completed", chatId, days });
@@ -247,15 +256,24 @@ export default {
 
       console.log(`[DEBUG] Starting message summary for chat ${chatId} (count=${count})`);
 
+      // Check if mock mode is requested
+      const useMock = url.searchParams.get("mock") === "true";
+
       // Force enable debug logs and dry run for this operation
-      const debugEnv = { ...env, DEBUG_LOGS: "true", DRY_RUN: "true" };
+      // If mock is requested, override provider to 'mock'
+      const debugEnv = {
+        ...env,
+        DEBUG_LOGS: "true",
+        DRY_RUN: "true",
+        ...(useMock ? { SUMMARY_PROVIDER: "mock" as any } : {})
+      };
 
       try {
         const result = await summariseChatMessages(debugEnv, chatId, count);
 
         // If we got a string result back (from dry run), return it
         if (typeof result === 'string') {
-          return Response.json({ status: "completed", chatId, count, summary: result });
+          return Response.json({ status: "completed", chatId, count, summary: result, provider: useMock ? "mock" : "real" });
         }
 
         return Response.json({ status: "completed", chatId, count });

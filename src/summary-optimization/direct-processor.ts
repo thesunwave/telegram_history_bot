@@ -80,7 +80,13 @@ export class DirectProcessor implements IDirectProcessor {
       });
 
       // Optimize messages to fit within context limit
+      const optimizationStart = Date.now();
       const optimizedMessages = this.contextOptimizer.optimizeForContext(messages, maxInputTokens);
+      console.log(`[TRACE] Context optimization complete`, {
+        duration: Date.now() - optimizationStart,
+        originalCount: messages.length,
+        optimizedCount: optimizedMessages.length
+      });
 
       if (optimizedMessages.length < messages.length) {
         Logger.debug(env, 'DirectProcessor: Messages optimized for context', {
@@ -108,8 +114,16 @@ export class DirectProcessor implements IDirectProcessor {
 
       // Process with AI provider
       const processingStart = Date.now();
+      console.log(`[TRACE] Calling provider.summarize`, {
+        provider: 'summary', // Hardcoded as it's passed as string literal above
+        model: modelLimits.name
+      });
       const summary = await provider.summarize(summaryRequest, aiOptions, env);
       const processingDuration = Date.now() - processingStart;
+      console.log(`[TRACE] provider.summarize complete`, {
+        duration: processingDuration,
+        summaryLength: summary.length
+      });
       const safeSummary = summary;
 
       Logger.debug(env, 'DirectProcessor: Processing completed', {

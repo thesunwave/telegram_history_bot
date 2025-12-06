@@ -383,10 +383,29 @@ export class OpenAIProvider implements AIProvider {
       body = this.sanitizeChatPayload(requestBody, allowedParams);
     }
 
+    const requestStart = Date.now();
+    const bodyString = JSON.stringify(body);
+    const requestSize = bodyString.length;
+
+    console.log(`[TRACE] OpenAI request starting`, {
+      url,
+      model: this.model,
+      requestSize,
+      msgCount: messages.length,
+      isResponsesApi: useResponsesApi
+    });
+
     const response = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(body)
+      body: bodyString
+    });
+
+    const requestDuration = Date.now() - requestStart;
+    console.log(`[TRACE] OpenAI request complete`, {
+      status: response.status,
+      duration: requestDuration,
+      url
     });
 
     if (!response.ok) {
