@@ -136,7 +136,10 @@ export const MIGRATION_PAGE = `
       
       while (true) {
         statusEl.textContent = name + '... Total: ' + total;
-        const fullUrl = url + (cursor ? '?cursor=' + encodeURIComponent(cursor) : '');
+        const urlParams = new URL(window.location.href).searchParams;
+        const key = urlParams.get('key');
+        const authParam = key ? (cursor ? '&' : '?') + 'key=' + encodeURIComponent(key) : '';
+        const fullUrl = url + (cursor ? '?cursor=' + encodeURIComponent(cursor) : '') + authParam;
         
         const res = await fetch(fullUrl, { method: 'POST' });
         if (!res.ok) throw new Error('Request failed: ' + res.status);
