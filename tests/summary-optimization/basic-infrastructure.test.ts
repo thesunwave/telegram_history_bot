@@ -3,11 +3,11 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { 
-  loadOptimizationConfig, 
+import {
+  loadOptimizationConfig,
   getDefaultConfig,
   OptimizedStrategySelector,
-  OptimizedSummaryController 
+  OptimizedSummaryController
 } from '../../src/summary-optimization';
 import { Env } from '../../src/env';
 
@@ -39,7 +39,7 @@ describe('Summary Optimization Infrastructure', () => {
   describe('Configuration', () => {
     it('should load default configuration', () => {
       const config = loadOptimizationConfig(mockEnv);
-      
+
       expect(config).toBeDefined();
       expect(config.parallelProcessing).toBeDefined();
       expect(config.contextManagement).toBeDefined();
@@ -55,7 +55,7 @@ describe('Summary Optimization Infrastructure', () => {
       });
 
       const config = loadOptimizationConfig(envWithOverrides);
-      
+
       expect(config.parallelProcessing.maxWorkers).toBe(10);
       expect(config.parallelProcessing.enabled).toBe(false);
       expect(config.contextManagement.maxTokensPerRequest).toBe(100000);
@@ -71,7 +71,7 @@ describe('Summary Optimization Infrastructure', () => {
 
     it('should return default configuration', () => {
       const defaultConfig = getDefaultConfig();
-      
+
       expect(defaultConfig.parallelProcessing.enabled).toBe(true);
       expect(defaultConfig.parallelProcessing.maxWorkers).toBe(5);
       expect(defaultConfig.contextManagement.maxTokensPerRequest).toBe(120000);
@@ -82,8 +82,10 @@ describe('Summary Optimization Infrastructure', () => {
     let strategySelector: OptimizedStrategySelector;
 
     beforeEach(() => {
-      const config = loadOptimizationConfig(mockEnv);
-      strategySelector = new OptimizedStrategySelector(config, mockEnv);
+      // Set a low threshold for testing to ensure parallel strategy is selected
+      const testEnv = createMockEnv({ SUMMARY_OPT_MIN_MESSAGES_THRESHOLD: 100 } as any);
+      const config = loadOptimizationConfig(testEnv);
+      strategySelector = new OptimizedStrategySelector(config, testEnv);
     });
 
     it('should determine when to use parallel processing', () => {
@@ -110,7 +112,7 @@ describe('Summary Optimization Infrastructure', () => {
 
     it('should provide strategy explanation', () => {
       const explanation = strategySelector.explainStrategySelection(200, 50000);
-      
+
       expect(explanation.strategy).toBe('parallel');
       expect(explanation.reasoning).toBeInstanceOf(Array);
       expect(explanation.reasoning.length).toBeGreaterThan(0);
@@ -128,7 +130,7 @@ describe('Summary Optimization Infrastructure', () => {
 
     it('should initialize with configuration', () => {
       expect(controller).toBeDefined();
-      
+
       const config = controller.getConfig();
       expect(config).toBeDefined();
       expect(config.parallelProcessing).toBeDefined();
@@ -136,7 +138,7 @@ describe('Summary Optimization Infrastructure', () => {
 
     it('should provide strategy explanation', () => {
       const explanation = controller.explainStrategy(200, 50000);
-      
+
       expect(explanation).toBeDefined();
       expect(explanation.strategy).toBeDefined();
       expect(explanation.reasoning).toBeInstanceOf(Array);
@@ -150,12 +152,12 @@ describe('Summary Optimization Infrastructure', () => {
   describe('Type Safety', () => {
     it('should have proper TypeScript types', () => {
       const config = loadOptimizationConfig(mockEnv);
-      
+
       // These should compile without errors if types are correct
       const parallelEnabled: boolean = config.parallelProcessing.enabled;
       const maxTokens: number = config.contextManagement.maxTokensPerRequest;
       const preprocessingPrompt: string = config.hierarchicalProcessing.preprocessingPrompt;
-      
+
       expect(typeof parallelEnabled).toBe('boolean');
       expect(typeof maxTokens).toBe('number');
       expect(typeof preprocessingPrompt).toBe('string');

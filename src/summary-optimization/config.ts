@@ -90,15 +90,19 @@ export function loadOptimizationConfig(env: Env): SummaryOptimizationConfig {
   const modelLimits = detectModelLimits(env);
 
   // Output budget cannot exceed model max output
+  // Output budget cannot exceed model max output
+  const legacyMaxTokens = getEnvNumber(env, 'SUMMARY_MAX_TOKENS', 0);
+
   const requestedOutputTokens = getEnvNumber(
     env,
     'SUMMARY_OPT_OUTPUT_TOKENS',
-    modelLimits.defaultOutputTokensTarget ||
-    DEFAULT_CONFIG.contextManagement.outputTokensTarget,
+    legacyMaxTokens > 0
+      ? legacyMaxTokens
+      : (modelLimits.defaultOutputTokensTarget || DEFAULT_CONFIG.contextManagement.outputTokensTarget),
   );
   const outputTokensTarget = clamp(
     requestedOutputTokens,
-    500,
+    legacyMaxTokens > 0 ? 1 : 500, // Allow lower limit for legacy settings
     modelLimits.maxOutputTokens,
   );
 
