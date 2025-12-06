@@ -13,6 +13,7 @@ import { OptimizedStrategySelector } from "./strategy-selector";
 import { loadOptimizationConfig } from "./config";
 import { DirectProcessor } from "./direct-processor";
 import { HierarchicalProcessor } from "./hierarchical-processor";
+import { ParallelProcessor } from "./parallel-processor";
 import { Env, DAY, LOG_ID_RADIX } from "../env";
 import { Logger, PerformanceTracker } from "../logger";
 import { fetchMessages, fetchLastMessages } from "../history";
@@ -331,16 +332,15 @@ export class OptimizedSummaryController implements SummaryController {
           break;
 
         case "parallel":
-          // Will be implemented in Task 5-6
           Logger.debug(
             this.env,
-            "processOptimized: Parallel processing not yet implemented, falling back to direct",
+            "processOptimized: Using parallel processing strategy",
             {
               sessionId: session.sessionId,
             },
           );
-          const parallelFallback = new DirectProcessor();
-          result = await parallelFallback.process(messages, this.env, summaryContext);
+          const parallelProcessor = new ParallelProcessor();
+          result = await parallelProcessor.process(messages, this.env, summaryContext);
           break;
 
         default:
@@ -485,16 +485,15 @@ export class OptimizedSummaryController implements SummaryController {
           break;
 
         case "parallel":
-          // Will be implemented in Task 5-6
           Logger.debug(
             this.env,
-            "processOptimizedMessages: Parallel processing not yet implemented, falling back to direct",
+            "processOptimizedMessages: Using parallel processing strategy",
             {
               sessionId: session.sessionId,
             },
           );
-          const parallelFallback = new DirectProcessor();
-          result = await parallelFallback.process(messages, this.env, summaryContext);
+          const parallelProcessor = new ParallelProcessor();
+          result = await parallelProcessor.process(messages, this.env, summaryContext);
           break;
 
         default:

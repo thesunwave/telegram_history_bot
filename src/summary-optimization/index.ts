@@ -16,3 +16,6 @@ export { ContextOptimizer, createContextOptimizer } from './context-optimizer';
 
 // Main controller
 export { OptimizedSummaryController } from './summary-controller';
+export { ParallelProcessor } from './parallel-processor';
+export { DirectProcessor } from './direct-processor';
+export { HierarchicalProcessor } from './hierarchical-processor';

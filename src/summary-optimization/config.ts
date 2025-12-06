@@ -9,12 +9,12 @@ import { ModelLimits, SummaryOptimizationConfig } from './types';
 const DEFAULT_CONFIG: Omit<SummaryOptimizationConfig, 'modelLimits'> = {
   parallelProcessing: {
     enabled: true,
-    minMessagesThreshold: 100,
+    minMessagesThreshold: 1000,
     maxWorkers: 5,
     workerBatchSize: 50,
     workerTimeout: 30000, // 30 seconds
   },
-  
+
   contextManagement: {
     maxTokensPerRequest: 120000, // Baseline; adjusted by model limits
     preprocessingMaxTokens: 60000,
@@ -22,14 +22,14 @@ const DEFAULT_CONFIG: Omit<SummaryOptimizationConfig, 'modelLimits'> = {
     outputTokensTarget: 32000,
     tokenEstimationFactor: 4, // Rough estimate: 1 token ≈ 4 characters for Russian
   },
-  
+
   hierarchicalProcessing: {
     enabled: true,
     chunkSizeThreshold: 80000, // Switch to hierarchical if estimated tokens > this
     preprocessingPrompt: 'Создай краткую сводку основных тем и событий из следующих сообщений:',
     maxPreprocessingChunks: 10,
   },
-  
+
   monitoring: {
     enableDetailedMetrics: true,
     logPerformanceInsights: true,
@@ -94,7 +94,7 @@ export function loadOptimizationConfig(env: Env): SummaryOptimizationConfig {
     env,
     'SUMMARY_OPT_OUTPUT_TOKENS',
     modelLimits.defaultOutputTokensTarget ||
-      DEFAULT_CONFIG.contextManagement.outputTokensTarget,
+    DEFAULT_CONFIG.contextManagement.outputTokensTarget,
   );
   const outputTokensTarget = clamp(
     requestedOutputTokens,
@@ -178,7 +178,7 @@ export function loadOptimizationConfig(env: Env): SummaryOptimizationConfig {
         DEFAULT_CONFIG.parallelProcessing.workerTimeout,
       ),
     },
-    
+
     contextManagement: {
       maxTokensPerRequest: maxTokensPerRequest,
       preprocessingMaxTokens,
@@ -190,7 +190,7 @@ export function loadOptimizationConfig(env: Env): SummaryOptimizationConfig {
         DEFAULT_CONFIG.contextManagement.tokenEstimationFactor,
       ),
     },
-    
+
     hierarchicalProcessing: {
       enabled: getEnvBoolean(
         env,
@@ -209,7 +209,7 @@ export function loadOptimizationConfig(env: Env): SummaryOptimizationConfig {
         DEFAULT_CONFIG.hierarchicalProcessing.maxPreprocessingChunks,
       ),
     },
-    
+
     monitoring: {
       enableDetailedMetrics: getEnvBoolean(
         env,
@@ -231,7 +231,7 @@ export function loadOptimizationConfig(env: Env): SummaryOptimizationConfig {
 
   // Validate configuration
   validateConfig(config);
-  
+
   return config;
 }
 
@@ -245,15 +245,15 @@ function validateConfig(config: SummaryOptimizationConfig): void {
   if (config.parallelProcessing.maxWorkers < 1 || config.parallelProcessing.maxWorkers > 20) {
     throw new Error('SUMMARY_OPT_MAX_WORKERS must be between 1 and 20');
   }
-  
+
   if (config.parallelProcessing.workerBatchSize < 1 || config.parallelProcessing.workerBatchSize > 5000) {
     throw new Error('SUMMARY_OPT_WORKER_BATCH_SIZE must be between 1 and 5000');
   }
-  
+
   if (config.parallelProcessing.workerTimeout < 5000 || config.parallelProcessing.workerTimeout > 300000) {
     throw new Error('SUMMARY_OPT_WORKER_TIMEOUT must be between 5000ms and 300000ms');
   }
-  
+
   // Validate context management config
   if (
     config.contextManagement.maxTokensPerRequest < 1000 ||
@@ -263,7 +263,7 @@ function validateConfig(config: SummaryOptimizationConfig): void {
       `SUMMARY_OPT_MAX_TOKENS_PER_REQUEST must be between 1000 and ${modelLimits.maxContextTokens}`,
     );
   }
-  
+
   if (config.contextManagement.preprocessingMaxTokens > config.contextManagement.maxTokensPerRequest) {
     throw new Error('SUMMARY_OPT_PREPROCESSING_MAX_TOKENS cannot be greater than SUMMARY_OPT_MAX_TOKENS_PER_REQUEST');
   }
@@ -291,16 +291,16 @@ function validateConfig(config: SummaryOptimizationConfig): void {
       'Input + output token budgets exceed model context window. Reduce SUMMARY_OPT_MAX_TOKENS_PER_REQUEST or SUMMARY_OPT_OUTPUT_TOKENS.',
     );
   }
-  
+
   if (config.contextManagement.tokenEstimationFactor < 1 || config.contextManagement.tokenEstimationFactor > 10) {
     throw new Error('SUMMARY_OPT_TOKEN_ESTIMATION_FACTOR must be between 1 and 10');
   }
-  
+
   // Validate hierarchical processing config
   if (config.hierarchicalProcessing.maxPreprocessingChunks < 1 || config.hierarchicalProcessing.maxPreprocessingChunks > 50) {
     throw new Error('SUMMARY_OPT_MAX_PREPROCESSING_CHUNKS must be between 1 and 50');
   }
-  
+
   if (config.hierarchicalProcessing.chunkSizeThreshold < 1000) {
     throw new Error('SUMMARY_OPT_CHUNK_SIZE_THRESHOLD must be at least 1000');
   }
