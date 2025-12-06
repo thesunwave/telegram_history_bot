@@ -223,9 +223,9 @@ function createSummaryRequest(
   }
 
   // Replace placeholders in prompts
-  let systemPrompt = env.SUMMARY_SYSTEM;
-  let userPrompt = env.SUMMARY_PROMPT;
-  
+  let systemPrompt = env.SUMMARY_SYSTEM || "";
+  let userPrompt = env.SUMMARY_PROMPT || "";
+
   // Replace placeholders in system prompt
   systemPrompt = systemPrompt.replace("{messages}", "");
   systemPrompt = systemPrompt.replace("{chatTitle}", chatTitle);
@@ -572,7 +572,7 @@ export async function summariseChatLegacy(
     });
 
     // Save to database
-    if (env.DB && typeof env.DB.prepare === 'function') {
+    if (env.DB && typeof env.DB.prepare === 'function' && !env.DRY_RUN) {
       try {
         Logger.debug(env, "summarize DB insert start", {
           chat: chatId.toString(LOG_ID_RADIX),
@@ -602,13 +602,32 @@ export async function summariseChatLegacy(
         // Продолжаем выполнение, чтобы отправить сообщение пользователю
       }
     } else {
-      Logger.debug(env, "summarize DB not available", {
+      Logger.debug(env, env.DRY_RUN ? "summarize DB insert skipped (DRY_RUN)" : "summarize DB not available", {
         chat: chatId.toString(LOG_ID_RADIX),
       });
     }
 
-    // Send message to user
+    // Send message to user or return in dry run
     try {
+      if (env.DRY_RUN) {
+        Logger.debug(env, "summarize dry run - returning summary", {
+          chat: chatId.toString(LOG_ID_RADIX),
+          summaryLength: summary.length,
+        });
+
+        // Track successful completion in dry run
+        PerformanceTracker.end(trackerId, {
+          result: "success",
+          totalMessages: allMessages.length,
+          filteredMessages: messages.length,
+          summaryLength: summary.length,
+          chunks: parts.length,
+          dryRun: true
+        });
+
+        return summary;
+      }
+
       Logger.debug(env, "summarize sending message", {
         chat: chatId.toString(LOG_ID_RADIX),
         summaryLength: summary.length,
@@ -678,6 +697,11 @@ export async function summariseChatLegacy(
     ) {
       userMessage =
         "Превышен лимит запросов. Попробуйте через несколько минут.";
+    }
+
+    if (env.DRY_RUN) {
+      Logger.warn(env, "summariseChat unhandled error (dry run)", { error: userMessage });
+      return `Error: ${userMessage} \n\nDetails: ${e.message}`;
     }
 
     try {
@@ -1027,8 +1051,8 @@ async function tryOptimizedSummary(
   env: Env,
   type: "chat" | "messages",
   args: [number, number],
-  legacyFallback: (env: Env, ...args: any[]) => Promise<void>,
-): Promise<void> {
+  legacyFallback: (env: Env, ...args: any[]) => Promise<string | void>,
+): Promise<string | void> {
   const [chatId, param] = args;
 
   // Feature flag check - can be controlled via environment variable
@@ -1063,6 +1087,17 @@ async function tryOptimizedSummary(
     // Check if result is valid
     if (!result || typeof result !== 'string') {
       throw new Error(`Invalid result from optimized controller: ${result}`);
+    }
+
+    // Return in dry run
+    if (env.DRY_RUN) {
+      Logger.debug(env, "Optimized summary dry run - returning summary", {
+        chatId: chatId.toString(LOG_ID_RADIX),
+        type,
+        param,
+        resultLength: result.length,
+      });
+      return result;
     }
 
     // Send the result

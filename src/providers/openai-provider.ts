@@ -85,7 +85,7 @@ export class OpenAIProvider implements AIProvider {
     'gpt-4o-mini': { maxOutput: 12000 },
     'gpt-4o': { maxOutput: 32000 },
   };
-  
+
   private isGPT5Model(model: string): boolean {
     return model.toLowerCase().includes('gpt-5') || model.toLowerCase().includes('gpt5');
   }
@@ -337,8 +337,14 @@ export class OpenAIProvider implements AIProvider {
       const requestBody: OpenAIChatRequest = {
         model: this.model,
         messages,
-        max_tokens: options.maxTokens
       };
+
+      // Use max_completion_tokens for reasoning models (gpt-5/o1/o3), max_tokens for others
+      if (this.isGPT5Model(this.model) || this.model.startsWith('o1') || this.model.startsWith('o3')) {
+        (requestBody as any).max_completion_tokens = options.maxTokens;
+      } else {
+        requestBody.max_tokens = options.maxTokens;
+      }
 
       // Add sampling parameters only if supported by the model
       if (allowedParams.temperature) {
@@ -424,7 +430,7 @@ export class OpenAIProvider implements AIProvider {
       }
     }
 
-    const parsed = await response.json();
+    const parsed = await response.json() as any;
     if (useResponsesApi) {
       const content = this.extractResponsesContent(parsed);
       return {
@@ -489,10 +495,50 @@ export class OpenAIProvider implements AIProvider {
 
     if (status && status !== 'completed') {
       const reasonSuffix = incompleteReason ? ` (${incompleteReason})` : '';
+
+      // If we have content but stopped due to length/token limits, return what we have with a warning
+      if (incompleteReason === 'max_output_tokens' || incompleteReason === 'max_tokens' || incompleteReason === 'length') {
+        const content = this.extractBestAvailableContent(response);
+        if (content) {
+          Logger.warn(`OpenAI Responses API returned incomplete result${reasonSuffix}, returning partial content`, {
+            contentLength: content.length,
+            reason: incompleteReason
+          });
+          return content;
+        }
+      }
+
       throw new ProviderError(`OpenAI Responses API returned incomplete result${reasonSuffix}`, 'openai');
     }
 
     throw new ProviderError('OpenAI Responses API did not return any text output', 'openai');
+  }
+
+  private extractBestAvailableContent(response: any): string | null {
+    if (typeof response.output_text === 'string' && response.output_text.trim()) {
+      return response.output_text.trim();
+    }
+
+    if (Array.isArray(response.output)) {
+      const orderedOutputs = [
+        ...response.output.filter((item: any) => item?.type === 'message' || item?.role === 'assistant'),
+        ...response.output
+      ];
+
+      for (const item of orderedOutputs) {
+        if (typeof item === 'string' && item.trim()) return item.trim();
+
+        const content = item?.content || item?.message?.content;
+        if (typeof content === 'string' && content.trim()) return content.trim();
+        if (Array.isArray(content)) {
+          const textPart = content.find((c: any) => c?.text?.value || c?.text || typeof c === 'string');
+          if (textPart?.text?.value?.trim()) return textPart.text.value.trim();
+          if (typeof textPart?.text === 'string' && textPart.text.trim()) return textPart.text.trim();
+          if (typeof textPart === 'string' && textPart.trim()) return textPart.trim();
+        }
+      }
+    }
+    return null;
   }
 
   private getModelOutputCap(model: string): number {
@@ -530,7 +576,7 @@ export class OpenAIProvider implements AIProvider {
       }
 
       const { systemPrompt, userPrompt } = getProfanityPrompts(env);
-      
+
       // Use 'developer' role for GPT-5 models, 'system' for others
       const roleToUse = this.isGPT5Model(this.model) ? 'developer' : 'system';
       const messages: ChatMessage[] = [
@@ -730,7 +776,7 @@ export class OpenAIProvider implements AIProvider {
       }
 
       const { systemPrompt, userPrompt } = getCriminalCodePrompts(env);
-      
+
       // Use 'developer' role for GPT-5 models, 'system' for others
       const roleToUse = this.isGPT5Model(this.model) ? 'developer' : 'system';
       const messages: ChatMessage[] = [
@@ -894,11 +940,11 @@ export class OpenAIProvider implements AIProvider {
 
       // Validate each violation entry
       for (const violation of parsed.violations) {
-        if (typeof violation.article !== 'string' || 
-            (violation.subarticle !== null && typeof violation.subarticle !== 'string') ||
-            typeof violation.articleTitle !== 'string' ||
-            typeof violation.quote !== 'string' ||
-            typeof violation.punishment !== 'string') {
+        if (typeof violation.article !== 'string' ||
+          (violation.subarticle !== null && typeof violation.subarticle !== 'string') ||
+          typeof violation.articleTitle !== 'string' ||
+          typeof violation.quote !== 'string' ||
+          typeof violation.punishment !== 'string') {
           throw new Error('Invalid response: violation entries must have string article, quote, punishment');
         }
         if (typeof violation.severity !== 'number' || violation.severity < 1 || violation.severity > 10) {

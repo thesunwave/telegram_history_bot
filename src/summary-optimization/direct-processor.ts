@@ -26,8 +26,8 @@ export class DirectProcessor implements IDirectProcessor {
    * Optimizes for full context utilization
    */
   async process(messages: TelegramMessage[], env: Env, context?: SummaryContext): Promise<string> {
-    const trackerId = PerformanceTracker.start('directProcessor', 'process', { 
-      messageCount: messages.length 
+    const trackerId = PerformanceTracker.start('directProcessor', 'process', {
+      messageCount: messages.length
     });
 
     Logger.debug(env, 'DirectProcessor: Starting direct processing', {
@@ -81,7 +81,7 @@ export class DirectProcessor implements IDirectProcessor {
 
       // Optimize messages to fit within context limit
       const optimizedMessages = this.contextOptimizer.optimizeForContext(messages, maxInputTokens);
-      
+
       if (optimizedMessages.length < messages.length) {
         Logger.debug(env, 'DirectProcessor: Messages optimized for context', {
           originalCount: messages.length,
@@ -98,8 +98,10 @@ export class DirectProcessor implements IDirectProcessor {
 
       // Build AI options based on provider
       const aiOptions = this.buildAIOptions(env);
+
+      // Override maxTokens with our calculated budget to ensure we utilize the full model capacity
+      // This prioritizes the optimized budget over the conservative default (2000) from buildAIOptions
       aiOptions.maxTokens = Math.min(
-        aiOptions.maxTokens ?? outputTokensBudget,
         outputTokensBudget,
         modelLimits.maxOutputTokens
       );
@@ -155,7 +157,7 @@ export class DirectProcessor implements IDirectProcessor {
   ): SummaryRequest {
     // Extract participant information
     const participants = [...new Set(messages.map(m => m.username))];
-    
+
     const chatTitle = context?.chatId
       ? `Чат ${context.chatId.toString(LOG_ID_RADIX)}`
       : 'Неизвестный чат';
@@ -166,7 +168,7 @@ export class DirectProcessor implements IDirectProcessor {
     const endTs = context?.periodEnd ?? messages[messages.length - 1]?.ts;
     const startDate = startTs ? new Date(startTs * 1000).toLocaleDateString('ru-RU') : 'неизвестно';
     const endDate = endTs ? new Date(endTs * 1000).toLocaleDateString('ru-RU') : 'неизвестно';
-    
+
     // Create participant stats
     const participantStats = participants.map(username => {
       const messageCount = messages.filter(m => m.username === username).length;

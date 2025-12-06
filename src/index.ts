@@ -1,6 +1,7 @@
 import { migrateStatsBatch, MIGRATION_PAGE } from "./migrate";
 import { Env } from "./env";
 import { dailySummary } from "./stats";
+import { summariseChat, summariseChatMessages } from "./summary";
 import { handleUpdate, recordMessage, getTextMessage } from "./update";
 import { CountersDO } from "./counters-do";
 import { MessageFetcherDO } from "./message-fetcher-do";
@@ -75,13 +76,21 @@ export default {
       });
 
       if (!tokenMatches) {
-        Logger.warn(env, "webhook token mismatch", {
-          tokenProvided: Boolean(token),
-        });
-        return new Response("forbidden", { status: 403 });
+        if (env.ENVIRONMENT === "development") {
+          Logger.warn(env, "webhook token mismatch (IGNORED IN DEVELOPMENT)", {
+            tokenProvided: Boolean(token),
+          });
+        } else {
+          Logger.warn(env, "webhook token mismatch", {
+            tokenProvided: Boolean(token),
+          });
+          return new Response("forbidden", { status: 403 });
+        }
       }
 
       if (!secretMatches) {
+        console.log('DEBUG: env.ENVIRONMENT =', `"${env.ENVIRONMENT}"`);
+        console.log('DEBUG: secretMatches =', secretMatches);
         if (env.ENVIRONMENT === "development") {
           Logger.warn(env, "webhook secret mismatch (IGNORED IN DEVELOPMENT)", {
             secretProvided: Boolean(secretHeader),
@@ -136,8 +145,9 @@ export default {
         if (userId) statsUrl.searchParams.set("userId", userId);
         statsUrl.searchParams.set("days", days);
 
-        const response = await stub.fetch(new Request(statsUrl.toString()));
-        return response;
+        // Use string URL to avoid Request type conflicts
+        const response = await stub.fetch(statsUrl.toString());
+        return response as unknown as Response;
       } catch (error: any) {
         console.error("Criminal stats API error:", error);
         return new Response("Internal server error", { status: 500 });
@@ -146,7 +156,7 @@ export default {
 
     if (url.pathname === "/api/criminal-report" && req.method === "POST") {
       try {
-        const body = await req.json();
+        const body = await req.json() as any;
         const { chatId, text, userId } = body;
 
         if (!chatId || !text) {
@@ -156,17 +166,106 @@ export default {
         const id = env.CRIMINAL_CODE_ANALYZER_DO.idFromName(`criminal-analyzer-${chatId}`);
         const stub = env.CRIMINAL_CODE_ANALYZER_DO.get(id);
 
-        const analyzeRequest = new Request("http://localhost/analyze", {
+        // Use URL string and init object to avoid Request type conflicts
+        const response = await stub.fetch("http://localhost/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text, userId })
         });
-
-        const response = await stub.fetch(analyzeRequest);
-        return response;
+        return response as unknown as Response;
       } catch (error: any) {
         console.error("Criminal report API error:", error);
         return new Response("Internal server error", { status: 500 });
+      }
+    }
+
+    // Debug endpoints
+    if (url.pathname === "/debug/summary" && req.method === "POST") {
+      // Ensure debug endpoints are only available in development
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const chatIdStr = url.searchParams.get("chatId");
+      const daysStr = url.searchParams.get("days") || "1";
+
+      if (!chatIdStr) {
+        return new Response("Missing chatId", { status: 400 });
+      }
+
+      const chatId = parseInt(chatIdStr, 10);
+      const days = parseInt(daysStr, 10);
+
+      if (isNaN(chatId)) {
+        return new Response("Invalid chatId", { status: 400 });
+      }
+
+      console.log(`[DEBUG] Starting summary for chat ${chatId} (days=${days})`);
+
+      // Force enable debug logs and dry run for this operation
+      const debugEnv = { ...env, DEBUG_LOGS: "true", DRY_RUN: "true" };
+
+      // Await summarization to keep request open and prevent premature timeout
+      try {
+        const result = await summariseChat(debugEnv, chatId, days);
+
+        // If we got a string result back (from dry run), return it
+        if (typeof result === 'string') {
+          return Response.json({ status: "completed", chatId, days, summary: result });
+        }
+
+        return Response.json({ status: "completed", chatId, days });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
+          chatId,
+          days,
+          error: error.message || String(error)
+        }, { status: 500 });
+      }
+    }
+
+    if (url.pathname === "/debug/summary_messages" && req.method === "POST") {
+      // Ensure debug endpoints are only available in development
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const chatIdStr = url.searchParams.get("chatId");
+      const countStr = url.searchParams.get("count") || "50";
+
+      if (!chatIdStr) {
+        return new Response("Missing chatId", { status: 400 });
+      }
+
+      const chatId = parseInt(chatIdStr, 10);
+      const count = parseInt(countStr, 10);
+
+      if (isNaN(chatId)) {
+        return new Response("Invalid chatId", { status: 400 });
+      }
+
+      console.log(`[DEBUG] Starting message summary for chat ${chatId} (count=${count})`);
+
+      // Force enable debug logs and dry run for this operation
+      const debugEnv = { ...env, DEBUG_LOGS: "true", DRY_RUN: "true" };
+
+      try {
+        const result = await summariseChatMessages(debugEnv, chatId, count);
+
+        // If we got a string result back (from dry run), return it
+        if (typeof result === 'string') {
+          return Response.json({ status: "completed", chatId, count, summary: result });
+        }
+
+        return Response.json({ status: "completed", chatId, count });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
+          chatId,
+          count,
+          error: error.message || String(error)
+        }, { status: 500 });
       }
     }
 
