@@ -9,7 +9,9 @@
 		"cf-typegen": "wrangler types",
 		"test": "vitest run",
 		"test:race-conditions": "vitest run tests/race-condition.test.ts --reporter=verbose",
-		"test:all": "npm test && npm run test:race-conditions"
+		"test:all": "npm test && npm run test:race-conditions",
+		"dev:remote": "wrangler dev --remote",
+		"dev:polling": "node scripts/local-polling.js"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20250810.0",
@@ -20,5 +22,8 @@
 		"typescript": "^5.0.4",
 		"vitest": "^3.2.3",
 		"wrangler": "^4.26.1"
+	},
+	"dependencies": {
+		"dotenv": "^17.2.3"
 	}
 }

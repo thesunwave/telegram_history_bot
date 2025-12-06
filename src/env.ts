@@ -11,6 +11,7 @@ export interface Env {
   CRIMINAL_CODE_ANALYZER_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
   DB: import("@cloudflare/workers-types").D1Database;
   AI: any;
+  ENVIRONMENT?: string;
   TOKEN: string;
   SECRET: string;
   SUMMARY_MODEL: string;
@@ -70,7 +71,7 @@ export interface Env {
   CRIMINAL_TEXT_PREVIEW_LENGTH?: string | number;
 }
 
-export interface DurableObjectId {}
+export interface DurableObjectId { }
 
 export interface DurableObjectStub {
   fetch(request: Request): Promise<Response>;

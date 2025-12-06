@@ -82,10 +82,16 @@ export default {
       }
 
       if (!secretMatches) {
-        Logger.warn(env, "webhook secret mismatch", {
-          secretProvided: Boolean(secretHeader),
-        });
-        return new Response("forbidden", { status: 403 });
+        if (env.ENVIRONMENT === "development") {
+          Logger.warn(env, "webhook secret mismatch (IGNORED IN DEVELOPMENT)", {
+            secretProvided: Boolean(secretHeader),
+          });
+        } else {
+          Logger.warn(env, "webhook secret mismatch", {
+            secretProvided: Boolean(secretHeader),
+          });
+          return new Response("forbidden", { status: 403 });
+        }
       }
       const update = await req.json();
       Logger.debug(env, "webhook received", {
