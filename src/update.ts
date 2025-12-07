@@ -20,7 +20,7 @@ function isTestEnvironment(env: Env): boolean {
 
 const HELP_TEXT = [
   '/summary <days> – сводка за последние N дней (по умолчанию 1)',
-  '/summary_last <n> – сводка последних N сообщений (по умолчанию 1, макс 40)',
+  '/summary_last <n> – сводка последних N сообщений (по умолчанию 100, макс 1000)',
   '/top <n> – топ N активных пользователей за сегодня (по умолчанию 5)',
   '/profanity_top [n] [period] – топ N матершинников',
   '  Примеры: /profanity_top, /profanity_top 10, /profanity_top 5 week',
@@ -577,10 +577,10 @@ async function analyzeCriminalCodeAsync(
         try {
           const notificationRepository = new NotificationRepository(env);
           const notificationService = new NotificationService(env, notificationRepository);
-          
+
           // Get notification settings for this chat
           const settings = await notificationService.getChatSettings(chatId.toString());
-          
+
           // Only send if notifications are enabled and criminal reports are enabled
           if (settings && settings.enabled && settings.notifications.criminal_reports.enabled) {
             const violationHandler = new ViolationHandler(env);
@@ -597,7 +597,7 @@ async function analyzeCriminalCodeAsync(
               chatId: chatId.toString(36),
               messageLength: formattedMessage.length
             });
-            
+
             // Record notification result
             await notificationRepository.recordNotificationResult(
               chatId.toString(),
@@ -663,7 +663,7 @@ export async function handleUpdate(msg: any, env: Env) {
   const ts = msg.date;
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
   if (msg.text.startsWith('/summary_last')) {
-    const n = parseInt(msg.text.split(' ')[1] || '1', 10);
+    const n = parseInt(msg.text.split(' ')[1] || '100', 10);
     const count = Math.min(n, MAX_LAST_MESSAGES);
     await summariseChatMessages(env, chatId, count);
   } else if (msg.text.startsWith('/summary')) {
@@ -828,7 +828,7 @@ async function handleAutoNotificationsCommand(env: Env, msg: any) {
         break;
 
       default:
-        await sendMessage(env, chatId, 
+        await sendMessage(env, chatId,
           `❓ Неизвестная подкоманда: ${subcommand}\n\n` +
           'Доступные команды:\n' +
           '• /auto_notifications status – показать настройки\n' +
@@ -858,7 +858,7 @@ async function handleNotificationStatus(env: Env, service: NotificationService, 
   const settings = await service.getChatSettings(chatId.toString());
 
   if (!settings) {
-    await sendMessage(env, chatId, 
+    await sendMessage(env, chatId,
       '📋 *Автоматические уведомления*\n\n' +
       '❌ Уведомления не настроены для этого чата\n\n' +
       'Используйте `/auto_notifications enable` для включения'
@@ -906,7 +906,7 @@ async function handleNotificationEnable(env: Env, service: NotificationService, 
     // Включаем конкретный тип уведомлений
     const availableTypes = service.getAvailableNotificationTypes();
     if (!availableTypes.includes(type as NotificationType)) {
-      await sendMessage(env, chatId, 
+      await sendMessage(env, chatId,
         `❌ Неизвестный тип уведомлений: ${type}\n\n` +
         `Доступные типы: ${availableTypes.map(t => getNotificationTypeDisplayName(t)).join(', ')}`
       );
@@ -914,7 +914,7 @@ async function handleNotificationEnable(env: Env, service: NotificationService, 
     }
 
     await service.enableNotification(chatId.toString(), type as NotificationType, userId);
-    await sendMessage(env, chatId, 
+    await sendMessage(env, chatId,
       `✅ Уведомления "${getNotificationTypeDisplayName(type as NotificationType)}" включены`
     );
   } else {
@@ -932,7 +932,7 @@ async function handleNotificationDisable(env: Env, service: NotificationService,
     // Отключаем конкретный тип уведомлений
     const availableTypes = service.getAvailableNotificationTypes();
     if (!availableTypes.includes(type as NotificationType)) {
-      await sendMessage(env, chatId, 
+      await sendMessage(env, chatId,
         `❌ Неизвестный тип уведомлений: ${type}\n\n` +
         `Доступные типы: ${availableTypes.map(t => getNotificationTypeDisplayName(t)).join(', ')}`
       );
@@ -940,7 +940,7 @@ async function handleNotificationDisable(env: Env, service: NotificationService,
     }
 
     await service.disableNotification(chatId.toString(), type as NotificationType, userId);
-    await sendMessage(env, chatId, 
+    await sendMessage(env, chatId,
       `❌ Уведомления "${getNotificationTypeDisplayName(type as NotificationType)}" отключены`
     );
   } else {
@@ -955,7 +955,7 @@ async function handleNotificationDisable(env: Env, service: NotificationService,
  */
 async function handleNotificationSchedule(env: Env, service: NotificationService, chatId: number, userId: string, type?: string) {
   if (!type) {
-    await sendMessage(env, chatId, 
+    await sendMessage(env, chatId,
       '❓ Укажите тип уведомлений для настройки расписания\n\n' +
       'Пример: `/auto_notifications schedule daily_summary`'
     );
@@ -964,7 +964,7 @@ async function handleNotificationSchedule(env: Env, service: NotificationService
 
   const availableTypes = service.getAvailableNotificationTypes();
   if (!availableTypes.includes(type as NotificationType)) {
-    await sendMessage(env, chatId, 
+    await sendMessage(env, chatId,
       `❌ Неизвестный тип уведомлений: ${type}\n\n` +
       `Доступные типы: ${availableTypes.map(t => getNotificationTypeDisplayName(t)).join(', ')}`
     );
@@ -982,15 +982,15 @@ async function handleNotificationSchedule(env: Env, service: NotificationService
   let message = `⚙️ *Настройки "${getNotificationTypeDisplayName(type as NotificationType)}"*\n\n`;
   message += `📊 Статус: ${typeSettings.enabled ? '✅ Включено' : '❌ Отключено'}\n`;
   message += `⏰ Частота: ${getFrequencyDisplayName(typeSettings.frequency)}\n`;
-  
+
   if (typeSettings.time) {
     message += `🕐 Время: ${typeSettings.time.hour}:${typeSettings.time.minute.toString().padStart(2, '0')}\n`;
   }
-  
+
   if (typeSettings.threshold) {
     message += `📈 Порог: ${typeSettings.threshold}\n`;
   }
-  
+
   message += `📋 Детали: ${typeSettings.includeDetails ? 'Включены' : 'Отключены'}\n`;
   message += `📊 Макс. элементов: ${typeSettings.maxItemsInReport}\n\n`;
   message += `💡 Для изменения настроек обратитесь к администратору`;
@@ -1010,15 +1010,15 @@ async function handleNotificationStats(env: Env, service: NotificationService, c
     for (const notificationType of availableTypes) {
       const stats = await service.getNotificationStats(chatId.toString(), notificationType);
       const successRate = (stats.successRate * 100).toFixed(1);
-      
+
       message += `📋 *${getNotificationTypeDisplayName(notificationType)}*\n`;
       message += `• Отправлено: ${stats.totalSent}\n`;
       message += `• Успешность: ${successRate}%\n`;
-      
+
       if (stats.lastSentAt) {
         message += `• Последнее: ${stats.lastSentAt.toLocaleString('ru-RU')}\n`;
       }
-      
+
       message += '\n';
     }
 
@@ -1027,17 +1027,17 @@ async function handleNotificationStats(env: Env, service: NotificationService, c
     // Показываем детальную статистику по конкретному типу
     const stats = await service.getNotificationStats(chatId.toString(), type);
     const successRate = (stats.successRate * 100).toFixed(1);
-    
+
     let message = `📊 *Статистика "${getNotificationTypeDisplayName(type)}"*\n\n`;
     message += `📤 Всего отправлено: ${stats.totalSent}\n`;
     message += `✅ Успешность: ${successRate}%\n`;
     message += `❌ Ошибок: ${stats.failureCount}\n`;
     message += `⏱️ Среднее время отклика: ${stats.averageResponseTime}мс\n`;
-    
+
     if (stats.lastSentAt) {
       message += `📅 Последняя отправка: ${stats.lastSentAt.toLocaleString('ru-RU')}\n`;
     }
-    
+
     if (stats.lastFailureReason) {
       message += `⚠️ Последняя ошибка: ${stats.lastFailureReason}\n`;
     }
@@ -1051,9 +1051,9 @@ async function handleNotificationStats(env: Env, service: NotificationService, c
  */
 async function handleNotificationTypes(env: Env, service: NotificationService, chatId: number) {
   const availableTypes = service.getAvailableNotificationTypes();
-  
+
   let message = '📋 *Доступные типы уведомлений:*\n\n';
-  
+
   for (const type of availableTypes) {
     const template = service.getNotificationTemplate(type);
     message += `📌 *${getNotificationTypeDisplayName(type)}*\n`;

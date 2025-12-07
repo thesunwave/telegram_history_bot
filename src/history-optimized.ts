@@ -1,8 +1,8 @@
-import { 
-  Env, 
-  StoredMessage, 
+import {
+  Env,
+  StoredMessage,
   DayBlock,
-  LOG_ID_RADIX, 
+  LOG_ID_RADIX,
   DAY
 } from './env';
 import { Logger, PerformanceTracker } from './logger';
@@ -25,11 +25,11 @@ export function getDayBlockKey(chatId: number, date: string): string {
  * Uses Durable Objects for atomic operations
  */
 export async function addMessageToDayBlock(
-  env: Env, 
+  env: Env,
   message: StoredMessage
 ): Promise<void> {
   const date = getDateFromTimestamp(message.ts);
-  
+
   Logger.debug(env, 'addMessageToDayBlock: start (race-safe)', {
     chat: message.chat.toString(LOG_ID_RADIX),
     date,
@@ -70,9 +70,9 @@ export async function addMessageToDayBlock(
  * This reduces KV requests from N messages to N days
  */
 export async function fetchMessagesOptimized(
-  env: Env, 
-  chatId: number, 
-  start: number, 
+  env: Env,
+  chatId: number,
+  start: number,
   end: number
 ): Promise<StoredMessage[]> {
   const trackerId = PerformanceTracker.start('fetchMessagesOptimized', chatId.toString(LOG_ID_RADIX), {
@@ -93,7 +93,7 @@ export async function fetchMessagesOptimized(
     const dates: string[] = [];
     const startDate = new Date(start * 1000);
     const endDate = new Date(end * 1000);
-    
+
     for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
       dates.push(d.toISOString().slice(0, 10));
     }
@@ -110,19 +110,19 @@ export async function fetchMessagesOptimized(
         // Try Durable Object first for most up-to-date data
         const { getDayBlockSafe } = await import('./day-block-manager');
         let block = await getDayBlockSafe(env, chatId, date);
-        
+
         // Fallback to KV if DO doesn't have the block
         if (!block) {
           // Try new sharded format first
           block = await loadShardedBlockFromKV(env, chatId, date);
-          
+
           // Fallback to legacy single-block format
           if (!block) {
             const key = getDayBlockKey(chatId, date);
             block = await env.HISTORY.get<DayBlock>(key, { type: 'json' });
           }
         }
-        
+
         return { date, block, success: true };
       } catch (error: any) {
         Logger.error('fetchMessagesOptimized: day block fetch failed', {
@@ -135,7 +135,7 @@ export async function fetchMessagesOptimized(
     });
 
     const dayBlockResults = await Promise.all(dayBlockPromises);
-    
+
     // Collect all messages from successful day blocks
     const allMessages: StoredMessage[] = [];
     let successfulBlocks = 0;
@@ -145,12 +145,12 @@ export async function fetchMessagesOptimized(
       if (result.success && result.block) {
         successfulBlocks++;
         // Filter messages within the exact time range
-        const filteredMessages = result.block.messages.filter(msg => 
+        const filteredMessages = result.block.messages.filter(msg =>
           msg.ts >= start && msg.ts <= end
         );
         allMessages.push(...filteredMessages);
         totalBlockMessages += result.block.messageCount;
-        
+
         Logger.debug(env, 'fetchMessagesOptimized: day block processed', {
           chat: chatId.toString(LOG_ID_RADIX),
           date: result.date,
@@ -203,9 +203,9 @@ export async function fetchMessagesOptimized(
  * Hybrid fetch that tries optimized day blocks first, falls back to individual messages
  */
 export async function fetchMessagesHybrid(
-  env: Env, 
-  chatId: number, 
-  start: number, 
+  env: Env,
+  chatId: number,
+  start: number,
   end: number
 ): Promise<StoredMessage[]> {
   const trackerId = PerformanceTracker.start('fetchMessagesHybrid', chatId.toString(LOG_ID_RADIX), {
@@ -221,7 +221,7 @@ export async function fetchMessagesHybrid(
   try {
     // Try optimized day blocks first
     const optimizedMessages = await fetchMessagesOptimized(env, chatId, start, end);
-    
+
     // If we got a reasonable number of messages, use optimized result
     if (optimizedMessages.length > 0) {
       PerformanceTracker.end(trackerId, {
@@ -229,12 +229,12 @@ export async function fetchMessagesHybrid(
         method: 'optimized',
         messagesFound: optimizedMessages.length
       });
-      
+
       Logger.debug(env, 'fetchMessagesHybrid: optimized fetch successful', {
         chat: chatId.toString(LOG_ID_RADIX),
         messagesFound: optimizedMessages.length
       });
-      
+
       return optimizedMessages;
     }
 
@@ -269,6 +269,120 @@ export async function fetchMessagesHybrid(
   }
 }
 
+
+
+/**
+ * Fetch last N messages using optimized daily blocks
+ * Iterates backwards from current day to find enough messages
+ */
+export async function fetchLastMessagesOptimized(
+  env: Env,
+  chatId: number,
+  count: number
+): Promise<StoredMessage[]> {
+  const trackerId = PerformanceTracker.start('fetchLastMessagesOptimized', chatId.toString(LOG_ID_RADIX), { count });
+
+  Logger.debug(env, 'fetchLastMessagesOptimized: start', {
+    chat: chatId.toString(LOG_ID_RADIX),
+    count,
+    trackerId
+  });
+
+  try {
+    const allMessages: StoredMessage[] = [];
+    let currentDate = new Date();
+    let daysChecked = 0;
+    const MAX_LOOKBACK_DAYS = 30; // Don't look back more than 30 days
+
+    while (allMessages.length < count && daysChecked < MAX_LOOKBACK_DAYS) {
+      const dateStr = currentDate.toISOString().slice(0, 10);
+
+      Logger.debug(env, 'fetchLastMessagesOptimized: checking date', {
+        chat: chatId.toString(LOG_ID_RADIX),
+        date: dateStr,
+        currentCount: allMessages.length,
+        targetCount: count
+      });
+
+      try {
+        // Try Durable Object first due to race-safety
+        const { getDayBlockSafe } = await import('./day-block-manager');
+        let block = await getDayBlockSafe(env, chatId, dateStr);
+
+        // Fallback to KV if needed
+        if (!block) {
+          block = await loadShardedBlockFromKV(env, chatId, dateStr);
+
+          if (!block) {
+            const key = getDayBlockKey(chatId, dateStr);
+            block = await env.HISTORY.get<DayBlock>(key, { type: 'json' });
+          }
+        }
+
+        if (block && block.messages && block.messages.length > 0) {
+          // Add messages from this day (newest first effectively since we sort later)
+          // We just collect all of them and will sort/slice at the end
+          allMessages.push(...block.messages);
+
+          Logger.debug(env, 'fetchLastMessagesOptimized: found messages', {
+            chat: chatId.toString(LOG_ID_RADIX),
+            date: dateStr,
+            found: block.messages.length,
+            totalCollected: allMessages.length
+          });
+        }
+      } catch (err: any) {
+        Logger.warn(env, 'fetchLastMessagesOptimized: error fetching date', {
+          chat: chatId.toString(LOG_ID_RADIX),
+          date: dateStr,
+          error: err.message
+        });
+      }
+
+      // Move to previous day
+      currentDate.setDate(currentDate.getDate() - 1);
+      daysChecked++;
+    }
+
+    // Sort all collected messages by timestamp (oldest to newest)
+    const sortedMessages = allMessages.sort((a, b) => a.ts - b.ts);
+
+    // Take the last N messages
+    const result = sortedMessages.slice(-count);
+
+    const finalMetrics = PerformanceTracker.end(trackerId, {
+      result: 'success',
+      messagesRequested: count,
+      messagesFound: result.length,
+      daysChecked,
+      totalMessagesScanned: allMessages.length
+    });
+
+    Logger.debug(env, 'fetchLastMessagesOptimized: complete', {
+      chat: chatId.toString(LOG_ID_RADIX),
+      requested: count,
+      found: result.length,
+      daysChecked,
+      duration: finalMetrics?.duration
+    });
+
+    return result;
+
+  } catch (error: any) {
+    const finalMetrics = PerformanceTracker.end(trackerId, {
+      result: 'error',
+      errorType: error.constructor?.name || 'Unknown'
+    });
+
+    Logger.error('fetchLastMessagesOptimized: failed', {
+      chat: chatId.toString(LOG_ID_RADIX),
+      error: error.message || String(error),
+      stack: error.stack,
+      totalDuration: finalMetrics?.duration
+    });
+    throw error;
+  }
+}
 
 async function loadShardedBlockFromKV(env: Env, chatId: number, date: string): Promise<DayBlock | null> {
   try {

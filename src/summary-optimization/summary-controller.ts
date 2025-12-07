@@ -17,7 +17,7 @@ import { ParallelProcessor } from "./parallel-processor";
 import { Env, DAY, LOG_ID_RADIX } from "../env";
 import { Logger, PerformanceTracker } from "../logger";
 import { fetchMessages, fetchLastMessages } from "../history";
-import { fetchMessagesHybrid } from "../history-optimized";
+import { fetchMessagesHybrid, fetchLastMessagesOptimized } from "../history-optimized";
 import { TelegramMessage } from "../providers/ai-provider";
 import { sendMessage } from "../telegram";
 
@@ -418,7 +418,7 @@ export class OptimizedSummaryController implements SummaryController {
       const fetchStart = Date.now();
 
       // Fetch last N messages
-      const allMessages = await fetchLastMessages(this.env, chatId, count);
+      const allMessages = await fetchLastMessagesOptimized(this.env, chatId, count);
       const fetchDuration = Date.now() - fetchStart;
       session.metrics.fetchDuration = fetchDuration;
       session.metrics.totalMessages = allMessages.length;
