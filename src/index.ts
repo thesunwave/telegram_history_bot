@@ -2,6 +2,18 @@ import { migrateStatsBatch, MIGRATION_PAGE } from "./migrate";
 import { Env } from "./env";
 import { dailySummary } from "./stats";
 import { summariseChat, summariseChatMessages } from "./summary";
+import {
+  topChat,
+  profanityTopUsers,
+  profanityWordsStats,
+  myProfanityStats,
+  profanityChart,
+  activityChart,
+  activityByUser,
+  criminalCodeStats,
+  criminalTopUsers,
+  myCriminalStats
+} from "./stats";
 import { handleUpdate, recordMessage, getTextMessage } from "./update";
 import { CountersDO } from "./counters-do";
 import { MessageFetcherDO } from "./message-fetcher-do";
@@ -239,6 +251,342 @@ export default {
           status: "failed",
           chatId,
           count,
+          error: error.message || String(error)
+        }, { status: 500 });
+      }
+    }
+
+    // Debug endpoint: top users
+    if (url.pathname === "/debug/top_users" && req.method === "POST") {
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const chatIdStr = url.searchParams.get("chatId");
+      const nStr = url.searchParams.get("n") || "5";
+
+      if (!chatIdStr) {
+        return new Response("Missing chatId", { status: 400 });
+      }
+
+      const chatId = parseInt(chatIdStr, 10);
+      const n = parseInt(nStr, 10);
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const day = today.toISOString().slice(0, 10);
+
+      if (isNaN(chatId)) {
+        return new Response("Invalid chatId", { status: 400 });
+      }
+
+      const debugEnv = { ...env, DRY_RUN: "true" };
+      try {
+        const result = await topChat(debugEnv, chatId, n, day);
+        return Response.json({ status: "success", result });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
+          error: error.message || String(error)
+        }, { status: 500 });
+      }
+    }
+
+    // Debug endpoint: profanity top users
+    if (url.pathname === "/debug/profanity_top" && req.method === "POST") {
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const chatIdStr = url.searchParams.get("chatId");
+      const countStr = url.searchParams.get("count") || "10";
+      const period = url.searchParams.get("period") || "today";
+
+      if (!chatIdStr) {
+        return new Response("Missing chatId", { status: 400 });
+      }
+
+      const chatId = parseInt(chatIdStr, 10);
+      const count = parseInt(countStr, 10);
+
+      if (isNaN(chatId)) {
+        return new Response("Invalid chatId", { status: 400 });
+      }
+
+      const debugEnv = { ...env, DRY_RUN: "true" };
+      try {
+        const result = await profanityTopUsers(debugEnv, chatId, count, period);
+        return Response.json({ status: "success", result });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
+          error: error.message || String(error)
+        }, { status: 500 });
+      }
+    }
+
+    // Debug endpoint: profanity words stats
+    if (url.pathname === "/debug/profanity_words" && req.method === "POST") {
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const chatIdStr = url.searchParams.get("chatId");
+      const countStr = url.searchParams.get("count") || "10";
+      const period = url.searchParams.get("period") || "today";
+
+      if (!chatIdStr) {
+        return new Response("Missing chatId", { status: 400 });
+      }
+
+      const chatId = parseInt(chatIdStr, 10);
+      const count = parseInt(countStr, 10);
+
+      if (isNaN(chatId)) {
+        return new Response("Invalid chatId", { status: 400 });
+      }
+
+      const debugEnv = { ...env, DRY_RUN: "true" };
+      try {
+        const result = await profanityWordsStats(debugEnv, chatId, count, period);
+        return Response.json({ status: "success", result });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
+          error: error.message || String(error)
+        }, { status: 500 });
+      }
+    }
+
+    // Debug endpoint: my profanity stats
+    if (url.pathname === "/debug/my_profanity" && req.method === "POST") {
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const chatIdStr = url.searchParams.get("chatId");
+      const userIdStr = url.searchParams.get("userId");
+      const period = url.searchParams.get("period") || undefined;
+
+      if (!chatIdStr || !userIdStr) {
+        return new Response("Missing chatId or userId", { status: 400 });
+      }
+
+      const chatId = parseInt(chatIdStr, 10);
+      const userId = parseInt(userIdStr, 10);
+
+      if (isNaN(chatId) || isNaN(userId)) {
+        return new Response("Invalid chatId or userId", { status: 400 });
+      }
+
+      const debugEnv = { ...env, DRY_RUN: "true" };
+      try {
+        const result = await myProfanityStats(debugEnv, chatId, userId, period);
+        return Response.json({ status: "success", result });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
+          error: error.message || String(error)
+        }, { status: 500 });
+      }
+    }
+
+    // Debug endpoint: profanity chart
+    if (url.pathname === "/debug/profanity_chart" && req.method === "POST") {
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const chatIdStr = url.searchParams.get("chatId");
+      const period = url.searchParams.get("period") || "week";
+
+      if (!chatIdStr) {
+        return new Response("Missing chatId", { status: 400 });
+      }
+
+      const chatId = parseInt(chatIdStr, 10);
+
+      if (isNaN(chatId)) {
+        return new Response("Invalid chatId", { status: 400 });
+      }
+
+      if (period !== "week" && period !== "month") {
+        return new Response("Invalid period, must be 'week' or 'month'", { status: 400 });
+      }
+
+      const debugEnv = { ...env, DRY_RUN: "true" };
+      try {
+        const result = await profanityChart(debugEnv, chatId, period as 'week' | 'month');
+        return Response.json({ status: "success", result });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
+          error: error.message || String(error)
+        }, { status: 500 });
+      }
+    }
+
+    // Debug endpoint: activity chart
+    if (url.pathname === "/debug/activity_chart" && req.method === "POST") {
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const chatIdStr = url.searchParams.get("chatId");
+      const period = url.searchParams.get("period") || "week";
+
+      if (!chatIdStr) {
+        return new Response("Missing chatId", { status: 400 });
+      }
+
+      const chatId = parseInt(chatIdStr, 10);
+
+      if (isNaN(chatId)) {
+        return new Response("Invalid chatId", { status: 400 });
+      }
+
+      if (period !== "week" && period !== "month") {
+        return new Response("Invalid period, must be 'week' or 'month'", { status: 400 });
+      }
+
+      const debugEnv = { ...env, DRY_RUN: "true" };
+      try {
+        const result = await activityChart(debugEnv, chatId, period as 'week' | 'month');
+        return Response.json({ status: "success", result });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
+          error: error.message || String(error)
+        }, { status: 500 });
+      }
+    }
+
+    // Debug endpoint: activity by user
+    if (url.pathname === "/debug/activity_users" && req.method === "POST") {
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const chatIdStr = url.searchParams.get("chatId");
+      const period = url.searchParams.get("period") || "week";
+
+      if (!chatIdStr) {
+        return new Response("Missing chatId", { status: 400 });
+      }
+
+      const chatId = parseInt(chatIdStr, 10);
+
+      if (isNaN(chatId)) {
+        return new Response("Invalid chatId", { status: 400 });
+      }
+
+      if (period !== "week" && period !== "month") {
+        return new Response("Invalid period, must be 'week' or 'month'", { status: 400 });
+      }
+
+      const debugEnv = { ...env, DRY_RUN: "true" };
+      try {
+        const result = await activityByUser(debugEnv, chatId, period as 'week' | 'month');
+        return Response.json({ status: "success", result });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
+          error: error.message || String(error)
+        }, { status: 500 });
+      }
+    }
+
+    // Debug endpoint: criminal code stats
+    if (url.pathname === "/debug/criminal_stats" && req.method === "POST") {
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const chatIdStr = url.searchParams.get("chatId");
+      const period = url.searchParams.get("period") || "today";
+
+      if (!chatIdStr) {
+        return new Response("Missing chatId", { status: 400 });
+      }
+
+      const chatId = parseInt(chatIdStr, 10);
+
+      if (isNaN(chatId)) {
+        return new Response("Invalid chatId", { status: 400 });
+      }
+
+      const debugEnv = { ...env, DRY_RUN: "true" };
+      try {
+        const result = await criminalCodeStats(debugEnv, chatId, period);
+        return Response.json({ status: "success", result });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
+          error: error.message || String(error)
+        }, { status: 500 });
+      }
+    }
+
+    // Debug endpoint: criminal top users
+    if (url.pathname === "/debug/criminal_top" && req.method === "POST") {
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const chatIdStr = url.searchParams.get("chatId");
+      const countStr = url.searchParams.get("count") || "5";
+      const period = url.searchParams.get("period") || "today";
+
+      if (!chatIdStr) {
+        return new Response("Missing chatId", { status: 400 });
+      }
+
+      const chatId = parseInt(chatIdStr, 10);
+      const count = parseInt(countStr, 10);
+
+      if (isNaN(chatId)) {
+        return new Response("Invalid chatId", { status: 400 });
+      }
+
+      const debugEnv = { ...env, DRY_RUN: "true" };
+      try {
+        const result = await criminalTopUsers(debugEnv, chatId, count, period);
+        return Response.json({ status: "success", result });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
+          error: error.message || String(error)
+        }, { status: 500 });
+      }
+    }
+
+    // Debug endpoint: my criminal stats
+    if (url.pathname === "/debug/my_criminal" && req.method === "POST") {
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const chatIdStr = url.searchParams.get("chatId");
+      const userIdStr = url.searchParams.get("userId");
+      const period = url.searchParams.get("period") || undefined;
+
+      if (!chatIdStr || !userIdStr) {
+        return new Response("Missing chatId or userId", { status: 400 });
+      }
+
+      const chatId = parseInt(chatIdStr, 10);
+      const userId = parseInt(userIdStr, 10);
+
+      if (isNaN(chatId) || isNaN(userId)) {
+        return new Response("Invalid chatId or userId", { status: 400 });
+      }
+
+      const debugEnv = { ...env, DRY_RUN: "true" };
+      try {
+        const result = await myCriminalStats(debugEnv, chatId, userId, period);
+        return Response.json({ status: "success", result });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
           error: error.message || String(error)
         }, { status: 500 });
       }

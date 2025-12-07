@@ -1,0 +1,372 @@
+{
+    "info": {
+        "name": "Telegram Bot Debug Endpoints",
+        "_postman_id": "telegram-bot-debug-endpoints",
+        "description": "Debug endpoints for testing bot functions without sending to Telegram",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Top Users",
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "http://localhost:8787/debug/top_users?chatId=-1001234567890&n=5",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8787",
+                    "path": [
+                        "debug",
+                        "top_users"
+                    ],
+                    "query": [
+                        {
+                            "key": "chatId",
+                            "value": "-1001234567890",
+                            "description": "Chat ID (required)"
+                        },
+                        {
+                            "key": "n",
+                            "value": "5",
+                            "description": "Number of top users (default: 5)"
+                        }
+                    ]
+                },
+                "description": "Get top N active users for today"
+            }
+        },
+        {
+            "name": "Profanity Top Users",
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "http://localhost:8787/debug/profanity_top?chatId=-1001234567890&count=10&period=today",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8787",
+                    "path": [
+                        "debug",
+                        "profanity_top"
+                    ],
+                    "query": [
+                        {
+                            "key": "chatId",
+                            "value": "-1001234567890",
+                            "description": "Chat ID (required)"
+                        },
+                        {
+                            "key": "count",
+                            "value": "10",
+                            "description": "Number of users (default: 10)"
+                        },
+                        {
+                            "key": "period",
+                            "value": "today",
+                            "description": "Period: today, week, month (default: today)"
+                        }
+                    ]
+                },
+                "description": "Get top profanity users"
+            }
+        },
+        {
+            "name": "Profanity Words Stats",
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "http://localhost:8787/debug/profanity_words?chatId=-1001234567890&count=10&period=week",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8787",
+                    "path": [
+                        "debug",
+                        "profanity_words"
+                    ],
+                    "query": [
+                        {
+                            "key": "chatId",
+                            "value": "-1001234567890",
+                            "description": "Chat ID (required)"
+                        },
+                        {
+                            "key": "count",
+                            "value": "10",
+                            "description": "Number of words (default: 10)"
+                        },
+                        {
+                            "key": "period",
+                            "value": "week",
+                            "description": "Period: today, week, month (default: today)"
+                        }
+                    ]
+                },
+                "description": "Get top profanity words statistics"
+            }
+        },
+        {
+            "name": "My Profanity Stats",
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "http://localhost:8787/debug/my_profanity?chatId=-1001234567890&userId=123456789&period=today",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8787",
+                    "path": [
+                        "debug",
+                        "my_profanity"
+                    ],
+                    "query": [
+                        {
+                            "key": "chatId",
+                            "value": "-1001234567890",
+                            "description": "Chat ID (required)"
+                        },
+                        {
+                            "key": "userId",
+                            "value": "123456789",
+                            "description": "User ID (required)"
+                        },
+                        {
+                            "key": "period",
+                            "value": "today",
+                            "description": "Period: today, week, month (optional)"
+                        }
+                    ]
+                },
+                "description": "Get personal profanity statistics"
+            }
+        },
+        {
+            "name": "Profanity Chart",
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "http://localhost:8787/debug/profanity_chart?chatId=-1001234567890&period=week",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8787",
+                    "path": [
+                        "debug",
+                        "profanity_chart"
+                    ],
+                    "query": [
+                        {
+                            "key": "chatId",
+                            "value": "-1001234567890",
+                            "description": "Chat ID (required)"
+                        },
+                        {
+                            "key": "period",
+                            "value": "week",
+                            "description": "Period: week or month (default: week)"
+                        }
+                    ]
+                },
+                "description": "Get profanity chart data (text + optional image URL)"
+            }
+        },
+        {
+            "name": "Activity Chart",
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "http://localhost:8787/debug/activity_chart?chatId=-1001234567890&period=week",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8787",
+                    "path": [
+                        "debug",
+                        "activity_chart"
+                    ],
+                    "query": [
+                        {
+                            "key": "chatId",
+                            "value": "-1001234567890",
+                            "description": "Chat ID (required)"
+                        },
+                        {
+                            "key": "period",
+                            "value": "week",
+                            "description": "Period: week or month (default: week)"
+                        }
+                    ]
+                },
+                "description": "Get activity chart as text"
+            }
+        },
+        {
+            "name": "Activity by Users",
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "http://localhost:8787/debug/activity_users?chatId=-1001234567890&period=week",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8787",
+                    "path": [
+                        "debug",
+                        "activity_users"
+                    ],
+                    "query": [
+                        {
+                            "key": "chatId",
+                            "value": "-1001234567890",
+                            "description": "Chat ID (required)"
+                        },
+                        {
+                            "key": "period",
+                            "value": "week",
+                            "description": "Period: week or month (default: week)"
+                        }
+                    ]
+                },
+                "description": "Get activity by users chart (image URL)"
+            }
+        },
+        {
+            "name": "Criminal Code Stats",
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "http://localhost:8787/debug/criminal_stats?chatId=-1001234567890&period=today",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8787",
+                    "path": [
+                        "debug",
+                        "criminal_stats"
+                    ],
+                    "query": [
+                        {
+                            "key": "chatId",
+                            "value": "-1001234567890",
+                            "description": "Chat ID (required)"
+                        },
+                        {
+                            "key": "period",
+                            "value": "today",
+                            "description": "Period: today, week, month (default: today)"
+                        }
+                    ]
+                },
+                "description": "Get criminal code statistics summary"
+            }
+        },
+        {
+            "name": "Criminal Top Users",
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "http://localhost:8787/debug/criminal_top?chatId=-1001234567890&count=5&period=today",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8787",
+                    "path": [
+                        "debug",
+                        "criminal_top"
+                    ],
+                    "query": [
+                        {
+                            "key": "chatId",
+                            "value": "-1001234567890",
+                            "description": "Chat ID (required)"
+                        },
+                        {
+                            "key": "count",
+                            "value": "5",
+                            "description": "Number of users (default: 5)"
+                        },
+                        {
+                            "key": "period",
+                            "value": "today",
+                            "description": "Period: today, week, month (default: today)"
+                        }
+                    ]
+                },
+                "description": "Get top criminal code violators"
+            }
+        },
+        {
+            "name": "My Criminal Stats",
+            "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                    "raw": "http://localhost:8787/debug/my_criminal?chatId=-1001234567890&userId=123456789&period=today",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8787",
+                    "path": [
+                        "debug",
+                        "my_criminal"
+                    ],
+                    "query": [
+                        {
+                            "key": "chatId",
+                            "value": "-1001234567890",
+                            "description": "Chat ID (required)"
+                        },
+                        {
+                            "key": "userId",
+                            "value": "123456789",
+                            "description": "User ID (required)"
+                        },
+                        {
+                            "key": "period",
+                            "value": "today",
+                            "description": "Period: today, week, month (optional)"
+                        }
+                    ]
+                },
+                "description": "Get personal criminal code statistics"
+            }
+        }
+    ],
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:8787",
+            "type": "string"
+        },
+        {
+            "key": "chatId",
+            "value": "-1001234567890",
+            "type": "string"
+        },
+        {
+            "key": "userId",
+            "value": "123456789",
+            "type": "string"
+        }
+    ]
+}

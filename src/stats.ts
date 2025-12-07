@@ -9,7 +9,7 @@ export async function topChat(
   chatId: number,
   n: number,
   day: string,
-) {
+): Promise<string | void> {
   // Use new optimized key format: stats_v2:chatId:day:userId
   // This allows listing only keys for the specific day, avoiding full history scan
   const prefix = `stats_v2:${chatId}:${day}:`;
@@ -42,7 +42,7 @@ export async function topChat(
     lines.push(`${i + 1}. ${name}: ${c}`);
   }
   const text = lines.join('\n') || 'Нет данных';
-  await sendMessage(env, chatId, text);
+  return await sendMessage(env, chatId, text);
 }
 
 export async function resetCounters(env: Env, chatId: number) {
@@ -203,7 +203,7 @@ export async function activityChart(
   env: Env,
   chatId: number,
   period: 'week' | 'month',
-) {
+): Promise<string | void> {
   const prefix = `activity:${chatId}:`;
   let cursor: string | undefined = undefined;
   const totals: Record<string, number> = {};
@@ -272,14 +272,14 @@ export async function activityChart(
       data.push({ label: `W${i + 1}`, value: weeks[i] });
   }
 
-  await sendMessage(env, chatId, formatActivityText(data));
+  return await sendMessage(env, chatId, formatActivityText(data));
 }
 
 export async function activityByUser(
   env: Env,
   chatId: number,
   period: 'week' | 'month',
-) {
+): Promise<string | void> {
   const totals: Record<string, number> = {};
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
@@ -328,7 +328,7 @@ export async function activityByUser(
   const data = sorted.map(([, c]) => c);
   const title = `${startStr} - ${endStr}`;
   const url = createBarChartUrl(labels, data, 'Messages', title);
-  await sendPhoto(env, chatId, url);
+  return await sendPhoto(env, chatId, url);
 }
 
 // Profanity statistics interfaces
@@ -570,12 +570,11 @@ export async function profanityTopUsers(
   chatId: number,
   count: number = 5,
   period: string = 'today'
-) {
+): Promise<string | void> {
   // Validate parameters
   const validPeriods = ['today', 'week', 'month'];
   if (!validPeriods.includes(period)) {
-    await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
-    return;
+    return await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
   }
 
   const limit = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
@@ -584,12 +583,11 @@ export async function profanityTopUsers(
     const topUsers = await getTopProfanityUsers(env, chatId, limit, period);
 
     if (topUsers.length === 0) {
-      await sendMessage(env, chatId, 'Нет данных о матерной лексике');
-      return;
+      return await sendMessage(env, chatId, 'Нет данных о матерной лексике');
     }
 
     const periodText = period === 'today' ? 'сегодня' :
-      period === 'week' ? 'за неделю' : 'за месяц';
+      period === 'week' ? 'за деделю' : 'за месяц';
 
     const lines = [`Топ матершинников ${periodText}:`];
     for (let i = 0; i < topUsers.length; i++) {
@@ -598,13 +596,13 @@ export async function profanityTopUsers(
     }
 
     const text = lines.join('\n');
-    await sendMessage(env, chatId, text);
+    return await sendMessage(env, chatId, text);
   } catch (error: any) {
     console.error('profanity top users error', {
       chatId,
       error: error.message || String(error)
     });
-    await sendMessage(env, chatId, 'Ошибка при получении статистики');
+    return await sendMessage(env, chatId, 'Ошибка при получении статистики');
   }
 }
 
@@ -614,12 +612,11 @@ export async function profanityWordsStats(
   chatId: number,
   count: number = 10,
   period: string = 'today'
-) {
+): Promise<string | void> {
   // Validate parameters
   const validPeriods = ['today', 'week', 'month'];
   if (!validPeriods.includes(period)) {
-    await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
-    return;
+    return await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
   }
 
   const limit = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
@@ -628,8 +625,7 @@ export async function profanityWordsStats(
     const topWords = await getTopProfanityWords(env, chatId, limit, period);
 
     if (topWords.length === 0) {
-      await sendMessage(env, chatId, 'Нет данных о матерных словах');
-      return;
+      return await sendMessage(env, chatId, 'Нет данных о матерных словах');
     }
 
     const periodText = period === 'today' ? 'сегодня' :
@@ -642,13 +638,13 @@ export async function profanityWordsStats(
     }
 
     const text = lines.join('\n');
-    await sendMessage(env, chatId, text);
+    return await sendMessage(env, chatId, text);
   } catch (error: any) {
     console.error('profanity words stats error', {
       chatId,
       error: error.message || String(error)
     });
-    await sendMessage(env, chatId, 'Ошибка при получении статистики слов');
+    return await sendMessage(env, chatId, 'Ошибка при получении статистики слов');
   }
 }
 
@@ -658,14 +654,13 @@ export async function myProfanityStats(
   chatId: number,
   userId: number,
   period?: string
-) {
+): Promise<string | void> {
   try {
     if (period) {
       // Show stats for specific period
       const validPeriods = ['today', 'week', 'month'];
       if (!validPeriods.includes(period)) {
-        await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
-        return;
+        return await sendMessage(env, chatId, 'Неверный periods. Используйте: today, week, month');
       }
 
       const stats = await getUserProfanityStats(env, chatId, userId);
@@ -691,17 +686,16 @@ export async function myProfanityStats(
       }
 
       if (count === 0) {
-        await sendMessage(env, chatId, `У вас чистая речь ${periodText}!`);
+        return await sendMessage(env, chatId, `У вас чистая речь ${periodText}!`);
       } else {
-        await sendMessage(env, chatId, `Ваша статистика ${periodText}: ${count} матерных слов`);
+        return await sendMessage(env, chatId, `Ваша статистика ${periodText}: ${count} матерных слов`);
       }
     } else {
       // Show stats for all periods
       const stats = await getUserProfanityStats(env, chatId, userId);
 
       if (stats.today === 0 && stats.week === 0 && stats.month === 0) {
-        await sendMessage(env, chatId, 'У вас чистая речь!');
-        return;
+        return await sendMessage(env, chatId, 'У вас чистая речь!');
       }
 
       const lines = [
@@ -712,7 +706,7 @@ export async function myProfanityStats(
       ];
 
       const text = lines.join('\n');
-      await sendMessage(env, chatId, text);
+      return await sendMessage(env, chatId, text);
     }
   } catch (error: any) {
     console.error('my profanity stats error', {
@@ -720,7 +714,7 @@ export async function myProfanityStats(
       userId,
       error: error.message || String(error)
     });
-    await sendMessage(env, chatId, 'Ошибка при получении вашей статистики');
+    return await sendMessage(env, chatId, 'Ошибка при получении вашей статистики');
   }
 }
 
@@ -729,7 +723,7 @@ export async function profanityChart(
   env: Env,
   chatId: number,
   period: 'week' | 'month',
-) {
+): Promise<{ text: string; imageUrl?: string } | void> {
   const prefix = `profanity:${chatId}:`;
   let cursor: string | undefined = undefined;
   const dailyTotals: Record<string, number> = {};
@@ -785,17 +779,16 @@ export async function profanityChart(
   const periodText = period === 'week' ? 'за неделю' : 'за месяц';
   const title = `Статистика мата ${periodText}`;
   const textOutput = formatProfanityActivityText(data, title);
-  await sendMessage(env, chatId, textOutput);
 
   // Try to generate QuickChart image if there's data
   const hasData = data.some(d => d.value > 0);
+  let imageUrl: string | undefined;
   if (hasData) {
     try {
       const labels = data.map(d => d.label);
       const values = data.map(d => d.value);
       const chartTitle = `Матерная лексика ${periodText}`;
-      const url = createBarChartUrl(labels, values, 'Количество', chartTitle);
-      await sendPhoto(env, chatId, url);
+      imageUrl = createBarChartUrl(labels, values, 'Количество', chartTitle);
     } catch (error: any) {
       console.error('profanity chart generation error', {
         chatId,
@@ -803,6 +796,24 @@ export async function profanityChart(
         error: error.message || String(error)
       });
       // Chart generation failure is not critical, text chart was already sent
+    }
+  }
+
+  // In DRY_RUN mode, return both text and imageUrl
+  if (env.DRY_RUN) {
+    return { text: textOutput, imageUrl };
+  }
+
+  await sendMessage(env, chatId, textOutput);
+  if (imageUrl) {
+    try {
+      await sendPhoto(env, chatId, imageUrl);
+    } catch (error: any) {
+      console.error('profanity chart send photo error', {
+        chatId,
+        error: error.message || String(error)
+      });
+      // Failed to send photo, but text chart was already sent
     }
   }
 }
@@ -941,12 +952,11 @@ export async function criminalTopUsers(
   chatId: number,
   count: number = 5,
   period: string = 'today'
-) {
+): Promise<string | void> {
   // Validate parameters
   const validPeriods = ['today', 'week', 'month'];
   if (!validPeriods.includes(period)) {
-    await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
-    return;
+    return await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
   }
 
   const limit = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
@@ -955,8 +965,7 @@ export async function criminalTopUsers(
     const topUsers = await getTopCriminalUsers(env, chatId, limit, period);
 
     if (topUsers.length === 0) {
-      await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
-      return;
+      return await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
     }
 
     const periodText = period === 'today' ? 'сегодня' :
@@ -969,13 +978,13 @@ export async function criminalTopUsers(
     }
 
     const text = lines.join('\n');
-    await sendMessage(env, chatId, text);
+    return await sendMessage(env, chatId, text);
   } catch (error: any) {
     console.error('criminal top users error', {
       chatId,
       error: error.message || String(error)
     });
-    await sendMessage(env, chatId, 'Ошибка при получении топа нарушителей');
+    return await sendMessage(env, chatId, 'Ошибка при получении топа нарушителей');
   }
 }
 
@@ -985,12 +994,12 @@ export async function myCriminalStats(
   chatId: number,
   userId: number,
   period?: string
-) {
+): Promise<string | void> {
   try {
     // Use ViolationHandler for enhanced formatting
     const violationHandler = new ViolationHandler(env);
     const formattedStats = await violationHandler.getUserStats(userId.toString(), chatId.toString());
-    await sendMessage(env, chatId, formattedStats);
+    return await sendMessage(env, chatId, formattedStats);
   } catch (error: any) {
     console.error('my criminal stats error', {
       chatId,
@@ -1004,8 +1013,7 @@ export async function myCriminalStats(
         // Show stats for specific period
         const validPeriods = ['today', 'week', 'month'];
         if (!validPeriods.includes(period)) {
-          await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
-          return;
+          return await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
         }
 
         const stats = await getUserCriminalStats(env, chatId, userId);
@@ -1031,17 +1039,16 @@ export async function myCriminalStats(
         }
 
         if (count === 0) {
-          await sendMessage(env, chatId, `У вас чистая речь ${periodText}!`);
+          return await sendMessage(env, chatId, `У вас чистая речь ${periodText}!`);
         } else {
-          await sendMessage(env, chatId, `Ваша статистика ${periodText}: ${count} нарушений УК РФ`);
+          return await sendMessage(env, chatId, `Ваша статистика ${periodText}: ${count} нарушений УК РФ`);
         }
       } else {
         // Show stats for all periods
         const stats = await getUserCriminalStats(env, chatId, userId);
 
         if (stats.today === 0 && stats.week === 0 && stats.month === 0) {
-          await sendMessage(env, chatId, 'У вас чистая речь!');
-          return;
+          return await sendMessage(env, chatId, 'У вас чистая речь!');
         }
 
         const lines = [
@@ -1052,7 +1059,7 @@ export async function myCriminalStats(
         ];
 
         const text = lines.join('\n');
-        await sendMessage(env, chatId, text);
+        return await sendMessage(env, chatId, text);
       }
     } catch (fallbackError: any) {
       console.error('my criminal stats fallback error', {
@@ -1060,7 +1067,7 @@ export async function myCriminalStats(
         userId,
         error: fallbackError.message || String(fallbackError)
       });
-      await sendMessage(env, chatId, 'Ошибка при получении вашей статистики');
+      return await sendMessage(env, chatId, 'Ошибка при получении вашей статистики');
     }
   }
 }
@@ -1070,12 +1077,11 @@ export async function criminalCodeStats(
   env: Env,
   chatId: number,
   period: string = 'today'
-) {
+): Promise<string | void> {
   // Validate parameters
   const validPeriods = ['today', 'week', 'month'];
   if (!validPeriods.includes(period)) {
-    await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
-    return;
+    return await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
   }
 
   try {
@@ -1098,7 +1104,7 @@ export async function criminalCodeStats(
     // Use ViolationHandler for enhanced formatting
     const violationHandler = new ViolationHandler(env);
     const formattedStats = await violationHandler.getPeriodStats(chatId.toString(), days);
-    await sendMessage(env, chatId, formattedStats);
+    return await sendMessage(env, chatId, formattedStats);
   } catch (error: any) {
     console.error('criminal code stats error', {
       chatId,
@@ -1110,8 +1116,7 @@ export async function criminalCodeStats(
       const topUsers = await getTopCriminalUsers(env, chatId, 10, period);
 
       if (topUsers.length === 0) {
-        await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
-        return;
+        return await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
       }
 
       const periodText = period === 'today' ? 'сегодня' :
@@ -1128,13 +1133,13 @@ export async function criminalCodeStats(
       lines.push(`\nВсего нарушений: ${totalViolations}`);
 
       const text = lines.join('\n');
-      await sendMessage(env, chatId, text);
+      return await sendMessage(env, chatId, text);
     } catch (fallbackError: any) {
       console.error('criminal code stats fallback error', {
         chatId,
         error: fallbackError.message || String(fallbackError)
       });
-      await sendMessage(env, chatId, 'Ошибка при получении статистики УК РФ');
+      return await sendMessage(env, chatId, 'Ошибка при получении статистики УК РФ');
     }
   }
 }

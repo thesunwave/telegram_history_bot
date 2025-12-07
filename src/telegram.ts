@@ -12,22 +12,27 @@ import { chunkText } from "./utils";
  */
 function convertToHtml(text: string): string {
   let result = text;
-  
+
   // Convert **text** to <b>text</b>
   result = result.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-  
+
   // Escape HTML special characters (except our bold tags)
   result = result.replace(/&/g, '&amp;');
   result = result.replace(/</g, '&lt;');
   result = result.replace(/>/g, '&gt;');
-  
+
   // Restore our bold tags
   result = result.replace(/&lt;b&gt;(.*?)&lt;\/b&gt;/g, '<b>$1</b>');
-  
+
   return result;
 }
 
-export async function sendMessage(env: Env, chatId: number, text: string) {
+export async function sendMessage(env: Env, chatId: number, text: string): Promise<string | void> {
+  // In DRY_RUN mode, return the text without sending
+  if (env.DRY_RUN) {
+    return text;
+  }
+
   const url = `https://api.telegram.org/bot${env.TOKEN}/sendMessage`;
   const formattedText = convertToHtml(text);
   const parts = chunkText(formattedText, TELEGRAM_LIMIT);
@@ -47,12 +52,12 @@ export async function sendMessage(env: Env, chatId: number, text: string) {
           parse_mode: "HTML"
         }),
       });
-      
+
       if (!res.ok) {
         const err = await res.text();
         const errorMessage = `Telegram API error: ${res.status} - ${err}`;
         lastError = new Error(errorMessage);
-        
+
         console.error("tg send failed", {
           status: res.status,
           chat: chatId.toString(LOG_ID_RADIX),
@@ -67,7 +72,7 @@ export async function sendMessage(env: Env, chatId: number, text: string) {
           const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : 1000;
           console.log(`Rate limited, waiting ${waitTime}ms before retry`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
-          
+
           // Retry the same part
           const retryRes = await fetch(url, {
             method: "POST",
@@ -78,7 +83,7 @@ export async function sendMessage(env: Env, chatId: number, text: string) {
               parse_mode: "HTML"
             }),
           });
-          
+
           if (retryRes.ok) {
             successfulParts++;
             continue;
@@ -92,7 +97,7 @@ export async function sendMessage(env: Env, chatId: number, text: string) {
             });
           }
         }
-        
+
         // If this is a critical error or we've failed multiple parts, stop sending
         if (res.status >= 400 && res.status < 500 && res.status !== 429) {
           // Client error (except rate limit) - don't continue
@@ -110,7 +115,7 @@ export async function sendMessage(env: Env, chatId: number, text: string) {
         totalParts: parts.length,
         error: e.message,
       });
-      
+
       // For network errors, try to continue with remaining parts
       continue;
     }
@@ -132,7 +137,12 @@ export async function sendMessage(env: Env, chatId: number, text: string) {
   }
 }
 
-export async function sendPhoto(env: Env, chatId: number, url: string) {
+export async function sendPhoto(env: Env, chatId: number, url: string): Promise<string | void> {
+  // In DRY_RUN mode, return the URL without sending
+  if (env.DRY_RUN) {
+    return url;
+  }
+
   const api = `https://api.telegram.org/bot${env.TOKEN}/sendPhoto`;
   const res = await fetch(api, {
     method: 'POST',
