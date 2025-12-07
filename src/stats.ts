@@ -406,20 +406,35 @@ export async function getTopProfanityUsers(
   do {
     const list: any = await env.COUNTERS.list({ prefix, cursor });
     cursor = !list.list_complete ? list.cursor : undefined;
-    const values = await Promise.all(
-      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
-    );
 
-    for (let i = 0; i < list.keys.length; i++) {
-      const key = list.keys[i];
-      const [_, chat, user, day] = key.name.split(':');
+    // Filter keys BEFORE fetching values to reduce subrequests
+    const keysToFetch = list.keys.filter((k: any) => {
+      const parts = k.name.split(':');
+      // format: profanity:chatId:userId:day
+      if (parts.length !== 4) return false;
+      const day = parts[3];
 
-      // Filter by period
-      if (period === 'today' && day !== startStr) continue;
-      if (period !== 'today' && day < startStr) continue;
+      if (period === 'today') return day === startStr;
+      return day >= startStr;
+    });
 
-      const count = parseInt(values[i] || '0', 10);
-      totals[user] = (totals[user] || 0) + count;
+    if (keysToFetch.length === 0) continue;
+
+    // Process in chunks to avoid hitting subrequest limits
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < keysToFetch.length; i += BATCH_SIZE) {
+      const batch = keysToFetch.slice(i, i + BATCH_SIZE);
+      const values = await Promise.all(
+        batch.map((k: any) => env.COUNTERS.get(k.name))
+      );
+
+      for (let j = 0; j < batch.length; j++) {
+        const key = batch[j];
+        const parts = key.name.split(':');
+        const userId = parts[2];
+        const count = parseInt(values[j] || '0', 10);
+        totals[userId] = (totals[userId] || 0) + count;
+      }
     }
   } while (cursor);
 
@@ -430,7 +445,7 @@ export async function getTopProfanityUsers(
 
   // Get usernames
   const names = await Promise.all(
-    sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`)),
+    sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`))
   );
 
   return sorted.map(([userId, count], index) => ({
@@ -455,20 +470,35 @@ export async function getTopProfanityWords(
   do {
     const list: any = await env.COUNTERS.list({ prefix, cursor });
     cursor = !list.list_complete ? list.cursor : undefined;
-    const values = await Promise.all(
-      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
-    );
 
-    for (let i = 0; i < list.keys.length; i++) {
-      const key = list.keys[i];
-      const [_, chat, word, day] = key.name.split(':');
+    // Filter keys BEFORE fetching values to reduce subrequests
+    const keysToFetch = list.keys.filter((k: any) => {
+      const parts = k.name.split(':');
+      // format: profanity_words:chatId:word:day
+      if (parts.length !== 4) return false;
+      const day = parts[3];
 
-      // Filter by period
-      if (period === 'today' && day !== startStr) continue;
-      if (period !== 'today' && day < startStr) continue;
+      if (period === 'today') return day === startStr;
+      return day >= startStr;
+    });
 
-      const count = parseInt(values[i] || '0', 10);
-      totals[word] = (totals[word] || 0) + count;
+    if (keysToFetch.length === 0) continue;
+
+    // Process in chunks to avoid hitting subrequest limits
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < keysToFetch.length; i += BATCH_SIZE) {
+      const batch = keysToFetch.slice(i, i + BATCH_SIZE);
+      const values = await Promise.all(
+        batch.map((k: any) => env.COUNTERS.get(k.name))
+      );
+
+      for (let j = 0; j < batch.length; j++) {
+        const key = batch[j];
+        const parts = key.name.split(':');
+        const word = parts[2];
+        const count = parseInt(values[j] || '0', 10);
+        totals[word] = (totals[word] || 0) + count;
+      }
     }
   } while (cursor);
 
