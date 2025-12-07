@@ -18,15 +18,20 @@ export async function topChat(
   do {
     const list: any = await env.COUNTERS.list({ prefix, cursor });
     cursor = !list.list_complete ? list.cursor : undefined;
-    const values = await Promise.all(
-      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
-    );
-    for (let i = 0; i < list.keys.length; i++) {
-      const key = list.keys[i];
-      const [_, chat, d, user] = key.name.split(':');
-      // No need to check d === day because prefix ensures it
-      const c = parseInt(values[i] || '0');
-      counts[user] = (counts[user] || 0) + c;
+    
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < list.keys.length; i += BATCH_SIZE) {
+      const batch = list.keys.slice(i, i + BATCH_SIZE);
+      const values = await Promise.all(
+        batch.map((k: any) => env.COUNTERS.get(k.name)),
+      );
+      for (let j = 0; j < batch.length; j++) {
+        const key = batch[j];
+        const [_, chat, d, user] = key.name.split(':');
+        // No need to check d === day because prefix ensures it
+        const c = parseInt(values[j] || '0');
+        counts[user] = (counts[user] || 0) + c;
+      }
     }
   } while (cursor);
   const sorted = Object.entries(counts)
@@ -235,20 +240,32 @@ export async function activityChart(
     }
   }
   if (!dbOk) {
-    do {
-      const list: any = await env.COUNTERS.list({ prefix, cursor });
-      cursor = !list.list_complete ? list.cursor : undefined;
+    const days: string[] = [];
+    const loopDate = new Date(start);
+    // Clone loopDate to avoid modifying 'start' which might be used elsewhere (though here it seems fine)
+    // Actually start is used in startStr, but loopDate is a new object.
+    
+    // Ensure we iterate up to today
+    while (loopDate <= today) {
+      days.push(loopDate.toISOString().slice(0, 10));
+      loopDate.setUTCDate(loopDate.getUTCDate() + 1);
+    }
+
+    // Process in chunks to avoid hitting subrequest limits
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < days.length; i += BATCH_SIZE) {
+      const batchDays = days.slice(i, i + BATCH_SIZE);
+      const keys = batchDays.map(day => `activity:${chatId}:${day}`);
       const values = await Promise.all(
-        list.keys.map((k: any) => env.COUNTERS.get(k.name)),
+        keys.map(key => env.COUNTERS.get(key))
       );
-      for (let i = 0; i < list.keys.length; i++) {
-        const [_, , day] = list.keys[i].name.split(':');
-        if (day >= startStr) {
-          const c = parseInt(values[i] || '0', 10);
-          totals[day] = (totals[day] || 0) + c;
-        }
+
+      for (let j = 0; j < batchDays.length; j++) {
+        const day = batchDays[j];
+        const count = parseInt(values[j] || '0', 10);
+        totals[day] = count;
       }
-    } while (cursor);
+    }
   }
 
   let data: { label: string; value: number }[] = [];
@@ -306,13 +323,18 @@ export async function activityByUser(
     do {
       const list: any = await env.COUNTERS.list({ prefix, cursor });
       cursor = !list.list_complete ? list.cursor : undefined;
-      const values = await Promise.all(
-        list.keys.map((k: any) => env.COUNTERS.get(k.name)),
-      );
-      for (let i = 0; i < list.keys.length; i++) {
-        const [, , , user] = list.keys[i].name.split(':');
-        const c = parseInt(values[i] || '0', 10);
-        totals[user] = (totals[user] || 0) + c;
+      
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < list.keys.length; i += BATCH_SIZE) {
+        const batch = list.keys.slice(i, i + BATCH_SIZE);
+        const values = await Promise.all(
+          batch.map((k: any) => env.COUNTERS.get(k.name)),
+        );
+        for (let j = 0; j < batch.length; j++) {
+          const [, , , user] = batch[j].name.split(':');
+          const c = parseInt(values[j] || '0', 10);
+          totals[user] = (totals[user] || 0) + c;
+        }
       }
     }
     while (cursor);
@@ -769,13 +791,31 @@ export async function profanityChart(
   do {
     const list: any = await env.COUNTERS.list({ prefix, cursor });
     cursor = !list.list_complete ? list.cursor : undefined;
-    const values = await Promise.all(
-      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
-    );
-    for (let i = 0; i < list.keys.length; i++) {
-      const [_, chat, user, day] = list.keys[i].name.split(':');
-      if (day >= startStr) {
-        const count = parseInt(values[i] || '0', 10);
+
+    // Filter keys BEFORE fetching values to reduce subrequests
+    const keysToFetch = list.keys.filter((k: any) => {
+      const parts = k.name.split(':');
+      // format: profanity:chatId:userId:day
+      if (parts.length !== 4) return false;
+      const day = parts[3];
+      return day >= startStr;
+    });
+
+    if (keysToFetch.length === 0) continue;
+
+    // Process in chunks to avoid hitting subrequest limits
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < keysToFetch.length; i += BATCH_SIZE) {
+      const batch = keysToFetch.slice(i, i + BATCH_SIZE);
+      const values = await Promise.all(
+        batch.map((k: any) => env.COUNTERS.get(k.name))
+      );
+
+      for (let j = 0; j < batch.length; j++) {
+        const key = batch[j];
+        const parts = key.name.split(':');
+        const day = parts[3];
+        const count = parseInt(values[j] || '0', 10);
         dailyTotals[day] = (dailyTotals[day] || 0) + count;
       }
     }
@@ -889,13 +929,31 @@ export async function getTopCriminalUsers(
   do {
     const list: any = await env.COUNTERS.list({ prefix, cursor });
     cursor = !list.list_complete ? list.cursor : undefined;
-    const values = await Promise.all(
-      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
-    );
-    for (let i = 0; i < list.keys.length; i++) {
-      const [_, chat, user, day] = list.keys[i].name.split(':');
-      if (day >= startStr) {
-        const count = parseInt(values[i] || '0', 10);
+    
+    // Filter keys BEFORE fetching values to reduce subrequests
+    const keysToFetch = list.keys.filter((k: any) => {
+      const parts = k.name.split(':');
+      // format: criminal:chatId:userId:day
+      if (parts.length !== 4) return false;
+      const day = parts[3];
+      return day >= startStr;
+    });
+
+    if (keysToFetch.length === 0) continue;
+
+    // Process in chunks to avoid hitting subrequest limits
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < keysToFetch.length; i += BATCH_SIZE) {
+      const batch = keysToFetch.slice(i, i + BATCH_SIZE);
+      const values = await Promise.all(
+        batch.map((k: any) => env.COUNTERS.get(k.name))
+      );
+
+      for (let j = 0; j < batch.length; j++) {
+        const key = batch[j];
+        const parts = key.name.split(':');
+        const user = parts[2];
+        const count = parseInt(values[j] || '0', 10);
         totals[user] = (totals[user] || 0) + count;
       }
     }
