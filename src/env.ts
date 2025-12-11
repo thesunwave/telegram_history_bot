@@ -70,6 +70,21 @@ export interface Env {
   // Text preview configuration
   CRIMINAL_STORE_TEXT_PREVIEW?: string | boolean;
   CRIMINAL_TEXT_PREVIEW_LENGTH?: string | number;
+
+  // ========================================
+  // 💰 LLM BUDGET CONFIGURATION (ADR-001)
+  // ========================================
+  // Model role mappings
+  LLM_NANO_MODEL?: string;        // Default: 'gpt-4.1-nano'
+  LLM_MINI_MODEL?: string;        // Default: 'gpt-4.1-mini'
+  LLM_HEAVY_MODEL?: string;       // Default: 'gpt-4.1' (reserved)
+
+  // Token soft limits (per month)
+  NANO_TOKENS_SOFT_LIMIT?: string | number;  // Default: 20_000_000
+  MINI_TOKENS_SOFT_LIMIT?: string | number;  // Default: 3_000_000
+
+  // Budget tracking KV key prefix
+  LLM_BUDGET_KV_KEY?: string;     // Default: 'llm_budget'
 }
 
 export interface DurableObjectId { }

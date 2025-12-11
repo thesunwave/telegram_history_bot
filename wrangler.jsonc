@@ -153,6 +153,15 @@
     // ========================================
     "CRIMINAL_STORE_TEXT_PREVIEW": true, // Store text previews in criminal_violations
     "CRIMINAL_TEXT_PREVIEW_LENGTH": 200, // Max preview length in characters
+    // ========================================
+    // 💰 LLM BUDGET CONFIGURATION (ADR-001)
+    // ========================================
+    // Model role mappings (logical roles to actual model names)
+    "LLM_NANO_MODEL": "gpt-4.1-nano", // Cheap, lightweight: preprocessing, filtering
+    "LLM_MINI_MODEL": "gpt-4.1-mini", // Main workhorse: summarization, analysis
+    // Token soft limits (per month, ~5 USD budget target)
+    "NANO_TOKENS_SOFT_LIMIT": 20000000, // 20M tokens for nano models
+    "MINI_TOKENS_SOFT_LIMIT": 3000000, // 3M tokens for mini models
   },
   "triggers": {
     "crons": [

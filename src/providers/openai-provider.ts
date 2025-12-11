@@ -13,6 +13,7 @@ import {
   getProfanityPrompts,
   getCriminalCodePrompts,
 } from "./ai-provider";
+import { getBudgetTracker, FeatureType, TokenUsage } from "../llm";
 
 type AllowedParams = {
   temperature: boolean;
@@ -74,11 +75,18 @@ interface OpenAIChatResponse {
   };
 }
 
+/**
+ * Callback type for usage tracking
+ */
+export type UsageCallback = (model: string, feature: FeatureType, usage: TokenUsage) => void;
+
 export class OpenAIProvider implements AIProvider {
   private apiKey: string;
   private model: string;
   private baseUrl: string = 'https://api.openai.com/v1';
   private providerType: 'standard' | 'premium';
+  private usageCallback: UsageCallback | null = null;
+  private currentFeature: FeatureType = 'summary';  // Default feature for tracking
   private readonly modelCaps: Record<string, { maxOutput: number }> = {
     'gpt-5-nano': { maxOutput: 128000 },
     'gpt-4.1-nano': { maxOutput: 32000 },
@@ -211,9 +219,34 @@ export class OpenAIProvider implements AIProvider {
       this.apiKey = (env as any).OPENAI_API_KEY;
       this.model = modelOverride?.trim() || (env as any).OPENAI_MODEL || 'gpt-3.5-turbo';
     }
+
+    // Initialize usage tracking with global budget tracker
+    this.usageCallback = (model: string, feature: FeatureType, usage: TokenUsage) => {
+      try {
+        const tracker = getBudgetTracker(env);
+        tracker.recordUsage(model, feature, usage);
+      } catch (error) {
+        // Log but don't fail - usage tracking is not critical
+        Logger.warn('Failed to record usage', {
+          error: error instanceof Error ? error.message : String(error),
+          model,
+          feature,
+        });
+      }
+    };
+  }
+
+  /**
+   * Set a custom usage callback (primarily for testing).
+   */
+  setUsageCallback(callback: UsageCallback | null): void {
+    this.usageCallback = callback;
   }
 
   async summarize(request: SummaryRequest, options: SummaryOptions, env?: Env): Promise<string> {
+    // Set feature context for usage tracking (ADR-001)
+    this.currentFeature = 'summary';
+
     // Format messages with semicolon separators between each message
     const content = request.messages.map(m => `${m.username}: ${m.text}`).join(';');
 
@@ -450,6 +483,17 @@ export class OpenAIProvider implements AIProvider {
     }
 
     const parsed = await response.json() as any;
+
+    // Record usage for budget tracking (ADR-001)
+    const usage = parsed.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+    if (this.usageCallback) {
+      this.usageCallback(this.model, this.currentFeature, {
+        promptTokens: usage.prompt_tokens || 0,
+        completionTokens: usage.completion_tokens || 0,
+        totalTokens: usage.total_tokens || 0,
+      });
+    }
+
     if (useResponsesApi) {
       const content = this.extractResponsesContent(parsed);
       return {
@@ -459,11 +503,7 @@ export class OpenAIProvider implements AIProvider {
             finish_reason: 'stop'
           }
         ],
-        usage: parsed.usage || {
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          total_tokens: 0
-        }
+        usage: usage
       } as OpenAIChatResponse;
     }
 
@@ -581,6 +621,8 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async analyzeProfanity(text: string, env?: any): Promise<ProfanityAnalysisResult> {
+    // Set feature context for usage tracking (ADR-001)
+    this.currentFeature = 'profanity';
     const startTime = Date.now();
 
     try {
@@ -781,6 +823,8 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async analyzeCriminalCode(text: string, env?: any): Promise<CriminalAnalysisResult> {
+    // Set feature context for usage tracking (ADR-001)
+    this.currentFeature = 'criminal';
     const startTime = Date.now();
 
     try {
