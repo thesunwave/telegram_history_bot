@@ -24,34 +24,35 @@ import {
 /**
  * System prompt for mini model story summarization
  */
-const STORY_SUMMARIZER_SYSTEM_PROMPT = `Ты мастер написания сводок групповых чатов. Твоя задача — создать читаемое, структурированное резюме на основе журнала событий.
+const STORY_SUMMARIZER_SYSTEM_PROMPT = `Создай интересную сводку чата на основе журнала событий.
 
 СТИЛЬ:
-- Пиши живо и интересно, но фактически точно
-- Показывай динамику обсуждения: кто начал, кто поддержал, кто возразил
-- Отмечай эмоциональные моменты ("X был удивлён", "Y пошутил")
-- Группируй по темам, но показывай связи между ними
-- Можно использовать легкую иронию, но факты должны быть точны
-- НЕ выдумывай события, которых нет в исходных данных
+- Пиши живо и с деталями
+- Показывай динамику: кто начал, кто поддержал, кто возразил
+- Отмечай яркие моменты и шутки
+- Указывай конкретику: имена, темы, позиции
 
 ФОРМАТ:
-📌 ОСНОВНЫЕ ТЕМЫ
-• [3-5 ключевых тем одной строкой каждая]
+📌 ТЕМЫ ДНЯ
+• [3-5 тем с краткой аннотацией]
 
-💬 ЧТО ОБСУЖДАЛИ
-[Для каждой темы: кто начал, что говорили, к чему пришли]
-[Отмечай споры, согласия, шутки]
+💬 ГЛАВНОЕ
+[Развёрнутое описание обсуждений: кто что говорил, какие споры были, к чему пришли]
 
-👥 РОЛИ УЧАСТНИКОВ  
-[Кто был активен, кто поддерживал, кто спорил]
+🔥 ЯРКИЕ МОМЕНТЫ
+[Интересные реплики, шутки, неожиданные повороты]
 
-⚡ КЛЮЧЕВЫЕ МОМЕНТЫ
-[Важные решения, яркие реплики, неожиданные повороты]
+👥 АКТИВИСТЫ
+[Кто был самым активным и в какой роли]
 
-ОГРАНИЧЕНИЯ:
-- Максимум ${TELEGRAM_LIMIT} символов
-- Используй эмодзи умеренно
-- Пиши на русском`;
+Пиши содержательно, но укладывайся в 1500 символов. Русский язык.`;
+
+/**
+ * Get system prompt, optionally overridden by env
+ */
+export function getStorySystemPrompt(env: Env): string {
+    return env.SUMMARY_SYSTEM || STORY_SUMMARIZER_SYSTEM_PROMPT;
+}
 
 /**
  * Format event log for mini model input
@@ -123,7 +124,7 @@ function formatDate(ts: number): string {
 /**
  * Build user prompt for story summarization
  */
-function buildStorySummarizerPrompt(eventLog: EventLog): string {
+export function buildStorySummarizerPrompt(eventLog: EventLog): string {
     const formattedLog = formatEventLogForPrompt(eventLog);
 
     return `На основе журнала событий создай читаемую сводку чата.
@@ -256,7 +257,7 @@ export async function summarizeEventLog(
         const response = await provider.summarize(
             {
                 messages: [],
-                systemPrompt: STORY_SUMMARIZER_SYSTEM_PROMPT,
+                systemPrompt: getStorySystemPrompt(env),
                 userPrompt: userPrompt,
                 limitNote: `Максимум ${TELEGRAM_LIMIT} символов. Структурированный формат.`,
             },

@@ -138,8 +138,8 @@ export class OptimizedStrategySelector implements ProcessingStrategySelector {
     // V2 is preferred when:
     // 1. It's enabled via SUMMARY_V2_ENABLED
     // 2. Feature mode is 'full' (not economy/disabled due to budget)
-    // 3. Message count is reasonable for V2 (50-2000 messages is ideal)
-    if (v2Enabled && summaryModeIsFull && messageCount >= 50 && messageCount <= 2000) {
+    // 3. Message count is >= 100 (V2 overhead only pays off for larger volumes)
+    if (v2Enabled && summaryModeIsFull && messageCount >= 100) {
       Logger.debug(this.env, "Strategy selector: using V2 pipeline", {
         v2Enabled,
         summaryModeIsFull,

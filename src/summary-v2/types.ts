@@ -175,9 +175,9 @@ export interface MessageBatch {
  */
 export const DEFAULT_V2_CONFIG: SummaryV2Config = {
     enabled: false,
-    maxMessagesPerBatch: 75,
-    nanoMaxTokens: 2000,
-    miniMaxTokens: 4000,
+    maxMessagesPerBatch: 50,   // Smaller batches = smaller JSON output
+    nanoMaxTokens: 300,        // Only 5 events, fits easily
+    miniMaxTokens: 1200,       // Rich, detailed summary
     cacheTTL: 7 * 24 * 60 * 60, // 7 days in seconds
     version: 'v2.0',
     maxNanoCalls: 5,

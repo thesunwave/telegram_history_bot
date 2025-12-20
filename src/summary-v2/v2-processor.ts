@@ -132,8 +132,12 @@ export class V2Processor {
             // Step 4: Store in cache
             await setCache(cacheKey, result, messages.length, env, config);
 
-            // Log final metrics
+            // Log final metrics - always visible for comparison
             const totalDuration = layer1Duration + layer2Duration;
+            console.log(`[V2_METRICS] messages=${messages.length} events=${eventLog.events.length} ` +
+                `L1=${layer1Duration}ms L2=${layer2Duration}ms total=${totalDuration}ms ` +
+                `summary=${result.summary.length}chars`);
+
             Logger.debug(env, 'V2 Processor: complete', {
                 chatId: ctx.chatId?.toString(LOG_ID_RADIX),
                 messageCount: messages.length,

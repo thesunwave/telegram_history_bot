@@ -22,9 +22,9 @@ describe('Summary V2 Types and Config', () => {
     describe('DEFAULT_V2_CONFIG', () => {
         it('should have sensible defaults', () => {
             expect(DEFAULT_V2_CONFIG.enabled).toBe(false);
-            expect(DEFAULT_V2_CONFIG.maxMessagesPerBatch).toBe(75);
-            expect(DEFAULT_V2_CONFIG.nanoMaxTokens).toBe(2000);
-            expect(DEFAULT_V2_CONFIG.miniMaxTokens).toBe(4000);
+            expect(DEFAULT_V2_CONFIG.maxMessagesPerBatch).toBe(50);  // Smaller batches
+            expect(DEFAULT_V2_CONFIG.nanoMaxTokens).toBe(300);       // Only 5 events
+            expect(DEFAULT_V2_CONFIG.miniMaxTokens).toBe(1200);      // Rich summary
             expect(DEFAULT_V2_CONFIG.cacheTTL).toBe(7 * 24 * 60 * 60);
             expect(DEFAULT_V2_CONFIG.version).toBe('v2.0');
             expect(DEFAULT_V2_CONFIG.maxNanoCalls).toBe(5);
@@ -37,7 +37,7 @@ describe('Summary V2 Types and Config', () => {
             const config = loadV2Config(mockEnv);
 
             expect(config.enabled).toBe(false);
-            expect(config.maxMessagesPerBatch).toBe(75);
+            expect(config.maxMessagesPerBatch).toBe(50);
         });
 
         it('should load values from env', () => {

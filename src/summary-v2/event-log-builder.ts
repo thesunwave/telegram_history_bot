@@ -24,38 +24,13 @@ import {
 } from './types';
 
 /**
- * System prompt for nano model event log extraction
+ * System prompt for nano model event log extraction - COMPACT version
  */
-const EVENT_LOG_SYSTEM_PROMPT = `Ты эксперт по анализу групповых чатов. Твоя задача — извлечь структурированный журнал событий из сообщений чата.
+const EVENT_LOG_SYSTEM_PROMPT = `Выдели ТОЛЬКО 5 самых важных событий из чата. JSON.
 
-ПРАВИЛА:
-1. Группируй связанные сообщения в события по темам
-2. Для каждого события определи:
-   - topic: краткая метка темы (2-4 слова)
-   - speaker: имя участника
-   - summary: 1-2 предложения о сути сказанного
-   - stance: настроение (neutral/agrees/disagrees/jokes/complains/asks/explains/supports/challenges)
-   - repliesTo: список имён, кому отвечает (если применимо)
-   - importance: число 0-1 (0=маловажно, 1=очень важно)
+{"events":[{"t":"тема","s":"кто","m":"суть 5сл","i":0.8}]}
 
-3. Объединяй мелкие реплики одного человека в одно событие
-4. Сохраняй важные детали и эмоциональные реакции
-5. Отмечай споры, согласия и ключевые решения
-6. НЕ выдумывай события, которых не было
-
-ФОРМАТ ОТВЕТА (строго JSON):
-{
-  "events": [
-    {
-      "topic": "тема",
-      "speaker": "имя",
-      "summary": "краткое содержание",
-      "stance": "neutral",
-      "repliesTo": ["имя1"],
-      "importance": 0.7
-    }
-  ]
-}`;
+Всего 5 событий. t=topic(2сл), s=speaker, m=суть(5сл!), i=важность.`;
 
 /**
  * User prompt template for event log extraction
@@ -64,16 +39,11 @@ function buildEventLogUserPrompt(
     messages: TelegramMessage[],
     batchInfo: { index: number; total: number }
 ): string {
-    const formattedMessages = messages.map(m => {
-        const time = new Date(m.ts * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-        return `[${time}] ${m.username}: ${m.text}`;
-    }).join('\n');
+    const formattedMessages = messages.map(m =>
+        `${m.username}: ${m.text}`
+    ).join('\n');
 
-    return `Проанализируй сообщения чата (часть ${batchInfo.index + 1} из ${batchInfo.total}) и создай структурированный журнал событий:
-
-${formattedMessages}
-
-Извлеки ключевые события, сохраняя структуру диалога и роли участников.`;
+    return `Сожми в JSON (часть ${batchInfo.index + 1}/${batchInfo.total}):\n${formattedMessages}`;
 }
 
 /**
@@ -157,6 +127,7 @@ async function processBatch(
 
 /**
  * Parse JSON response from nano model
+ * Handles both short (t,s,m,i) and long (topic,speaker,summary,importance) field names
  */
 function parseEventLogResponse(response: string): EventEntry[] {
     try {
@@ -173,14 +144,13 @@ function parseEventLogResponse(response: string): EventEntry[] {
             throw new Error('Invalid response: missing events array');
         }
 
-        // Validate and normalize events
+        // Validate and normalize events - support both short and long field names
         return parsed.events.map((event: any) => ({
-            topic: String(event.topic || 'общее'),
-            speaker: String(event.speaker || 'unknown'),
-            summary: String(event.summary || ''),
-            stance: validateStance(event.stance),
-            repliesTo: Array.isArray(event.repliesTo) ? event.repliesTo.map(String) : undefined,
-            importance: normalizeImportance(event.importance),
+            topic: String(event.t || event.topic || 'общее'),
+            speaker: String(event.s || event.speaker || 'unknown'),
+            summary: String(event.m || event.summary || ''),
+            stance: 'neutral' as const, // Skip stance for compact format
+            importance: normalizeImportance(event.i ?? event.importance),
         })).filter((e: EventEntry) => e.summary.length > 0);
     } catch (error) {
         Logger.warn('Event Log Builder: failed to parse response', {
@@ -301,13 +271,13 @@ export async function buildEventLog(
         });
     }
 
-    // Process batches (could be parallelized, but sequential is safer for budget)
-    const allEvents: EventEntry[] = [];
+    // Process batches IN PARALLEL for speed
+    const batchPromises = limitedBatches.map(batch =>
+        processBatch(batch, limitedBatches.length, env, config)
+    );
 
-    for (const batch of limitedBatches) {
-        const events = await processBatch(batch, limitedBatches.length, env, config);
-        allEvents.push(...events);
-    }
+    const batchResults = await Promise.all(batchPromises);
+    const allEvents = batchResults.flat();
 
     // Merge and compact events
     const compactedEvents = mergeAndCompactEvents(allEvents);
