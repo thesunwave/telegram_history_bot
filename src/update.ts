@@ -127,56 +127,69 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     }
   }
 
-  const day = new Date(ts * 1000).toISOString().slice(0, 10);
-  const id = env.COUNTERS_DO.idFromName(String(chatId));
+  // Check for ENABLE_ACTIVITY_TRACKING flag (default to true)
+  const activityTrackingEnabled = env.ENABLE_ACTIVITY_TRACKING !== 'false' && env.ENABLE_ACTIVITY_TRACKING !== false;
 
-  try {
-    const res = await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
-      method: 'POST',
-      body: JSON.stringify({ chatId, userId, username, day }),
-    });
+  if (activityTrackingEnabled) {
+    const day = new Date(ts * 1000).toISOString().slice(0, 10);
+    const id = env.COUNTERS_DO.idFromName(String(chatId));
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '[no-body]');
-      Logger.error('recordMessage: counter update returned non-OK status', {
-        chatId,
-        day,
-        status: res.status,
-        body: text,
+    try {
+      const res = await env.COUNTERS_DO.get(id).fetch('https://do/inc', {
+        method: 'POST',
+        body: JSON.stringify({ chatId, userId, username, day }),
       });
-    } else {
-      // Try to parse JSON with detailed counts (new DO version)
-      let parsed: any = null;
-      let rawText: string | null = null;
-      try {
-        parsed = await res.json();
-      } catch {
-        // Fallback for legacy plain-text 'ok'
-        rawText = await res.text().catch(() => null);
-      }
 
-      if (parsed && typeof parsed === 'object') {
-        Logger.log('recordMessage: counter update successful (verified)', {
-          chatId: chatId.toString(36),
+      if (!res.ok) {
+        const text = await res.text().catch(() => '[no-body]');
+        Logger.error('recordMessage: counter update returned non-OK status', {
+          chatId,
           day,
-          userDayCount: parsed.userDayCount,
-          chatDayActivity: parsed.chatDayActivity,
-          ok: parsed.ok,
+          status: res.status,
+          body: text,
         });
       } else {
-        Logger.debug(env, 'recordMessage: counter update successful (legacy DO response)', {
-          chatId: chatId.toString(36),
-          day,
-          response: rawText ?? 'ok',
-        });
+        // Try to parse JSON with detailed counts (new DO version)
+        let parsed: any = null;
+        let rawText: string | null = null;
+        try {
+          parsed = await res.json();
+        } catch {
+          // Fallback for legacy plain-text 'ok'
+          rawText = await res.text().catch(() => null);
+        }
+
+        if (parsed && typeof parsed === 'object') {
+          Logger.log('recordMessage: counter update successful (verified)', {
+            chatId: chatId.toString(36),
+            day,
+            userDayCount: parsed.userDayCount,
+            chatDayActivity: parsed.chatDayActivity,
+            ok: parsed.ok,
+          });
+        } else {
+          Logger.debug(env, 'recordMessage: counter update successful (legacy DO response)', {
+            chatId: chatId.toString(36),
+            day,
+            response: rawText ?? 'ok',
+          });
+        }
       }
+    } catch (error: any) {
+      Logger.error('recordMessage: counter update failed', {
+        chatId,
+        error: error.message || String(error)
+      });
     }
-  } catch (error: any) {
-    Logger.error('recordMessage: counter update failed', {
+  } else {
+    Logger.debug(env, 'Skipping activity tracking (ENABLE_ACTIVITY_TRACKING is false)', {
       chatId,
-      error: error.message || String(error)
+      userId
     });
   }
+
+  // Define day for analysis usage if not already defined (in case activity tracking was skipped)
+  const day = new Date(ts * 1000).toISOString().slice(0, 10);
 
   // Schedule profanity analysis in background (fire-and-forget)
   // Only for text messages that are not commands and not in test environment
@@ -187,7 +200,10 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     chatId: chatId.toString(36)
   });
 
-  if (msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
+  // Check for ENABLE_PROFANITY_ANALYSIS flag (default to true)
+  const profanityAnalysisEnabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
+
+  if (profanityAnalysisEnabled && msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
     Logger.log('STARTING PROFANITY ANALYSIS', {
       chatId: chatId.toString(36),
       userId: userId.toString(36),
@@ -225,7 +241,8 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       chatId: chatId.toString(36),
       hasText: !!msg.text,
       isTest: isTestEnvironment(env),
-      reason: !msg.text ? 'no-text' : 'test-environment'
+      enabled: profanityAnalysisEnabled,
+      reason: !profanityAnalysisEnabled ? 'disabled-by-config' : !msg.text ? 'no-text' : 'test-environment'
     });
   }
 
@@ -238,7 +255,10 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     chatId: chatId.toString(36)
   });
 
-  if (msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
+  // Check for ENABLE_CRIMINAL_ANALYSIS flag (default to true)
+  const criminalAnalysisEnabled = env.ENABLE_CRIMINAL_ANALYSIS !== 'false' && env.ENABLE_CRIMINAL_ANALYSIS !== false;
+
+  if (criminalAnalysisEnabled && msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
     Logger.log('STARTING CRIMINAL CODE ANALYSIS', {
       chatId: chatId.toString(36),
       userId: userId.toString(36),
@@ -277,7 +297,8 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       hasText: !!msg.text,
       isCommand: msg.text?.startsWith('/'),
       isTest: isTestEnvironment(env),
-      reason: !msg.text ? 'no-text' : msg.text?.startsWith('/') ? 'is-command' : 'test-environment'
+      enabled: criminalAnalysisEnabled,
+      reason: !criminalAnalysisEnabled ? 'disabled-by-config' : !msg.text ? 'no-text' : msg.text?.startsWith('/') ? 'is-command' : 'test-environment'
     });
   }
 }

@@ -632,7 +632,14 @@ export default {
       }
     }
 
-    await dailySummary(env);
+    // Check for ENABLE_SUMMARY flag (default to true)
+    const summaryEnabled = env.ENABLE_SUMMARY !== 'false' && env.ENABLE_SUMMARY !== false;
+
+    if (summaryEnabled) {
+      await dailySummary(env);
+    } else {
+      console.log('Daily summary skipped (ENABLE_SUMMARY is false)');
+    }
 
     // Run cleanup job
     try {

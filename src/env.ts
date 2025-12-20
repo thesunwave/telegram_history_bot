@@ -67,6 +67,12 @@ export interface Env {
   PROFANITY_ANALYSIS_CACHE_TTL?: string | number;
   MESSAGE_BLOCK_CACHE_TTL?: string | number;
 
+  // Feature Toggles (default to true if undefined)
+  ENABLE_CRIMINAL_ANALYSIS?: string | boolean;
+  ENABLE_PROFANITY_ANALYSIS?: string | boolean;
+  ENABLE_SUMMARY?: string | boolean;
+  ENABLE_ACTIVITY_TRACKING?: string | boolean;
+
   // Text preview configuration
   CRIMINAL_STORE_TEXT_PREVIEW?: string | boolean;
   CRIMINAL_TEXT_PREVIEW_LENGTH?: string | number;

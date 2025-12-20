@@ -118,6 +118,13 @@
     "SUMMARY_SEED": 12345,
     "DEBUG_LOGS": true,
     // ========================================
+    // 🚩 FEATURE TOGGLES
+    // ========================================
+    "ENABLE_CRIMINAL_ANALYSIS": false,
+    "ENABLE_PROFANITY_ANALYSIS": false,
+    "ENABLE_SUMMARY": true,
+    "ENABLE_ACTIVITY_TRACKING": true,
+    // ========================================
     // 🚀 OPTIMIZED SUMMARY SYSTEM CONFIG
     // ========================================
     // Feature flag to enable/disable optimized system
