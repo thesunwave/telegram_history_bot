@@ -85,6 +85,17 @@ export interface Env {
 
   // Budget tracking KV key prefix
   LLM_BUDGET_KV_KEY?: string;     // Default: 'llm_budget'
+
+  // ========================================
+  // 📝 SUMMARY V2 CONFIGURATION (ADR-002)
+  // ========================================
+  SUMMARY_V2_ENABLED?: string | boolean;              // Default: false
+  SUMMARY_V2_MAX_MESSAGES_PER_BATCH?: string | number; // Default: 75
+  SUMMARY_V2_NANO_MAX_TOKENS?: string | number;        // Default: 2000
+  SUMMARY_V2_MINI_MAX_TOKENS?: string | number;        // Default: 4000
+  SUMMARY_V2_CACHE_TTL?: string | number;              // Default: 604800 (7 days)
+  SUMMARY_V2_VERSION?: string;                         // Default: 'v2.0'
+  SUMMARY_V2_MAX_NANO_CALLS?: string | number;         // Default: 5
 }
 
 export interface DurableObjectId { }

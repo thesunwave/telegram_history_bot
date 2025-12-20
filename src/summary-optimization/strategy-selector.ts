@@ -11,6 +11,8 @@ import { Logger } from "../logger";
 import { Env } from "../env";
 import { TelegramMessage } from "../providers/ai-provider";
 import { ContextOptimizer } from "./context-optimizer";
+import { isV2Enabled } from "../summary-v2";
+import { getLLMFeatureModes } from "../llm";
 
 export class OptimizedStrategySelector implements ProcessingStrategySelector {
   private contextOptimizer: ContextOptimizer;
@@ -114,9 +116,16 @@ export class OptimizedStrategySelector implements ProcessingStrategySelector {
     messageCount: number,
     estimatedTokens: number,
   ): ProcessingStrategy {
+    // Check if V2 should be used (ADR-002)
+    const v2Enabled = isV2Enabled(this.env);
+    const featureModes = getLLMFeatureModes();
+    const summaryModeIsFull = featureModes.summary === 'full';
+
     Logger.debug(this.env, "Strategy selector: selecting processing strategy", {
       messageCount,
       estimatedTokens,
+      v2Enabled,
+      summaryMode: featureModes.summary,
       config: {
         parallelEnabled: this.config.parallelProcessing.enabled,
         hierarchicalEnabled: this.config.hierarchicalProcessing.enabled,
@@ -126,7 +135,20 @@ export class OptimizedStrategySelector implements ProcessingStrategySelector {
       },
     });
 
-    // Decision tree for strategy selection
+    // V2 is preferred when:
+    // 1. It's enabled via SUMMARY_V2_ENABLED
+    // 2. Feature mode is 'full' (not economy/disabled due to budget)
+    // 3. Message count is reasonable for V2 (50-2000 messages is ideal)
+    if (v2Enabled && summaryModeIsFull && messageCount >= 50 && messageCount <= 2000) {
+      Logger.debug(this.env, "Strategy selector: using V2 pipeline", {
+        v2Enabled,
+        summaryModeIsFull,
+        messageCount,
+      });
+      return "v2";
+    }
+
+    // Decision tree for legacy strategy selection
     const useParallel = this.shouldUseParallelProcessing(messageCount);
     const useHierarchical =
       this.shouldUseHierarchicalProcessing(estimatedTokens);
@@ -151,6 +173,8 @@ export class OptimizedStrategySelector implements ProcessingStrategySelector {
         useHierarchical,
         messageCount,
         estimatedTokens,
+        v2Enabled,
+        summaryModeIsFull,
       },
     });
 

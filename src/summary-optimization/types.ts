@@ -6,7 +6,7 @@ import { TelegramMessage, SummaryOptions } from "../providers/ai-provider";
 import { Env } from "../env";
 
 // Processing strategies
-export type ProcessingStrategy = "direct" | "parallel" | "hierarchical";
+export type ProcessingStrategy = "direct" | "parallel" | "hierarchical" | "v2";
 
 // Session management
 export interface ProcessingSession {

@@ -14,6 +14,7 @@ import { loadOptimizationConfig } from "./config";
 import { DirectProcessor } from "./direct-processor";
 import { HierarchicalProcessor } from "./hierarchical-processor";
 import { ParallelProcessor } from "./parallel-processor";
+import { V2Processor } from "../summary-v2";
 import { Env, DAY, LOG_ID_RADIX } from "../env";
 import { Logger, PerformanceTracker } from "../logger";
 import { fetchMessages, fetchLastMessages } from "../history";
@@ -343,6 +344,34 @@ export class OptimizedSummaryController implements SummaryController {
           result = await parallelProcessor.process(messages, this.env, summaryContext);
           break;
 
+        case "v2":
+          Logger.debug(
+            this.env,
+            "processOptimized: Using V2 two-layer pipeline",
+            {
+              sessionId: session.sessionId,
+              messageCount: messages.length,
+            },
+          );
+          try {
+            const v2Processor = new V2Processor();
+            result = await v2Processor.process(messages, this.env, {
+              chatId: chatId,
+              periodStart: start,
+              periodEnd: end,
+              requestedMessageCount: messages.length,
+            });
+          } catch (v2Error) {
+            Logger.warn("processOptimized: V2 failed, falling back to direct", {
+              sessionId: session.sessionId,
+              error: v2Error instanceof Error ? v2Error.message : String(v2Error),
+            });
+            // Fallback to direct processor on V2 failure
+            const fallbackProcessor = new DirectProcessor();
+            result = await fallbackProcessor.process(messages, this.env, summaryContext);
+          }
+          break;
+
         default:
           throw new Error(`Unknown processing strategy: ${strategy}`);
       }
@@ -494,6 +523,34 @@ export class OptimizedSummaryController implements SummaryController {
           );
           const parallelProcessor = new ParallelProcessor();
           result = await parallelProcessor.process(messages, this.env, summaryContext);
+          break;
+
+        case "v2":
+          Logger.debug(
+            this.env,
+            "processOptimizedMessages: Using V2 two-layer pipeline",
+            {
+              sessionId: session.sessionId,
+              messageCount: messages.length,
+            },
+          );
+          try {
+            const v2Processor = new V2Processor();
+            result = await v2Processor.process(messages, this.env, {
+              chatId: chatId,
+              periodStart: summaryContext.periodStart,
+              periodEnd: summaryContext.periodEnd,
+              requestedMessageCount: count,
+            });
+          } catch (v2Error) {
+            Logger.warn("processOptimizedMessages: V2 failed, falling back to direct", {
+              sessionId: session.sessionId,
+              error: v2Error instanceof Error ? v2Error.message : String(v2Error),
+            });
+            // Fallback to direct processor on V2 failure
+            const fallbackProcessor = new DirectProcessor();
+            result = await fallbackProcessor.process(messages, this.env, summaryContext);
+          }
           break;
 
         default:
