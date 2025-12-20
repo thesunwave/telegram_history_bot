@@ -18,7 +18,7 @@ export async function topChat(
   do {
     const list: any = await env.COUNTERS.list({ prefix, cursor });
     cursor = !list.list_complete ? list.cursor : undefined;
-    
+
     const BATCH_SIZE = 10;
     for (let i = 0; i < list.keys.length; i += BATCH_SIZE) {
       const batch = list.keys.slice(i, i + BATCH_SIZE);
@@ -244,7 +244,7 @@ export async function activityChart(
     const loopDate = new Date(start);
     // Clone loopDate to avoid modifying 'start' which might be used elsewhere (though here it seems fine)
     // Actually start is used in startStr, but loopDate is a new object.
-    
+
     // Ensure we iterate up to today
     while (loopDate <= today) {
       days.push(loopDate.toISOString().slice(0, 10));
@@ -323,7 +323,7 @@ export async function activityByUser(
     do {
       const list: any = await env.COUNTERS.list({ prefix, cursor });
       cursor = !list.list_complete ? list.cursor : undefined;
-      
+
       const BATCH_SIZE = 10;
       for (let i = 0; i < list.keys.length; i += BATCH_SIZE) {
         const batch = list.keys.slice(i, i + BATCH_SIZE);
@@ -929,7 +929,7 @@ export async function getTopCriminalUsers(
   do {
     const list: any = await env.COUNTERS.list({ prefix, cursor });
     cursor = !list.list_complete ? list.cursor : undefined;
-    
+
     // Filter keys BEFORE fetching values to reduce subrequests
     const keysToFetch = list.keys.filter((k: any) => {
       const parts = k.name.split(':');
@@ -1261,4 +1261,105 @@ export async function resetCriminalCounters(env: Env, chatId: number) {
       });
     }
   }
+}
+
+// Data retention cleanup
+export async function cleanupOldData(
+  env: Env,
+  rawRetentionDays: number = 7,
+  summaryRetentionDays: number = 30
+): Promise<{ deletedSummaries: number; deletedViolations: number; cleanedDOs: number }> {
+  console.log(`[Cleanup] Starting cleanup: raw=${rawRetentionDays}d, summary=${summaryRetentionDays}d`);
+  const result = {
+    deletedSummaries: 0,
+    deletedViolations: 0,
+    cleanedDOs: 0
+  };
+
+  if (!env.DB) {
+    console.warn('[Cleanup] No DB configured, skipping D1 cleanup');
+    return result;
+  }
+
+  try {
+    // 1. Clean D1 Tables
+    // Summaries
+    const summaryCutoff = new Date(Date.now() - summaryRetentionDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+
+    // Check if period_end is older than cutoff. period_end is usually YYYY-MM-DD
+    const sumRes = await env.DB.prepare(
+      'DELETE FROM summaries WHERE period_end < ?'
+    ).bind(summaryCutoff).run();
+    result.deletedSummaries = sumRes.meta.changes || 0;
+
+    // Criminal Violations
+    const violRes = await env.DB.prepare(
+      "DELETE FROM criminal_violations WHERE created_at < datetime('now', '-' || ? || ' days')"
+    ).bind(summaryRetentionDays).run();
+    result.deletedViolations = violRes.meta.changes || 0;
+
+    // Cache
+    await env.DB.prepare(
+      "DELETE FROM criminal_analysis_cache WHERE expires_at < datetime('now')"
+    ).run();
+
+    console.log(`[Cleanup] D1 cleaned: summaries=${result.deletedSummaries}, violations=${result.deletedViolations}`);
+
+    // 2. Clean Durable Objects (DayBlockManager)
+    // We identify DOs to delete based on 'activity' table which tracks chat-days
+
+    if (env.DAY_BLOCK_MANAGER_DO) {
+      const doCutoff = new Date(Date.now() - rawRetentionDays * 24 * 60 * 60 * 1000)
+        .toISOString().slice(0, 10);
+
+      // Find days older than retention period that might still have DOs
+      // We look at 'activity' table. Note: We DO NOT delete from 'activity' yet, 
+      // as we want to keep stats for 90 days (or indefinitely).
+      const activityRes = await env.DB.prepare(
+        'SELECT chat_id, day FROM activity WHERE day < ?'
+      ).bind(doCutoff).all();
+
+      const targets = (activityRes.results as { chat_id: number, day: string }[]) || [];
+      console.log(`[Cleanup] Found ${targets.length} potential DO candidates older than ${doCutoff}`);
+
+      // Process in batches
+      const pending = [];
+      for (const target of targets) {
+        const name = `dayblock:${target.chat_id}:${target.day}`;
+        const doId = env.DAY_BLOCK_MANAGER_DO.idFromName(name);
+        const doStub = env.DAY_BLOCK_MANAGER_DO.get(doId);
+
+        pending.push(
+          doStub.fetch('https://do/cleanup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          })
+            .then(r => r.json())
+            .then((d: any) => d.deleted ? 1 : 0)
+            .catch(e => {
+              console.error(`[Cleanup] Failed to clean DO ${name}:`, e);
+              return 0;
+            })
+        );
+
+        if (pending.length >= 20) {
+          const results = await Promise.all(pending);
+          result.cleanedDOs += results.reduce((a, b) => a + b, 0);
+          pending.length = 0;
+        }
+      }
+
+      if (pending.length > 0) {
+        const results = await Promise.all(pending);
+        result.cleanedDOs += results.reduce((a, b) => a + b, 0);
+      }
+    }
+
+  } catch (error: any) {
+    console.error('[Cleanup] Error during cleanup:', error);
+    // Don't throw, just log
+  }
+
+  return result;
 }

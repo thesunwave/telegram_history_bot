@@ -36,6 +36,13 @@ export class DayBlockManager {
         return await this.handleGetBlock(request);
       }
 
+      if (method === 'POST' && url.pathname === '/cleanup') {
+        const count = await this.deleteAllData();
+        return new Response(JSON.stringify({ deleted: count }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
       if (method === 'POST' && url.pathname === '/health') {
         return new Response(JSON.stringify({ status: 'healthy' }), {
           headers: { 'Content-Type': 'application/json' }
@@ -229,6 +236,23 @@ export class DayBlockManager {
     }
   }
 
+  // ===== Cleanup =====
+
+  private async deleteAllData(): Promise<number> {
+    try {
+      await this.storage.deleteAll();
+      Logger.debug(this.env, 'DayBlockManager: deleted all data', {
+        id: this.state.id.toString()
+      });
+      return 1;
+    } catch (error: any) {
+      Logger.error('DayBlockManager: cleanup failed', {
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
   // ===== Sharding helpers =====
 
   private legacyBlockKey(blockId: string): string {
@@ -333,7 +357,7 @@ export class DayBlockManager {
     await this.backupAllShardsToKV(blockId, meta);
 
     // Remove legacy key to avoid confusion (best-effort)
-    try { await this.storage.delete(this.legacyBlockKey(blockId)); } catch {}
+    try { await this.storage.delete(this.legacyBlockKey(blockId)); } catch { }
 
     return meta;
   }

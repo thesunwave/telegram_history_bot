@@ -12,7 +12,8 @@ import {
   activityByUser,
   criminalCodeStats,
   criminalTopUsers,
-  myCriminalStats
+  myCriminalStats,
+  cleanupOldData
 } from "./stats";
 import { handleUpdate, recordMessage, getTextMessage } from "./update";
 import { CountersDO } from "./counters-do";
@@ -592,6 +593,26 @@ export default {
       }
     }
 
+    // Debug endpoint: manual cleanup
+    if (url.pathname === "/debug/cleanup" && req.method === "POST") {
+      if (env.ENVIRONMENT !== "development") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const rawDays = parseInt(url.searchParams.get("raw") || "7");
+      const summaryDays = parseInt(url.searchParams.get("summary") || "30");
+
+      try {
+        const result = await cleanupOldData(env, rawDays, summaryDays);
+        return Response.json({ status: "success", result });
+      } catch (error: any) {
+        return Response.json({
+          status: "failed",
+          error: error.message || String(error)
+        }, { status: 500 });
+      }
+    }
+
     return new Response("Not found", { status: 404 });
   },
   async scheduled(
@@ -612,6 +633,14 @@ export default {
     }
 
     await dailySummary(env);
+
+    // Run cleanup job
+    try {
+      const cleanupResult = await cleanupOldData(env, 7, 30);
+      Logger.info(env, "Daily cleanup completed", cleanupResult);
+    } catch (e: any) {
+      Logger.error("Daily cleanup failed", { error: e.message || String(e) });
+    }
   },
 };
 
