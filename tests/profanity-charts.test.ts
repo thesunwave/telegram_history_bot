@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { profanityChart } from "../src/stats";
-import type { Env } from "../src/env";
+import { profanityChart } from "../src/features/stats/stats";
+import type { Env } from "../src/core/env";
 
 // Mock the telegram module
-vi.mock("../src/telegram", () => ({
+vi.mock("../src/core/telegram", () => ({
   sendMessage: vi.fn(),
   sendPhoto: vi.fn(),
 }));
 
-import { sendMessage, sendPhoto } from "../src/telegram";
+import { sendMessage, sendPhoto } from "../src/core/telegram";
 
 // Mock global fetch to prevent real API calls
 global.fetch = vi.fn().mockResolvedValue(
@@ -29,6 +29,8 @@ const createMockEnv = (): Env => ({
   COUNTERS_DO: {} as any,
   MESSAGE_FETCHER_DO: {} as any,
   MESSAGE_AGGREGATOR_DO: {} as any,
+  DAY_BLOCK_MANAGER_DO: {} as any,
+  CRIMINAL_CODE_ANALYZER_DO: {} as any,
   DB: {
     prepare: vi.fn(() => ({
       bind: vi.fn(() => ({

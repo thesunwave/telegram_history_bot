@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ProfanityAnalyzer, ProfanityResult } from "../src/profanity";
-import { hashText } from "../src/utils";
-import { Env } from "../src/env";
+import { ProfanityAnalyzer, ProfanityResult } from "../src/features/profanity/profanity";
+import { hashText } from "../src/core/utils";
+import { Env } from "../src/core/env";
 import {
   AIProvider,
   ProfanityAnalysisResult,
-} from "../src/providers/ai-provider";
+} from "../src/core/providers/ai-provider";
 
 // Helper function to generate cache key for testing
 function generateCacheKey(text: string): string {
@@ -28,6 +28,8 @@ const createMockEnv = (): Env => {
     COUNTERS_DO: {} as any,
     MESSAGE_FETCHER_DO: {} as any,
     MESSAGE_AGGREGATOR_DO: {} as any,
+    DAY_BLOCK_MANAGER_DO: {} as any,
+    CRIMINAL_CODE_ANALYZER_DO: {} as any,
     DB: {} as any,
     AI: mockAI as any,
     TOKEN: "test-token",
@@ -43,6 +45,7 @@ const createMockEnv = (): Env => {
 // Mock AI Provider for testing
 class MockAIProvider implements AIProvider {
   analyzeProfanity = vi.fn();
+  analyzeCriminalCode = vi.fn();
   summarize = vi.fn();
   validateConfig = vi.fn();
   getProviderInfo = vi

@@ -2,7 +2,7 @@
  * Configuration management for optimized summarization system
  */
 
-import { Env } from '../env';
+import { Env } from '../../../core/env';
 import { ModelLimits, SummaryOptimizationConfig } from './types';
 
 // Default configuration values (generic baseline, will be clamped to model limits)

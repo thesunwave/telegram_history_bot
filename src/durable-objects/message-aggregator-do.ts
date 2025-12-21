@@ -3,9 +3,9 @@ import {
   Env,
   StoredMessage,
   LOG_ID_RADIX,
-} from "./env";
-import { Logger, PerformanceTracker } from "./logger";
-import { TelegramMessage } from "./providers/ai-provider";
+} from "../core/env";
+import { Logger, PerformanceTracker } from "../core/logger";
+import { TelegramMessage } from "../core/providers/ai-provider";
 
 interface AggregationSession {
   sessionId: string;

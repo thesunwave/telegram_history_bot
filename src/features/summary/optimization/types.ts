@@ -2,8 +2,8 @@
  * Types and interfaces for the optimized summarization system
  */
 
-import { TelegramMessage, SummaryOptions } from "../providers/ai-provider";
-import { Env } from "../env";
+import { TelegramMessage, SummaryOptions } from '../../../core/providers/ai-provider';
+import { Env } from '../../../core/env';
 
 // Processing strategies
 export type ProcessingStrategy = "direct" | "parallel" | "hierarchical";

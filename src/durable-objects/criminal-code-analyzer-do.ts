@@ -12,9 +12,14 @@ import type {
   CriminalViolation,
   CriminalViolationStats,
   CriminalAnalysisCache
-} from './env';
-import { ProviderFactory } from './providers/provider-factory';
-import type { AIProvider } from './providers/ai-provider';
+} from '../core/env';
+import {
+  CRIMINAL_MAX_TEXT_LENGTH,
+  CRIMINAL_BATCH_SIZE
+} from '../core/env';
+import type { DurableObjectState } from '@cloudflare/workers-types';
+import { ProviderFactory } from '../core/providers/provider-factory';
+import type { AIProvider } from '../core/providers/ai-provider';
 
 export class CriminalCodeAnalyzerDO {
   private state: DurableObjectState;
@@ -42,7 +47,7 @@ export class CriminalCodeAnalyzerDO {
     try {
       this.aiProvider = await ProviderFactory.createProvider(this.env, 'criminal');
       console.log('✅ CriminalCodeAnalyzerDO initialized successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Failed to initialize CriminalCodeAnalyzerDO:', error);
       throw error;
     }
@@ -86,7 +91,7 @@ export class CriminalCodeAnalyzerDO {
       }
 
       return new Response('Not Found', { status: 404 });
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ CriminalCodeAnalyzerDO fetch error:', error);
       return new Response(
         JSON.stringify({ error: 'Internal server error', details: error.message }),
@@ -103,12 +108,9 @@ export class CriminalCodeAnalyzerDO {
     try {
       let body: CriminalAnalysisRequest;
       try {
-        body = await request.json();
-      } catch (jsonError) {
-        return new Response(
-          JSON.stringify({ error: 'Invalid JSON in request body' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
+        body = await request.json() as CriminalAnalysisRequest;
+      } catch (error: any) {
+        return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400 });
       }
       const { text, chatId, messageId, userId, forceRefresh = false, day } = body;
 
@@ -126,11 +128,12 @@ export class CriminalCodeAnalyzerDO {
         );
       }
 
-      if (text.length > this.env.CRIMINAL_CODE_MAX_TEXT_LENGTH) {
+      // Truncate text if too long, but still return an error if it exceeds the limit
+      if (text.length > (CRIMINAL_MAX_TEXT_LENGTH || 10000)) {
         return new Response(
-          JSON.stringify({ 
-            error: 'Text too long', 
-            maxLength: this.env.CRIMINAL_CODE_MAX_TEXT_LENGTH 
+          JSON.stringify({
+            error: 'Text too long',
+            maxLength: (CRIMINAL_MAX_TEXT_LENGTH || 10000)
           }),
           { status: 400, headers: { 'Content-Type': 'application/json' } }
         );
@@ -162,7 +165,7 @@ export class CriminalCodeAnalyzerDO {
         JSON.stringify(result),
         { headers: { 'Content-Type': 'application/json' } }
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error in handleAnalyzeRequest:', error);
       return new Response(
         JSON.stringify({ error: 'Analysis failed', details: error.message }),
@@ -177,7 +180,7 @@ export class CriminalCodeAnalyzerDO {
 
   private async handleBatchAnalyzeRequest(request: Request): Promise<Response> {
     try {
-      const body: CriminalBatchAnalysisRequest = await request.json();
+      const body = await request.json() as CriminalBatchAnalysisRequest;
       const { messages, forceRefresh = false } = body;
 
       if (!messages || messages.length === 0) {
@@ -187,24 +190,24 @@ export class CriminalCodeAnalyzerDO {
         );
       }
 
-      if (messages.length > this.env.CRIMINAL_CODE_BATCH_SIZE) {
+      if (messages.length > CRIMINAL_BATCH_SIZE) {
         return new Response(
-          JSON.stringify({ 
-            error: 'Too many messages', 
-            maxBatchSize: this.env.CRIMINAL_CODE_BATCH_SIZE 
+          JSON.stringify({
+            error: 'Too many messages',
+            maxBatchSize: CRIMINAL_BATCH_SIZE || 10
           }),
           { status: 400, headers: { 'Content-Type': 'application/json' } }
         );
       }
 
       const results: Array<CriminalAnalysisResult & { messageId?: number; chatId?: number }> = [];
-      
+
       for (const message of messages) {
         if (!message.text || message.text.trim().length === 0) {
           continue;
         }
 
-        if (message.text.length > this.env.CRIMINAL_CODE_MAX_TEXT_LENGTH) {
+        if (message.text.length > (CRIMINAL_MAX_TEXT_LENGTH || 10000)) {
           console.warn(`⚠️ Skipping message ${message.messageId}: text too long`);
           continue;
         }
@@ -226,10 +229,10 @@ export class CriminalCodeAnalyzerDO {
         // 💾 Store violations if found
         if (result.hasViolations && result.violations.length > 0) {
           await this.storeViolations(
-            result.violations, 
-            message.chatId, 
-            message.messageId, 
-            message.userId, 
+            result.violations,
+            message.chatId,
+            message.messageId,
+            message.userId,
             message.text,
             message.username,
             message.day
@@ -248,7 +251,7 @@ export class CriminalCodeAnalyzerDO {
         JSON.stringify({ results }),
         { headers: { 'Content-Type': 'application/json' } }
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error in handleBatchAnalyzeRequest:', error);
       return new Response(
         JSON.stringify({ error: 'Batch analysis failed', details: error.message }),
@@ -297,13 +300,13 @@ export class CriminalCodeAnalyzerDO {
       };
 
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           stats: stats.results || [],
-          userStats 
+          userStats
         }),
         { headers: { 'Content-Type': 'application/json' } }
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error in handleStatsRequest:', error);
       return new Response(
         JSON.stringify({ error: 'Failed to get statistics', details: error.message }),
@@ -331,13 +334,13 @@ export class CriminalCodeAnalyzerDO {
       await stmt.run();
 
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           message: 'Cache cleared successfully',
-          deletedKeys: list.keys.length 
+          deletedKeys: list.keys.length
         }),
         { headers: { 'Content-Type': 'application/json' } }
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error in handleClearCacheRequest:', error);
       return new Response(
         JSON.stringify({ error: 'Failed to clear cache', details: error.message }),
@@ -356,12 +359,12 @@ export class CriminalCodeAnalyzerDO {
     }
 
     console.log('🔍 Performing criminal code analysis...');
-    
+
     try {
       const result = await this.aiProvider.analyzeCriminalCode(text, this.env);
       console.log(`✅ Analysis completed: ${result.hasViolations ? result.violations.length + ' violations found' : 'no violations'}`);
       return result;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ AI analysis failed:', error);
       // Return safe fallback result
       return {
@@ -391,7 +394,7 @@ export class CriminalCodeAnalyzerDO {
       const textHash = await this.hashText(text);
       const cacheKey = `criminal_cache:${textHash}`;
       const cacheTTL = this.getCacheTTL();
-      
+
       // Try KV storage first (faster)
       const cached = await this.env.HISTORY.get(cacheKey, 'json');
       if (cached) {
@@ -407,7 +410,7 @@ export class CriminalCodeAnalyzerDO {
         WHERE text_hash = ? AND created_at > datetime('now', '-${cacheTTL} seconds')
       `);
       const dbResult = await stmt.bind(textHash).first();
-      
+
       if (dbResult) {
         const result = JSON.parse(dbResult.analysis_result as string) as CriminalAnalysisResult;
         // Update KV cache
@@ -420,7 +423,7 @@ export class CriminalCodeAnalyzerDO {
       }
 
       return null;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error getting cached analysis:', error);
       return null;
     }
@@ -439,7 +442,7 @@ export class CriminalCodeAnalyzerDO {
 
       // Store in KV (fast access)
       await this.env.HISTORY.put(
-        cacheKey, 
+        cacheKey,
         JSON.stringify(cacheData),
         { expirationTtl: cacheTTL }
       );
@@ -450,7 +453,7 @@ export class CriminalCodeAnalyzerDO {
         VALUES (?, ?, datetime('now', '+${cacheTTL} seconds'), datetime('now'))
       `);
       await stmt.bind(textHash, JSON.stringify(result)).run();
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error caching analysis:', error);
       // Don't throw - caching failure shouldn't break analysis
     }
@@ -461,10 +464,10 @@ export class CriminalCodeAnalyzerDO {
   // ========================================
 
   private async storeViolations(
-    violations: CriminalViolation[], 
-    chatId?: number, 
-    messageId?: number, 
-    userId?: number, 
+    violations: CriminalViolation[],
+    chatId?: number,
+    messageId?: number,
+    userId?: number,
     text?: string,
     username?: string,
     day?: string
@@ -484,7 +487,7 @@ export class CriminalCodeAnalyzerDO {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         `);
         const textPreview = storePreview && text ? text.substring(0, previewLength) : null;
-        
+
         await stmt.bind(
           chatId || null,
           messageId || null,
@@ -504,10 +507,10 @@ export class CriminalCodeAnalyzerDO {
         try {
           const dayToUse = day || new Date().toISOString().slice(0, 10);
           const totalSeverity = violations.reduce((sum, v) => sum + v.severity, 0);
-          
+
           const countersId = this.env.COUNTERS_DO.idFromName(String(chatId));
           const counters = this.env.COUNTERS_DO.get(countersId);
-          
+
           const payload = {
             chatId,
             userId,
@@ -516,21 +519,21 @@ export class CriminalCodeAnalyzerDO {
             violations,
             totalSeverity
           };
-          
+
           const response = await counters.fetch('https://do/criminal', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
           });
-          
+
           if (!response.ok) {
             console.error('❌ Failed to update criminal counters:', await response.text());
           }
-        } catch (error) {
+        } catch (error: any) {
           console.error('❌ Error updating criminal counters:', error);
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error storing violations:', error);
       // Don't throw - storage failure shouldn't break analysis
     }
@@ -541,7 +544,7 @@ export class CriminalCodeAnalyzerDO {
       // Statistics are updated automatically via database trigger
       // This method can be extended for additional statistics logic
       console.log(`📊 Statistics updated for ${result.violations.length} violations`);
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error updating statistics:', error);
     }
   }

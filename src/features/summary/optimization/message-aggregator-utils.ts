@@ -2,9 +2,9 @@
  * Utilities for working with MessageAggregatorDO
  */
 
-import { Env, StoredMessage } from '../env';
-import { TelegramMessage } from '../providers/ai-provider';
-import { Logger, PerformanceTracker } from '../logger';
+import { Env, StoredMessage } from '../../../core/env';
+import { TelegramMessage } from '../../core/providers/ai-provider';
+import { Logger, PerformanceTracker } from '../../../core/logger';
 
 // Response type definitions for MessageAggregatorDO
 interface InitializeResponse {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { CountersDO, CriminalIncrementPayload } from '../src/counters-do';
-import { Env } from '../src/env';
-import { resetCriminalCounters } from '../src/stats';
+import { CountersDO, CriminalIncrementPayload } from '../src/durable-objects/counters-do';
+import { Env } from '../src/core/env';
+import { resetCriminalCounters } from '../src/features/stats/stats';
 
 describe('Criminal Code Analysis System', () => {
   let countersDO: CountersDO;
@@ -11,7 +11,7 @@ describe('Criminal Code Analysis System', () => {
   beforeEach(() => {
     // Mock KV storage
     const mockKV = new Map<string, string>();
-    
+
     mockEnv = {
       COUNTERS: {
         get: vi.fn((key: string) => Promise.resolve(mockKV.get(key) || null)),
@@ -53,7 +53,7 @@ describe('Criminal Code Analysis System', () => {
         delete: vi.fn(),
         list: vi.fn()
       };
-      const mockState = { 
+      const mockState = {
         storage: mockStorage,
         blockConcurrencyWhile: vi.fn().mockImplementation((fn) => fn())
       };
@@ -120,11 +120,11 @@ describe('Criminal Code Analysis System', () => {
           list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
         } as any
       };
-      
+
       const mockStateLocal = {
         blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
       };
-      
+
       const countersInstance = new CountersDO(mockStateLocal, mockEnvLocal);
 
       const payload: CriminalIncrementPayload = {
@@ -175,11 +175,11 @@ describe('Criminal Code Analysis System', () => {
           list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
         } as any
       };
-      
+
       const mockStateLocal = {
         blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
       };
-      
+
       const countersInstance = new CountersDO(mockStateLocal, mockEnvLocal);
 
       const payload: CriminalIncrementPayload = {
@@ -217,7 +217,7 @@ describe('Criminal Code Analysis System', () => {
       expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith('criminal_severity:123:456:2025-01-01', '8');
       expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith('criminal_article:123:282:2025-01-01', '1');
       expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith('criminal_article:123:319:2025-01-01', '1');
-     });
+    });
 
     it('should accumulate existing criminal counters', async () => {
       // Mock existing counter value in COUNTERS
@@ -225,7 +225,7 @@ describe('Criminal Code Analysis System', () => {
       mockStorage.set('criminal:123:456:2025-01-01', '3');
       mockStorage.set('criminal_severity:123:456:2025-01-01', '3');
       mockStorage.set('criminal_article:123:282:2025-01-01', '3');
-      
+
       const mockEnvLocal = {
         ...mockEnv,
         COUNTERS: {
@@ -241,11 +241,11 @@ describe('Criminal Code Analysis System', () => {
           list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
         } as any
       };
-      
+
       const mockStateLocal = {
         blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
       };
-      
+
       const countersInstance = new CountersDO(mockStateLocal, mockEnvLocal);
 
       const payload: CriminalIncrementPayload = {
@@ -297,11 +297,11 @@ describe('Criminal Code Analysis System', () => {
           list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
         } as any
       };
-      
+
       const mockStateLocal = {
         blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
       };
-      
+
       const countersInstance = new CountersDO(mockStateLocal, mockEnvLocal);
 
       const payload: CriminalIncrementPayload = {

@@ -1,15 +1,15 @@
-import { Env, DAY, MAX_LAST_MESSAGES } from './env';
+import { Env, DAY, MAX_LAST_MESSAGES } from '../core/env';
 import type { KVNamespace, ExecutionContext } from '@cloudflare/workers-types';
-import { summariseChat, summariseChatMessages } from './summary';
-import { topChat, resetCounters, activityChart, activityByUser, profanityTopUsers, profanityWordsStats, myProfanityStats, profanityChart, resetProfanityCounters, criminalCodeStats, criminalTopUsers, myCriminalStats, resetCriminalCounters } from './stats';
-import { sendMessage } from './telegram';
-import { Logger } from './logger';
-import { ProfanityAnalyzer } from './profanity';
-import { ProviderFactory } from './providers/provider-factory';
-import { ViolationHandler } from './violation-handler';
-import { NotificationService } from './services/notification-service';
-import { NotificationRepository } from './repositories/notification-repository';
-import type { NotificationType } from './models/notification-settings';
+import { summariseChat, summariseChatMessages } from '../features/summary/summary';
+import { topChat, resetCounters, activityChart, activityByUser, profanityTopUsers, profanityWordsStats, myProfanityStats, profanityChart, resetProfanityCounters, criminalCodeStats, criminalTopUsers, myCriminalStats, resetCriminalCounters } from '../features/stats/stats';
+import { sendMessage } from '../core/telegram';
+import { Logger } from '../core/logger';
+import { ProfanityAnalyzer } from '../features/profanity/profanity';
+import { ProviderFactory } from '../core/providers/provider-factory';
+import { ViolationHandler } from '../features/stats/violation-handler';
+import { NotificationService } from '../core/services/notification-service';
+import { NotificationRepository } from '../core/repositories/notification-repository';
+import type { NotificationType } from '../core/models/notification-settings';
 
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
@@ -98,7 +98,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
 
   // Save to optimized daily block structure
   try {
-    const { addMessageToDayBlock } = await import('./history-optimized');
+    const { addMessageToDayBlock } = await import('../features/history/history-optimized');
     await addMessageToDayBlock(env, stored);
     Logger.debug(env, 'recordMessage: day block save successful', {
       chatId,
@@ -751,7 +751,7 @@ export async function handleUpdate(msg: any, env: Env) {
     await sendMessage(env, chatId, 'Запуск тестов защиты от race conditions...');
 
     try {
-      const { runAllRaceConditionTests } = await import('./race-condition-tests');
+      const { runAllRaceConditionTests } = await import('../core/tests/race-condition-tests');
       const testResults = await runAllRaceConditionTests(env, chatId);
 
       const summary = testResults.map(result =>

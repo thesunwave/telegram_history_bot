@@ -3,15 +3,15 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { handleUpdate } from '../../src/update';
-import type { Env } from '../../src/env';
+import { handleUpdate } from '../../src/api/update';
+import type { Env } from '../../src/core/env';
 
 // Мокаем зависимости
-vi.mock('../../src/telegram', () => ({
+vi.mock('../../src/core/telegram', () => ({
   sendMessage: vi.fn().mockResolvedValue('123')
 }));
 
-vi.mock('../../src/logger', () => ({
+vi.mock('../../src/core/logger', () => ({
   Logger: {
     debug: vi.fn(),
     error: vi.fn(),
@@ -50,7 +50,7 @@ describe('Auto Notifications Integration', () => {
       await handleUpdate(mockMessage, mockEnv);
 
       // Проверяем, что была попытка отправить сообщение
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
@@ -72,7 +72,7 @@ describe('Auto Notifications Integration', () => {
       expect(mockEnv.HISTORY.put).toHaveBeenCalled();
 
       // Проверяем, что было отправлено подтверждение
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
@@ -94,7 +94,7 @@ describe('Auto Notifications Integration', () => {
       expect(mockEnv.HISTORY.put).toHaveBeenCalled();
 
       // Проверяем, что было отправлено подтверждение
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
@@ -139,7 +139,7 @@ describe('Auto Notifications Integration', () => {
       expect(mockEnv.HISTORY.put).toHaveBeenCalled();
 
       // Проверяем, что было отправлено подтверждение
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
@@ -158,7 +158,7 @@ describe('Auto Notifications Integration', () => {
       await handleUpdate(mockMessage, mockEnv);
 
       // Проверяем, что был отправлен список типов
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
@@ -177,7 +177,7 @@ describe('Auto Notifications Integration', () => {
       await handleUpdate(mockMessage, mockEnv);
 
       // Проверяем, что была отправлена статистика
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
@@ -196,7 +196,7 @@ describe('Auto Notifications Integration', () => {
       await handleUpdate(mockMessage, mockEnv);
 
       // Проверяем, что было отправлено сообщение об ошибке
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
@@ -236,7 +236,7 @@ describe('Auto Notifications Integration', () => {
       await handleUpdate(mockMessage, mockEnv);
 
       // Проверяем, что пользователь теперь может включать уведомления (новая логика прав)
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
@@ -255,7 +255,7 @@ describe('Auto Notifications Integration', () => {
       await handleUpdate(mockMessage, mockEnv);
 
       // Проверяем, что было отправлено сообщение об ошибке
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
@@ -298,7 +298,7 @@ describe('Auto Notifications Integration', () => {
       await handleUpdate(mockMessage, mockEnv);
 
       // Проверяем, что были показаны настройки
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
@@ -322,7 +322,7 @@ describe('Auto Notifications Integration', () => {
       await handleUpdate(mockMessage, mockEnv);
 
       // Проверяем, что было отправлено сообщение об ошибке
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
@@ -344,7 +344,7 @@ describe('Auto Notifications Integration', () => {
       await handleUpdate(mockMessage, mockEnv);
 
       // Проверяем, что система обработала ошибку и показала сообщение для нового чата
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,

@@ -1,6 +1,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { cleanupOldData } from '../src/stats';
+import { cleanupOldData } from '../src/features/stats/stats';
 import { createMockEnv } from './test-utils';
 
 describe('cleanupOldData', () => {

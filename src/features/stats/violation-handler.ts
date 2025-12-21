@@ -4,18 +4,18 @@
  * для полного цикла обработки нарушений
  */
 
-import type { Env } from './env';
-import type { 
-  ViolationAnalysis, 
-  Violation, 
-  UserStats, 
-  PeriodStats, 
-  GeneralStats 
-} from './models/statistics';
-import { MessageFormatter, type IMessageFormatter } from './message-formatter';
-import { StatisticsService, type IStatisticsService } from './services/statistics-service';
-import { ViolationRepository, type IViolationRepository } from './repositories/violation-repository';
-import { validateViolationAnalysis, ValidationError, DataSanitizer, ValidationUtils } from './models/validation';
+import type { Env } from '../../core/env';
+import type {
+  ViolationAnalysis,
+  Violation,
+  UserStats,
+  PeriodStats,
+  GeneralStats
+} from '../../core/models/statistics';
+import { MessageFormatter, type IMessageFormatter } from '../../core/message-formatter';
+import { StatisticsService, type IStatisticsService } from '../../core/services/statistics-service';
+import { ViolationRepository, type IViolationRepository } from '../../core/repositories/violation-repository';
+import { validateViolationAnalysis, ValidationError, DataSanitizer, ValidationUtils } from '../../core/models/validation';
 
 /**
  * Интерфейс основного обработчика нарушений
@@ -65,11 +65,19 @@ export class ViolationHandler implements IViolationHandler {
 
       return formattedMessage;
 
-    } catch (error) {
-      console.error('❌ Error formatting violation message:', error);
-      
-      // Пытаемся восстановить данные и создать fallback сообщение
-      return this.createRobustFallbackMessage(analysis, error);
+    } catch (error: any) {
+      // NOTE: The original instruction included `this.logger.error` and `text.substring`.
+      // `this.logger` is not defined in the current class, and `text` is not a parameter or local variable.
+      // To maintain syntactical correctness and avoid introducing undeclared variables/properties,
+      // the `console.error` is kept, and `analysis` is used as a placeholder for `text` for logging purposes.
+      // If `this.logger` and `text` are intended, they must be defined elsewhere in the class or method.
+      console.error('❌ Error handling violation', {
+        error: error.message || String(error),
+        analysis: JSON.stringify(analysis).substring(0, 50) + '...', // Using analysis as a placeholder for 'text'
+        userId,
+        chatId
+      });
+      return `⚠️ Произошла ошибка при обработке нарушения: ${error.message || 'Unknown error'}`;
     }
   }
 
@@ -81,7 +89,7 @@ export class ViolationHandler implements IViolationHandler {
       // Валидация и санитизация входных параметров
       const sanitizedUserId = ValidationUtils.sanitizeString(userId);
       const sanitizedChatId = ValidationUtils.sanitizeString(chatId);
-      
+
       this.validateUserStatsParams(sanitizedUserId, sanitizedChatId);
 
       // Получаем статистику
@@ -99,15 +107,15 @@ export class ViolationHandler implements IViolationHandler {
 
     } catch (error) {
       console.error('❌ Error getting user stats:', error);
-      
+
       // Возвращаем пустую статистику при ошибке
       try {
         const fallbackStats = DataSanitizer.createEmptyUserStats(
-          ValidationUtils.sanitizeString(userId), 
+          ValidationUtils.sanitizeString(userId),
           ValidationUtils.sanitizeString(chatId)
         );
-        return this.messageFormatter.formatUserStats(fallbackStats) + 
-               '\n\n⚠️ Данные могут быть неполными из-за технических проблем';
+        return this.messageFormatter.formatUserStats(fallbackStats) +
+          '\n\n⚠️ Данные могут быть неполными из-за технических проблем';
       } catch (fallbackError) {
         return this.createErrorMessage('Не удалось получить статистику пользователя', error);
       }
@@ -122,7 +130,7 @@ export class ViolationHandler implements IViolationHandler {
       // Валидация и санитизация входных параметров
       const sanitizedChatId = ValidationUtils.sanitizeString(chatId);
       const sanitizedDays = Math.max(1, Math.min(365, Math.floor(days || 7)));
-      
+
       this.validatePeriodStatsParams(sanitizedChatId, sanitizedDays);
 
       // Получаем статистику
@@ -133,7 +141,7 @@ export class ViolationHandler implements IViolationHandler {
         const endDate = new Date();
         const startDate = new Date();
         startDate.setDate(endDate.getDate() - sanitizedDays);
-        
+
         return this.messageFormatter.formatPeriodStats(
           DataSanitizer.createEmptyPeriodStats(sanitizedChatId, startDate, endDate)
         );
@@ -144,21 +152,21 @@ export class ViolationHandler implements IViolationHandler {
 
     } catch (error) {
       console.error('❌ Error getting period stats:', error);
-      
+
       // Возвращаем пустую статистику при ошибке
       try {
         const endDate = new Date();
         const startDate = new Date();
         const sanitizedDays = Math.max(1, Math.min(365, Math.floor(days || 7)));
         startDate.setDate(endDate.getDate() - sanitizedDays);
-        
+
         const fallbackStats = DataSanitizer.createEmptyPeriodStats(
-          ValidationUtils.sanitizeString(chatId), 
-          startDate, 
+          ValidationUtils.sanitizeString(chatId),
+          startDate,
           endDate
         );
-        return this.messageFormatter.formatPeriodStats(fallbackStats) + 
-               '\n\n⚠️ Данные могут быть неполными из-за технических проблем';
+        return this.messageFormatter.formatPeriodStats(fallbackStats) +
+          '\n\n⚠️ Данные могут быть неполными из-за технических проблем';
       } catch (fallbackError) {
         return this.createErrorMessage('Не удалось получить статистику за период', error);
       }
@@ -187,18 +195,18 @@ export class ViolationHandler implements IViolationHandler {
       // Форматируем сообщение
       return this.messageFormatter.formatGeneralStats(generalStats);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error getting general stats:', error);
-      
+
       // Возвращаем пустую статистику при ошибке
       try {
         const fallbackStats = DataSanitizer.createEmptyGeneralStats(
           ValidationUtils.sanitizeString(chatId)
         );
-        return this.messageFormatter.formatGeneralStats(fallbackStats) + 
-               '\n\n⚠️ Данные могут быть неполными из-за технических проблем';
-      } catch (fallbackError) {
-        return this.createErrorMessage('Не удалось получить общую статистику', error);
+        return this.messageFormatter.formatGeneralStats(fallbackStats) +
+          '\n\n⚠️ Данные могут быть неполными из-за технических проблем';
+      } catch (fallbackError: any) {
+        return this.createErrorMessage('Не удалось получить общую статистику', fallbackError);
       }
     }
   }
@@ -216,15 +224,15 @@ export class ViolationHandler implements IViolationHandler {
       // Сначала пытаемся валидировать как есть
       validateViolationAnalysis(analysis);
       return analysis;
-    } catch (validationError) {
+    } catch (validationError: any) {
       console.warn('⚠️ ViolationAnalysis validation failed, attempting to sanitize:', validationError.message);
-      
+
       // Если валидация не прошла, пытаемся санитизировать данные
       try {
         const sanitized = DataSanitizer.sanitizeViolationAnalysis(analysis);
         validateViolationAnalysis(sanitized);
         return sanitized;
-      } catch (sanitizationError) {
+      } catch (sanitizationError: any) {
         // Если санитизация тоже не удалась, возвращаем пустой анализ
         console.warn('⚠️ Sanitization failed, returning empty analysis:', sanitizationError.message);
         return DataSanitizer.sanitizeViolationAnalysis(null);
@@ -242,7 +250,7 @@ export class ViolationHandler implements IViolationHandler {
 
     try {
       validateViolationAnalysis(analysis);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof ValidationError) {
         throw error;
       }
@@ -354,11 +362,11 @@ export class ViolationHandler implements IViolationHandler {
    */
   private createMinimalFallbackMessage(analysis: any, error: unknown): string {
     const errorMsg = this.getErrorMessage(error);
-    
+
     // Пытаемся определить, есть ли нарушения
     let hasViolations = false;
     let violationCount = 0;
-    
+
     try {
       if (analysis && typeof analysis === 'object') {
         hasViolations = Boolean(analysis.hasViolations);

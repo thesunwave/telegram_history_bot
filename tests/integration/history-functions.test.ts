@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { KVNamespace } from "@miniflare/kv";
 import { MemoryStorage } from "@miniflare/storage-memory";
-import { fetchMessages, fetchLastMessages } from "../../src/history";
+import { fetchMessages, fetchLastMessages } from '../../src/features/history/history';
 import {
   Env,
   StoredMessage,
   DEFAULT_KV_BATCH_SIZE,
   DEFAULT_KV_BATCH_DELAY,
-} from "../../src/env";
+} from '../../src/core/env';
 import { createMockEnv } from "../test-utils";
 
 describe("History Functions Integration Tests", () => {
@@ -573,7 +573,7 @@ describe("History Functions Integration Tests", () => {
 
       // Spy on processBatchesDetailed to verify batch size is used
       const processBatchesSpy = vi.spyOn(
-        await import("../../src/utils"),
+        await import("../../src/core/utils"),
         "processBatchesDetailed",
       );
 
@@ -604,7 +604,7 @@ describe("History Functions Integration Tests", () => {
 
       // Spy on processBatchesDetailed to verify delay is used
       const processBatchesSpy = vi.spyOn(
-        await import("../../src/utils"),
+        await import("../../src/core/utils"),
         "processBatchesDetailed",
       );
 

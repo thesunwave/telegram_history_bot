@@ -1,7 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getPlatformProxy } from "wrangler";
+import { KVNamespace } from "@miniflare/kv";
+import { MemoryStorage } from "@miniflare/storage-memory";
 import worker from "../src/index";
 import { disableConsoleLogging } from "./test-utils";
+
+vi.mock("wrangler", () => ({
+  getPlatformProxy: async () => ({
+    env: {
+      HISTORY: new KVNamespace(new MemoryStorage()),
+      COUNTERS: new KVNamespace(new MemoryStorage()),
+    },
+  }),
+}));
 
 const WEEK_DAYS = 7;
 const { env } = await getPlatformProxy<any>();
@@ -732,7 +743,7 @@ describe("webhook", () => {
 describe("cron", () => {
   it("runs daily summary on schedule", async () => {
     const spy = vi
-      .spyOn(await import("../src/stats"), "dailySummary")
+      .spyOn(await import("../src/features/stats/stats"), "dailySummary")
       .mockResolvedValue(undefined);
     const event = {
       scheduledTime: Date.now(),

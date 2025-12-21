@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HTMLBuilder, ViolationMessageData, StatsMessageData } from '../src/html-builder';
+import { HTMLBuilder, ViolationMessageData, StatsMessageData } from '../src/core/html-builder';
 
 describe('HTMLBuilder', () => {
   let htmlBuilder: HTMLBuilder;
@@ -56,8 +56,8 @@ describe('HTMLBuilder', () => {
     it('should escape HTML in formatted text', () => {
       expect(htmlBuilder.bold('<script>')).toBe('<b>&lt;script&gt;</b>');
     });
-  }); 
- describe('Severity emoji indicators', () => {
+  });
+  describe('Severity emoji indicators', () => {
     it('should return green emoji for low severity (1-3)', () => {
       expect(htmlBuilder.getSeverityEmoji(1)).toBe('🟢');
       expect(htmlBuilder.getSeverityEmoji(2)).toBe('🟢');
@@ -95,7 +95,7 @@ describe('HTMLBuilder', () => {
       };
 
       const result = htmlBuilder.buildViolationMessage(data);
-      
+
       expect(result).toContain('🟡 <b>Статья 282 УК РФ</b>');
       expect(result).toContain('<b>Цитата:</b>');
       expect(result).toContain('<i>&quot;Пример нарушения&quot;</i>');
@@ -143,7 +143,7 @@ describe('HTMLBuilder', () => {
       };
 
       const result = htmlBuilder.buildStatsMessage(data);
-      
+
       expect(result).toContain('<b>Статистика пользователя</b>');
       expect(result).toContain('<b>Всего нарушений</b>: 5');
       expect(result).toContain('<b>Средняя серьезность</b>: 6.2');
@@ -159,7 +159,7 @@ describe('HTMLBuilder', () => {
       };
 
       const result = htmlBuilder.buildStatsMessage(data);
-      
+
       expect(result).toContain('🔴 <b>Статья 282</b>: 3');
       expect(result).toContain('🟡 <b>Статья 280</b>: 2');
     });

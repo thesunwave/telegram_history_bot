@@ -3,17 +3,17 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { OptimizedSummaryController } from "../../src/summary-optimization/summary-controller";
-import { ProviderInitializer } from "../../src/providers/provider-init";
+import { OptimizedSummaryController } from "../../src/features/summary/optimization/summary-controller";
+import { ProviderInitializer } from "../../src/core/providers/provider-init";
 import { createMockEnv } from "../test-utils";
-import type { Env } from "../../src/env";
+import type { Env } from '../../src/core/env';
 
 // Mock all external dependencies
-vi.mock("../../src/telegram", () => ({
+vi.mock("../../src/core/telegram", () => ({
   sendMessage: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../../src/history", () => ({
+vi.mock("../../src/features/history/history", () => ({
   fetchMessages: vi.fn(),
   fetchLastMessages: vi.fn(),
 }));
@@ -26,7 +26,7 @@ const { legacyChatSpy, legacyMessagesSpy, optimizedChatSpy, optimizedMessagesSpy
   optimizedMessagesSpy: vi.fn(),
 }));
 
-vi.mock("../../src/summary", async (importOriginal) => {
+vi.mock("../../src/features/summary/summary", async (importOriginal) => {
   const actual = await importOriginal();
   
   return {
@@ -36,7 +36,7 @@ vi.mock("../../src/summary", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/summary-optimization", async (importOriginal) => {
+vi.mock("../../src/features/summary/optimization", async (importOriginal) => {
   const actual = await importOriginal();
   const MockOptimizedSummaryController = vi.fn().mockImplementation(() => ({
     summarizeChat: optimizedChatSpy,
@@ -57,7 +57,7 @@ vi.mock("../../src/summary-optimization", async (importOriginal) => {
 });
 
 // Also mock the direct import
-vi.mock("../../src/summary-optimization/summary-controller", () => ({
+vi.mock("../../src/features/summary/optimization/summary-controller", () => ({
   OptimizedSummaryController: vi.fn().mockImplementation(() => ({
     summarizeChat: optimizedChatSpy,
     summarizeChatMessages: optimizedMessagesSpy,
@@ -87,7 +87,7 @@ describe("Complete Optimized Summary Flow", () => {
 
   beforeEach(async () => {
     // Re-import to get fresh mocked versions
-    const summaryModule = await import("../../src/summary");
+    const summaryModule = await import("../../src/features/summary/summary");
     summariseChat = summaryModule.summariseChat;
     summariseChatMessages = summaryModule.summariseChatMessages;
     vi.clearAllMocks();
@@ -100,7 +100,7 @@ describe("Complete Optimized Summary Flow", () => {
     
     // Configure legacy spy implementations
     legacyChatSpy.mockImplementation(async (env, chatId, days) => {
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
       // Check if this is a rate limit test by looking at the optimized spy mock
       const isRateLimitTest = optimizedChatSpy.mock.results.some(result => 
         result.type === 'throw' && result.value?.message === 'Rate limit exceeded'
@@ -114,7 +114,7 @@ describe("Complete Optimized Summary Flow", () => {
     });
     
     legacyMessagesSpy.mockImplementation(async (env, chatId, count) => {
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
       await sendMessage(env, chatId, "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.");
     });
 
@@ -139,7 +139,7 @@ describe("Complete Optimized Summary Flow", () => {
       // Create small message set (below parallel threshold)
       const testMessages = createTestMessages(50);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Configure the spy for this test
@@ -147,7 +147,7 @@ describe("Complete Optimized Summary Flow", () => {
         "📅 Период: 01.01.2024 - 08.01.2024\n👥 Участники: 3 чел.\n📋 Резюме: Краткое обсуждение тестовых сообщений",
       );
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(mockEnv, 123, 7);
 
@@ -166,7 +166,7 @@ describe("Complete Optimized Summary Flow", () => {
     it("should use optimized processing for message count requests", async () => {
       const testMessages = createTestMessages(80);
 
-      const { fetchLastMessages } = await import("../../src/history");
+      const { fetchLastMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchLastMessages).mockResolvedValue(testMessages);
 
       // Configure the spy for this test
@@ -174,7 +174,7 @@ describe("Complete Optimized Summary Flow", () => {
         "Сводка последних 80 сообщений: основные темы и обсуждения",
       );
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChatMessages(mockEnv, 123, 80);
 
@@ -192,7 +192,7 @@ describe("Complete Optimized Summary Flow", () => {
       // Create medium message set (above parallel threshold, below hierarchical)
       const testMessages = createTestMessages(300);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedChatSpy
@@ -200,7 +200,7 @@ describe("Complete Optimized Summary Flow", () => {
           "📅 Период: 01.01.2024 - 08.01.2024\n👥 Участники: 15 чел.\n📋 Резюме: Обширное обсуждение с множеством участников",
         );
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       const startTime = Date.now();
       await summariseChat(mockEnv, 123, 7);
@@ -227,7 +227,7 @@ describe("Complete Optimized Summary Flow", () => {
     it("should handle parallel processing failures gracefully", async () => {
       const testMessages = createTestMessages(250);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock optimized controller to fail and trigger legacy fallback
@@ -237,7 +237,7 @@ describe("Complete Optimized Summary Flow", () => {
           throw new Error("LEGACY_MESSAGE_SENT");
         });
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(mockEnv, 123, 7);
 
@@ -253,7 +253,7 @@ describe("Complete Optimized Summary Flow", () => {
       // Create large message set (triggers hierarchical processing)
       const testMessages = createTestMessages(1500);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedChatSpy
@@ -261,7 +261,7 @@ describe("Complete Optimized Summary Flow", () => {
           "📅 Период: 01.01.2024 - 08.01.2024\n👥 Участники: 75 чел.\n📋 Резюме: Крупномасштабное обсуждение множественных тем",
         );
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(mockEnv, 123, 7);
 
@@ -286,7 +286,7 @@ describe("Complete Optimized Summary Flow", () => {
     it("should handle hierarchical processing context limits", async () => {
       const testMessages = createTestMessages(2000);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock optimized controller to simulate context management
@@ -297,7 +297,7 @@ describe("Complete Optimized Summary Flow", () => {
           return "Иерархическая обработка: 2000 сообщений успешно обработаны в несколько этапов";
         });
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       const startTime = Date.now();
       await summariseChat(mockEnv, 123, 7);
@@ -326,7 +326,7 @@ describe("Complete Optimized Summary Flow", () => {
 
       const testMessages = createTestMessages(300);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedChatSpy
@@ -352,7 +352,7 @@ describe("Complete Optimized Summary Flow", () => {
 
       const testMessages = createTestMessages(75); // Should now trigger parallel
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedChatSpy
@@ -375,7 +375,7 @@ describe("Complete Optimized Summary Flow", () => {
       // Simulate typical daily chat activity
       const testMessages = createTestMessages(120);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedChatSpy
@@ -383,7 +383,7 @@ describe("Complete Optimized Summary Flow", () => {
           "📅 Период: 07.01.2024 - 08.01.2024 (1 дн.)\n👥 Участники: 6 чел.\n📋 Резюме: Обычная дневная активность чата",
         );
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(mockEnv, 123, 1); // 1 day summary
 
@@ -405,7 +405,7 @@ describe("Complete Optimized Summary Flow", () => {
       // Simulate weekly chat activity
       const testMessages = createTestMessages(800);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedChatSpy
@@ -413,7 +413,7 @@ describe("Complete Optimized Summary Flow", () => {
           "📅 Период: 01.01.2024 - 08.01.2024 (7 дн.)\n👥 Участники: 40 чел.\n📋 Резюме: Активная неделя с множественными обсуждениями",
         );
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(mockEnv, 123, 7); // Weekly summary
 
@@ -434,7 +434,7 @@ describe("Complete Optimized Summary Flow", () => {
     it("should handle recent messages summary request", async () => {
       const testMessages = createTestMessages(25);
 
-      const { fetchLastMessages } = await import("../../src/history");
+      const { fetchLastMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchLastMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedMessagesSpy
@@ -442,7 +442,7 @@ describe("Complete Optimized Summary Flow", () => {
           "Сводка последних 25 сообщений: обсуждение текущих тем",
         );
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChatMessages(mockEnv, 123, 25);
 
@@ -467,7 +467,7 @@ describe("Complete Optimized Summary Flow", () => {
       const chat2Messages = createTestMessages(200, 456);
       const chat3Messages = createTestMessages(100, 789);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages)
         .mockResolvedValueOnce(chat1Messages)
         .mockResolvedValueOnce(chat2Messages)
@@ -478,7 +478,7 @@ describe("Complete Optimized Summary Flow", () => {
         .mockResolvedValueOnce("Сводка чата 456")
         .mockResolvedValueOnce("Сводка чата 789");
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       // Execute concurrent requests
       const startTime = Date.now();
@@ -523,7 +523,7 @@ describe("Complete Optimized Summary Flow", () => {
       const chat1Messages = createTestMessages(100, 123);
       const chat2Messages = createTestMessages(150, 456);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages)
         .mockResolvedValueOnce(chat1Messages)
         .mockResolvedValueOnce(chat2Messages);
@@ -536,7 +536,7 @@ describe("Complete Optimized Summary Flow", () => {
           throw new Error("LEGACY_MESSAGE_SENT");
         });
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       // Execute concurrent requests
       await Promise.all([
@@ -566,7 +566,7 @@ describe("Complete Optimized Summary Flow", () => {
     it("should maintain performance with large message volumes", async () => {
       const testMessages = createTestMessages(2000);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedChatSpy
@@ -576,7 +576,7 @@ describe("Complete Optimized Summary Flow", () => {
           return "Иерархическая обработка 2000 сообщений: детальная сводка активности чата";
         });
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       const startTime = Date.now();
       await summariseChat(mockEnv, 123, 7);
@@ -600,7 +600,7 @@ describe("Complete Optimized Summary Flow", () => {
       // Simulate extreme message volume
       const testMessages = createTestMessages(5000);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedChatSpy
@@ -608,7 +608,7 @@ describe("Complete Optimized Summary Flow", () => {
           "Экстремальный объем: 5000 сообщений обработаны эффективно",
         );
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       // Should complete without memory issues
       await summariseChat(mockEnv, 123, 7);
@@ -630,13 +630,13 @@ describe("Complete Optimized Summary Flow", () => {
 
   describe("Edge Cases and Error Recovery", () => {
     it("should handle empty message sets appropriately", async () => {
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue([]);
 
       // Configure optimized system to handle empty set gracefully
       optimizedChatSpy.mockResolvedValue("Нет сообщений за выбранный период");
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       // With optimized system enabled
       await summariseChat(mockEnv, 123, 7);
@@ -660,8 +660,8 @@ describe("Complete Optimized Summary Flow", () => {
       }));
 
       // Import the modules first
-      const { fetchMessages } = await import("../../src/history");
-      const { sendMessage } = await import("../../src/telegram");
+      const { fetchMessages } = await import("../../src/features/history/history");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       // Set up the mock properly
       vi.mocked(fetchMessages).mockReset();
@@ -691,10 +691,10 @@ describe("Complete Optimized Summary Flow", () => {
 
       const testMessages = createTestMessages(200);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       // Should fallback to legacy due to config validation failure
       await summariseChat(invalidEnv, 123, 7);
@@ -709,13 +709,13 @@ describe("Complete Optimized Summary Flow", () => {
     it("should work with database logging", async () => {
       const testMessages = createTestMessages(100);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedChatSpy
         .mockResolvedValue("Тест интеграции с базой данных");
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(mockEnv, 123, 7);
 
@@ -739,7 +739,7 @@ describe("Complete Optimized Summary Flow", () => {
     it("should maintain performance tracking integration", async () => {
       const testMessages = createTestMessages(180);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedChatSpy
@@ -771,7 +771,7 @@ describe("Complete Optimized Summary Flow", () => {
     it("should preserve error message formatting", async () => {
       const testMessages = createTestMessages(100);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock optimized system to simulate rate limit -> fallback to legacy
@@ -783,7 +783,7 @@ describe("Complete Optimized Summary Flow", () => {
 
       // Force legacy to send the rate limit message in this test
       legacyChatSpy.mockImplementation(async (env, chatId, days) => {
-        const { sendMessage } = await import("../../src/telegram");
+        const { sendMessage } = await import("../../src/core/telegram");
         await sendMessage(env, chatId, "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.");
       });
 
@@ -796,7 +796,7 @@ describe("Complete Optimized Summary Flow", () => {
       expect(legacyChatSpy).toHaveBeenCalled();
       
       // Verify the rate limit message was sent by legacy function
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
       expect(vi.mocked(sendMessage)).toHaveBeenCalledWith(
         mockEnv, 
         123, 
@@ -809,7 +809,7 @@ describe("Complete Optimized Summary Flow", () => {
     it("should not leak resources between requests", async () => {
       const testMessages = createTestMessages(100);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedChatSpy
@@ -830,7 +830,7 @@ describe("Complete Optimized Summary Flow", () => {
     it("should handle system recovery after failures", async () => {
       const testMessages = createTestMessages(150);
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       const optimizedSpy = optimizedChatSpy
@@ -840,7 +840,7 @@ describe("Complete Optimized Summary Flow", () => {
         })
         .mockResolvedValueOnce("Система восстановлена, резюме готово");
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       // First call should fallback to legacy
       await summariseChat(mockEnv, 123, 7);

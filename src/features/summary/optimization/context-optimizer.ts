@@ -7,9 +7,9 @@
  * - Create optimal chunks for hierarchical processing
  */
 
-import { TelegramMessage } from '../providers/ai-provider';
+import { TelegramMessage } from '../../core/providers/ai-provider';
 import { SummaryOptimizationConfig } from './types';
-import { Logger } from '../logger';
+import { Logger } from '../../../core/logger';
 
 export interface TokenEstimation {
   totalTokens: number;

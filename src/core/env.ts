@@ -172,18 +172,29 @@ export interface CriminalAnalysisRequest {
   chatId?: number;
   messageId?: number;
   username?: string;
+  day?: string;
   useCache?: boolean;
+  forceRefresh?: boolean;
 }
 
 // Batch analysis request
 export interface CriminalBatchAnalysisRequest {
-  texts: Array<{
+  texts?: Array<{
     text: string;
     userId?: number;
     chatId?: number;
     messageId?: number;
   }>;
+  messages?: Array<{
+    text: string;
+    userId?: number;
+    chatId?: number;
+    messageId?: number;
+    username?: string;
+    day?: string;
+  }>;
   useCache?: boolean;
+  forceRefresh?: boolean;
 }
 
 // Statistics for criminal violations

@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { runAllRaceConditionTests } from '../src/race-condition-tests';
+import { runAllRaceConditionTests } from '../src/core/tests/race-condition-tests';
 import { createSafeMockEnv } from './test-utils';
 
 // Mock Logger
-vi.mock('../src/logger', () => ({
+vi.mock('../src/core/logger', () => ({
   Logger: {
     debug: vi.fn(),
     info: vi.fn(),

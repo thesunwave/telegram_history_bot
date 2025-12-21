@@ -4,9 +4,9 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ViolationRepository } from '../../src/repositories/violation-repository';
-import type { Env } from '../../src/env';
-import type { Violation } from '../../src/models/statistics';
+import { ViolationRepository } from '../../src/core/repositories/violation-repository';
+import type { Env } from '../../src/core/env';
+import type { Violation } from '../../src/core/models/statistics';
 
 // Mock D1 Database
 const mockDB = {
@@ -258,8 +258,8 @@ describe('ViolationRepository Integration Tests', () => {
       expect(result.comparisonWithPreviousPeriod?.severityChange).toBe(-0.5); // 5.5 - 6.0
       expect(result.comparisonWithPreviousPeriod?.usersChange).toBe(50); // (3-2)/2 * 100
     });
-  }); 
- describe('getGeneralStats()', () => {
+  });
+  describe('getGeneralStats()', () => {
     it('должен получить общую статистику чата', async () => {
       // Mock для общей статистики
       mockStmt.first.mockResolvedValueOnce({
@@ -315,16 +315,16 @@ describe('ViolationRepository Integration Tests', () => {
       expect(result.topViolations).toHaveLength(4);
       expect(result.topUsers).toHaveLength(3);
       expect(result.criticalViolations).toHaveLength(2);
-      
+
       // Проверяем топ нарушения
       expect(result.topViolations[0].article).toBe('Статья 282');
       expect(result.topViolations[0].count).toBe(10);
-      
+
       // Проверяем топ пользователей
       expect(result.topUsers[0].userId).toBe('12345');
       expect(result.topUsers[0].count).toBe(8);
       expect(result.topUsers[0].riskLevel).toBe('high');
-      
+
       // Проверяем критические нарушения
       expect(result.criticalViolations[0].severity).toBe(9);
       expect(result.criticalViolations[1].severity).toBe(8);

@@ -1,6 +1,6 @@
 import type { DurableObjectState } from '@cloudflare/workers-types';
-import { Env } from './env';
-import { Logger } from './logger';
+import { Env } from '../core/env';
+import { Logger } from '../core/logger';
 
 const STATS_PREFIX = 'stats';
 const USER_PREFIX = 'user';

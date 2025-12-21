@@ -7,9 +7,10 @@ import {
   loadOptimizationConfig,
   getDefaultConfig,
   OptimizedStrategySelector,
-  OptimizedSummaryController
-} from '../../src/summary-optimization';
-import { Env } from '../../src/env';
+} from '../../src/features/summary/optimization';
+import { OptimizedSummaryController } from "../../src/features/summary/optimization/summary-controller";
+import { Env } from '../../src/core/env';
+import { AIProvider } from '../../src/core/providers/ai-provider';
 
 // Mock environment for testing
 const createMockEnv = (overrides: Partial<Env> = {}): Env => ({

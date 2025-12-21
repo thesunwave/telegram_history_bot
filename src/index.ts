@@ -1,7 +1,7 @@
-import { migrateStatsBatch, MIGRATION_PAGE } from "./migrate";
-import { Env } from "./env";
-import { dailySummary } from "./stats";
-import { summariseChat, summariseChatMessages } from "./summary";
+import { migrateStatsBatch, MIGRATION_PAGE } from "./features/migration/migrate";
+import { Env } from "./core/env";
+import { dailySummary } from "./features/stats/stats";
+import { summariseChat, summariseChatMessages } from "./features/summary/summary";
 import {
   topChat,
   profanityTopUsers,
@@ -14,15 +14,15 @@ import {
   criminalTopUsers,
   myCriminalStats,
   cleanupOldData
-} from "./stats";
-import { handleUpdate, recordMessage, getTextMessage } from "./update";
-import { CountersDO } from "./counters-do";
-import { MessageFetcherDO } from "./message-fetcher-do";
-import { MessageAggregatorDO } from "./message-aggregator-do";
-import { DayBlockManager } from "./day-block-manager";
-import { CriminalCodeAnalyzerDO } from "./criminal-code-analyzer-do";
-import { ProviderInitializer } from "./providers/provider-init";
-import { Logger } from "./logger";
+} from "./features/stats/stats";
+import { handleUpdate, recordMessage, getTextMessage } from "./api/update";
+import { CountersDO } from "./durable-objects/counters-do";
+import { MessageFetcherDO } from "./durable-objects/message-fetcher-do";
+import { MessageAggregatorDO } from "./durable-objects/message-aggregator-do";
+import { DayBlockManager } from "./durable-objects/day-block-manager";
+import { CriminalCodeAnalyzerDO } from "./durable-objects/criminal-code-analyzer-do";
+import { ProviderInitializer } from "./core/providers/provider-init";
+import { Logger } from "./core/logger";
 import type {
   ExecutionContext,
   ScheduledEvent,
@@ -75,7 +75,7 @@ export default {
       if (key !== env.SECRET) {
         return new Response("Unauthorized", { status: 403 });
       }
-      const { resetActivityBatch } = await import("./migrate");
+      const { resetActivityBatch } = await import("./features/migration/migrate");
       const cursor = url.searchParams.get("cursor") || undefined;
       const result = await resetActivityBatch(env, cursor);
       return Response.json(result);

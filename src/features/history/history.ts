@@ -8,9 +8,9 @@ import {
   LARGE_DATASET_BATCH_DELAY,
   VERY_LARGE_DATASET_BATCH_SIZE,
   VERY_LARGE_DATASET_BATCH_DELAY
-} from './env';
-import { Logger, PerformanceTracker } from './logger';
-import { processBatches, processBatchesDetailed, BatchErrorType } from './utils';
+} from '../../core/env';
+import { Logger, PerformanceTracker } from '../../core/logger';
+import { processBatches, processBatchesDetailed, BatchErrorType } from '../../core/utils';
 
 export async function fetchMessages(env: Env, chatId: number, start: number, end: number): Promise<StoredMessage[]> {
   const trackerId = PerformanceTracker.start('fetchMessages', chatId.toString(LOG_ID_RADIX), {

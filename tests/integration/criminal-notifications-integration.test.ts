@@ -3,15 +3,15 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { recordMessage } from '../../src/update';
-import type { Env } from '../../src/env';
+import { recordMessage } from '../../src/api/update';
+import type { Env } from '../../src/core/env';
 
 // Мокаем зависимости
-vi.mock('../../src/telegram', () => ({
+vi.mock('../../src/core/telegram', () => ({
   sendMessage: vi.fn().mockResolvedValue('123')
 }));
 
-vi.mock('../../src/logger', () => ({
+vi.mock('../../src/core/logger', () => ({
   Logger: {
     debug: vi.fn(),
     error: vi.fn(),
@@ -19,7 +19,7 @@ vi.mock('../../src/logger', () => ({
   }
 }));
 
-vi.mock('../../src/violation-handler', () => ({
+vi.mock('../../src/features/stats/violation-handler', () => ({
   ViolationHandler: vi.fn().mockImplementation(() => ({
     formatViolationMessage: vi.fn().mockResolvedValue('🚨 Обнаружено нарушение УК РФ')
   }))
@@ -124,7 +124,7 @@ describe('Criminal Notifications Integration', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // Проверяем, что сообщение НЕ было отправлено
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).not.toHaveBeenCalled();
     });
 
@@ -163,7 +163,7 @@ describe('Criminal Notifications Integration', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // Проверяем, что сообщение НЕ было отправлено
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).not.toHaveBeenCalled();
     });
 
@@ -202,7 +202,7 @@ describe('Criminal Notifications Integration', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // Проверяем, что сообщение БЫЛО отправлено
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
@@ -228,7 +228,7 @@ describe('Criminal Notifications Integration', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // Проверяем, что сообщение НЕ было отправлено (по умолчанию уведомления отключены)
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).not.toHaveBeenCalled();
     });
   });
@@ -262,7 +262,7 @@ describe('Criminal Notifications Integration', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // Проверяем, что сообщение НЕ было отправлено
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).not.toHaveBeenCalled();
     });
 
@@ -284,7 +284,7 @@ describe('Criminal Notifications Integration', () => {
       expect(mockEnv.CRIMINAL_CODE_ANALYZER_DO.get).not.toHaveBeenCalled();
 
       // Проверяем, что сообщение НЕ было отправлено
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).not.toHaveBeenCalled();
     });
 
@@ -304,8 +304,8 @@ describe('Criminal Notifications Integration', () => {
 
       // Проверяем, что анализатор НЕ был вызван для команды
       // (команды обрабатываются отдельно в handleUpdate)
-      const { sendMessage } = await import('../../src/telegram');
-      
+      const { sendMessage } = await import('../../src/core/telegram');
+
       // Команда /help должна отправить справку, но не через систему нарушений
       // Это нормальное поведение
     });

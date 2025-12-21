@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { 
-  processBatches, 
-  processBatchesDetailed, 
-  BatchErrorType, 
-  BatchProcessingError 
-} from '../src/utils';
+import {
+  processBatches,
+  processBatchesDetailed,
+  BatchErrorType,
+  BatchProcessingError
+} from '../src/core/utils';
 
 describe('Enhanced Error Handling', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => { });
+    vi.spyOn(console, 'error').mockImplementation(() => { });
   });
 
   describe('Error Classification', () => {
@@ -91,9 +91,9 @@ describe('Enhanced Error Handling', () => {
       });
 
       const startTime = Date.now();
-      const result = await processBatchesDetailed(items, processor, { 
-        batchSize: 2, 
-        delayBetweenBatches: 100 
+      const result = await processBatchesDetailed(items, processor, {
+        batchSize: 2,
+        delayBetweenBatches: 100
       });
       const endTime = Date.now();
 
@@ -124,13 +124,13 @@ describe('Enhanced Error Handling', () => {
     it('should abort processing when too many batches fail completely', async () => {
       const items = Array.from({ length: 20 }, (_, i) => i + 1);
       let batchCount = 0;
-      
+
       const processor = vi.fn().mockImplementation(async (item: number) => {
         const currentBatch = Math.floor((item - 1) / 4) + 1;
         if (currentBatch !== batchCount) {
           batchCount = currentBatch;
         }
-        
+
         // Make first 3 batches fail completely (simulated by throwing in batch context)
         if (currentBatch <= 3) {
           throw new Error('Batch failure simulation');
@@ -140,7 +140,7 @@ describe('Enhanced Error Handling', () => {
 
       // Mock the batch processing to simulate complete batch failures
       const originalProcessBatches = processBatchesDetailed;
-      
+
       const result = await processBatchesDetailed(items, processor, { batchSize: 4 });
 
       // Even with individual failures, processing should continue
@@ -198,7 +198,7 @@ describe('Enhanced Error Handling', () => {
       const items = [1, 2];
       const originalError = new Error('Original error message');
       originalError.stack = 'Original stack trace';
-      
+
       const processor = vi.fn().mockImplementation(async (item: number) => {
         if (item === 2) {
           throw originalError;

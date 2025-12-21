@@ -1,5 +1,5 @@
-import { StoredMessage } from './env';
-import { addMessageToDayBlockSafe, getDayBlockSafe } from './day-block-manager';
+import { StoredMessage } from '../env';
+import { addMessageToDayBlockSafe, getDayBlockSafe } from '../../durable-objects/day-block-manager';
 
 /**
  * Tests for race condition protection in day block operations

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { htmlFormatting, HTMLBuilder, getSeverityEmoji, escapeHtml } from '../src/html-formatting';
+import { htmlFormatting, HTMLBuilder, getSeverityEmoji, escapeHtml } from '../src/core/html-formatting';
 
 describe('HTML Formatting Integration', () => {
   it('should provide all components through main export', () => {

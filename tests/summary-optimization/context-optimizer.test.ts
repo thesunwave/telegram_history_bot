@@ -3,9 +3,9 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ContextOptimizer, createContextOptimizer } from '../../src/summary-optimization/context-optimizer';
-import { SummaryOptimizationConfig } from '../../src/summary-optimization/types';
-import { TelegramMessage } from '../../src/providers/ai-provider';
+import { ContextOptimizer, createContextOptimizer } from '../../src/features/summary/optimization/context-optimizer';
+import { SummaryOptimizationConfig } from '../../src/features/summary/optimization/types';
+import { TelegramMessage } from '../../src/core/providers/ai-provider';
 
 describe('ContextOptimizer', () => {
   let optimizer: ContextOptimizer;
@@ -88,7 +88,7 @@ describe('ContextOptimizer', () => {
         text: 'Тестовое сообщение',
         ts: 1000
       };
-      
+
       const tokens = optimizer.estimateTokens([message]);
       expect(tokens).toBeGreaterThan(0);
       expect(tokens).toBeLessThan(50); // Reasonable upper bound for short message
@@ -100,7 +100,7 @@ describe('ContextOptimizer', () => {
         text: 'Короткий текст',
         ts: 1000
       };
-      
+
       const longMessage: TelegramMessage = {
         username: 'user',
         text: 'Очень длинный текст с множеством слов и символов, который должен занимать значительно больше токенов чем короткое сообщение',
@@ -109,7 +109,7 @@ describe('ContextOptimizer', () => {
 
       const shortTokens = optimizer.estimateTokens([shortMessage]);
       const longTokens = optimizer.estimateTokens([longMessage]);
-      
+
       expect(longTokens).toBeGreaterThan(shortTokens);
     });
 
@@ -127,9 +127,9 @@ describe('ContextOptimizer', () => {
 
       const normalTokens = optimizer.estimateTokens([message]);
       const factorTokens = optimizerWithFactor.estimateTokens([message]);
-      
 
-      
+
+
       expect(factorTokens).toBeGreaterThan(normalTokens);
     });
   });
@@ -137,7 +137,7 @@ describe('ContextOptimizer', () => {
   describe('estimateTokensDetailed', () => {
     it('should return detailed estimation for empty array', () => {
       const result = optimizer.estimateTokensDetailed([]);
-      
+
       expect(result.totalTokens).toBe(0);
       expect(result.messageTokens).toEqual([]);
       expect(result.averageTokensPerMessage).toBe(0);
@@ -146,7 +146,7 @@ describe('ContextOptimizer', () => {
 
     it('should provide detailed breakdown for multiple messages', () => {
       const result = optimizer.estimateTokensDetailed(sampleMessages);
-      
+
       expect(result.totalTokens).toBeGreaterThan(0);
       expect(result.messageTokens).toHaveLength(sampleMessages.length);
       expect(result.averageTokensPerMessage).toBeGreaterThan(0);
@@ -157,7 +157,7 @@ describe('ContextOptimizer', () => {
     it('should have consistent token counts', () => {
       const detailed = optimizer.estimateTokensDetailed(sampleMessages);
       const simple = optimizer.estimateTokens(sampleMessages);
-      
+
       expect(detailed.totalTokens).toBe(simple);
     });
   });
@@ -180,9 +180,9 @@ describe('ContextOptimizer', () => {
 
     it('should preserve message chronological order', () => {
       const result = optimizer.optimizeForContext(sampleMessages, 200);
-      
+
       for (let i = 1; i < result.length; i++) {
-        expect(result[i].ts).toBeGreaterThanOrEqual(result[i-1].ts);
+        expect(result[i].ts).toBeGreaterThanOrEqual(result[i - 1].ts);
       }
     });
 
@@ -190,14 +190,14 @@ describe('ContextOptimizer', () => {
       const maxTokens = 100;
       const result = optimizer.optimizeForContext(sampleMessages, maxTokens);
       const resultTokens = optimizer.estimateTokens(result);
-      
+
       expect(resultTokens).toBeLessThanOrEqual(maxTokens);
     });
 
     it('should handle very restrictive token limits', () => {
       const result = optimizer.optimizeForContext(sampleMessages, 10);
       const resultTokens = optimizer.estimateTokens(result);
-      
+
       expect(resultTokens).toBeLessThanOrEqual(10);
     });
   });
@@ -222,7 +222,7 @@ describe('ContextOptimizer', () => {
     it('should respect chunk token limits', () => {
       const maxTokens = 100;
       const result = optimizer.createOptimalChunks(sampleMessages, maxTokens);
-      
+
       for (const chunk of result) {
         const chunkTokens = optimizer.estimateTokens(chunk);
         expect(chunkTokens).toBeLessThanOrEqual(maxTokens);
@@ -232,16 +232,16 @@ describe('ContextOptimizer', () => {
     it('should preserve all messages across chunks', () => {
       const result = optimizer.createOptimalChunks(sampleMessages, 100);
       const totalMessages = result.reduce((sum, chunk) => sum + chunk.length, 0);
-      
+
       expect(totalMessages).toBe(sampleMessages.length);
     });
 
     it('should maintain chronological order within chunks', () => {
       const result = optimizer.createOptimalChunks(sampleMessages, 100);
-      
+
       for (const chunk of result) {
         for (let i = 1; i < chunk.length; i++) {
-          expect(chunk[i].ts).toBeGreaterThanOrEqual(chunk[i-1].ts);
+          expect(chunk[i].ts).toBeGreaterThanOrEqual(chunk[i - 1].ts);
         }
       }
     });
@@ -264,7 +264,7 @@ describe('ContextOptimizer', () => {
   describe('createOptimalChunksDetailed', () => {
     it('should provide detailed metadata for empty input', () => {
       const result = optimizer.createOptimalChunksDetailed([], 1000);
-      
+
       expect(result.chunks).toEqual([]);
       expect(result.totalChunks).toBe(0);
       expect(result.averageTokensPerChunk).toBe(0);
@@ -275,7 +275,7 @@ describe('ContextOptimizer', () => {
 
     it('should provide accurate metadata for chunked messages', () => {
       const result = optimizer.createOptimalChunksDetailed(sampleMessages, 100);
-      
+
       expect(result.totalChunks).toBe(result.chunks.length);
       expect(result.metadata.originalMessageCount).toBe(sampleMessages.length);
       expect(result.metadata.totalTokens).toBeGreaterThan(0);
@@ -286,7 +286,7 @@ describe('ContextOptimizer', () => {
     it('should indicate correct chunking strategy', () => {
       const smallResult = optimizer.createOptimalChunksDetailed(sampleMessages, 10000);
       expect(smallResult.metadata.chunkingStrategy).toBe('sequential');
-      
+
       const manyMessages: TelegramMessage[] = [];
       for (let i = 0; i < 50; i++) {
         manyMessages.push({
@@ -295,7 +295,7 @@ describe('ContextOptimizer', () => {
           ts: i * 1000
         });
       }
-      
+
       const largeResult = optimizer.createOptimalChunksDetailed(manyMessages, 20);
       // Should use balanced strategy when exceeding max chunks
       if (largeResult.totalChunks > config.hierarchicalProcessing.maxPreprocessingChunks) {
@@ -313,17 +313,17 @@ describe('ContextOptimizer', () => {
     it('should use config values correctly', () => {
       const customConfig = JSON.parse(JSON.stringify(config)); // Deep copy
       customConfig.contextManagement.tokenEstimationFactor = 2.0;
-      
+
       const customOptimizer = createContextOptimizer(customConfig);
       const message: TelegramMessage = {
         username: 'test',
         text: 'Test message for checking configuration factor usage',
         ts: 1000
       };
-      
+
       const normalTokens = optimizer.estimateTokens([message]);
       const customTokens = customOptimizer.estimateTokens([message]);
-      
+
       expect(customTokens).toBeGreaterThan(normalTokens);
     });
   });
@@ -335,13 +335,13 @@ describe('ContextOptimizer', () => {
         { username: 'user2', text: 'Normal message', ts: 2000 },
         { username: 'user3', text: '', ts: 3000 }
       ];
-      
+
       const tokens = optimizer.estimateTokens(messagesWithEmpty);
       expect(tokens).toBeGreaterThan(0);
-      
+
       const optimized = optimizer.optimizeForContext(messagesWithEmpty, 100);
       expect(optimized.length).toBeLessThanOrEqual(messagesWithEmpty.length);
-      
+
       const chunks = optimizer.createOptimalChunks(messagesWithEmpty, 100);
       expect(chunks.length).toBeGreaterThan(0);
     });
@@ -352,7 +352,7 @@ describe('ContextOptimizer', () => {
         text: 'Short text',
         ts: 1000
       };
-      
+
       const tokens = optimizer.estimateTokens([messageWithLongUsername]);
       expect(tokens).toBeGreaterThan(0);
     });
@@ -363,10 +363,10 @@ describe('ContextOptimizer', () => {
         text: 'Очень длинное сообщение '.repeat(100), // Very long repeated text
         ts: 1000
       };
-      
+
       const optimized = optimizer.optimizeForContext([veryLongMessage], 50);
       const chunks = optimizer.createOptimalChunks([veryLongMessage], 50);
-      
+
       // Should handle gracefully without crashing
       expect(Array.isArray(optimized)).toBe(true);
       expect(Array.isArray(chunks)).toBe(true);
@@ -375,7 +375,7 @@ describe('ContextOptimizer', () => {
     it('should handle zero token limit gracefully', () => {
       const optimized = optimizer.optimizeForContext(sampleMessages, 0);
       const chunks = optimizer.createOptimalChunks(sampleMessages, 0);
-      
+
       expect(Array.isArray(optimized)).toBe(true);
       expect(Array.isArray(chunks)).toBe(true);
     });
@@ -389,9 +389,9 @@ describe('ContextOptimizer', () => {
         { username: 'user3', text: 'да', ts: 3000 }, // Very short
         { username: 'user4', text: 'Еще одно длинное и содержательное сообщение', ts: 4000 }
       ];
-      
+
       const optimized = optimizer.optimizeForContext(mixedMessages, 150);
-      
+
       // Should prefer keeping longer, more meaningful messages
       const hasLongMessages = optimized.some(msg => msg.text.length > 20);
       expect(hasLongMessages).toBe(true);
@@ -406,9 +406,9 @@ describe('ContextOptimizer', () => {
           ts: i * 3600 * 1000 // One hour apart
         });
       }
-      
+
       const optimized = optimizer.optimizeForContext(timeSpreadMessages, 200);
-      
+
       if (optimized.length > 1) {
         // Should have messages from different time periods
         const timeSpan = optimized[optimized.length - 1].ts - optimized[0].ts;

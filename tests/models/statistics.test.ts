@@ -12,7 +12,7 @@ import {
   ViolationCount,
   UserViolationCount,
   PeriodComparison
-} from '../../src/models/statistics';
+} from '../../src/core/models/statistics';
 
 describe('Statistics Models', () => {
   describe('Violation', () => {
@@ -194,7 +194,7 @@ describe('Statistics Models', () => {
     it('should have correct structure with comparison', () => {
       const startDate = new Date('2024-01-01');
       const endDate = new Date('2024-01-31');
-      
+
       const periodStats: PeriodStats = {
         chatId: '-67890',
         startDate,

@@ -1,29 +1,46 @@
+
 /**
  * End-to-end тесты для интеграции ViolationHandler с Telegram ботом
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { handleUpdate, recordMessage, getTextMessage } from '../src/update';
-import { ViolationHandler } from '../src/violation-handler';
-import { sendMessage } from '../src/telegram';
-import type { Env } from '../src/env';
-import type { ViolationAnalysis } from '../src/models/statistics';
+import { handleUpdate, recordMessage, getTextMessage } from '../src/api/update';
+import { ViolationHandler } from '../src/features/stats/violation-handler';
+import { sendMessage } from '../src/core/telegram';
+import type { Env } from '../src/core/env';
+import type { ViolationAnalysis } from '../src/core/models/statistics';
 
 // Mock dependencies
-vi.mock('../src/telegram', () => ({
-  sendMessage: vi.fn()
+vi.mock('../src/core/telegram', () => ({
+  sendMessage: vi.fn(),
 }));
 
-vi.mock('../src/violation-handler', () => ({
-  ViolationHandler: vi.fn().mockImplementation(() => ({
-    formatViolationMessage: vi.fn(),
-    getUserStats: vi.fn(),
-    getPeriodStats: vi.fn(),
-    getGeneralStats: vi.fn()
-  }))
+vi.mock('../src/features/stats/violation-handler', () => ({
+  ViolationHandler: vi.fn(),
 }));
 
-vi.mock('../src/stats', () => ({
+// Mock modules that are dynamically imported
+vi.mock('../src/features/stats/stats', () => ({
+  criminalCodeStats: vi.fn(),
+  criminalTopUsers: vi.fn(),
+  myCriminalStats: vi.fn(),
+  topChat: vi.fn(),
+  resetCounters: vi.fn(),
+  activityChart: vi.fn(),
+  activityByUser: vi.fn(),
+  profanityTopUsers: vi.fn(),
+  profanityWordsStats: vi.fn(),
+  myProfanityStats: vi.fn(),
+  profanityChart: vi.fn(),
+  resetProfanityCounters: vi.fn(),
+  resetCriminalCounters: vi.fn(),
+  formatViolationMessage: vi.fn(),
+  getUserStats: vi.fn(),
+  getPeriodStats: vi.fn(),
+  getGeneralStats: vi.fn()
+}));
+
+vi.mock('../src/features/stats/stats', () => ({
   criminalCodeStats: vi.fn(),
   criminalTopUsers: vi.fn(),
   myCriminalStats: vi.fn(),
@@ -46,7 +63,7 @@ describe('Telegram Integration Tests', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     mockSendMessage = vi.mocked(sendMessage);
     mockViolationHandler = {
       formatViolationMessage: vi.fn(),
@@ -54,7 +71,7 @@ describe('Telegram Integration Tests', () => {
       getPeriodStats: vi.fn(),
       getGeneralStats: vi.fn()
     };
-    
+
     vi.mocked(ViolationHandler).mockImplementation(() => mockViolationHandler);
 
     // Mock environment - use different token to avoid test environment detection
@@ -98,7 +115,7 @@ describe('Telegram Integration Tests', () => {
 
   describe('Enhanced Criminal Statistics Integration', () => {
     it('should call criminalCodeStats function for /criminal_stats command', async () => {
-      const { criminalCodeStats } = await import('../src/stats');
+      const { criminalCodeStats } = await import('../src/features/stats/stats');
       const mockCriminalCodeStats = vi.mocked(criminalCodeStats);
 
       const mockMessage = {
@@ -114,7 +131,7 @@ describe('Telegram Integration Tests', () => {
     });
 
     it('should call myCriminalStats function for /my_criminal command', async () => {
-      const { myCriminalStats } = await import('../src/stats');
+      const { myCriminalStats } = await import('../src/features/stats/stats');
       const mockMyCriminalStats = vi.mocked(myCriminalStats);
 
       const mockMessage = {
@@ -130,7 +147,7 @@ describe('Telegram Integration Tests', () => {
     });
 
     it('should call myCriminalStats with period for /my_criminal command', async () => {
-      const { myCriminalStats } = await import('../src/stats');
+      const { myCriminalStats } = await import('../src/features/stats/stats');
       const mockMyCriminalStats = vi.mocked(myCriminalStats);
 
       const mockMessage = {
@@ -146,7 +163,7 @@ describe('Telegram Integration Tests', () => {
     });
 
     it('should call criminalTopUsers function for /criminal_top command', async () => {
-      const { criminalTopUsers } = await import('../src/stats');
+      const { criminalTopUsers } = await import('../src/features/stats/stats');
       const mockCriminalTopUsers = vi.mocked(criminalTopUsers);
 
       const mockMessage = {
@@ -162,7 +179,7 @@ describe('Telegram Integration Tests', () => {
     });
 
     it('should handle /criminal_stats with default period', async () => {
-      const { criminalCodeStats } = await import('../src/stats');
+      const { criminalCodeStats } = await import('../src/features/stats/stats');
       const mockCriminalCodeStats = vi.mocked(criminalCodeStats);
 
       const mockMessage = {
@@ -185,7 +202,9 @@ describe('Telegram Integration Tests', () => {
         hasViolations: true,
         violations: [
           {
-            article: 'Статья 282 УК РФ',
+            article: '282',
+            subarticle: null,
+            articleTitle: 'Статья 282 УК РФ',
             quote: 'экстремистские высказывания',
             punishment: 'штраф до 300 000 рублей',
             severity: 8,
@@ -194,7 +213,7 @@ describe('Telegram Integration Tests', () => {
         ],
         totalSeverity: 8,
         riskLevel: 'high',
-        analysisTimestamp: Date.now()
+        analysisTimestamp: new Date().toISOString()
       };
 
       const expectedFormattedMessage = '🚨 <b>Обнаружено нарушение УК РФ</b>\n\n<b>Статья 282 УК РФ</b>\nЦитата: <i>экстремистские высказывания</i>\nНаказание: штраф до 300 000 рублей\nСерьезность: 🔴 8/10';
@@ -203,8 +222,8 @@ describe('Telegram Integration Tests', () => {
       // Test the ViolationHandler integration directly
       const violationHandler = new ViolationHandler(mockEnv);
       const result = await violationHandler.formatViolationMessage(
-        mockAnalysisResult, 
-        '67890', 
+        mockAnalysisResult,
+        '67890',
         '12345'
       );
 
@@ -222,7 +241,9 @@ describe('Telegram Integration Tests', () => {
         hasViolations: true,
         violations: [
           {
-            article: 'Статья 282 УК РФ',
+            article: '282',
+            subarticle: null,
+            articleTitle: 'Статья 282 УК РФ',
             quote: 'экстремистские высказывания',
             punishment: 'штраф до 300 000 рублей',
             severity: 8,
@@ -231,7 +252,7 @@ describe('Telegram Integration Tests', () => {
         ],
         totalSeverity: 8,
         riskLevel: 'high',
-        analysisTimestamp: Date.now()
+        analysisTimestamp: new Date().toISOString()
       };
 
       // Mock the ViolationHandler to throw an error, then return a fallback
@@ -240,7 +261,7 @@ describe('Telegram Integration Tests', () => {
 
       const violationHandler = new ViolationHandler(mockEnv);
       const result = await violationHandler.formatViolationMessage(mockAnalysisResult);
-      
+
       expect(result).toBe(errorMessage);
     });
 
@@ -250,7 +271,7 @@ describe('Telegram Integration Tests', () => {
         violations: [],
         totalSeverity: 0,
         riskLevel: 'low',
-        analysisTimestamp: Date.now()
+        analysisTimestamp: new Date().toISOString()
       };
 
       const expectedMessage = '✅ Нарушений не обнаружено';
@@ -319,7 +340,7 @@ describe('Telegram Integration Tests', () => {
 
       expect(mockSendMessage).toHaveBeenCalled();
       const helpText = mockSendMessage.mock.calls[0][2];
-      
+
       expect(helpText).toContain('/criminal_stats');
       expect(helpText).toContain('/my_criminal');
       expect(helpText).toContain('/criminal_top');

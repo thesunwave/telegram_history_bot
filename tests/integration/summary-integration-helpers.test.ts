@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { Env } from "../../src/env";
+import { Env } from '../../src/core/env';
 import type {
   KVNamespace,
   D1Database,
@@ -12,21 +12,21 @@ import type {
 
 // We need to import the summary module to test its internal functions
 // Since the helper functions are not exported, we'll test them through the main functions
-import { summariseChat, summariseChatMessages } from "../../src/summary";
-import { ProviderInitializer } from "../../src/providers/provider-init";
+import { summariseChat, summariseChatMessages } from '../../src/features/summary/summary';
+import { ProviderInitializer } from "../../src/core/providers/provider-init";
 
 // Mock dependencies
-vi.mock("../../src/telegram", () => ({
+vi.mock("../../src/core/telegram", () => ({
   sendMessage: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../../src/history", () => ({
+vi.mock("../../src/features/history/history", () => ({
   fetchMessages: vi.fn(),
   fetchLastMessages: vi.fn(),
 }));
 
 // Mock the summary-optimization system
-vi.mock("../../src/summary-optimization", () => ({
+vi.mock("../../src/features/summary/optimization", () => ({
   OptimizedSummaryController: vi.fn(),
   loadOptimizationConfig: vi.fn().mockReturnValue({
     enabled: true,
@@ -115,10 +115,10 @@ describe("Summary Integration Helper Functions", () => {
         });
 
         const testMessages = createTestMessages(50);
-        const { fetchMessages } = await import("../../src/history");
+        const { fetchMessages } = await import("../../src/features/history/history");
         vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
-        const { OptimizedSummaryController } = await import("../../src/summary-optimization");
+        const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
         const MockController = vi.mocked(OptimizedSummaryController);
         
         if (testCase.expected) {
@@ -135,7 +135,7 @@ describe("Summary Integration Helper Functions", () => {
           });
         }
 
-        const { sendMessage } = await import("../../src/telegram");
+        const { sendMessage } = await import("../../src/core/telegram");
 
         await summariseChat(env, 123, 7);
 
@@ -150,10 +150,10 @@ describe("Summary Integration Helper Functions", () => {
       });
 
       const testMessages = createTestMessages(50);
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
-      const { OptimizedSummaryController } = await import("../../src/summary-optimization");
+      const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
       const MockController = vi.mocked(OptimizedSummaryController);
       
       const mockInstance = {
@@ -162,7 +162,7 @@ describe("Summary Integration Helper Functions", () => {
       };
       MockController.mockImplementation(() => mockInstance as any);
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(env, 123, 7);
 
@@ -198,10 +198,10 @@ describe("Summary Integration Helper Functions", () => {
         },
       ];
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(mixedMessages);
 
-      const { OptimizedSummaryController } = await import("../../src/summary-optimization");
+      const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
       const MockController = vi.mocked(OptimizedSummaryController);
       
       const mockInstance = {
@@ -210,7 +210,7 @@ describe("Summary Integration Helper Functions", () => {
       };
       MockController.mockImplementation(() => mockInstance as any);
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(env, 123, 7);
 
@@ -220,10 +220,10 @@ describe("Summary Integration Helper Functions", () => {
     it("should handle empty message sets correctly", async () => {
       const env = createMockEnv();
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue([]);
 
-      const { OptimizedSummaryController } = await import("../../src/summary-optimization");
+      const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
       const MockController = vi.mocked(OptimizedSummaryController);
       
       const mockInstance = {
@@ -232,7 +232,7 @@ describe("Summary Integration Helper Functions", () => {
       };
       MockController.mockImplementation(() => mockInstance as any);
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(env, 123, 7);
 
@@ -260,10 +260,10 @@ describe("Summary Integration Helper Functions", () => {
         },
       ];
 
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(systemOnlyMessages);
 
-      const { OptimizedSummaryController } = await import("../../src/summary-optimization");
+      const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
       const MockController = vi.mocked(OptimizedSummaryController);
       
       // Mock that optimized system will fail due to no content messages
@@ -271,7 +271,7 @@ describe("Summary Integration Helper Functions", () => {
         throw new Error("No content messages");
       });
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(env, 123, 7);
 
@@ -287,10 +287,10 @@ describe("Summary Integration Helper Functions", () => {
       const env = createMockEnv();
 
       const testMessages = createTestMessages(100);
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
-      const { OptimizedSummaryController } = await import("../../src/summary-optimization");
+      const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
       const MockController = vi.mocked(OptimizedSummaryController);
       
       const mockInstance = {
@@ -299,7 +299,7 @@ describe("Summary Integration Helper Functions", () => {
       };
       MockController.mockImplementation(() => mockInstance as any);
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(env, 123, 7);
 
@@ -314,11 +314,11 @@ describe("Summary Integration Helper Functions", () => {
       });
 
       const testMessages = createTestMessages(100);
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController with method that uses AI
-      const { OptimizedSummaryController } = await import("../../src/summary-optimization");
+      const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
       const MockController = vi.mocked(OptimizedSummaryController);
       
       const mockInstance = {
@@ -331,7 +331,7 @@ describe("Summary Integration Helper Functions", () => {
         return mockInstance as any;
       });
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(env, 123, 7);
 
@@ -346,10 +346,10 @@ describe("Summary Integration Helper Functions", () => {
       });
 
       const testMessages = createTestMessages(100);
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
-      const { OptimizedSummaryController } = await import("../../src/summary-optimization");
+      const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
       const MockController = vi.mocked(OptimizedSummaryController);
       
       const mockInstance = {
@@ -361,7 +361,7 @@ describe("Summary Integration Helper Functions", () => {
       // Clear AI mock call history
       vi.mocked(mockEnv.AI.run).mockClear();
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(env, 123, 7);
 
@@ -376,10 +376,10 @@ describe("Summary Integration Helper Functions", () => {
       });
 
       const testMessages = createTestMessages(100);
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
-      const { OptimizedSummaryController } = await import("../../src/summary-optimization");
+      const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
       const MockController = vi.mocked(OptimizedSummaryController);
       
       const mockInstance = {
@@ -390,7 +390,7 @@ describe("Summary Integration Helper Functions", () => {
       };
       MockController.mockImplementation(() => mockInstance as any);
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(env, 123, 7);
 
@@ -406,17 +406,17 @@ describe("Summary Integration Helper Functions", () => {
       });
 
       const testMessages = createTestMessages(100);
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
-      const { OptimizedSummaryController } = await import("../../src/summary-optimization");
+      const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
       const MockController = vi.mocked(OptimizedSummaryController);
       
       MockController.mockImplementation(() => {
         throw new Error("Provider initialization failed");
       });
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(env, 123, 7);
 
@@ -432,10 +432,10 @@ describe("Summary Integration Helper Functions", () => {
       });
 
       const testMessages = createTestMessages(100);
-      const { fetchMessages } = await import("../../src/history");
+      const { fetchMessages } = await import("../../src/features/history/history");
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
-      const { OptimizedSummaryController } = await import("../../src/summary-optimization");
+      const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
       const MockController = vi.mocked(OptimizedSummaryController);
       
       MockController.mockImplementation(() => {
@@ -447,7 +447,7 @@ describe("Summary Integration Helper Functions", () => {
         new Error("Rate limit exceeded"),
       );
 
-      const { sendMessage } = await import("../../src/telegram");
+      const { sendMessage } = await import("../../src/core/telegram");
 
       await summariseChat(env, 123, 7);
 

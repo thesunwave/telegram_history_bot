@@ -6,12 +6,12 @@
  */
 
 import { DirectProcessor as IDirectProcessor, SummaryContext } from './types';
-import { TelegramMessage, SummaryRequest, SummaryOptions, MESSAGE_SEPARATOR } from '../providers/ai-provider';
-import { Env } from '../env';
-import { ProviderFactory } from '../providers/provider-factory';
+import { TelegramMessage, SummaryRequest, SummaryOptions, MESSAGE_SEPARATOR } from '../../../core/providers/ai-provider';
+import { Env } from '../../../core/env';
+import { ProviderFactory } from '../../../core/providers/provider-factory';
 import { ContextOptimizer } from './context-optimizer';
 import { loadOptimizationConfig } from './config';
-import { Logger, PerformanceTracker } from '../logger';
+import { Logger, PerformanceTracker } from '../../../core/logger';
 import { DirectProcessor } from './direct-processor';
 
 export class ParallelProcessor implements IDirectProcessor {

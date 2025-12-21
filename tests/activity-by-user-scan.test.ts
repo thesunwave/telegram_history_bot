@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { activityByUser } from '../src/stats';
-import { Env } from '../src/env';
+import { activityByUser } from '../src/features/stats/stats';
+import { Env } from '../src/core/env';
 
 const mocks = vi.hoisted(() => ({
   sendPhoto: vi.fn(),
 }));
 
-vi.mock('../src/telegram', () => ({
+vi.mock('../src/core/telegram', () => ({
   sendPhoto: mocks.sendPhoto,
   sendMessage: vi.fn(),
 }));

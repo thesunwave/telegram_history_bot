@@ -20,7 +20,7 @@ import {
     ILLMBudgetTracker,
     IModelPolicy,
     TokenUsage,
-} from '../../src/llm';
+} from '../../src/core/llm';
 
 // Mock tracker for testing specific scenarios
 function createMockTracker(overLimits: { nano?: boolean; mini?: boolean } = {}): ILLMBudgetTracker {

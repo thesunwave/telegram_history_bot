@@ -4,8 +4,8 @@ import {
   DayBlock,
   LOG_ID_RADIX,
   DAY
-} from './env';
-import { Logger, PerformanceTracker } from './logger';
+} from '../../core/env';
+import { Logger, PerformanceTracker } from '../../core/logger';
 
 /**
  * Optimized message storage using daily blocks instead of individual messages
@@ -38,7 +38,7 @@ export async function addMessageToDayBlock(
 
   try {
     // Use race-condition safe method through Durable Object
-    const { addMessageToDayBlockSafe } = await import('./day-block-manager');
+    const { addMessageToDayBlockSafe } = await import('../../durable-objects/day-block-manager');
     const result = await addMessageToDayBlockSafe(env, message);
 
     if (result.duplicate) {
@@ -108,7 +108,7 @@ export async function fetchMessagesOptimized(
     const dayBlockPromises = dates.map(async (date) => {
       try {
         // Try Durable Object first for most up-to-date data
-        const { getDayBlockSafe } = await import('./day-block-manager');
+        const { getDayBlockSafe } = await import('../../durable-objects/day-block-manager');
         let block = await getDayBlockSafe(env, chatId, date);
 
         // Fallback to KV if DO doesn't have the block
@@ -306,7 +306,7 @@ export async function fetchLastMessagesOptimized(
 
       try {
         // Try Durable Object first due to race-safety
-        const { getDayBlockSafe } = await import('./day-block-manager');
+        const { getDayBlockSafe } = await import('../../durable-objects/day-block-manager');
         let block = await getDayBlockSafe(env, chatId, dateStr);
 
         // Fallback to KV if needed

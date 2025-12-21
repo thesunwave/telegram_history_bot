@@ -4,30 +4,27 @@ import {
   TELEGRAM_LIMIT,
   LOG_ID_RADIX,
   DEFAULT_SUMMARY_CHUNK_SIZE,
-} from "./env";
-import { fetchMessages, fetchLastMessages } from "./history";
-import { fetchMessagesHybrid } from "./history-optimized";
-import { chunkText } from "./utils";
-import { sendMessage } from "./telegram";
-import { ProviderFactory } from "./providers/provider-factory";
-import { ProviderInitializer } from "./providers/provider-init";
+} from "../../core/env";
+import { fetchMessages, fetchLastMessages } from "../history/history";
+import { fetchMessagesHybrid } from "../history/history-optimized";
+import { chunkText, truncateText } from "../../core/utils";
+import { sendMessage } from "../../core/telegram";
+import { ProviderFactory } from "../../core/providers/provider-factory";
+import { ProviderInitializer } from "../../core/providers/provider-init";
 import {
   SummaryOptions,
   TelegramMessage,
   SummaryRequest,
   ProviderError,
-} from "./providers/ai-provider";
-import { Logger, PerformanceTracker } from "./logger";
+} from "../../core/providers/ai-provider";
+import { Logger, PerformanceTracker } from "../../core/logger";
 import {
   OptimizedSummaryController,
   loadOptimizationConfig,
-} from "./summary-optimization";
+} from "./optimization";
 
 function filterContentMessages(messages: TelegramMessage[]): TelegramMessage[] {
   return messages.filter((msg) => {
-    if (!msg.text || typeof msg.text !== 'string') {
-      return false;
-    }
     const text = msg.text.toLowerCase().trim();
 
     // Игнорируем команды бота
@@ -78,10 +75,6 @@ function buildAiOptions(env: Env): SummaryOptions {
       if (cloudflareSeed !== undefined) {
         opts.seed = cloudflareSeed;
       }
-      const cloudflarePresencePenalty = (env as any).CLOUDFLARE_PRESENCE_PENALTY;
-      if (cloudflarePresencePenalty !== undefined) {
-        opts.presencePenalty = cloudflarePresencePenalty;
-      }
       break;
 
     case "openai":
@@ -100,18 +93,6 @@ function buildAiOptions(env: Env): SummaryOptions {
       const openaiSeed = (env as any).OPENAI_SEED ?? env.SUMMARY_SEED;
       if (openaiSeed !== undefined) {
         opts.seed = openaiSeed;
-      }
-      const openaiPresencePenalty = (env as any).OPENAI_PRESENCE_PENALTY;
-      if (openaiPresencePenalty !== undefined) {
-        opts.presencePenalty = openaiPresencePenalty;
-      }
-      const openaiVerbosity = (env as any).OPENAI_VERBOSITY;
-      if (openaiVerbosity !== undefined) {
-        opts.verbosity = openaiVerbosity;
-      }
-      const openaiReasoningEffort = (env as any).OPENAI_REASONING_EFFORT;
-      if (openaiReasoningEffort !== undefined) {
-        opts.reasoningEffort = openaiReasoningEffort;
       }
       break;
 
@@ -136,18 +117,6 @@ function buildAiOptions(env: Env): SummaryOptions {
       const premiumSeed = (env as any).OPENAI_PREMIUM_SEED ?? env.SUMMARY_SEED;
       if (premiumSeed !== undefined) {
         opts.seed = premiumSeed;
-      }
-      const premiumPresencePenalty = (env as any).OPENAI_PREMIUM_PRESENCE_PENALTY;
-      if (premiumPresencePenalty !== undefined) {
-        opts.presencePenalty = premiumPresencePenalty;
-      }
-      const premiumVerbosity = (env as any).OPENAI_PREMIUM_VERBOSITY;
-      if (premiumVerbosity !== undefined) {
-        opts.verbosity = premiumVerbosity;
-      }
-      const premiumReasoningEffort = (env as any).OPENAI_PREMIUM_REASONING_EFFORT;
-      if (premiumReasoningEffort !== undefined) {
-        opts.reasoningEffort = premiumReasoningEffort;
       }
       break;
 
@@ -179,7 +148,6 @@ function createSummaryRequest(
 ): SummaryRequest {
   // Собираем информацию для замены плейсхолдеров
   const participants = [...new Set(messages.map((m) => m.username))];
-  const limitMessages = messages.length;
   const startDate = start
     ? new Date(start * 1000).toLocaleDateString("ru-RU")
     : "неизвестно";
@@ -208,6 +176,8 @@ function createSummaryRequest(
   // Создаем информацию о периоде
   let periodInfo = "";
   if (start && end) {
+    const startDateTime = new Date(start * 1000);
+    const endDateTime = new Date(end * 1000);
     const duration = Math.ceil((end - start) / DAY);
     periodInfo = `${startDate} - ${endDate} (${duration} дн.)`;
   } else if (messages.length > 0) {
@@ -222,12 +192,10 @@ function createSummaryRequest(
     periodInfo = "неизвестно";
   }
 
-  // Replace placeholders in prompts
-  let systemPrompt = env.SUMMARY_SYSTEM || "";
-  let userPrompt = env.SUMMARY_PROMPT || "";
-
-  // Replace placeholders in system prompt
-  systemPrompt = systemPrompt.replace("{messages}", "");
+  // Заменяем плейсхолдеры в промпте
+  let systemPrompt = env.SUMMARY_SYSTEM;
+  let userPrompt = env.SUMMARY_PROMPT;
+  systemPrompt = systemPrompt.replace("{messages}", ""); // Сообщения добавляются отдельно провайдером
   systemPrompt = systemPrompt.replace("{chatTitle}", chatTitle);
   systemPrompt = systemPrompt.replace("{startDate}", startDate);
   systemPrompt = systemPrompt.replace("{endDate}", endDate);
@@ -237,17 +205,7 @@ function createSummaryRequest(
   );
   systemPrompt = systemPrompt.replace("{participants}", participantsInfo);
   systemPrompt = systemPrompt.replace("{period}", periodInfo);
-  systemPrompt = systemPrompt.replace("{limitMessages}", limitMessages.toString());
-
-  // Replace placeholders in user prompt
-  userPrompt = userPrompt.replace("{chatTitle}", chatTitle);
-  userPrompt = userPrompt.replace("{startDate}", startDate);
-  userPrompt = userPrompt.replace("{endDate}", endDate);
-  userPrompt = userPrompt.replace("{totalMessages}", messages.length.toString());
-  userPrompt = userPrompt.replace("{participants}", participantsInfo);
-  userPrompt = userPrompt.replace("{period}", periodInfo);
-  userPrompt = userPrompt.replace("{limitMessages}", limitMessages.toString());
-  userPrompt = userPrompt.replace("{messages}", ""); // Messages are added separately by provider
+  userPrompt = userPrompt.replace("{messages}", ""); // Сообщения добавляются отдельно провайдером
 
   return {
     messages,
@@ -257,14 +215,7 @@ function createSummaryRequest(
   };
 }
 
-/**
- * Legacy implementation of summariseChat (kept for fallback)
- */
-export async function summariseChatLegacy(
-  env: Env,
-  chatId: number,
-  days: number,
-) {
+export async function summariseChat(env: Env, chatId: number, days: number) {
   const trackerId = PerformanceTracker.start(
     "summariseChat",
     chatId.toString(LOG_ID_RADIX),
@@ -327,6 +278,11 @@ export async function summariseChatLegacy(
         originalCount: allMessages.length,
       });
 
+      const metrics = PerformanceTracker.end(trackerId, {
+        result: "no_messages",
+        totalMessages: allMessages.length,
+        filteredMessages: 0,
+      });
 
       if (allMessages.length > 0) {
         await sendMessage(
@@ -437,7 +393,7 @@ export async function summariseChatLegacy(
           insights: aiDuration > 10000 ? ["SLOW_AI_RESPONSE"] : [],
         });
 
-        return resp;
+        return truncateText(resp, TELEGRAM_LIMIT);
       } catch (error) {
         const aiDuration = Date.now() - aiStartTime;
         const e = error as Error;
@@ -539,13 +495,13 @@ export async function summariseChatLegacy(
 
       if (error instanceof ProviderError) {
         // Provider-specific errors
-        if (/incomplete result|did not return any text output/i.test(e.message)) {
-          userMessage =
-            "AI не смог завершить сводку: закончились токены. Попробуйте сократить период или количество сообщений.";
-        } else if (/rate limit|too many requests/i.test(e.message)) {
+        if (
+          e.message.includes("rate limit") ||
+          e.message.includes("Too many requests")
+        ) {
           userMessage =
             "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
-        } else if (/timeout/i.test(e.message)) {
+        } else if (e.message.includes("timeout")) {
           userMessage =
             "Превышено время ожидания ответа от AI сервиса. Попробуйте сократить период или количество сообщений.";
         }
@@ -556,10 +512,6 @@ export async function summariseChatLegacy(
         // Our custom critical failure error
         userMessage =
           "Произошли критические ошибки при получении сообщений. Попробуйте позже или сократите период.";
-      } else if (/rate limit|too many requests/i.test(e.message)) {
-        // Handle generic rate limit errors as well (case-insensitive)
-        userMessage =
-          "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
       }
 
       await sendMessage(env, chatId, userMessage);
@@ -572,7 +524,7 @@ export async function summariseChatLegacy(
     });
 
     // Save to database
-    if (env.DB && typeof env.DB.prepare === 'function' && !env.DRY_RUN) {
+    if (env.DB) {
       try {
         Logger.debug(env, "summarize DB insert start", {
           chat: chatId.toString(LOG_ID_RADIX),
@@ -602,32 +554,13 @@ export async function summariseChatLegacy(
         // Продолжаем выполнение, чтобы отправить сообщение пользователю
       }
     } else {
-      Logger.debug(env, env.DRY_RUN ? "summarize DB insert skipped (DRY_RUN)" : "summarize DB not available", {
+      Logger.debug(env, "summarize DB not available", {
         chat: chatId.toString(LOG_ID_RADIX),
       });
     }
 
-    // Send message to user or return in dry run
+    // Send message to user
     try {
-      if (env.DRY_RUN) {
-        Logger.debug(env, "summarize dry run - returning summary", {
-          chat: chatId.toString(LOG_ID_RADIX),
-          summaryLength: summary.length,
-        });
-
-        // Track successful completion in dry run
-        PerformanceTracker.end(trackerId, {
-          result: "success",
-          totalMessages: allMessages.length,
-          filteredMessages: messages.length,
-          summaryLength: summary.length,
-          chunks: parts.length,
-          dryRun: true
-        });
-
-        return summary;
-      }
-
       Logger.debug(env, "summarize sending message", {
         chat: chatId.toString(LOG_ID_RADIX),
         summaryLength: summary.length,
@@ -699,11 +632,6 @@ export async function summariseChatLegacy(
         "Превышен лимит запросов. Попробуйте через несколько минут.";
     }
 
-    if (env.DRY_RUN) {
-      Logger.warn(env, "summariseChat unhandled error (dry run)", { error: userMessage });
-      return `Error: ${userMessage} \n\nDetails: ${e.message}`;
-    }
-
     try {
       await sendMessage(env, chatId, userMessage);
     } catch (sendError) {
@@ -730,10 +658,7 @@ export async function summariseChatLegacy(
   }
 }
 
-/**
- * Legacy implementation of summariseChatMessages (kept for fallback)
- */
-export async function summariseChatMessagesLegacy(
+export async function summariseChatMessages(
   env: Env,
   chatId: number,
   count: number,
@@ -791,6 +716,11 @@ export async function summariseChatMessagesLegacy(
         originalCount: allMessages.length,
       });
 
+      const metrics = PerformanceTracker.end(trackerId, {
+        result: "no_messages",
+        totalMessages: allMessages.length,
+        filteredMessages: 0,
+      });
 
       if (allMessages.length > 0) {
         await sendMessage(
@@ -845,7 +775,7 @@ export async function summariseChatMessagesLegacy(
     try {
       const request = createSummaryRequest(messages, env, limitNote, chatId);
       const aiResp = await provider.summarize(request, summaryOptions, env);
-      summary = aiResp;
+      summary = truncateText(aiResp, TELEGRAM_LIMIT);
       const aiDuration = Date.now() - aiStartTime;
 
       Logger.debug(env, "summariseChatMessages AI response received", {
@@ -903,13 +833,13 @@ export async function summariseChatMessagesLegacy(
 
       if (error instanceof ProviderError) {
         // Provider-specific errors
-        if (/incomplete result|did not return any text output/i.test(e.message)) {
-          userMessage =
-            "AI не смог завершить сводку: закончились токены. Попробуйте запросить меньше сообщений.";
-        } else if (/rate limit|too many requests/i.test(e.message)) {
+        if (
+          e.message.includes("rate limit") ||
+          e.message.includes("Too many requests")
+        ) {
           userMessage =
             "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
-        } else if (/timeout/i.test(e.message)) {
+        } else if (e.message.includes("timeout")) {
           userMessage =
             "Превышено время ожидания ответа от AI сервиса. Попробуйте запросить меньше сообщений.";
         }
@@ -920,17 +850,13 @@ export async function summariseChatMessagesLegacy(
         // Our custom critical failure error
         userMessage =
           "Произошли критические ошибки при получении сообщений. Попробуйте позже или запросите меньше сообщений.";
-      } else if (/rate limit|too many requests/i.test(e.message)) {
-        // Handle generic rate limit errors as well (case-insensitive)
-        userMessage =
-          "Превышен лимит запросов к AI сервису. Попробуйте через несколько минут.";
       }
 
       await sendMessage(env, chatId, userMessage);
       return;
     }
 
-    if (env.DB && typeof env.DB.prepare === 'function') {
+    if (env.DB) {
       try {
         await env.DB.prepare(
           "INSERT INTO summaries (chat_id, period_start, period_end, summary) VALUES (?, ?, ?, ?)",
@@ -1031,129 +957,4 @@ export async function summariseChatMessagesLegacy(
     // Cleanup any remaining performance trackers
     PerformanceTracker.cleanup();
   }
-}
-
-/**
- * Helper function for environment variable parsing
- */
-function getEnvBoolean(env: Env, key: string, defaultValue: boolean): boolean {
-  const value = (env as any)[key];
-  if (typeof value === "string") {
-    return value.toLowerCase() === "true" || value === "1";
-  }
-  return typeof value === "boolean" ? value : defaultValue;
-}
-
-/**
- * Helper function to try optimized system first, then fallback to legacy
- */
-async function tryOptimizedSummary(
-  env: Env,
-  type: "chat" | "messages",
-  args: [number, number],
-  legacyFallback: (env: Env, ...args: any[]) => Promise<string | void>,
-): Promise<string | void> {
-  const [chatId, param] = args;
-
-  // Feature flag check - can be controlled via environment variable
-  const useOptimized = getEnvBoolean(env, "SUMMARY_OPT_ENABLED", true);
-
-  if (!useOptimized) {
-    Logger.debug(env, "Optimized summary disabled by feature flag", {
-      chatId: chatId.toString(LOG_ID_RADIX),
-      type,
-      param,
-    });
-    return legacyFallback(env, chatId, param);
-  }
-
-  try {
-    // Try optimized system first
-    Logger.debug(env, "Attempting optimized summary", {
-      chatId: chatId.toString(LOG_ID_RADIX),
-      type,
-      param,
-    });
-
-    const controller = new OptimizedSummaryController(env);
-
-    let result: string;
-    if (type === "chat") {
-      result = await controller.summarizeChat(chatId, param);
-    } else {
-      result = await controller.summarizeChatMessages(chatId, param);
-    }
-
-    // Check if result is valid
-    if (!result || typeof result !== 'string') {
-      throw new Error(`Invalid result from optimized controller: ${result}`);
-    }
-
-    // Return in dry run
-    if (env.DRY_RUN) {
-      Logger.debug(env, "Optimized summary dry run - returning summary", {
-        chatId: chatId.toString(LOG_ID_RADIX),
-        type,
-        param,
-        resultLength: result.length,
-      });
-      return result;
-    }
-
-    // Send the result
-    await sendMessage(env, chatId, result);
-
-    Logger.debug(env, "Optimized summary completed successfully", {
-      chatId: chatId.toString(LOG_ID_RADIX),
-      type,
-      param,
-      resultLength: result.length,
-    });
-  } catch (error) {
-    const e = error as Error;
-
-    // Check if this is the special case where legacy already sent the message
-    if (e.message === "LEGACY_MESSAGE_SENT") {
-      Logger.debug(env, "Legacy system handled message sending", {
-        chatId: chatId.toString(LOG_ID_RADIX),
-        type,
-        param,
-      });
-      return; // Don't send another message
-    }
-
-    Logger.error("Optimized summary failed, falling back to legacy", {
-      chatId: chatId.toString(LOG_ID_RADIX),
-      type,
-      param,
-      error: e.message,
-      stack: e.stack,
-    });
-
-    // Fallback to legacy system
-    return legacyFallback(env, chatId, param);
-  }
-}
-
-/**
- * Main summariseChat function with optimized system integration
- */
-export async function summariseChat(env: Env, chatId: number, days: number) {
-  return tryOptimizedSummary(env, "chat", [chatId, days], summariseChatLegacy);
-}
-
-/**
- * Main summariseChatMessages function with optimized system integration
- */
-export async function summariseChatMessages(
-  env: Env,
-  chatId: number,
-  count: number,
-) {
-  return tryOptimizedSummary(
-    env,
-    "messages",
-    [chatId, count],
-    summariseChatMessagesLegacy,
-  );
 }

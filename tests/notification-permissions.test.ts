@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { NotificationValidationUtils } from '../src/models/notification-validation';
-import type { ChatNotificationSettings } from '../src/models/notification-settings';
+import { NotificationValidationUtils } from '../src/core/models/notification-validation';
+import type { ChatNotificationSettings } from '../src/core/models/notification-settings';
 
 describe('Notification Permissions', () => {
   describe('canUserModifySettings', () => {
@@ -169,7 +169,7 @@ describe('Notification Permissions', () => {
 
   describe('Default settings', () => {
     it('should work with current default settings', async () => {
-      const { DEFAULT_NOTIFICATION_SETTINGS } = await import('../src/models/notification-settings');
+      const { DEFAULT_NOTIFICATION_SETTINGS } = await import('../src/core/models/notification-settings');
       // Проверяем что настройки определены
       expect(DEFAULT_NOTIFICATION_SETTINGS).toBeDefined();
       expect(typeof DEFAULT_NOTIFICATION_SETTINGS.adminOnly).toBe('boolean');

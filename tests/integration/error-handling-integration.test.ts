@@ -1,21 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { KVNamespace } from "@miniflare/kv";
 import { MemoryStorage } from "@miniflare/storage-memory";
-import { summariseChat, summariseChatMessages } from "../../src/summary";
-import { sendMessage } from "../../src/telegram";
-import { fetchMessages, fetchLastMessages } from "../../src/history";
-import { ProviderInitializer } from "../../src/providers/provider-init";
+import { summariseChat, summariseChatMessages } from '../../src/features/summary/summary';
+import { sendMessage } from '../../src/core/telegram';
+import { fetchMessages, fetchLastMessages } from '../../src/features/history/history';
+import { ProviderInitializer } from "../../src/core/providers/provider-init";
 import {
   Env,
   DEFAULT_KV_BATCH_SIZE,
   DEFAULT_KV_BATCH_DELAY,
-} from "../../src/env";
-import { BatchErrorType } from "../../src/utils";
+} from '../../src/core/env';
+import { BatchErrorType } from '../../src/core/utils';
 
 // Mock the dependencies
-vi.mock("../../src/telegram");
-vi.mock("../../src/history");
-vi.mock("../../src/providers/provider-init");
+vi.mock("../../src/core/telegram");
+vi.mock("../../src/features/history/history");
+vi.mock("../../src/core/providers/provider-init");
 
 const mockSendMessage = vi.mocked(sendMessage);
 const mockFetchMessages = vi.mocked(fetchMessages);

@@ -3,9 +3,9 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MessageFormatter, ViolationAnalysis } from '../src/message-formatter';
+import { MessageFormatter, ViolationAnalysis } from '../src/core/message-formatter';
 import { UserStats, PeriodStats, GeneralStats, ViolationCount, UserViolationCount, Violation } from '../src/models/statistics';
-import { HTMLBuilder } from '../src/html-builder';
+import { HTMLBuilder } from '../src/core/html-builder';
 
 describe('MessageFormatter', () => {
   let formatter: MessageFormatter;

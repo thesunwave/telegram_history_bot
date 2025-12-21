@@ -14,12 +14,12 @@ import { loadOptimizationConfig } from "./config";
 import { DirectProcessor } from "./direct-processor";
 import { HierarchicalProcessor } from "./hierarchical-processor";
 import { ParallelProcessor } from "./parallel-processor";
-import { Env, DAY, LOG_ID_RADIX } from "../env";
-import { Logger, PerformanceTracker } from "../logger";
-import { fetchMessages, fetchLastMessages } from "../history";
-import { fetchMessagesHybrid, fetchLastMessagesOptimized } from "../history-optimized";
-import { TelegramMessage } from "../providers/ai-provider";
-import { sendMessage } from "../telegram";
+import { Env, DAY, LOG_ID_RADIX } from "../../../core/env";
+import { Logger, PerformanceTracker } from "../../../core/logger";
+import { fetchMessages, fetchLastMessages } from '../../history/history';
+import { fetchMessagesHybrid, fetchLastMessagesOptimized } from '../../history/history-optimized';
+import { TelegramMessage } from '../../core/providers/ai-provider';
+import { sendMessage } from '../../core/telegram';
 
 // Import existing functions for backward compatibility
 import {

@@ -1,6 +1,6 @@
-import { Env, StoredMessage, LOG_ID_RADIX } from './env';
-import { Logger } from './logger';
-import { addMessageToDayBlock } from './history-optimized';
+import { Env, StoredMessage, LOG_ID_RADIX } from '../../core/env';
+import { Logger } from '../../core/logger';
+import { addMessageToDayBlock } from '../history/history-optimized';
 
 /**
  * Migration utilities for converting individual messages to daily blocks
@@ -45,9 +45,9 @@ export async function migrateMessagesToDayBlocks(
     const daysProcessed = new Set<string>();
 
     do {
-      const list: { keys: { name: string }[], cursor?: string } = await env.HISTORY.list({ 
-        prefix, 
-        cursor 
+      const list: { keys: { name: string }[], cursor?: string } = await env.HISTORY.list({
+        prefix,
+        cursor
       });
       cursor = list.cursor;
 
@@ -153,7 +153,7 @@ export async function checkMigrationStatus(
     let individualMessages = 0;
 
     do {
-      const list = await env.HISTORY.list({ prefix, cursor });
+      const list: any = await env.HISTORY.list({ prefix, cursor });
       cursor = list.cursor;
       individualMessages += list.keys.length;
     } while (cursor);
@@ -162,7 +162,7 @@ export async function checkMigrationStatus(
     const dates: string[] = [];
     const startDate = new Date(dateRange.start);
     const endDate = new Date(dateRange.end);
-    
+
     for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
       dates.push(d.toISOString().slice(0, 10));
     }
