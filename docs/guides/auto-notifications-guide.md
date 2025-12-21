@@ -202,22 +202,22 @@ await service.updateChatSettings(chatId, {
 
 Система построена на следующих компонентах:
 
-1. **Модели данных** (`src/models/notification-settings.ts`)
+1. **Модели данных** (`src/core/models/notification-settings.ts`)
    - Определения типов и интерфейсов
    - Настройки по умолчанию
    - Шаблоны уведомлений
 
-2. **Валидация** (`src/models/notification-validation.ts`)
+2. **Валидация** (`src/core/models/notification-validation.ts`)
    - Проверка корректности данных
    - Санитизация поврежденных настроек
    - Утилитарные функции
 
-3. **Репозиторий** (`src/repositories/notification-repository.ts`)
+3. **Репозиторий** (`src/core/repositories/notification-repository.ts`)
    - Хранение настроек в KV Storage
    - Управление запланированными уведомлениями
    - Статистика отправок
 
-4. **Сервис** (`src/services/notification-service.ts`)
+4. **Сервис** (`src/core/services/notification-service.ts`)
    - Бизнес-логика управления уведомлениями
    - Планирование и отправка
    - Обработка расписания

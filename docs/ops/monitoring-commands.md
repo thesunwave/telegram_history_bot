@@ -1,5 +1,7 @@
 # 📊 Команды для мониторинга оптимизированного саммарайза
 
+Все параметры оптимизации задаются в `wrangler.jsonc`. После изменений выполняйте `npx wrangler deploy`.
+
 ## Основные команды мониторинга
 
 ### Просмотр логов в реальном времени
@@ -48,15 +50,19 @@ npx wrangler d1 execute summaries --command "SELECT chat_id, period_start, perio
 npx wrangler tail | grep -i "fallback\|error"
 
 # Возможные решения:
-npx wrangler secret put SUMMARY_OPT_WORKER_TIMEOUT --text "45000"  # Увеличить таймаут
-npx wrangler secret put SUMMARY_OPT_MAX_WORKERS --text "3"        # Уменьшить нагрузку
+# В wrangler.jsonc:
+# SUMMARY_OPT_WORKER_TIMEOUT=45000  # Увеличить таймаут
+# SUMMARY_OPT_MAX_WORKERS=3         # Уменьшить нагрузку
+npx wrangler deploy
 ```
 
 ### Проблема: Медленная работа
 ```bash
 # Оптимизация параллельной обработки
-npx wrangler secret put SUMMARY_OPT_WORKER_BATCH_SIZE --text "100"  # Больше сообщений на воркер
-npx wrangler secret put SUMMARY_OPT_MAX_WORKERS --text "3"          # Меньше параллельных воркеров
+# В wrangler.jsonc:
+# SUMMARY_OPT_WORKER_BATCH_SIZE=100  # Больше сообщений на воркер
+# SUMMARY_OPT_MAX_WORKERS=3          # Меньше параллельных воркеров
+npx wrangler deploy
 ```
 
 ### Проблема: Ошибки Durable Objects
@@ -65,37 +71,44 @@ npx wrangler secret put SUMMARY_OPT_MAX_WORKERS --text "3"          # Меньш
 npx wrangler tail | grep -i "durable\|aggregator\|fetcher"
 
 # Временно отключить параллельную обработку
-npx wrangler secret put SUMMARY_OPT_PARALLEL_ENABLED --text "false"
+# В wrangler.jsonc: SUMMARY_OPT_PARALLEL_ENABLED=false
+npx wrangler deploy
 ```
 
 ## Команды для настройки производительности
 
 ### Консервативные настройки (для начала)
 ```bash
-npx wrangler secret put SUMMARY_OPT_MAX_WORKERS --text "2"
-npx wrangler secret put SUMMARY_OPT_WORKER_BATCH_SIZE --text "30"
-npx wrangler secret put SUMMARY_OPT_WORKER_TIMEOUT --text "45000"
-npx wrangler secret put SUMMARY_OPT_MIN_MESSAGES_THRESHOLD --text "150"
+# В wrangler.jsonc:
+# SUMMARY_OPT_MAX_WORKERS=2
+# SUMMARY_OPT_WORKER_BATCH_SIZE=30
+# SUMMARY_OPT_WORKER_TIMEOUT=45000
+# SUMMARY_OPT_MIN_MESSAGES_THRESHOLD=150
+npx wrangler deploy
 ```
 
 ### Агрессивные настройки (после стабилизации)
 ```bash
-npx wrangler secret put SUMMARY_OPT_MAX_WORKERS --text "8"
-npx wrangler secret put SUMMARY_OPT_WORKER_BATCH_SIZE --text "100"
-npx wrangler secret put SUMMARY_OPT_WORKER_TIMEOUT --text "30000"
-npx wrangler secret put SUMMARY_OPT_MIN_MESSAGES_THRESHOLD --text "50"
+# В wrangler.jsonc:
+# SUMMARY_OPT_MAX_WORKERS=8
+# SUMMARY_OPT_WORKER_BATCH_SIZE=100
+# SUMMARY_OPT_WORKER_TIMEOUT=30000
+# SUMMARY_OPT_MIN_MESSAGES_THRESHOLD=50
+npx wrangler deploy
 ```
 
 ## Экстренные команды
 
 ### Быстрое отключение оптимизации
 ```bash
-npx wrangler secret put SUMMARY_OPT_ENABLED --text "false"
+# В wrangler.jsonc: SUMMARY_OPT_ENABLED=false
+npx wrangler deploy
 ```
 
 ### Отключение только параллельной обработки
 ```bash
-npx wrangler secret put SUMMARY_OPT_PARALLEL_ENABLED --text "false"
+# В wrangler.jsonc: SUMMARY_OPT_PARALLEL_ENABLED=false
+npx wrangler deploy
 ```
 
 ### Полный откат к предыдущей версии

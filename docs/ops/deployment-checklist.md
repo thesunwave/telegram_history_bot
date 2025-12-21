@@ -3,14 +3,14 @@
 ## Pre-deployment проверки
 
 ### ✅ Код готов
-- [x] Все тесты проходят (392/392)
+- [x] Все тесты проходят (`npm test`)
 - [x] TypeScript ошибки исправлены
 - [x] Legacy fallback система работает
 - [x] Feature flags настроены
 
 ### ✅ Конфигурация
-- [x] `SUMMARY_OPT_ENABLED` = true в wrangler.jsonc
-- [x] Durable Objects настроены (MESSAGE_FETCHER_DO, MESSAGE_AGGREGATOR_DO)
+- [x] `SUMMARY_OPT_ENABLED` = true в `wrangler.jsonc`
+- [x] Durable Objects настроены (COUNTERS_DO, MESSAGE_FETCHER_DO, MESSAGE_AGGREGATOR_DO, DAY_BLOCK_MANAGER_DO, CRIMINAL_CODE_ANALYZER_DO)
 - [x] Все необходимые переменные окружения установлены
 
 ## Deployment Steps
@@ -18,8 +18,9 @@
 ### Шаг 1: Безопасный деплой с отключенной оптимизацией
 ```bash
 # Временно отключаем оптимизацию для безопасности
-wrangler secret put SUMMARY_OPT_ENABLED --text "false"
-wrangler deploy
+# 1) В wrangler.jsonc: SUMMARY_OPT_ENABLED=false
+# 2) Деплой
+npx wrangler deploy
 ```
 
 ### Шаг 2: Проверка базовой функциональности
@@ -30,7 +31,9 @@ wrangler deploy
 ### Шаг 3: Включение оптимизации
 ```bash
 # Включаем оптимизированную систему
-wrangler secret put SUMMARY_OPT_ENABLED --text "true"
+# 1) В wrangler.jsonc: SUMMARY_OPT_ENABLED=true
+# 2) Деплой
+npx wrangler deploy
 ```
 
 ### Шаг 4: Постепенное тестирование
@@ -60,19 +63,27 @@ wrangler d1 execute summaries --command "SELECT * FROM summaries ORDER BY create
 ### Если система работает медленно:
 ```bash
 # Уменьшить количество параллельных воркеров
-wrangler secret put SUMMARY_OPT_MAX_WORKERS --text "3"
+# В wrangler.jsonc: SUMMARY_OPT_MAX_WORKERS=3
+# Затем деплой
+npx wrangler deploy
 
 # Увеличить размер батча
-wrangler secret put SUMMARY_OPT_WORKER_BATCH_SIZE --text "100"
+# В wrangler.jsonc: SUMMARY_OPT_WORKER_BATCH_SIZE=100
+# Затем деплой
+npx wrangler deploy
 ```
 
 ### Если много ошибок:
 ```bash
 # Увеличить таймауты
-wrangler secret put SUMMARY_OPT_WORKER_TIMEOUT --text "45000"
+# В wrangler.jsonc: SUMMARY_OPT_WORKER_TIMEOUT=45000
+# Затем деплой
+npx wrangler deploy
 
 # Временно отключить параллельную обработку
-wrangler secret put SUMMARY_OPT_PARALLEL_ENABLED --text "false"
+# В wrangler.jsonc: SUMMARY_OPT_PARALLEL_ENABLED=false
+# Затем деплой
+npx wrangler deploy
 ```
 
 ## Rollback план
@@ -80,19 +91,19 @@ wrangler secret put SUMMARY_OPT_PARALLEL_ENABLED --text "false"
 ### В случае критических проблем:
 ```bash
 # Быстрое отключение оптимизации
-wrangler secret put SUMMARY_OPT_ENABLED --text "false"
-
-# Система автоматически переключится на legacy
+# 1) В wrangler.jsonc: SUMMARY_OPT_ENABLED=false
+# 2) Деплой
+npx wrangler deploy
 ```
 
 ### Полный откат к предыдущей версии:
 ```bash
 # Откат к предыдущему деплою
-wrangler rollback
+npx wrangler rollback
 
 # Или деплой стабильной ветки
 git checkout main
-wrangler deploy
+npx wrangler deploy
 ```
 
 ## Успешные индикаторы

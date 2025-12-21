@@ -93,7 +93,7 @@ Look for log messages:
 - Frequent fallbacks → Check Workers AI quotas and network stability  
 - Performance issues → Reduce `SUMMARY_OPT_MAX_WORKERS` to 3
 
-For detailed documentation, see [optimized-summary-integration.md](./docs/notes/optimized-summary-integration.md).
+For detailed documentation, see `docs/README.md`.
 
 ## Configuration & Deployment
 
