@@ -251,7 +251,7 @@ wrangler deploy
 
 ### 1. User Documentation
 - **README.md**: Added optimized system overview and quick start
-- **OPTIMIZED_SUMMARY_INTEGRATION.md**: Comprehensive integration guide
+- **docs/notes/optimized-summary-integration.md**: Comprehensive integration guide
 
 ### 2. Technical Documentation
 - **wrangler.jsonc**: Added configuration examples and comments
