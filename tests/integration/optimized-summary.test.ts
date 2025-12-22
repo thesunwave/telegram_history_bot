@@ -3,10 +3,10 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { summariseChat, summariseChatMessages } from '../../src/summary';
-import { OptimizedSummaryController } from '../../src/summary-optimization';
-import { ProviderInitializer } from '../../src/providers/provider-init';
-import type { Env } from '../../src/env';
+import { summariseChat, summariseChatMessages } from '../../src/features/summary/summary';
+import { OptimizedSummaryController } from '../../src/features/summary/optimization';
+import { ProviderInitializer } from '../../src/core/providers/provider-init';
+import type { Env } from '../../src/core/env';
 import type {
   KVNamespace,
   D1Database,
@@ -14,11 +14,11 @@ import type {
 } from '@cloudflare/workers-types';
 
 // Mock dependencies
-vi.mock('../../src/telegram', () => ({
+vi.mock('../../src/core/telegram', () => ({
   sendMessage: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../src/history', () => ({
+vi.mock('../../src/features/history/history', () => ({
   fetchMessages: vi.fn(),
   fetchLastMessages: vi.fn(),
 }));
@@ -89,7 +89,7 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(150);
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController
@@ -97,7 +97,7 @@ describe('Optimized Summary System Integration', () => {
         .mockResolvedValue('Optimized summary result');
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Execute with optimized system enabled
       await summariseChat(mockEnv, 123, 7);
@@ -122,7 +122,7 @@ describe('Optimized Summary System Integration', () => {
       mockEnv.SUMMARY_OPT_ENABLED = false;
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController (should NOT be called)
@@ -130,7 +130,7 @@ describe('Optimized Summary System Integration', () => {
         .mockResolvedValue('Should not be called');
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Execute with optimized system disabled
       await summariseChat(mockEnv, 123, 7);
@@ -154,7 +154,7 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(200);
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController to throw error
@@ -162,7 +162,7 @@ describe('Optimized Summary System Integration', () => {
         .mockRejectedValue(new Error('Optimized system failure'));
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Execute - should fallback to legacy
       await summariseChat(mockEnv, 123, 7);
@@ -188,17 +188,17 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(300);
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock loadOptimizationConfig to throw error
-      const optimizationModule = await import('../../src/summary-optimization');
+      const optimizationModule = await import('../../src/features/summary/optimization');
       const loadConfigSpy = vi.spyOn(optimizationModule, 'loadOptimizationConfig').mockImplementationOnce(() => {
         throw new Error('Configuration load failure');
       });
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Execute - should fallback to legacy
       await summariseChat(mockEnv, 123, 7);
@@ -220,7 +220,7 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(200);
 
       // Mock history functions
-      const { fetchLastMessages } = await import('../../src/history');
+      const { fetchLastMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchLastMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController
@@ -228,7 +228,7 @@ describe('Optimized Summary System Integration', () => {
         .mockResolvedValue('Optimized messages summary result');
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Execute with optimized system enabled
       await summariseChatMessages(mockEnv, 123, 200);
@@ -250,7 +250,7 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(100);
 
       // Mock history functions
-      const { fetchLastMessages } = await import('../../src/history');
+      const { fetchLastMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchLastMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController to throw error
@@ -258,7 +258,7 @@ describe('Optimized Summary System Integration', () => {
         .mockRejectedValue(new Error('Optimized messages system failure'));
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Execute - should fallback to legacy
       await summariseChatMessages(mockEnv, 123, 100);
@@ -290,13 +290,13 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(500);
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController to capture config
       let capturedController: OptimizedSummaryController | undefined;
       const optimizedControllerSpy = vi.spyOn(OptimizedSummaryController.prototype, 'summarizeChat')
-        .mockImplementation(function(this: OptimizedSummaryController) {
+        .mockImplementation(function (this: OptimizedSummaryController) {
           capturedController = this;
           return Promise.resolve('Config test result');
         });
@@ -327,11 +327,11 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(100);
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Execute - should fallback to legacy due to config validation error
       await summariseChat(invalidEnv, 123, 7);
@@ -353,7 +353,7 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(250);
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController to throw specific error
@@ -362,10 +362,10 @@ describe('Optimized Summary System Integration', () => {
         .mockRejectedValue(specificError);
 
       // Mock console.error to capture error logs
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Execute
       await summariseChat(mockEnv, 123, 7);
@@ -392,11 +392,11 @@ describe('Optimized Summary System Integration', () => {
 
     it('should handle edge case with empty message sets', async () => {
       // Mock history functions to return empty array
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue([]);
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Execute with both systems
       await summariseChat(mockEnv, 123, 7);
@@ -419,7 +419,7 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(400);
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController with realistic behavior
@@ -431,10 +431,10 @@ describe('Optimized Summary System Integration', () => {
         });
 
       // Mock console.debug to capture performance logs
-      const consoleSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+      const consoleSpy = vi.spyOn(console, 'debug').mockImplementation(() => { });
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       const startTime = Date.now();
       await summariseChat(mockEnv, 123, 7);
@@ -469,7 +469,7 @@ describe('Optimized Summary System Integration', () => {
       const testMessages2 = createTestMessages(200);
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages)
         .mockResolvedValueOnce(testMessages1)
         .mockResolvedValueOnce(testMessages2);
@@ -480,7 +480,7 @@ describe('Optimized Summary System Integration', () => {
         .mockResolvedValueOnce('Summary for chat 2');
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Execute concurrent requests
       const promise1 = summariseChat(mockEnv, 123, 7);
@@ -504,7 +504,7 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(100);
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController
@@ -512,7 +512,7 @@ describe('Optimized Summary System Integration', () => {
         .mockResolvedValue('Interface compatibility test');
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Test function signature compatibility
       const result = summariseChat(mockEnv, 123, 7);
@@ -536,7 +536,7 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(150);
 
       // Mock history functions
-      const { fetchLastMessages } = await import('../../src/history');
+      const { fetchLastMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchLastMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController
@@ -544,7 +544,7 @@ describe('Optimized Summary System Integration', () => {
         .mockResolvedValue('Messages interface compatibility test');
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Test function signature compatibility
       const result = summariseChatMessages(mockEnv, 123, 150);
@@ -576,7 +576,7 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(80);
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController
@@ -584,14 +584,14 @@ describe('Optimized Summary System Integration', () => {
         .mockResolvedValue('Minimal config test result');
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Should work with default configuration
       await summariseChat(minimalEnv, 123, 7);
 
       // Optimized system may return different text; accept any summary string
       expect(sendMessage).toHaveBeenCalledWith(minimalEnv, 123, expect.any(String));
-      });
+    });
   });
 
   describe('Error Message Consistency', () => {
@@ -599,7 +599,7 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(100);
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController to fail
@@ -610,7 +610,7 @@ describe('Optimized Summary System Integration', () => {
       mockEnv.AI.run = vi.fn().mockRejectedValue(new Error('Rate limit exceeded'));
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Execute
       await summariseChat(mockEnv, 123, 7);
@@ -635,7 +635,7 @@ describe('Optimized Summary System Integration', () => {
       const testMessages = createTestMessages(300);
 
       // Mock history functions
-      const { fetchMessages } = await import('../../src/history');
+      const { fetchMessages } = await import('../../src/features/history/history');
       vi.mocked(fetchMessages).mockResolvedValue(testMessages);
 
       // Mock OptimizedSummaryController
@@ -643,10 +643,10 @@ describe('Optimized Summary System Integration', () => {
         .mockResolvedValue('Strategy selection test');
 
       // Mock console.debug to capture strategy logs
-      const consoleSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+      const consoleSpy = vi.spyOn(console, 'debug').mockImplementation(() => { });
 
       // Mock sendMessage
-      const { sendMessage } = await import('../../src/telegram');
+      const { sendMessage } = await import('../../src/core/telegram');
 
       // Execute
       await summariseChat(mockEnv, 123, 7);

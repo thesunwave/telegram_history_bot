@@ -1,7 +1,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { activityByUser, activityChart } from '../src/stats';
-import { Env } from '../src/env';
+import { activityByUser, activityChart } from '../src/features/stats/stats';
+import { Env } from '../src/core/env';
 
 // Mock KVNamespace
 const createMockKV = (data: Map<string, string>) => ({
@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => ({
     sendPhoto: vi.fn(),
 }));
 
-vi.mock('../src/telegram', () => ({
+vi.mock('../src/core/telegram', () => ({
     sendMessage: mocks.sendMessage,
     sendPhoto: mocks.sendPhoto,
 }));

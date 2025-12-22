@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { migrateStatsBatch, resetActivityBatch } from '../src/migrate';
-import { activityChart } from '../src/stats';
-import { Env } from '../src/env';
+import { migrateStatsBatch, resetActivityBatch } from '../src/features/migration/migrate';
+import { activityChart } from '../src/features/stats/stats';
+import { Env } from '../src/core/env';
 
 const createMockKV = (data: Map<string, string>) => ({
   get: vi.fn(async (key: string) => data.get(key) ?? null),
@@ -78,7 +78,7 @@ const mocks = vi.hoisted(() => ({
   sendPhoto: vi.fn(),
 }));
 
-vi.mock('../src/telegram', () => ({
+vi.mock('../src/core/telegram', () => ({
   sendMessage: mocks.sendMessage,
   sendPhoto: mocks.sendPhoto,
 }));

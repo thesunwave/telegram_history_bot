@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { MessageFetcherDO } from "../src/message-fetcher-do";
-import { StoredMessage } from "../src/env";
+import { MessageFetcherDO } from '../src/durable-objects/message-fetcher-do';
+import { StoredMessage } from '../src/core/env';
 import {
   ParallelFetchRequest,
   FetchStatus,
-} from "../src/summary-optimization/types";
+} from "../src/features/summary/optimization/types";
 
 // Response type definitions
 interface InitResponse {
@@ -16,7 +16,7 @@ interface CleanupResponse {
 }
 
 // Mock dependencies
-vi.mock("../src/logger", () => ({
+vi.mock("../src/core/logger", () => ({
   Logger: {
     debug: vi.fn(),
     error: vi.fn(),

@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ViolationRepository } from '../../src/repositories/violation-repository';
-import type { Violation } from '../../src/models/statistics';
+import { ViolationRepository } from '../../src/core/repositories/violation-repository';
+import type { Violation } from '../../src/core/models/statistics';
 
 // Мок для D1 Database
 const mockDB = {

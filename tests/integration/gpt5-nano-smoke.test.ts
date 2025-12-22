@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OpenAIProvider } from '../../src/providers/openai-provider';
-import { SummaryRequest, SummaryOptions } from '../../src/providers/ai-provider';
+import { OpenAIProvider } from '../../src/core/providers/openai-provider';
+import { SummaryRequest, SummaryOptions } from '../../src/core/providers/ai-provider';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -77,21 +77,21 @@ describe('GPT-5-nano Smoke Tests', () => {
     // Verify request body structure for GPT-5-nano
     const callArgs = mockFetch.mock.calls[0];
     const requestBody = JSON.parse(callArgs[1].body);
-    
+
     // Should have GPT-5 token parameter
     expect(requestBody.max_output_tokens).toBe(100);
     expect(requestBody).not.toHaveProperty('max_tokens');
-    
+
     // Should NOT have sampling parameters for nano
     expect(requestBody).not.toHaveProperty('temperature');
     expect(requestBody).not.toHaveProperty('top_p');
     expect(requestBody).not.toHaveProperty('frequency_penalty');
     expect(requestBody).not.toHaveProperty('presence_penalty');
-    
+
     // Should have GPT-5 specific parameters
     expect(requestBody.text?.verbosity).toBe('low');
     expect(requestBody.reasoning?.effort).toBe('minimal');
-    
+
     // Should have basic required fields
     expect(requestBody.model).toBe('gpt-5-nano');
     expect(requestBody.instructions).toContain('You are a helpful assistant');
@@ -135,11 +135,11 @@ describe('GPT-5-nano Smoke Tests', () => {
 
     const callArgs = mockFetch.mock.calls[0];
     const requestBody = JSON.parse(callArgs[1].body);
-    
+
     // Should not include optional GPT-5 parameters when not provided
     expect(requestBody.text).toBeUndefined();
     expect(requestBody.reasoning).toBeUndefined();
-    
+
     // Should still exclude sampling parameters
     expect(requestBody).not.toHaveProperty('temperature');
     expect(requestBody).not.toHaveProperty('top_p');

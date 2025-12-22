@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { CriminalCodeAnalyzerDO } from "../../src/criminal-code-analyzer-do";
-import { CountersDO } from "../../src/counters-do";
-import { CriminalAnalysisResult } from "../../src/env";
+import { CriminalCodeAnalyzerDO } from '../../src/durable-objects/criminal-code-analyzer-do';
+import { CountersDO } from '../../src/durable-objects/counters-do';
+import { CriminalAnalysisResult } from '../../src/core/env';
 import { createMockEnv, createMockState } from "../test-utils";
 
 // Mock AI provider with realistic responses
-vi.mock("../../src/providers/provider-init", () => ({
+vi.mock("../../src/core/providers/provider-init", () => ({
   ProviderInitializer: {
     initialize: vi.fn().mockResolvedValue({
       analyzeCriminalCode: vi.fn().mockImplementation((text: string) => {
@@ -53,7 +53,7 @@ vi.mock("../../src/providers/provider-init", () => ({
   }
 }));
 
-vi.mock("../../src/logger", () => ({
+vi.mock("../../src/core/logger", () => ({
   Logger: {
     debug: vi.fn(),
     info: vi.fn(),

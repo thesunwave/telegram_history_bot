@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OptimizedSummaryController } from '../src/summary-optimization/summary-controller';
-import { Env } from '../src/env';
+import { OptimizedSummaryController } from '../src/features/summary/optimization/summary-controller';
+import { Env } from '../src/core/env';
 
 describe('Simple Optimized System Test', () => {
   let mockEnv: Env;
@@ -10,7 +10,7 @@ describe('Simple Optimized System Test', () => {
     const recentTime1 = now - 3600; // 1 час назад
     const recentTime2 = now - 7200; // 2 часа назад
     const recentTime3 = now - 10800; // 3 часа назад
-    
+
     mockEnv = {
       HISTORY: {
         list: vi.fn().mockResolvedValue({
@@ -62,7 +62,7 @@ describe('Simple Optimized System Test', () => {
 
   it('should call summarizeChat without throwing', async () => {
     const controller = new OptimizedSummaryController(mockEnv);
-    
+
     try {
       const result = await controller.summarizeChat(123, 7);
       console.log('✅ Result:', result);

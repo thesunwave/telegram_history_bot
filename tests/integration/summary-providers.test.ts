@@ -3,7 +3,7 @@ import worker, { CountersDO } from "../../src/index";
 import { KVNamespace } from "@miniflare/kv";
 import { MemoryStorage } from "@miniflare/storage-memory";
 import { D1Database } from "@miniflare/d1";
-import { ProviderInitializer } from "../../src/providers/provider-init";
+import { ProviderInitializer } from "../../src/core/providers/provider-init";
 
 interface Env {
   HISTORY: any;

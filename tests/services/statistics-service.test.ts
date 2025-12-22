@@ -3,12 +3,12 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { StatisticsService } from '../../src/services/statistics-service';
-import type { IViolationRepository } from '../../src/repositories/violation-repository';
-import type { 
-  Violation, 
-  UserStats, 
-  PeriodStats, 
+import { StatisticsService } from '../../src/core/services/statistics-service';
+import type { IViolationRepository } from '../../src/core/repositories/violation-repository';
+import type {
+  Violation,
+  UserStats,
+  PeriodStats,
   GeneralStats,
   ViolationCount,
   UserViolationCount
@@ -104,7 +104,7 @@ describe('StatisticsService', () => {
       // Arrange
       const userId = '123';
       const chatId = '456';
-      
+
       const lowRiskUserStats: UserStats = {
         userId,
         chatId,
@@ -152,7 +152,7 @@ describe('StatisticsService', () => {
       // Arrange
       const chatId = '456';
       const days = 7;
-      
+
       const expectedPeriodStats: PeriodStats = {
         chatId,
         startDate: new Date('2024-01-01'),
@@ -199,7 +199,7 @@ describe('StatisticsService', () => {
       // Arrange
       const chatId = '456';
       const days = 7;
-      
+
       const emptyPeriodStats: PeriodStats = {
         chatId,
         startDate: new Date('2024-01-01'),
@@ -239,7 +239,7 @@ describe('StatisticsService', () => {
     it('должен возвращать общую статистику с топ-5 нарушений', async () => {
       // Arrange
       const chatId = '456';
-      
+
       const expectedGeneralStats: GeneralStats = {
         chatId,
         totalViolations: 6,
@@ -305,7 +305,7 @@ describe('StatisticsService', () => {
     it('должен возвращать пустую статистику для чата без нарушений', async () => {
       // Arrange
       const chatId = '456';
-      
+
       const emptyGeneralStats: GeneralStats = {
         chatId,
         totalViolations: 0,

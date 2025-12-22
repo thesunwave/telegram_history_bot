@@ -14,7 +14,7 @@ import {
   validatePeriodStats,
   validateGeneralStats,
   ValidationUtils
-} from '../../src/models/validation';
+} from '../../src/core/models/validation';
 
 describe('Validation Functions', () => {
   describe('validateViolation', () => {

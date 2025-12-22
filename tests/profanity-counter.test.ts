@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { CountersDO, ProfanityIncrementPayload } from '../src/counters-do';
-import { Env } from '../src/env';
-import { resetProfanityCounters, resetCounters } from '../src/stats';
+import { CountersDO, ProfanityIncrementPayload } from '../src/durable-objects/counters-do';
+import { Env } from '../src/core/env';
+import { resetProfanityCounters, resetCounters } from '../src/features/stats/stats';
 
 describe('Profanity Counter System', () => {
   let countersDO: CountersDO;

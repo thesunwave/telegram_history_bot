@@ -9,7 +9,7 @@ import {
     resetModelPolicy,
     getModelPolicy,
     ModelRole,
-} from '../../src/llm';
+} from '../../src/core/llm';
 
 describe('ModelPolicy', () => {
     beforeEach(() => {

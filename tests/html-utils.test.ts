@@ -7,7 +7,7 @@ import {
   escapeHtml, 
   createSection, 
   createListItem 
-} from '../src/html-utils';
+} from '../src/core/html-utils';
 
 describe('HTML Utils', () => {
   describe('getSeverityLevel', () => {

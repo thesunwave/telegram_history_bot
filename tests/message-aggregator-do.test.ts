@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { MessageAggregatorDO } from '../src/message-aggregator-do';
+import { MessageAggregatorDO } from '../src/durable-objects/message-aggregator-do';
 import type { DurableObjectState } from '@cloudflare/workers-types';
-import { Env, StoredMessage } from '../src/env';
-import { TelegramMessage } from '../src/providers/ai-provider';
+import { Env, StoredMessage } from '../src/core/env';
+import { TelegramMessage } from '../src/core/providers/ai-provider';
 
 // Response type definitions
 interface InitializeResponse {
@@ -70,7 +70,7 @@ const mockEnv: Env = {
 } as Env;
 
 // Mock Logger and PerformanceTracker
-vi.mock('../src/logger', () => ({
+vi.mock('../src/core/logger', () => ({
   Logger: {
     debug: vi.fn(),
     info: vi.fn(),

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MessageFormatter } from '../src/message-formatter';
+import { MessageFormatter } from '../src/core/message-formatter';
 import { UserStats, PeriodStats, GeneralStats } from '../src/models/statistics';
 
 describe('ViolationCount Fields Test', () => {

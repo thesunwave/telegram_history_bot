@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { processBatches, BatchProcessorOptions } from '../src/utils';
+import { processBatches, BatchProcessorOptions } from '../src/core/utils';
 
 describe('processBatches', () => {
   beforeEach(() => {

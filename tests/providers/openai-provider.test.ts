@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { OpenAIProvider } from '../../src/providers/openai-provider';
-import { Env } from '../../src/env';
-import { SummaryRequest, SummaryOptions, ProviderError } from '../../src/providers/ai-provider';
+import { OpenAIProvider } from '../../src/core/providers/openai-provider';
+import { Env } from '../../src/core/env';
+import { SummaryRequest, SummaryOptions, ProviderError } from '../../src/core/providers/ai-provider';
 
 // Mock the utils module
 vi.mock('../../src/utils', () => ({
@@ -935,7 +935,7 @@ describe('OpenAIProvider', () => {
         status: 400,
         statusText: 'Bad Request',
         json: () => Promise.resolve({
-          error: { 
+          error: {
             message: 'Parameter temperature is not allowed for this model',
             param: 'temperature'
           }

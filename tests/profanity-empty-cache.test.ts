@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ProfanityAnalyzer } from '../src/profanity';
-import { Env } from '../src/env';
-import { AIProvider, ProfanityAnalysisResult } from '../src/providers/ai-provider';
+import { ProfanityAnalyzer } from '../src/features/profanity/profanity';
+import { Env } from '../src/core/env';
+import { AIProvider, ProfanityAnalysisResult } from '../src/core/providers/ai-provider';
 
 // Mock AI Provider that returns empty results
 class EmptyResultAIProvider implements AIProvider {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getTopProfanityUsers, getTopProfanityWords } from "../src/stats";
-import { Env } from "../src/env";
+import { getTopProfanityUsers, getTopProfanityWords } from '../src/features/stats/stats';
+import { Env } from '../src/core/env';
 
 describe("Profanity Stats Optimization", () => {
   let mockEnv: Env;

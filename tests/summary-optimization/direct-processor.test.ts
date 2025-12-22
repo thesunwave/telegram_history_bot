@@ -4,9 +4,10 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { DirectProcessor } from "../../src/summary-optimization/direct-processor";
-import { Env } from "../../src/env";
-import { TelegramMessage } from "../../src/providers/ai-provider";
+import { DirectProcessor } from "../../src/features/summary/optimization/direct-processor";
+import { TelegramMessage } from "../../src/core/telegram";
+import { Env } from "../../src/core/env";
+import { SummaryConfig } from "../../src/features/summary/optimization/types";
 
 describe("DirectProcessor", () => {
   let processor: DirectProcessor;

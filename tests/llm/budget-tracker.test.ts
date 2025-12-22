@@ -9,7 +9,7 @@ import {
     resetBudgetTracker,
     TokenUsage,
     FeatureType,
-} from '../../src/llm';
+} from '../../src/core/llm';
 
 describe('LLMBudgetTracker', () => {
     beforeEach(() => {

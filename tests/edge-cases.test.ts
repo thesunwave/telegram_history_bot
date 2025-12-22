@@ -4,19 +4,18 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ViolationHandler } from '../src/violation-handler';
-import { MessageFormatter } from '../src/message-formatter';
-import { StatisticsService } from '../src/services/statistics-service';
-import { ViolationRepository } from '../src/repositories/violation-repository';
-import { DataSanitizer, ValidationUtils, ValidationError } from '../src/models/validation';
-import type { 
-  ViolationAnalysis, 
-  Violation, 
-  UserStats, 
-  PeriodStats, 
-  GeneralStats 
-} from '../src/models/statistics';
-import type { Env } from '../src/env';
+import { ViolationHandler } from '../src/features/stats/violation-handler';
+import { MessageFormatter } from '../src/core/message-formatter';
+import { StatisticsService } from '../src/core/services/statistics-service';
+import { ViolationRepository } from '../src/core/repositories/violation-repository';
+import { DataSanitizer, ValidationUtils, ValidationError } from '../src/core/models/validation';
+import {
+  Violation,
+  ViolationCount,
+  UserStats,
+  ViolationAnalysis
+} from '../src/core/models/statistics';
+import type { Env } from '../src/core/env';
 
 // Mock environment
 const mockEnv: Env = {
@@ -61,7 +60,7 @@ describe('Edge Cases Tests', () => {
   describe('ViolationAnalysis Edge Cases', () => {
     it('должен обрабатывать null ViolationAnalysis', async () => {
       const result = await violationHandler.formatViolationMessage(null as any);
-      
+
       expect(result).toContain('✅');
       expect(result).toContain('Нарушений не обнаружено');
       // Null analysis создает пустой анализ, не ошибку
@@ -69,7 +68,7 @@ describe('Edge Cases Tests', () => {
 
     it('должен обрабатывать undefined ViolationAnalysis', async () => {
       const result = await violationHandler.formatViolationMessage(undefined as any);
-      
+
       expect(result).toContain('✅');
       expect(result).toContain('Нарушений не обнаружено');
       // Undefined analysis создает пустой анализ, не ошибку
@@ -77,7 +76,7 @@ describe('Edge Cases Tests', () => {
 
     it('должен обрабатывать пустой объект ViolationAnalysis', async () => {
       const result = await violationHandler.formatViolationMessage({} as any);
-      
+
       expect(result).toContain('✅');
       expect(result).toContain('Нарушений не обнаружено');
     });
@@ -92,7 +91,7 @@ describe('Edge Cases Tests', () => {
       };
 
       const result = await violationHandler.formatViolationMessage(corruptedAnalysis as any);
-      
+
       expect(result).toContain('✅');
       expect(result).toContain('Нарушений не обнаружено');
     });
@@ -112,7 +111,9 @@ describe('Edge Cases Tests', () => {
             confidence: 2.5 // Неверное значение доверия
           },
           {
-            article: 'Статья 282 УК РФ',
+            article: '282',
+            subarticle: null,
+            articleTitle: 'Статья 282 УК РФ',
             quote: 'Валидная цитата',
             punishment: 'Валидное наказание',
             severity: 7,
@@ -125,7 +126,7 @@ describe('Edge Cases Tests', () => {
       };
 
       const result = await violationHandler.formatViolationMessage(analysisWithCorruptedViolations as any);
-      
+
       expect(result).toContain('🚨');
       expect(result).toContain('Обнаружены нарушения УК РФ');
       // После санитизации остается только валидное нарушение
@@ -139,6 +140,8 @@ describe('Edge Cases Tests', () => {
         violations: [
           {
             article: '282',
+            subarticle: null,
+            articleTitle: 'Статья 282 УК РФ',
             quote: 'Сомнительная цитата',
             punishment: 'Штраф',
             severity: 5,
@@ -151,7 +154,7 @@ describe('Edge Cases Tests', () => {
       };
 
       const result = await violationHandler.formatViolationMessage(lowConfidenceAnalysis);
-      
+
       expect(result).toContain('⚠️');
       expect(result).toContain('Низкий уровень доверия к анализу');
     });
@@ -162,6 +165,8 @@ describe('Edge Cases Tests', () => {
         violations: [
           {
             article: '282',
+            subarticle: null,
+            articleTitle: 'Статья 282 УК РФ',
             quote: 'Тест',
             punishment: 'Тест',
             severity: -5, // Отрицательная серьезность
@@ -169,6 +174,8 @@ describe('Edge Cases Tests', () => {
           },
           {
             article: '205',
+            subarticle: null,
+            articleTitle: 'Статья 205 УК РФ',
             quote: 'Тест',
             punishment: 'Тест',
             severity: 15, // Слишком высокая серьезность
@@ -181,7 +188,7 @@ describe('Edge Cases Tests', () => {
       };
 
       const result = await violationHandler.formatViolationMessage(extremeAnalysis as any);
-      
+
       expect(result).toContain('🚨');
       expect(result).toContain('Обнаружены нарушения УК РФ');
     });
@@ -194,7 +201,7 @@ describe('Edge Cases Tests', () => {
       );
 
       const result = await violationHandler.getUserStats('123', '456');
-      
+
       expect(result).toContain('📊');
       expect(result).toContain('Статистика пользователя');
       expect(result).toContain('Всего нарушений:</b> 0');
@@ -205,7 +212,7 @@ describe('Edge Cases Tests', () => {
       vi.spyOn(mockStatisticsService, 'getUserStats').mockResolvedValue(null as any);
 
       const result = await violationHandler.getUserStats('123', '456');
-      
+
       expect(result).toContain('📊');
       expect(result).toContain('Всего нарушений:</b> 0');
     });
@@ -214,7 +221,7 @@ describe('Edge Cases Tests', () => {
       vi.spyOn(mockStatisticsService, 'getUserStats').mockRejectedValue(new Error('Database connection failed'));
 
       const result = await violationHandler.getUserStats('123', '456');
-      
+
       expect(result).toContain('📊');
       expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
     });
@@ -223,13 +230,13 @@ describe('Edge Cases Tests', () => {
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(endDate.getDate() - 7);
-      
+
       vi.spyOn(mockStatisticsService, 'getPeriodStats').mockResolvedValue(
         DataSanitizer.createEmptyPeriodStats('456', startDate, endDate)
       );
 
       const result = await violationHandler.getPeriodStats('456', 7);
-      
+
       expect(result).toContain('📈');
       expect(result).toContain('Статистика за период');
       expect(result).toContain('Всего нарушений:</b> 0');
@@ -242,7 +249,7 @@ describe('Edge Cases Tests', () => {
       );
 
       const result = await violationHandler.getGeneralStats('456');
-      
+
       expect(result).toContain('📊');
       expect(result).toContain('Общая статистика чата');
       expect(result).toContain('Всего нарушений:</b> 0');
@@ -288,7 +295,7 @@ describe('Edge Cases Tests', () => {
   describe('MessageFormatter Edge Cases', () => {
     it('должен обрабатывать null статистику в formatUserStats', () => {
       const result = messageFormatter.formatUserStats(null as any);
-      
+
       expect(result).toContain('❌');
       expect(result).toContain('данные статистики недоступны');
     });
@@ -306,7 +313,7 @@ describe('Edge Cases Tests', () => {
       };
 
       const result = messageFormatter.formatUserStats(statsWithBadDate);
-      
+
       expect(result).toContain('📊');
       expect(result).toContain('Статистика пользователя');
       expect(result).not.toContain('Последнее нарушение:');
@@ -319,16 +326,16 @@ describe('Edge Cases Tests', () => {
         totalViolations: 3,
         violationsByArticle: [
           null as any, // Null нарушение
-          { article: '', count: 0, averageSeverity: 0 }, // Пустое нарушение
-          { article: '282', count: 2, averageSeverity: 15 }, // Неверная серьезность
-          { article: '205', count: 1, averageSeverity: 8 } // Валидное нарушение
+          { article: '', subarticle: null, articleTitle: '', count: 0, punishment: '', averageSeverity: 0 }, // Пустое нарушение
+          { article: '282', subarticle: null, articleTitle: 'Статья 282', punishment: '', count: 2, averageSeverity: 15 }, // Неверная серьезность
+          { article: '205', subarticle: null, articleTitle: 'Статья 205', punishment: '', count: 1, averageSeverity: 8 } // Валидное нарушение
         ],
         averageSeverity: 6,
         riskLevel: 'medium'
       };
 
       const result = messageFormatter.formatUserStats(statsWithBadViolations);
-      
+
       expect(result).toContain('📊');
       expect(result).toContain('Статистика пользователя');
       expect(result).toContain('Статья 205');
@@ -348,6 +355,8 @@ describe('Edge Cases Tests', () => {
     it('должен правильно экранировать HTML в цитатах', () => {
       const maliciousViolation: Violation = {
         article: '282',
+        subarticle: null,
+        articleTitle: 'Статья 282 УК РФ',
         quote: '<script>alert("XSS")</script> & "dangerous" content',
         punishment: 'штраф',
         severity: 5,
@@ -355,7 +364,7 @@ describe('Edge Cases Tests', () => {
       };
 
       const result = messageFormatter.formatViolation(maliciousViolation);
-      
+
       expect(result).not.toContain('<script>');
       expect(result).toContain('&lt;script&gt;');
       expect(result).toContain('&amp;');
@@ -374,7 +383,7 @@ describe('Edge Cases Tests', () => {
       };
 
       const sanitized = DataSanitizer.sanitizeViolation(corruptedViolation);
-      
+
       expect(sanitized.article).toBe('Статья 282');
       expect(sanitized.quote).toBe('Данные повреждены');
       expect(sanitized.punishment).toBe('123');
@@ -386,7 +395,7 @@ describe('Edge Cases Tests', () => {
       const corruptedAnalysis = 'not an object';
 
       const sanitized = DataSanitizer.sanitizeViolationAnalysis(corruptedAnalysis);
-      
+
       expect(sanitized.hasViolations).toBe(false);
       expect(sanitized.violations).toEqual([]);
       expect(sanitized.totalSeverity).toBe(0);
@@ -396,7 +405,7 @@ describe('Edge Cases Tests', () => {
 
     it('должен создавать пустую статистику с валидными значениями', () => {
       const emptyUserStats = DataSanitizer.createEmptyUserStats('', '');
-      
+
       expect(emptyUserStats.userId).toBe('unknown');
       expect(emptyUserStats.chatId).toBe('unknown');
       expect(emptyUserStats.totalViolations).toBe(0);
@@ -467,7 +476,7 @@ describe('Edge Cases Tests', () => {
       vi.spyOn(mockStatisticsService, 'getUserStats').mockRejectedValue(new Error('Connection timeout'));
 
       const result = await violationHandler.getUserStats('123', '456');
-      
+
       expect(result).toContain('📊');
       expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
     });
@@ -476,7 +485,7 @@ describe('Edge Cases Tests', () => {
       vi.spyOn(mockStatisticsService, 'getPeriodStats').mockRejectedValue(new Error('Network error'));
 
       const result = await violationHandler.getPeriodStats('456', 7);
-      
+
       expect(result).toContain('📈');
       expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
     });
@@ -485,7 +494,7 @@ describe('Edge Cases Tests', () => {
       vi.spyOn(mockStatisticsService, 'getGeneralStats').mockRejectedValue('Unknown error type');
 
       const result = await violationHandler.getGeneralStats('456');
-      
+
       expect(result).toContain('📊');
       expect(result).toContain('⚠️ Данные могут быть неполными из-за технических проблем');
     });
@@ -496,6 +505,8 @@ describe('Edge Cases Tests', () => {
       const longQuote = 'A'.repeat(10000); // 10KB строка
       const violation: Violation = {
         article: '282',
+        subarticle: null,
+        articleTitle: 'Статья 282 УК РФ',
         quote: longQuote,
         punishment: 'штраф',
         severity: 5,
@@ -503,7 +514,7 @@ describe('Edge Cases Tests', () => {
       };
 
       const result = messageFormatter.formatViolation(violation);
-      
+
       expect(result).toContain('Статья 282 УК РФ');
       expect(result.length).toBeLessThan(15000); // Должно быть разумного размера
     });
@@ -511,6 +522,8 @@ describe('Edge Cases Tests', () => {
     it('должен обрабатывать большое количество нарушений', async () => {
       const manyViolations: Violation[] = Array.from({ length: 100 }, (_, i) => ({
         article: `${i + 100}`,
+        subarticle: null,
+        articleTitle: `Статья ${i + 100}`,
         quote: `Нарушение ${i + 1}`,
         punishment: 'штраф',
         severity: (i % 10) + 1,
@@ -526,7 +539,7 @@ describe('Edge Cases Tests', () => {
       };
 
       const result = await violationHandler.formatViolationMessage(analysis);
-      
+
       expect(result).toContain('🚨');
       expect(result).toContain('Обнаружены нарушения УК РФ');
       expect(result).toContain('Всего нарушений:</b> 100');

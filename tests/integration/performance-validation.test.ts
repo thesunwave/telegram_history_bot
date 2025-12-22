@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { KVNamespace } from "@miniflare/kv";
 import { MemoryStorage } from "@miniflare/storage-memory";
-import { fetchMessages, fetchLastMessages } from "../../src/history";
+import { fetchMessages, fetchLastMessages } from '../../src/features/history/history';
 import {
   Env,
   StoredMessage,
   DEFAULT_KV_BATCH_SIZE,
   DEFAULT_KV_BATCH_DELAY,
-} from "../../src/env";
-import { processBatches, processBatchesDetailed } from "../../src/utils";
+} from '../../src/core/env';
+import { processBatches, processBatchesDetailed } from '../../src/core/utils';
 import { createMockEnv } from "../test-utils";
 
 interface PerformanceMetrics {

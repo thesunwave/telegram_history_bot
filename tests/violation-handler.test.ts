@@ -4,10 +4,10 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ViolationHandler } from '../src/violation-handler';
-import { MessageFormatter } from '../src/message-formatter';
-import { StatisticsService } from '../src/services/statistics-service';
-import { ViolationRepository } from '../src/repositories/violation-repository';
+import { ViolationHandler } from '../src/features/stats/violation-handler';
+import { MessageFormatter } from '../src/core/message-formatter';
+import { StatisticsService } from '../src/core/services/statistics-service';
+import { ViolationRepository } from '../src/core/repositories/violation-repository';
 import type { 
   ViolationAnalysis, 
   Violation, 
@@ -15,7 +15,7 @@ import type {
   PeriodStats, 
   GeneralStats 
 } from '../src/models/statistics';
-import type { Env } from '../src/env';
+import type { Env } from '../src/core/env';
 
 // Mock environment
 const mockEnv: Env = {

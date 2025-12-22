@@ -10,18 +10,18 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { handleUpdate, recordMessage } from '../../src/update';
-import { sendMessage } from '../../src/telegram';
-import type { Env } from '../../src/env';
-import type { ViolationAnalysis, Violation } from '../../src/models/statistics';
+import { handleUpdate, recordMessage } from '../../src/api/update';
+import { sendMessage } from '../../src/core/telegram';
+import type { Env } from '../../src/core/env';
+import type { ViolationAnalysis, Violation } from '../../src/core/models/statistics';
 
 // Мокаем модуль telegram
-vi.mock('../../src/telegram', () => ({
+vi.mock('../../src/core/telegram', () => ({
   sendMessage: vi.fn()
 }));
 
 // Мокаем логгер
-vi.mock('../../src/logger', () => ({
+vi.mock('../../src/core/logger', () => ({
   Logger: {
     debug: vi.fn(),
     log: vi.fn(),
@@ -48,17 +48,17 @@ describe('Criminal Statistics E2E Integration Tests', () => {
   let mockDB: any;
 
   let originalNodeEnv: string | undefined;
-  
+
   beforeEach(() => {
     // Мокаем process.env.NODE_ENV чтобы isTestEnvironment возвращал false
     originalNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
-    
+
     // Сброс всех моков перед каждым тестом
     vi.clearAllMocks();
-    
+
     // isTestEnvironment мокается в vi.mock('../../src/env')
-    
+
     mockSendMessage = vi.mocked(sendMessage);
 
     // Настройка базового мокирования базы данных
@@ -74,7 +74,7 @@ describe('Criminal Statistics E2E Integration Tests', () => {
               })
             };
           }
-          
+
           if (sql.includes('GROUP BY article') && !sql.includes('LIMIT')) {
             return {
               bind: vi.fn().mockReturnValue({
@@ -84,7 +84,7 @@ describe('Criminal Statistics E2E Integration Tests', () => {
               })
             };
           }
-          
+
           return {
             bind: vi.fn().mockReturnValue({
               first: vi.fn().mockResolvedValue(null),
@@ -95,7 +95,7 @@ describe('Criminal Statistics E2E Integration Tests', () => {
         })
       };
     };
-    
+
     setupDatabaseMocks();
 
     // Создаем мок для CountersDO
@@ -218,9 +218,9 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       // Assert: Проверяем результат
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
-      
+
       const sentMessage = mockSendMessage.mock.calls[0][2]; // третий аргумент - текст сообщения
-      
+
       // Проверяем, что сообщение содержит ожидаемые элементы
       expect(sentMessage).toContain('📊');
       expect(sentMessage).toContain('Статистика пользователя');
@@ -293,9 +293,9 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       // Assert: Проверяем результат для пользователя без нарушений
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
-      
+
       const sentMessage = mockSendMessage.mock.calls[0][2];
-      
+
       expect(sentMessage).toContain('📊');
       expect(sentMessage).toContain('Статистика пользователя');
       expect(sentMessage).toContain('<b>Всего нарушений:</b> 0');
@@ -307,7 +307,7 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       // Arrange: Тестируем команду с параметром периода
       const testUserId = 345678;
       const testChatId = -100345678901;
-      
+
       const mockUserStatsData = {
         total_violations: 1,
         average_severity: 4.0,
@@ -359,9 +359,9 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       // Assert: Проверяем результат
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
-      
+
       const sentMessage = mockSendMessage.mock.calls[0][2];
-      
+
       expect(sentMessage).toContain('📊');
       expect(sentMessage).toContain('Статистика пользователя');
       expect(sentMessage).toContain('<b>Всего нарушений:</b> 1');
@@ -474,9 +474,9 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       // Assert: Проверяем результат
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
-      
+
       const sentMessage = mockSendMessage.mock.calls[0][2];
-      
+
       expect(sentMessage).toContain('📈');
       expect(sentMessage).toContain('Статистика за период');
       expect(sentMessage).toContain('<b>Всего нарушений:</b> 15');
@@ -530,9 +530,9 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       // Assert: Проверяем результат
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
-      
+
       const sentMessage = mockSendMessage.mock.calls[0][2];
-      
+
       expect(sentMessage).toContain('Топ нарушителей УК РФ сегодня:');
       expect(sentMessage).toContain('1. user111: 5');
       expect(sentMessage).toContain('2. user222: 3');
@@ -563,9 +563,9 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       // Assert: Проверяем результат
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
-      
+
       const sentMessage = mockSendMessage.mock.calls[0][2];
-      
+
       expect(sentMessage).toContain('Нет данных о нарушениях УК РФ');
     });
   });
@@ -676,10 +676,10 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       await recordMessage(testMessage.message, mockEnv, mockCtx);
       // Затем обрабатываем команды
       await handleUpdate(testMessage.message, mockEnv);
-      
+
       // Ждем завершения асинхронных операций
       await new Promise(resolve => setTimeout(resolve, 100));
-      
+
       // Логируем состояние моков для отладки
 
 
@@ -749,10 +749,10 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       await recordMessage(testMessage.message, mockEnv, mockCtx);
       // Затем обрабатываем команды
       await handleUpdate(testMessage.message, mockEnv);
-      
+
       // Ждем завершения асинхронных операций
       await new Promise(resolve => setTimeout(resolve, 100));
-      
+
       // Логируем состояние моков для отладки
 
 

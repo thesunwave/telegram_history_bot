@@ -11,23 +11,34 @@ Telegram **Stats Bot** collects messages via webhook, stores them 7 days in Clou
 ├── vitest.config.ts       # Vitest test configuration
 ├── setup.sh               # setup script for development
 ├── migrations/            # database migrations
-│   ├── 0001_init.sql
-│   └── 0002_activity.sql
+├── docs/                  # project documentation (see docs/README.md)
+│   ├── guides/
+│   ├── ops/
+│   ├── notes/
+│   ├── debug/
+│   └── features/
+├── scripts/               # utilities and helpers
+│   ├── debug/
+│   └── fixes/
+├── logs/                  # local logs (gitignored)
 ├── src/
 │   ├── index.ts           # main entry for CF Worker
-│   ├── telegram.ts        # Telegram webhook handlers
-│   ├── history.ts         # message history management
-│   ├── stats.ts           # statistics calculation
-│   ├── summary.ts         # summary generation
-│   ├── update.ts          # update handlers
-│   ├── utils.ts           # utility functions
-│   └── env.ts             # environment types and validation
-├── tests/
-│   └── index.test.ts      # vitest unit tests
+│   ├── api/               # request handlers
+│   ├── core/              # shared core modules
+│   ├── durable-objects/   # DO implementations
+│   └── features/          # feature modules
+├── tests/                 # vitest tests
 ├── .github/
 │   └── workflows/
 │       └── ci.yml         # GitHub Actions CI/CD
 └── .gitignore            # git ignore rules
+
+## 📂 File Placement & Naming
+- Root: keep clean; only core config files and top-level docs.
+- docs/: all documentation goes here; see docs/README.md for categories.
+- scripts/: tooling and ad-hoc scripts; use scripts/debug or scripts/fixes.
+- logs/: runtime/test logs; never commit.
+- Naming: docs filenames use lowercase kebab-case.
 
 ## ▶️ Essential Commands
 | Purpose           | Command                                   |

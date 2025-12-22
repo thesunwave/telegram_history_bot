@@ -1,8 +1,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { topChat } from '../src/stats';
-import { Env } from '../src/env';
-import { migrateStatsBatch } from '../src/migrate';
+import { topChat } from '../src/features/stats/stats';
+import { Env } from '../src/core/env';
+import { migrateStatsBatch } from '../src/features/migration/migrate';
 
 // Mock KVNamespace
 const createMockKV = (data: Map<string, string>) => ({
@@ -41,7 +41,7 @@ describe('Stats Performance Repro', () => {
         } as Env;
 
         // Mock sendMessage to capture output
-        vi.mock('../src/telegram', () => ({
+        vi.mock('../src/core/telegram', () => ({
             sendMessage: vi.fn(),
             sendPhoto: vi.fn(),
         }));
@@ -58,13 +58,13 @@ describe('Stats Performance Repro', () => {
         for (let u = 1; u <= numUsers; u++) {
             for (let d = 0; d < numDays; d++) {
                 const date = new Date(2025, 0, 1 + d).toISOString().slice(0, 10);
-                const key = `stats:${chatId}:${u}:${date}`;
+                const key = `stats:${chatId}:${u}:${date} `;
                 kvData.set(key, Math.floor(Math.random() * 100).toString());
-                kvData.set(`user:${u}`, `User${u}`);
+                kvData.set(`user:${u} `, `User${u} `);
             }
         }
-        console.log(`Populate KV (Old): ${(performance.now() - populateStart).toFixed(3)}ms`);
-        console.log(`Total keys (Old): ${kvData.size}`);
+        console.log(`Populate KV(Old): ${(performance.now() - populateStart).toFixed(3)} ms`);
+        console.log(`Total keys(Old): ${kvData.size} `);
 
         // Run migration using the new batch function
         const startMigration = performance.now();
@@ -74,7 +74,7 @@ describe('Stats Performance Repro', () => {
             cursor = result.nextCursor;
         } while (cursor);
         const endMigration = performance.now();
-        console.log(`Migration: ${(endMigration - startMigration).toFixed(3)}ms`);
+        console.log(`Migration: ${(endMigration - startMigration).toFixed(3)} ms`);
 
         // Reset mock calls
         vi.clearAllMocks();
@@ -82,10 +82,10 @@ describe('Stats Performance Repro', () => {
         // Measure time to get top chat for today using NEW logic
         const topChatStart = performance.now();
         await topChat(env, chatId, 5, today);
-        console.log(`topChat V2: ${(performance.now() - topChatStart).toFixed(3)}ms`);
+        console.log(`topChat V2: ${(performance.now() - topChatStart).toFixed(3)} ms`);
 
         // With v2 keys, we expect to only list keys for the specific day
-        // The prefix is `stats_v2:${chatId}:${day}:`
+        // The prefix is `stats_v2:${ chatId }:${ day }:`
         // In our mock, this should result in very few keys being processed (only numUsers keys)
         // compared to scanning everything.
 

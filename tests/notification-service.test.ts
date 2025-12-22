@@ -3,17 +3,17 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { NotificationService } from '../src/services/notification-service';
-import { NotificationRepository } from '../src/repositories/notification-repository';
-import type { Env } from '../src/env';
+import { NotificationService } from '../src/core/services/notification-service';
+import { NotificationRepository } from '../src/core/repositories/notification-repository';
+import type { Env } from '../src/core/env';
 import type { ChatNotificationSettings, NotificationType } from '../src/models/notification-settings';
 
 // Мокаем зависимости
-vi.mock('../src/telegram', () => ({
+vi.mock('../src/core/telegram', () => ({
   sendMessage: vi.fn().mockResolvedValue('123')
 }));
 
-vi.mock('../src/logger', () => ({
+vi.mock('../src/core/logger', () => ({
   Logger: {
     debug: vi.fn(),
     error: vi.fn(),

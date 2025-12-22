@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { ProviderFactory } from "../../src/providers/provider-factory";
-import { CloudflareAIProvider } from "../../src/providers/cloudflare-provider";
-import { OpenAIProvider } from "../../src/providers/openai-provider";
-import { Env } from "../../src/env";
+import { ProviderFactory } from "../../src/core/providers/provider-factory";
+import { CloudflareAIProvider } from "../../src/core/providers/cloudflare-provider";
+import { OpenAIProvider } from "../../src/core/providers/openai-provider";
+import { Env } from '../../src/core/env';
 
 describe("ProviderFactory", () => {
   let mockEnv: Env;

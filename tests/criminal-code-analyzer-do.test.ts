@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { CriminalCodeAnalyzerDO } from "../src/criminal-code-analyzer-do";
-import type { CriminalAnalysisResult } from "../src/env";
-import { ProviderFactory } from "../src/providers/provider-factory";
-import { Logger } from "../src/logger";
+import { CriminalCodeAnalyzerDO } from '../src/durable-objects/criminal-code-analyzer-do';
+import type { CriminalAnalysisResult } from '../src/core/env';
+import { ProviderFactory } from "../src/core/providers/provider-factory";
+import { Logger } from '../src/core/logger';
 
 // Mock Logger
-vi.mock("../src/logger", () => ({
+vi.mock("../src/core/logger", () => ({
   Logger: {
     log: vi.fn(),
     error: vi.fn(),
@@ -16,7 +16,7 @@ vi.mock("../src/logger", () => ({
 }));
 
 // Mock ProviderFactory
-vi.mock("../src/providers/provider-factory", () => ({
+vi.mock("../src/core/providers/provider-factory", () => ({
   ProviderFactory: {
     createProvider: vi.fn().mockReturnValue({
       analyzeCriminalCode: vi.fn().mockResolvedValue({
@@ -36,7 +36,7 @@ vi.mock("../src/providers/provider-factory", () => ({
   }
 }));
 
-vi.mock("../src/providers/provider-init", () => ({
+vi.mock("../src/core/providers/provider-init", () => ({
   ProviderInitializer: {
     initialize: vi.fn().mockResolvedValue({
       analyzeCriminalCode: vi.fn().mockResolvedValue({

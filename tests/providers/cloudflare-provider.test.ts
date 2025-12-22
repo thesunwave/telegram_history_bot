@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { CloudflareAIProvider } from '../../src/providers/cloudflare-provider';
-import { Env } from '../../src/env';
-import { SummaryRequest, SummaryOptions, ProviderError } from '../../src/providers/ai-provider';
+import { CloudflareAIProvider } from '../../src/core/providers/cloudflare-provider';
+import { Env } from '../../src/core/env';
+import { SummaryRequest, SummaryOptions, ProviderError } from '../../src/core/providers/ai-provider';
 
 // Mock the utils module
 vi.mock('../../src/utils', () => ({

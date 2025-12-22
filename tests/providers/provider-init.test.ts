@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { ProviderInitializer } from "../../src/providers/provider-init";
-import { CloudflareAIProvider } from "../../src/providers/cloudflare-provider";
-import { OpenAIProvider } from "../../src/providers/openai-provider";
-import { Env } from "../../src/env";
+import { ProviderInitializer } from "../../src/core/providers/provider-init";
+import { CloudflareAIProvider } from "../../src/core/providers/cloudflare-provider";
+import { OpenAIProvider } from "../../src/core/providers/openai-provider";
+import { Env } from '../../src/core/env';
 
 // Mock console methods to capture logs
 const mockConsoleLog = vi.fn();
