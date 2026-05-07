@@ -338,7 +338,7 @@ describe('Telegram Integration Tests', () => {
   });
 
   describe('Help Command Integration', () => {
-    it('should include existing criminal statistics commands in help text', async () => {
+    it('should show chat commands and hide admin-only commands in help text', async () => {
       const mockMessage = {
         chat: { id: 12345 },
         from: { id: 67890, username: 'testuser' },
@@ -351,12 +351,44 @@ describe('Telegram Integration Tests', () => {
       expect(mockSendMessage).toHaveBeenCalled();
       const helpText = mockSendMessage.mock.calls[0][2];
 
+      expect(helpText).toContain('Справка по командам чата');
+      expect(helpText).toContain('/summary');
+      expect(helpText).toContain('/activity users <period>');
+      expect(helpText).toContain('/activity_hours <period>');
       expect(helpText).toContain('/criminal_stats');
       expect(helpText).toContain('/my_criminal');
       expect(helpText).toContain('/criminal_top');
       expect(helpText).toContain('статистика нарушений УК РФ');
       expect(helpText).toContain('ваша статистика нарушений УК РФ');
       expect(helpText).toContain('топ N нарушителей УК РФ');
+      expect(helpText).not.toContain('/reset');
+      expect(helpText).not.toContain('/criminal_reset');
+      expect(helpText).not.toContain('/profanity_reset');
+      expect(helpText).not.toContain('/test_race_conditions');
+      expect(helpText).not.toContain('/auto_notifications');
+    });
+
+    it('should mark globally disabled production features in help text', async () => {
+      mockEnv.ENABLE_SUMMARY = false;
+      mockEnv.ENABLE_PROFANITY_ANALYSIS = false;
+      mockEnv.ENABLE_CRIMINAL_ANALYSIS = false;
+
+      const mockMessage = {
+        chat: { id: 12345 },
+        from: { id: 67890, username: 'testuser' },
+        text: '/help',
+        date: Math.floor(Date.now() / 1000)
+      };
+
+      await handleUpdate(mockMessage, mockEnv);
+
+      expect(mockSendMessage).toHaveBeenCalled();
+      const helpText = mockSendMessage.mock.calls[0][2];
+
+      expect(helpText).toContain('/summary <days>');
+      expect(helpText).toContain('/profanity_top');
+      expect(helpText).toContain('/criminal_stats');
+      expect(helpText).toContain('глобально отключено на проде');
     });
   });
 });

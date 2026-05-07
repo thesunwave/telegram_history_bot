@@ -18,51 +18,55 @@ function isTestEnvironment(env: Env): boolean {
     (typeof process !== 'undefined' && process.env.NODE_ENV === 'test');
 }
 
-const HELP_TEXT = [
-  '/summary <days> – сводка за последние N дней (по умолчанию 1)',
-  '/summary_last <n> – сводка последних N сообщений (по умолчанию 100, макс 1000)',
-  '/top <n> – топ N активных пользователей за сегодня (по умолчанию 5)',
-  '/profanity_top [n] [period] – топ N матершинников',
-  '  Примеры: /profanity_top, /profanity_top 10, /profanity_top 5 week',
-  '  n: 1-20 (по умолчанию 5), period: today|week|month (по умолчанию today)',
-  '/profanity_words [n] [period] – топ N матерных слов',
-  '  Примеры: /profanity_words, /profanity_words 15, /profanity_words 20 month',
-  '  n: 1-20 (по умолчанию 10), period: today|week|month (по умолчанию today)',
-  '/my_profanity [period] – ваша статистика мата',
-  '  Примеры: /my_profanity, /my_profanity week, /my_profanity month',
-  '  period: today|week|month (по умолчанию показывает все периоды)',
-  '/profanity_chart_week – график мата за неделю',
-  '/profanity_chart_month – график мата за месяц',
-  '/profanity_reset – сбросить только счетчики мата для чата',
-  '/criminal_stats [period] – статистика нарушений УК РФ',
-  '  Примеры: /criminal_stats, /criminal_stats week, /criminal_stats month',
-  '  period: today|week|month (по умолчанию today)',
-  '/my_criminal [period] – ваша статистика нарушений УК РФ',
-  '  Примеры: /my_criminal, /my_criminal week, /my_criminal month',
-  '  period: today|week|month (по умолчанию показывает все периоды)',
-  '/criminal_top [n] [period] – топ N нарушителей УК РФ',
-  '  Примеры: /criminal_top, /criminal_top 10, /criminal_top 5 week',
-  '  n: 1-20 (по умолчанию 5), period: today|week|month (по умолчанию today)',
-  '/criminal_reset – сбросить только счетчики УК РФ для чата',
-  '/auto_notifications – управление автоматическими уведомлениями',
-  '  /auto_notifications status – показать текущие настройки',
-  '  /auto_notifications enable [type] – включить уведомления (или конкретный тип)',
-  '  /auto_notifications disable [type] – отключить уведомления (или конкретный тип)',
-  '  /auto_notifications schedule [type] – настроить расписание для типа',
-  '  /auto_notifications stats [type] – статистика отправленных уведомлений',
+function isFeatureEnabled(value: string | boolean | undefined): boolean {
+  return value !== 'false' && value !== false;
+}
 
-  '/reset – сбросить счетчики для чата',
-  '/activity_week – график активности за неделю',
-  '/activity_month – график активности за последние 30 дней',
-  '/activity_users_week – активность по пользователям за неделю',
-  '/activity_users_month – активность по пользователям за последние 30 дней',
-  '/activity chart <period> – активность чата за период',
-  '/activity users <period> – активность пользователей за период',
-  '/activity_hours <period> – средняя активность по часам суток',
-  '  period: week|month|2m|14d|8w|prev_week|prev_month|YYYY-MM-DD YYYY-MM-DD',
-  '/test_race_conditions – тест защиты от race conditions (только для админов)',
-  '/help – показать список всех команд',
-].join('\n');
+function disabledOnProdLabel(enabled: boolean): string {
+  return enabled ? '' : ' [глобально отключено на проде]';
+}
+
+export function buildHelpText(env: Env): string {
+  const summaryLabel = disabledOnProdLabel(isFeatureEnabled(env.ENABLE_SUMMARY));
+  const activityLabel = disabledOnProdLabel(isFeatureEnabled(env.ENABLE_ACTIVITY_TRACKING));
+  const profanityLabel = disabledOnProdLabel(isFeatureEnabled(env.ENABLE_PROFANITY_ANALYSIS));
+  const criminalLabel = disabledOnProdLabel(isFeatureEnabled(env.ENABLE_CRIMINAL_ANALYSIS));
+
+  return [
+    'Справка по командам чата',
+    '',
+    'Сводки',
+    `/summary <days> – сводка за последние N дней (по умолчанию 1)${summaryLabel}`,
+    `/summary_last <n> – сводка последних N сообщений (по умолчанию 100, макс 1000)${summaryLabel}`,
+    '',
+    'Активность',
+    `/top <n> – топ N активных пользователей за сегодня (по умолчанию 5)${activityLabel}`,
+    `/activity_week – график активности за неделю${activityLabel}`,
+    `/activity_month – график активности за последние 30 дней${activityLabel}`,
+    `/activity_users_week – активность по пользователям за неделю${activityLabel}`,
+    `/activity_users_month – активность по пользователям за последние 30 дней${activityLabel}`,
+    `/activity chart <period> – активность чата за период${activityLabel}`,
+    `/activity users <period> – активность пользователей за период${activityLabel}`,
+    `/activity_hours <period> – средняя активность по часам суток${activityLabel}`,
+    'period: week | month | 2m | 14d | 8w | prev_week | prev_month | YYYY-MM-DD YYYY-MM-DD',
+    '',
+    'Мат',
+    `/profanity_top [n] [period] – топ N матершинников${profanityLabel}`,
+    `/profanity_words [n] [period] – топ N матерных слов${profanityLabel}`,
+    `/my_profanity [period] – ваша статистика мата${profanityLabel}`,
+    `/profanity_chart_week – график мата за неделю${profanityLabel}`,
+    `/profanity_chart_month – график мата за месяц${profanityLabel}`,
+    'period: today | week | month',
+    '',
+    'УК РФ',
+    `/criminal_stats [period] – статистика нарушений УК РФ${criminalLabel}`,
+    `/my_criminal [period] – ваша статистика нарушений УК РФ${criminalLabel}`,
+    `/criminal_top [n] [period] – топ N нарушителей УК РФ${criminalLabel}`,
+    'period: today | week | month',
+    '',
+    '/help – показать эту справку',
+  ].join('\n');
+}
 
 export function getTextMessage(update: any) {
   const msg = update.message;
@@ -803,7 +807,7 @@ export async function handleUpdate(msg: any, env: Env) {
   } else if (command.name === '/auto_notifications') {
     await handleAutoNotificationsCommand(env, msg);
   } else if (command.name === '/help') {
-    await sendMessage(env, chatId, HELP_TEXT);
+    await sendMessage(env, chatId, buildHelpText(env));
   }
   // Note: Background analysis (profanity and criminal code) is handled in recordMessage function
 }

@@ -70,7 +70,7 @@ describe('Comprehensive E2E Integration Tests', () => {
 
   describe('Command Functionality Tests', () => {
     describe('Help Command', () => {
-      it('should display help text with all available commands', async () => {
+      it('should display chat-focused help text', async () => {
         const message = createTestMessage('/help');
 
         await handleUpdate(message, mockEnv);
@@ -78,13 +78,16 @@ describe('Comprehensive E2E Integration Tests', () => {
         expect(mockSendMessage).toHaveBeenCalledTimes(1);
         const helpText = mockSendMessage.mock.calls[0][2];
 
-        // Verify all major command categories are present
+        // Verify public chat command categories are present
+        expect(helpText).toContain('Справка по командам чата');
         expect(helpText).toContain('/summary');
         expect(helpText).toContain('/top');
         expect(helpText).toContain('/profanity_top');
         expect(helpText).toContain('/criminal_stats');
         expect(helpText).toContain('/activity');
-        expect(helpText).toContain('/reset');
+        expect(helpText).not.toContain('/reset');
+        expect(helpText).not.toContain('/test_race_conditions');
+        expect(helpText).not.toContain('/auto_notifications');
       });
     });
 
