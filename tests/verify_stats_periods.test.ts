@@ -96,26 +96,17 @@ describe('Stats Period Verification', () => {
         expect(chartConfig.data.labels).toEqual(['testuser']);
     });
 
-    it('should correctly aggregate activityByUser for the last month (4 weeks / 28 days)', async () => {
+    it('should correctly aggregate activityByUser for the last month (30 days)', async () => {
         const chatId = 123;
         const userId = 456;
         const username = 'testuser';
 
         // Today: 2025-11-19
-        // Month range: MONTH_DAYS = 27. Start = 19 - 27 = Oct 23 (approx).
-        // Let's calculate exactly.
-        // Nov 19. Nov has 30 days? No, 30 days hath September... November.
-        // 19 days in Nov. Need 8 more days back in Oct.
-        // Oct has 31 days. 31 - 8 + 1 = 24?
-        // 19 (Nov) + 8 (Oct) = 27 days back.
-        // 19, 18... 1 (19 days). 31, 30, 29, 28, 27, 26, 25, 24 (8 days).
-        // So start date is Oct 23rd?
-        // Let's verify with Date object logic in test.
         const today = new Date('2025-11-19T00:00:00Z');
         const start = new Date(today);
-        start.setUTCDate(today.getUTCDate() - 27);
+        start.setUTCDate(today.getUTCDate() - 29);
         const startStr = start.toISOString().slice(0, 10);
-        console.log('Month Start Date:', startStr); // Should be 2025-10-23
+        console.log('Month Start Date:', startStr); // 30 days including today
 
         // Add data inside range
         kvData.set(`stats_v2:${chatId}:2025-11-19:${userId}`, '10');
@@ -197,4 +188,3 @@ describe('Stats Period Verification', () => {
         expect(text).toContain(`We |${bar} 1`);
     });
 });
-

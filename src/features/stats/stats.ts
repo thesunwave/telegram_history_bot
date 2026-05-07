@@ -4,6 +4,126 @@ import { sendMessage, sendPhoto } from '../../core/telegram';
 import { summariseChat } from '../summary/summary';
 import { ViolationHandler } from './violation-handler';
 
+const WEEK_LENGTH_DAYS = 7;
+const MONTH_LENGTH_DAYS = 30;
+const MAX_ACTIVITY_RANGE_DAYS = 180;
+
+export interface ActivityDateRange {
+  startDate: string;
+  endDate: string;
+  label: string;
+  dayCount: number;
+}
+
+export function parseActivityCommand(text: string): { name: string; args: string[] } {
+  const parts = text.trim().split(/\s+/).filter(Boolean);
+  const [rawName = '', ...args] = parts;
+  const name = rawName.split('@')[0];
+  return { name, args };
+}
+
+function toUtcDay(date: Date): Date {
+  const utc = new Date(date);
+  utc.setUTCHours(0, 0, 0, 0);
+  return utc;
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  const result = new Date(date);
+  result.setUTCDate(result.getUTCDate() + days);
+  return result;
+}
+
+function formatDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function parseIsoDate(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00Z`);
+  return formatDate(date) === value ? date : null;
+}
+
+function buildRange(start: Date, end: Date, label?: string): ActivityDateRange {
+  const startDate = formatDate(start);
+  const endDate = formatDate(end);
+  const dayCount = Math.floor((end.getTime() - start.getTime()) / (DAY * 1000)) + 1;
+  if (dayCount <= 0) throw new Error('Начальная дата должна быть раньше конечной');
+  if (dayCount > MAX_ACTIVITY_RANGE_DAYS) {
+    throw new Error(`Период не должен превышать ${MAX_ACTIVITY_RANGE_DAYS} дней`);
+  }
+  return {
+    startDate,
+    endDate,
+    label: label || `${startDate} - ${endDate}`,
+    dayCount,
+  };
+}
+
+function lastNDaysRange(today: Date, days: number, label: string): ActivityDateRange {
+  return buildRange(addUtcDays(today, -(days - 1)), today, label);
+}
+
+export function parseActivityPeriod(args: string[], now: Date = new Date()): ActivityDateRange {
+  const today = toUtcDay(now);
+  const [first = 'week', second] = args;
+
+  if (second !== undefined) {
+    const start = parseIsoDate(first);
+    const end = parseIsoDate(second);
+    if (!start || !end) throw new Error('Используйте даты в формате YYYY-MM-DD YYYY-MM-DD');
+    return buildRange(start, end);
+  }
+
+  if (first === 'week') return lastNDaysRange(today, WEEK_LENGTH_DAYS, 'последние 7 дней');
+  if (first === 'month') return lastNDaysRange(today, MONTH_LENGTH_DAYS, 'последние 30 дней');
+  if (first === 'prev_week') {
+    const end = addUtcDays(today, -WEEK_LENGTH_DAYS);
+    return buildRange(addUtcDays(end, -(WEEK_LENGTH_DAYS - 1)), end, 'предыдущие 7 дней');
+  }
+  if (first === 'prev_month') {
+    const currentMonthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    const end = addUtcDays(currentMonthStart, -1);
+    const start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
+    return buildRange(start, end, 'предыдущий месяц');
+  }
+
+  const duration = first.match(/^(\d+)([dmw])$/);
+  if (duration) {
+    const value = parseInt(duration[1], 10);
+    const unit = duration[2];
+    if (value <= 0) throw new Error('Период должен быть больше нуля');
+    const days = unit === 'd' ? value : unit === 'w' ? value * WEEK_LENGTH_DAYS : value * MONTH_LENGTH_DAYS;
+    return lastNDaysRange(today, days, `последние ${days} дней`);
+  }
+
+  const singleDate = parseIsoDate(first);
+  if (singleDate) return buildRange(singleDate, singleDate);
+
+  throw new Error('Неверный период. Используйте week, month, 2m, 14d, 8w, prev_week, prev_month или YYYY-MM-DD YYYY-MM-DD');
+}
+
+export function listActivityDays(range: ActivityDateRange): string[] {
+  const days: string[] = [];
+  const start = parseIsoDate(range.startDate);
+  const end = parseIsoDate(range.endDate);
+  if (!start || !end) return days;
+  for (let d = new Date(start); d <= end; d = addUtcDays(d, 1)) {
+    days.push(formatDate(d));
+  }
+  return days;
+}
+
+function formatRangeTitle(prefix: string, range: ActivityDateRange): string {
+  return `${prefix}: ${range.startDate} - ${range.endDate}`;
+}
+
+function resolveActivityRange(periodArgs: string[] | string | ActivityDateRange): ActivityDateRange {
+  if (typeof periodArgs === 'string') return parseActivityPeriod([periodArgs]);
+  if (Array.isArray(periodArgs)) return parseActivityPeriod(periodArgs);
+  return periodArgs;
+}
+
 export async function topChat(
   env: Env,
   chatId: number,
@@ -60,10 +180,28 @@ export async function resetCounters(env: Env, chatId: number) {
       await env.COUNTERS.delete(key.name);
     }
   } while (cursor);
+  const v2Prefix = `stats_v2:${chatId}:`;
+  cursor = undefined;
+  do {
+    const list: any = await env.COUNTERS.list({ prefix: v2Prefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    for (const key of list.keys) {
+      await env.COUNTERS.delete(key.name);
+    }
+  } while (cursor);
   const aPrefix = `activity:${chatId}:`;
   cursor = undefined;
   do {
     const list: any = await env.COUNTERS.list({ prefix: aPrefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    for (const key of list.keys) {
+      await env.COUNTERS.delete(key.name);
+    }
+  } while (cursor);
+  const hourPrefix = `activity_hour:${chatId}:`;
+  cursor = undefined;
+  do {
+    const list: any = await env.COUNTERS.list({ prefix: hourPrefix, cursor });
     cursor = !list.list_complete ? list.cursor : undefined;
     for (const key of list.keys) {
       await env.COUNTERS.delete(key.name);
@@ -153,6 +291,13 @@ function formatActivityText(data: { label: string; value: number }[]): string {
   return total > 0 ? `${text}\nTotal: ${total}` : text;
 }
 
+function formatActivityTextWithTitle(
+  data: { label: string; value: number }[],
+  title: string,
+): string {
+  return `${title}\n${formatActivityText(data)}`;
+}
+
 interface ChartDataset {
   label: string;
   data: number[];
@@ -207,25 +352,23 @@ function createBarChartUrl(
 export async function activityChart(
   env: Env,
   chatId: number,
-  period: 'week' | 'month',
+  periodArgs: string[] | string | ActivityDateRange = ['week'],
 ): Promise<string | void> {
-  const prefix = `activity:${chatId}:`;
-  let cursor: string | undefined = undefined;
+  let range: ActivityDateRange;
+  try {
+    range = resolveActivityRange(periodArgs);
+  } catch (error: any) {
+    return await sendMessage(env, chatId, error.message || 'Неверный период');
+  }
+
   const totals: Record<string, number> = {};
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const start = new Date(today);
-  start.setUTCDate(
-    start.getUTCDate() - (period === 'month' ? MONTH_DAYS : WEEK_DAYS),
-  );
-  const startStr = start.toISOString().slice(0, 10);
   let dbOk = false;
   if (env.DB) {
     try {
       const res = await env.DB.prepare(
-        'SELECT day, count FROM activity WHERE chat_id = ? AND day >= ? ORDER BY day',
+        'SELECT day, count FROM activity WHERE chat_id = ? AND day >= ? AND day <= ? ORDER BY day',
       )
-        .bind(chatId, startStr)
+        .bind(chatId, range.startDate, range.endDate)
         .all();
       const rows = (res.results as { day: string; count: number }[]) || [];
       for (const row of rows) {
@@ -240,16 +383,7 @@ export async function activityChart(
     }
   }
   if (!dbOk) {
-    const days: string[] = [];
-    const loopDate = new Date(start);
-    // Clone loopDate to avoid modifying 'start' which might be used elsewhere (though here it seems fine)
-    // Actually start is used in startStr, but loopDate is a new object.
-
-    // Ensure we iterate up to today
-    while (loopDate <= today) {
-      days.push(loopDate.toISOString().slice(0, 10));
-      loopDate.setUTCDate(loopDate.getUTCDate() + 1);
-    }
+    const days = listActivityDays(range);
 
     // Process in chunks to avoid hitting subrequest limits
     const BATCH_SIZE = 10;
@@ -269,53 +403,41 @@ export async function activityChart(
   }
 
   let data: { label: string; value: number }[] = [];
-  if (period === 'week') {
+  const days = listActivityDays(range);
+  if (range.dayCount <= 31) {
     const labels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(today.getTime() - i * DAY * 1000);
-      const key = d.toISOString().slice(0, 10);
-      data.push({ label: labels[d.getUTCDay()], value: totals[key] || 0 });
+    for (const day of days) {
+      const d = new Date(`${day}T00:00:00Z`);
+      const suffix = range.dayCount <= 7 ? labels[d.getUTCDay()] : day.slice(5);
+      data.push({ label: suffix, value: totals[day] || 0 });
     }
   } else {
-    const weeks = [0, 0, 0, 0];
-    for (const day in totals) {
-      const diff = Math.floor(
-        (today.getTime() - new Date(day).getTime()) / (DAY * 1000),
-      );
-      const idx = 3 - Math.floor(diff / 7);
-      if (idx >= 0 && idx < 4) weeks[idx] += totals[day];
+    for (let i = 0; i < days.length; i += WEEK_LENGTH_DAYS) {
+      const bucketDays = days.slice(i, i + WEEK_LENGTH_DAYS);
+      const value = bucketDays.reduce((sum, day) => sum + (totals[day] || 0), 0);
+      data.push({ label: bucketDays[0].slice(5), value });
     }
-    for (let i = 0; i < 4; i++)
-      data.push({ label: `W${i + 1}`, value: weeks[i] });
   }
 
-  return await sendMessage(env, chatId, formatActivityText(data));
+  return await sendMessage(env, chatId, formatActivityTextWithTitle(data, formatRangeTitle('Активность', range)));
 }
 
 export async function activityByUser(
   env: Env,
   chatId: number,
-  period: 'week' | 'month',
+  periodArgs: string[] | string | ActivityDateRange = ['week'],
 ): Promise<string | void> {
+  let range: ActivityDateRange;
+  try {
+    range = resolveActivityRange(periodArgs);
+  } catch (error: any) {
+    return await sendMessage(env, chatId, error.message || 'Неверный период');
+  }
+
   const totals: Record<string, number> = {};
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const start = new Date(today);
-  start.setUTCDate(
-    start.getUTCDate() - (period === 'month' ? MONTH_DAYS : WEEK_DAYS),
-  );
-  const startStr = start.toISOString().slice(0, 10);
-  const endStr = today.toISOString().slice(0, 10);
 
   // Limit KV scans to the required date range to avoid exceeding subrequest limits
-  const days: string[] = [];
-  for (
-    let d = new Date(start);
-    d.getTime() <= today.getTime();
-    d.setUTCDate(d.getUTCDate() + 1)
-  ) {
-    days.push(d.toISOString().slice(0, 10));
-  }
+  const days = listActivityDays(range);
 
   for (const day of days) {
     const prefix = `stats_v2:${chatId}:${day}:`;
@@ -343,13 +465,61 @@ export async function activityByUser(
   const sorted = Object.entries(totals)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10);
+  if (sorted.length === 0) {
+    return await sendMessage(env, chatId, `${formatRangeTitle('Активность пользователей', range)}\nНет данных`);
+  }
   const names = await Promise.all(
     sorted.map(([u]) => env.COUNTERS.get(`user:${u}`)),
   );
   const labels = names.map((n: string | null, i: number) => sanitizeLabel(n || `id${sorted[i][0]}`));
   const data = sorted.map(([, c]) => c);
-  const title = `${startStr} - ${endStr}`;
+  const title = formatRangeTitle('Активность пользователей', range);
   const url = createBarChartUrl(labels, data, 'Messages', title);
+  return await sendPhoto(env, chatId, url);
+}
+
+export async function activityHours(
+  env: Env,
+  chatId: number,
+  periodArgs: string[] | string | ActivityDateRange = ['week'],
+): Promise<string | void> {
+  let range: ActivityDateRange;
+  try {
+    range = resolveActivityRange(periodArgs);
+  } catch (error: any) {
+    return await sendMessage(env, chatId, error.message || 'Неверный период');
+  }
+
+  const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
+  const totals: Record<string, number> = Object.fromEntries(hours.map(hour => [hour, 0]));
+  let foundData = false;
+  const days = listActivityDays(range);
+
+  for (const day of days) {
+    const keys = hours.map(hour => `activity_hour:${chatId}:${day}:${hour}`);
+    const BATCH_SIZE = 12;
+    for (let i = 0; i < keys.length; i += BATCH_SIZE) {
+      const batch = keys.slice(i, i + BATCH_SIZE);
+      const values = await Promise.all(batch.map(key => env.COUNTERS.get(key)));
+      for (let j = 0; j < batch.length; j++) {
+        const value = parseInt(values[j] || '0', 10);
+        if (value > 0) foundData = true;
+        const hour = batch[j].split(':')[3];
+        totals[hour] += value;
+      }
+    }
+  }
+
+  if (!foundData) {
+    return await sendMessage(
+      env,
+      chatId,
+      `${formatRangeTitle('Почасовая активность', range)}\nНет почасовых данных за выбранный период. Почасовая статистика собирается с первого сообщения после деплоя этой функции.`,
+    );
+  }
+
+  const data = hours.map(hour => Number((totals[hour] / range.dayCount).toFixed(2)));
+  const url = createBarChartUrl(hours, data, 'Avg messages/day', formatRangeTitle('Почасовая активность', range));
   return await sendPhoto(env, chatId, url);
 }
 

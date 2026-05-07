@@ -34,6 +34,11 @@ vi.mock('../src/features/stats/stats', () => ({
   profanityChart: vi.fn(),
   resetProfanityCounters: vi.fn(),
   resetCriminalCounters: vi.fn(),
+  activityHours: vi.fn(),
+  parseActivityCommand: (text: string) => {
+    const [rawName = '', ...args] = text.trim().split(/\s+/).filter(Boolean);
+    return { name: rawName.split('@')[0], args };
+  },
   formatViolationMessage: vi.fn(),
   getUserStats: vi.fn(),
   getPeriodStats: vi.fn(),
@@ -53,7 +58,12 @@ vi.mock('../src/features/stats/stats', () => ({
   myProfanityStats: vi.fn(),
   profanityChart: vi.fn(),
   resetProfanityCounters: vi.fn(),
-  resetCriminalCounters: vi.fn()
+  resetCriminalCounters: vi.fn(),
+  activityHours: vi.fn(),
+  parseActivityCommand: (text: string) => {
+    const [rawName = '', ...args] = text.trim().split(/\s+/).filter(Boolean);
+    return { name: rawName.split('@')[0], args };
+  },
 }));
 
 describe('Telegram Integration Tests', () => {

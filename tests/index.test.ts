@@ -583,7 +583,7 @@ describe("webhook", () => {
     const encoded = body.photo.split("?c=")[1];
     const chart = JSON.parse(decodeURIComponent(encoded));
     expect(chart.options.plugins.title.text).toMatch(
-      /^\d{4}-\d{2}-\d{2} - \d{4}-\d{2}-\d{2}$/,
+      /^Активность пользователей: \d{4}-\d{2}-\d{2} - \d{4}-\d{2}-\d{2}$/,
     );
     expect(chart.options.plugins.datalabels.anchor).toBe("end");
     expect(chart.options.plugins.datalabels.align).toBe("top");

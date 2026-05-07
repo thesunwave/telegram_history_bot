@@ -5,6 +5,7 @@ import { Logger } from '../core/logger';
 const STATS_PREFIX = 'stats';
 const USER_PREFIX = 'user';
 const ACTIVITY_PREFIX = 'activity';
+const ACTIVITY_HOUR_PREFIX = 'activity_hour';
 const PROFANITY_USER_PREFIX = 'profanity';
 const PROFANITY_WORDS_PREFIX = 'profanity_words';
 const CRIMINAL_USER_PREFIX = 'criminal';
@@ -16,6 +17,7 @@ export interface IncrementPayload {
   userId: number;
   username: string;
   day: string;
+  hour?: number;
 }
 
 export interface ProfanityIncrementPayload {
@@ -125,7 +127,7 @@ export class CountersDO {
       throw new Error('invalid criminal payload');
   }
 
-  private async incrementCounters({ chatId, userId, username, day }: IncrementPayload): Promise<{ userDayCount: number; chatDayActivity: number }> {
+  private async incrementCounters({ chatId, userId, username, day, hour }: IncrementPayload): Promise<{ userDayCount: number; chatDayActivity: number }> {
     const statsKey = `${STATS_PREFIX}:${chatId}:${userId}:${day}`;
     const count = parseInt((await this.env.COUNTERS.get(statsKey)) || '0', 10) + 1;
     await this.env.COUNTERS.put(statsKey, String(count));
@@ -140,6 +142,12 @@ export class CountersDO {
     const activityKey = `${ACTIVITY_PREFIX}:${chatId}:${day}`;
     const actCnt = parseInt((await this.env.COUNTERS.get(activityKey)) || '0', 10) + 1;
     await this.env.COUNTERS.put(activityKey, String(actCnt));
+
+    if (hour !== undefined && Number.isInteger(hour) && hour >= 0 && hour <= 23) {
+      const activityHourKey = `${ACTIVITY_HOUR_PREFIX}:${chatId}:${day}:${hour.toString().padStart(2, '0')}`;
+      const hourCnt = parseInt((await this.env.COUNTERS.get(activityHourKey)) || '0', 10) + 1;
+      await this.env.COUNTERS.put(activityHourKey, String(hourCnt));
+    }
 
     if (this.env.DB) {
       try {
