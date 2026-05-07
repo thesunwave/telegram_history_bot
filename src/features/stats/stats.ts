@@ -307,8 +307,19 @@ interface ChartConfig {
   type: 'bar';
   data: { labels: string[]; datasets: ChartDataset[] };
   options?: {
+    title?: {
+      display: boolean;
+      text: string;
+      fontSize?: number;
+    };
+    legend?: {
+      display: boolean;
+    };
     plugins: {
       title: { display: boolean; text: string };
+      legend?: {
+        display: boolean;
+      };
       datalabels?: {
         anchor?: 'start' | 'center' | 'end' | string;
         align?: 'top' | 'bottom' | 'center' | 'start' | 'end' | string;
@@ -338,8 +349,11 @@ function createBarChartUrl(
     type: 'bar',
     data: { labels, datasets: [{ label: name, data }] },
     options: {
+      title: { display: Boolean(title), text: title ?? '', fontSize: 18 },
+      legend: { display: false },
       plugins: {
         title: { display: Boolean(title), text: title ?? '' },
+        legend: { display: false },
         datalabels: { anchor: 'end', align: 'top' },
       },
     },

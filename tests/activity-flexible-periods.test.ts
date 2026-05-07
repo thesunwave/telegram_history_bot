@@ -131,6 +131,8 @@ describe('activity flexible periods', () => {
     expect(listCalls).not.toContain('stats_v2:123:2026-03-08:');
     const config = chartConfigFromUrl(mocks.sendPhoto.mock.calls[0][2]);
     expect(config.options.plugins.title.text).toBe('Активность пользователей: 2026-03-09 - 2026-05-07');
+    expect(config.options.title.text).toBe('Активность пользователей: 2026-03-09 - 2026-05-07');
+    expect(config.options.legend.display).toBe(false);
     expect(config.data.datasets[0].data).toEqual([9]);
   });
 
@@ -175,6 +177,7 @@ describe('activity flexible periods', () => {
 
     const config = chartConfigFromUrl(mocks.sendPhoto.mock.calls[0][2]);
     expect(config.options.plugins.title.text).toBe('Почасовая активность: 2026-05-01 - 2026-05-07');
+    expect(config.options.title.text).toBe('Почасовая активность: 2026-05-01 - 2026-05-07');
     expect(config.data.labels[13]).toBe('13');
     expect(config.data.datasets[0].data[13]).toBe(1);
   });
