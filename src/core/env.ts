@@ -41,6 +41,10 @@ export interface Env {
   VERY_LARGE_DATASET_BATCH_DELAY?: number;
   ADMIN_USER_ID?: string;
   DRY_RUN?: string;
+  ADMIN_SECRET?: string;
+  ENABLE_ADMIN_ENDPOINTS?: string | boolean;
+  ENABLE_DEBUG_ENDPOINTS?: string | boolean;
+  WEBHOOK_HMAC_SECRET?: string;
 
   // Optimized summary system configuration
   SUMMARY_OPT_ENABLED?: string | boolean;

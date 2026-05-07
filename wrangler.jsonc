@@ -120,6 +120,8 @@
     // ========================================
     // 🚩 FEATURE TOGGLES
     // ========================================
+    "ENABLE_ADMIN_ENDPOINTS": false,
+    "ENABLE_DEBUG_ENDPOINTS": false,
     "ENABLE_CRIMINAL_ANALYSIS": false,
     "ENABLE_PROFANITY_ANALYSIS": false,
     "ENABLE_SUMMARY": false,

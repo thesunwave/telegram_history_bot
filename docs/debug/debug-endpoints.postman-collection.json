@@ -10,7 +10,12 @@
             "name": "Top Users",
             "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{adminSecret}}"
+                    }
+                ],
                 "url": {
                     "raw": "http://localhost:8787/debug/top_users?chatId=-1001234567890&n=5",
                     "protocol": "http",
@@ -42,7 +47,12 @@
             "name": "Profanity Top Users",
             "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{adminSecret}}"
+                    }
+                ],
                 "url": {
                     "raw": "http://localhost:8787/debug/profanity_top?chatId=-1001234567890&count=10&period=today",
                     "protocol": "http",
@@ -79,7 +89,12 @@
             "name": "Profanity Words Stats",
             "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{adminSecret}}"
+                    }
+                ],
                 "url": {
                     "raw": "http://localhost:8787/debug/profanity_words?chatId=-1001234567890&count=10&period=week",
                     "protocol": "http",
@@ -116,7 +131,12 @@
             "name": "My Profanity Stats",
             "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{adminSecret}}"
+                    }
+                ],
                 "url": {
                     "raw": "http://localhost:8787/debug/my_profanity?chatId=-1001234567890&userId=123456789&period=today",
                     "protocol": "http",
@@ -153,7 +173,12 @@
             "name": "Profanity Chart",
             "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{adminSecret}}"
+                    }
+                ],
                 "url": {
                     "raw": "http://localhost:8787/debug/profanity_chart?chatId=-1001234567890&period=week",
                     "protocol": "http",
@@ -185,7 +210,12 @@
             "name": "Activity Chart",
             "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{adminSecret}}"
+                    }
+                ],
                 "url": {
                     "raw": "http://localhost:8787/debug/activity_chart?chatId=-1001234567890&period=week",
                     "protocol": "http",
@@ -217,7 +247,12 @@
             "name": "Activity by Users",
             "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{adminSecret}}"
+                    }
+                ],
                 "url": {
                     "raw": "http://localhost:8787/debug/activity_users?chatId=-1001234567890&period=week",
                     "protocol": "http",
@@ -249,7 +284,12 @@
             "name": "Criminal Code Stats",
             "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{adminSecret}}"
+                    }
+                ],
                 "url": {
                     "raw": "http://localhost:8787/debug/criminal_stats?chatId=-1001234567890&period=today",
                     "protocol": "http",
@@ -281,7 +321,12 @@
             "name": "Criminal Top Users",
             "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{adminSecret}}"
+                    }
+                ],
                 "url": {
                     "raw": "http://localhost:8787/debug/criminal_top?chatId=-1001234567890&count=5&period=today",
                     "protocol": "http",
@@ -318,7 +363,12 @@
             "name": "My Criminal Stats",
             "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{adminSecret}}"
+                    }
+                ],
                 "url": {
                     "raw": "http://localhost:8787/debug/my_criminal?chatId=-1001234567890&userId=123456789&period=today",
                     "protocol": "http",
@@ -366,6 +416,11 @@
         {
             "key": "userId",
             "value": "123456789",
+            "type": "string"
+        },
+        {
+            "key": "adminSecret",
+            "value": "",
             "type": "string"
         }
     ]

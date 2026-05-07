@@ -120,12 +120,27 @@ export const MIGRATION_PAGE = `
     const logEl = document.getElementById('log');
     const statusEl = document.getElementById('status');
     const repairBtn = document.getElementById('repairBtn');
+    const adminSecretKey = 'admin_secret';
 
     const appendLog = (msg) => {
       const div = document.createElement('div');
       div.textContent = new Date().toLocaleTimeString() + ': ' + msg;
       logEl.appendChild(div);
       logEl.scrollTop = logEl.scrollHeight;
+    };
+
+    const getAdminSecret = () => {
+      const stored = localStorage.getItem(adminSecretKey);
+      if (stored) return stored;
+      const entered = prompt('Enter admin secret');
+      if (entered) {
+        const trimmed = entered.trim();
+        if (trimmed) {
+          localStorage.setItem(adminSecretKey, trimmed);
+          return trimmed;
+        }
+      }
+      return null;
     };
 
     async function runBatchProcess(name, url) {
@@ -136,12 +151,18 @@ export const MIGRATION_PAGE = `
       
       while (true) {
         statusEl.textContent = name + '... Total: ' + total;
-        const urlParams = new URL(window.location.href).searchParams;
-        const key = urlParams.get('key');
-        const authParam = key ? (cursor ? '&' : '?') + 'key=' + encodeURIComponent(key) : '';
-        const fullUrl = url + (cursor ? '?cursor=' + encodeURIComponent(cursor) : '') + authParam;
+        const adminSecret = getAdminSecret();
+        if (!adminSecret) {
+          throw new Error('Admin secret is required');
+        }
+        const fullUrl = url + (cursor ? '?cursor=' + encodeURIComponent(cursor) : '');
         
-        const res = await fetch(fullUrl, { method: 'POST' });
+        const res = await fetch(fullUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + adminSecret,
+          },
+        });
         if (!res.ok) throw new Error('Request failed: ' + res.status);
         
         const data = await res.json();

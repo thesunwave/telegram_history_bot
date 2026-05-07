@@ -111,9 +111,17 @@ For detailed documentation, see `docs/README.md`.
    ```bash
    wrangler secret put TOKEN
    wrangler secret put SECRET
+   wrangler secret put ADMIN_SECRET
    wrangler secret put OPENAI_API_KEY
    wrangler secret put OPENAI_PREMIUM_API_KEY
    ```
+   `SECRET` is the Telegram webhook secret token, and `ADMIN_SECRET` protects
+   admin/debug HTTP endpoints. If you add an HMAC proxy, set:
+   ```bash
+   wrangler secret put WEBHOOK_HMAC_SECRET
+   ```
+   When `WEBHOOK_HMAC_SECRET` is set, requests must include
+   `X-Webhook-Signature: sha256=<hex>` for the raw request body.
    Providers and models are configured via `wrangler.jsonc`:
    - `SUMMARY_PROVIDER`, `PROFANITY_PROVIDER`, `CRIMINAL_PROVIDER`
    - `OPENAI_MODEL` / `OPENAI_PREMIUM_MODEL` / `CLOUDFLARE_MODEL`
@@ -123,6 +131,17 @@ For detailed documentation, see `docs/README.md`.
    ```bash
    npm run deploy
    ```
+
+## Admin Endpoints
+
+Admin endpoints (`/migrate`, `/api/migrate`, `/api/reset-activity`, `/debug/*`)
+are disabled by default and require `Authorization: Bearer $ADMIN_SECRET` when
+enabled. Set these flags in `wrangler.jsonc` or via environment variables:
+
+```bash
+ENABLE_ADMIN_ENDPOINTS=true
+ENABLE_DEBUG_ENDPOINTS=true
+```
 
 ## Development
 
