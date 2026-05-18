@@ -167,7 +167,7 @@ describe('Criminal Notifications Integration', () => {
       expect(sendMessage).not.toHaveBeenCalled();
     });
 
-    it('should send notification when criminal reports are enabled', async () => {
+    it('should not send chat notification when criminal reports are enabled', async () => {
       // Настраиваем мок для включенных криминальных репортов
       const enabledSettings = {
         chatId: '123',
@@ -201,13 +201,9 @@ describe('Criminal Notifications Integration', () => {
       // Ждем завершения асинхронных операций
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Проверяем, что сообщение БЫЛО отправлено
+      // Criminal checks are now queued and reported admin-only by the analyzer DO.
       const { sendMessage } = await import('../../src/core/telegram');
-      expect(sendMessage).toHaveBeenCalledWith(
-        mockEnv,
-        123,
-        expect.stringContaining('Обнаружено нарушение УК РФ')
-      );
+      expect(sendMessage).not.toHaveBeenCalledWith(mockEnv, 123, expect.any(String));
     });
 
     it('should not send notification when no settings exist (default behavior)', async () => {

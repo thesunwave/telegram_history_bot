@@ -619,7 +619,11 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       // Мокаем ответ от CRIMINAL_CODE_ANALYZER_DO
       const mockAnalyzerResponse = new Response(
-        JSON.stringify(mockViolationAnalysis),
+        JSON.stringify({
+          queued: true,
+          reasons: ['threat_or_violence'],
+          queueSize: 1
+        }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
 
@@ -687,19 +691,13 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       expect(mockCriminalAnalyzerDO.idFromName).toHaveBeenCalledWith('-100123456789');
       expect(mockCriminalAnalyzerDO.get).toHaveBeenCalled();
 
-      // Проверяем, что было отправлено сообщение о нарушении
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      // The webhook now only enqueues contextual criminal analysis.
+      // Confirmed violations are reported admin-only by CriminalCodeAnalyzerDO, not to the chat.
+      expect(mockSendMessage).not.toHaveBeenCalledWith(
         mockEnv,
         -100123456789,
-        expect.stringContaining('🚨')
+        expect.any(String)
       );
-
-      const sentMessage = mockSendMessage.mock.calls[0][2];
-      expect(sentMessage).toContain('Обнаружены нарушения УК РФ');
-      expect(sentMessage).toContain('Статья 282 УК РФ');
-      expect(sentMessage).toContain('Тестовая цитата нарушения');
-      expect(sentMessage).toContain('8/10');
-      expect(sentMessage).toContain('90%');
     });
 
     it('должен обработать анализ сообщения без нарушений через мок LLM', async () => {

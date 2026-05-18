@@ -54,6 +54,10 @@ export interface CriminalViolation {
   punishment: string;
   severity: number;
   confidence: number;
+  evidence?: CriminalViolationEvidence;
+  decision?: CriminalDecision;
+  targetMessageId?: number;
+  contextWindow?: CriminalContextWindow;
 }
 
 export interface CriminalAnalysisResult {
@@ -62,6 +66,47 @@ export interface CriminalAnalysisResult {
   totalSeverity: number;
   riskLevel: 'low' | 'medium' | 'high' | 'critical';
   analysisTimestamp: number;
+  decision?: CriminalDecision;
+  evidence?: CriminalViolationEvidence;
+  targetMessageId?: number;
+  contextWindow?: CriminalContextWindow;
+}
+
+export type CriminalDecision = 'violation' | 'no_violation' | 'uncertain';
+
+export interface CriminalViolationEvidence {
+  subject: string;
+  object: string;
+  intent: string;
+  contextSummary: string;
+  whyNotBenign: string;
+}
+
+export interface CriminalContextWindow {
+  before: number;
+  after: number;
+  totalMessages: number;
+}
+
+export interface CriminalContextMessage {
+  messageId?: number;
+  username: string;
+  userId?: number;
+  text: string;
+  ts: number;
+  relativePosition: number;
+  isTarget: boolean;
+}
+
+export interface CriminalContextAnalysisInput {
+  targetMessageId?: number;
+  targetUserId?: number;
+  targetUsername?: string;
+  targetText: string;
+  targetTimestamp: number;
+  chatId: number;
+  contextWindow: CriminalContextWindow;
+  messages: CriminalContextMessage[];
 }
 
 // Default profanity analysis prompts (fallback if not configured)
@@ -143,10 +188,18 @@ export const DEFAULT_CRIMINAL_CODE_SYSTEM_PROMPT = `Ты эксперт по У�
 4. Если нет уверенности > 0.7 в наличии состава преступления — считай, что нарушений нет.
 
 # ФОРМАТ ОТВЕТА
-Возвращай строго JSON без комментариев:
+Возвращай строго JSON без комментариев. Для контекстного анализа обязательно различай человека и предмет: если объект действия из соседних сообщений является вещью, мебелью, техникой, игрой, кодом или иной неодушевленной сущностью, не считай это нарушением УК РФ только из-за грубой/сексуальной лексики.
 
 {
   "hasViolations": boolean,
+  "decision": "violation|no_violation|uncertain",
+  "evidence": {
+    "subject": "кто выражает действие/намерение",
+    "object": "на кого или на что направлено действие",
+    "intent": "есть ли угроза, призыв, самообвинение или иное релевантное намерение",
+    "contextSummary": "краткое объяснение контекста",
+    "whyNotBenign": "почему это не бытовая фраза/шутка/метафора; если benign — почему признаков нет"
+  },
   "violations": [
     {
       "article": "XXX", // только номер статьи без подпункта (например, "282")
@@ -155,7 +208,11 @@ export const DEFAULT_CRIMINAL_CODE_SYSTEM_PROMPT = `Ты эксперт по У�
       "quote": "точная цитата из текста",
       "punishment": "описание возможного наказания",
       "severity": число_от_1_до_10,
-      "confidence": число_от_0_до_1
+      "confidence": число_от_0_до_1,
+      "decision": "violation",
+      "evidence": { ... },
+      "targetMessageId": number,
+      "contextWindow": { "before": number, "after": number, "totalMessages": number }
     }
   ],
   "totalSeverity": сумма_всех_severity,
@@ -166,6 +223,14 @@ export const DEFAULT_CRIMINAL_CODE_SYSTEM_PROMPT = `Ты эксперт по У�
 Если нарушений нет:
 {
   "hasViolations": false,
+  "decision": "no_violation",
+  "evidence": {
+    "subject": "string",
+    "object": "string",
+    "intent": "string",
+    "contextSummary": "string",
+    "whyNotBenign": "string"
+  },
   "violations": [],
   "totalSeverity": 0,
   "riskLevel": "low",
@@ -224,6 +289,7 @@ export interface AIProvider {
   summarize(request: SummaryRequest, options: SummaryOptions, env?: any): Promise<string>;
   analyzeProfanity(text: string, env?: any): Promise<ProfanityAnalysisResult>;
   analyzeCriminalCode(text: string, env?: any): Promise<CriminalAnalysisResult>;
+  analyzeCriminalCodeWithContext?(input: CriminalContextAnalysisInput, env?: any): Promise<CriminalAnalysisResult>;
   validateConfig(): void;
   getProviderInfo(): ProviderInfo;
 }

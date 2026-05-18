@@ -2,13 +2,14 @@ import { Env } from "../env";
 import { AIProvider } from "./ai-provider";
 import { CloudflareAIProvider } from "./cloudflare-provider";
 import { OpenAIProvider } from "./openai-provider";
+import { OpenRouterProvider } from "./openrouter-provider";
 import { MockProvider } from "./mock-provider";
 
-export type ProviderType = 'cloudflare' | 'openai' | 'openai-premium' | 'mock';
+export type ProviderType = 'cloudflare' | 'openai' | 'openai-premium' | 'openrouter' | 'mock';
 export type ProviderCapability = 'summary' | 'profanity' | 'criminal';
 
 export class ProviderFactory {
-  private static readonly SUPPORTED_PROVIDERS: ProviderType[] = ['cloudflare', 'openai', 'openai-premium', 'mock'];
+  private static readonly SUPPORTED_PROVIDERS: ProviderType[] = ['cloudflare', 'openai', 'openai-premium', 'openrouter', 'mock'];
   private static readonly DEFAULT_PROVIDER: ProviderType = 'cloudflare';
   private static readonly PROVIDER_ENV_BY_CAPABILITY: Record<ProviderCapability, string> = {
     summary: 'SUMMARY_PROVIDER',
@@ -42,6 +43,8 @@ export class ProviderFactory {
         return new OpenAIProvider(env, 'standard', modelOverride);
       case 'openai-premium':
         return new OpenAIProvider(env, 'premium', modelOverride);
+      case 'openrouter':
+        return new OpenRouterProvider(env, modelOverride);
       case 'mock':
         return new MockProvider();
       default:

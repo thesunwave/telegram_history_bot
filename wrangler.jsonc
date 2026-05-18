@@ -76,14 +76,17 @@
   },
   "vars": {
     "ENVIRONMENT": "production",
-    // Available values: "cloudflare", "openai", "openai-premium", "mock"
+    // Available values: "cloudflare", "openai", "openai-premium", "openrouter", "mock"
     "SUMMARY_PROVIDER": "openai",
     "PROFANITY_PROVIDER": "openai",
-    "CRIMINAL_PROVIDER": "openai",
+    "CRIMINAL_PROVIDER": "openrouter",
     // Capability-specific model overrides (optional)
     "OPENAI_MODEL": "gpt-4.1-nano",
     "PROFANITY_MODEL": "gpt-4.1-nano",
-    "CRIMINAL_MODEL": "gpt-4.1-nano",
+    "CRIMINAL_MODEL": "nvidia/nemotron-3-super-120b-a12b:free",
+    "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1",
+    "OPENROUTER_MODEL": "nvidia/nemotron-3-super-120b-a12b:free",
+    "OPENROUTER_TITLE": "Telegram History Bot",
     "CLOUDFLARE_MODEL": "@cf/meta/llama-3.1-70b-instruct",
     "CLOUDFLARE_MAX_TOKENS": 500,
     "CLOUDFLARE_TEMPERATURE": 0.1,
@@ -120,7 +123,7 @@
     // ========================================
     // 🚩 FEATURE TOGGLES
     // ========================================
-    "ENABLE_CRIMINAL_ANALYSIS": false,
+    "ENABLE_CRIMINAL_ANALYSIS": true,
     "ENABLE_PROFANITY_ANALYSIS": false,
     "ENABLE_SUMMARY": false,
     "ENABLE_ACTIVITY_TRACKING": true,
@@ -160,6 +163,16 @@
     // ========================================
     "CRIMINAL_STORE_TEXT_PREVIEW": true, // Store text previews in criminal_violations
     "CRIMINAL_TEXT_PREVIEW_LENGTH": 200, // Max preview length in characters
+    "CRIMINAL_QUEUE_BATCH_SIZE": 5,
+    "CRIMINAL_QUEUE_MAX_DELAY_MS": 60000,
+    "CRIMINAL_OPENROUTER_MIN_INTERVAL_MS": 3500,
+    "CRIMINAL_OPENROUTER_DAILY_SOFT_CAP": 45,
+    "CRIMINAL_CONTEXT_BEFORE": 15,
+    "CRIMINAL_CONTEXT_AFTER": 5,
+    "CRIMINAL_AI_PREFILTER_ENABLED": true,
+    "CRIMINAL_PREFILTER_MODEL": "gpt-5-nano",
+    "CRIMINAL_PREFILTER_MIN_CONFIDENCE": 0.55,
+    "CRIMINAL_PREFILTER_MAX_TOKENS": 512,
     // ========================================
     // 💰 LLM BUDGET CONFIGURATION (ADR-001)
     // ========================================

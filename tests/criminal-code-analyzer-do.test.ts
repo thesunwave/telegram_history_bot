@@ -23,10 +23,20 @@ vi.mock("../src/core/providers/provider-factory", () => ({
         hasViolations: true,
         violations: [{
           article: "282",
+          subarticle: null,
+          articleTitle: "Возбуждение ненависти либо вражды",
           quote: "Призываю к насилию против определенной группы людей",
           punishment: "Штраф до 300 000 рублей",
           severity: 5,
-          confidence: 0.9
+          confidence: 0.9,
+          decision: "violation",
+          evidence: {
+            subject: "author",
+            object: "group",
+            intent: "incitement",
+            contextSummary: "direct call",
+            whyNotBenign: "not a joke"
+          }
         }],
         totalSeverity: 5,
         riskLevel: "high",
@@ -236,6 +246,154 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(response.status).toBe(200);
       expect(result.hasViolations).toBe(false);
       expect(mockEnv.HISTORY.get).toHaveBeenCalled();
+    });
+
+    it("should skip short local no-signal messages before semantic prefilter", async () => {
+      const request = new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "какая же херня",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 112
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await analyzer.fetch(request);
+      const result = await response.json() as any;
+
+      expect(response.status).toBe(200);
+      expect(result.queued).toBe(false);
+      expect(result.reasons).toContain("short_neutral");
+    });
+
+    it("should enqueue and flush suspicious messages when batch size is reached", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.COUNTERS = {
+        get: vi.fn().mockResolvedValue("0"),
+        put: vi.fn().mockResolvedValue(undefined),
+      };
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      const response = await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "пора всех их убивать",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 113,
+          username: "testuser",
+          day: "2026-05-18"
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+      const result = await response.json() as any;
+
+      expect(response.status).toBe(200);
+      expect(result.queued).toBe(true);
+      expect(ProviderFactory.createProvider).toHaveBeenCalled();
+      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+        expect.stringContaining('criminal_openrouter_daily:'),
+        '1',
+        expect.any(Object)
+      );
+    });
+
+    it("should include json instruction for GPT-5 semantic prefilter", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        output: [{
+          content: [{
+            type: "output_text",
+            text: JSON.stringify({
+              shouldAnalyze: false,
+              reason: "none",
+              confidence: 0.1,
+              explanation: "benign"
+            })
+          }]
+        }],
+        usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 }
+      }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "какая же херня опять происходит, выглядит мутно и потенциально может быть опасной для людей",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 114,
+          username: "testuser",
+          day: "2026-05-18"
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://api.openai.com/v1/responses",
+        expect.objectContaining({
+          body: expect.stringContaining("Analyze this JSON payload and return JSON only")
+        })
+      );
+      const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(requestBody.max_output_tokens).toBeGreaterThanOrEqual(512);
+      expect(requestBody.reasoning).toEqual({ effort: "minimal" });
+      vi.unstubAllGlobals();
+    });
+
+    it("should not postpone an existing queue alarm", async () => {
+      const storage = new Map<string, any>();
+      const futureAlarm = Date.now() + 30_000;
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        getAlarm: vi.fn().mockResolvedValueOnce(null).mockResolvedValue(futureAlarm),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 5;
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      for (const messageId of [115, 116]) {
+        await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+          method: "POST",
+          body: JSON.stringify({
+            text: "обычное сообщение для проверки очереди, достаточно длинное для semantic prefilter",
+            chatId: 12345,
+            userId: 67890,
+            messageId,
+            username: "testuser",
+            day: "2026-05-18"
+          }),
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+
+      expect(mockState.storage.setAlarm).toHaveBeenCalledTimes(1);
     });
   });
 

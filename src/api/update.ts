@@ -6,7 +6,6 @@ import { sendMessage } from '../core/telegram';
 import { Logger } from '../core/logger';
 import { ProfanityAnalyzer } from '../features/profanity/profanity';
 import { ProviderFactory } from '../core/providers/provider-factory';
-import { ViolationHandler } from '../features/stats/violation-handler';
 import { NotificationService } from '../core/services/notification-service';
 import { NotificationRepository } from '../core/repositories/notification-repository';
 import type { NotificationType } from '../core/models/notification-settings';
@@ -94,6 +93,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     username,
     text: msg.text,
     ts,
+    messageId: msg.message_id,
   };
 
   Logger.debug(env, 'recordMessage: saving message', {
@@ -570,9 +570,10 @@ async function analyzeCriminalCodeAsync(
       creationTime: analyzerCreationTime
     });
 
-    // Perform analysis
+    // Enqueue contextual analysis. The Durable Object owns batching, rate gates,
+    // context building, persistence, and admin-only reporting.
     const analysisStart = Date.now();
-    const response = await analyzer.fetch('https://do/analyze', {
+    const response = await analyzer.fetch('https://do/enqueue', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -583,7 +584,9 @@ async function analyzeCriminalCodeAsync(
         userId,
         messageId: msg.message_id,
         username,
-        day
+        day,
+        ts: msg.date,
+        enqueueOnly: true
       })
     });
     const analysisTime = Date.now() - analysisStart;
@@ -592,81 +595,27 @@ async function analyzeCriminalCodeAsync(
       const result: any = await response.json();
       const totalDuration = Date.now() - startTime;
 
-      if (result.hasViolations) {
-        Logger.log('Criminal code analysis: violations detected', {
+      if (result.queued) {
+        Logger.log('Criminal code analysis: queued for contextual processing', {
           chatId: chatId.toString(36),
           userId: userId.toString(36),
           username,
-          violationsCount: result.violations?.length || 0,
-          riskLevel: result.riskLevel,
-          confidence: result.confidence,
+          reasons: result.reasons,
+          queueSize: result.queueSize,
           timings: {
             analyzerCreation: analyzerCreationTime,
-            analysis: analysisTime,
+            enqueue: analysisTime,
             total: totalDuration
-          },
-          articles: result.violations?.map((v: any) => v.article).join(', ') || 'unknown'
-        });
-
-        // Check notification settings before sending violation message
-        try {
-          const notificationRepository = new NotificationRepository(env);
-          const notificationService = new NotificationService(env, notificationRepository);
-
-          // Get notification settings for this chat
-          const settings = await notificationService.getChatSettings(chatId.toString());
-
-          // Only send if notifications are enabled and criminal reports are enabled
-          if (settings && settings.enabled && settings.notifications.criminal_reports.enabled) {
-            const violationHandler = new ViolationHandler(env);
-            const formattedMessage = await violationHandler.formatViolationMessage(
-              result,
-              userId.toString(),
-              chatId.toString()
-            );
-
-            // Send the enhanced violation message to the chat
-            await sendMessage(env, chatId, formattedMessage);
-
-            Logger.debug(env, 'Enhanced violation message sent (notifications enabled)', {
-              chatId: chatId.toString(36),
-              messageLength: formattedMessage.length
-            });
-
-            // Record notification result
-            await notificationRepository.recordNotificationResult(
-              chatId.toString(),
-              'criminal_reports',
-              {
-                success: true,
-                messageId: 'instant',
-                sentAt: new Date(),
-                responseTime: Date.now() - startTime,
-                retryAttempt: 0
-              }
-            );
-          } else {
-            Logger.debug(env, 'Criminal violation detected but notifications disabled', {
-              chatId: chatId.toString(36),
-              settingsEnabled: settings?.enabled || false,
-              criminalReportsEnabled: settings?.notifications?.criminal_reports?.enabled || false
-            });
           }
-        } catch (formatError: any) {
-          Logger.error('Failed to check notification settings or send violation message', {
-            chatId: chatId.toString(36),
-            error: formatError.message || String(formatError)
-          });
-          // Continue without throwing - the analysis was successful even if notification failed
-        }
+        });
       } else {
-        Logger.debug(env, 'Criminal code analysis: no violations detected', {
+        Logger.debug(env, 'Criminal code analysis: skipped by prefilter or duplicate', {
           chatId: chatId.toString(36),
           userId: userId.toString(36),
-          confidence: result.confidence,
+          reasons: result.reasons,
           timings: {
             analyzerCreation: analyzerCreationTime,
-            analysis: analysisTime,
+            enqueue: analysisTime,
             total: totalDuration
           }
         });

@@ -1,4 +1,4 @@
-export type ProviderType = "cloudflare" | "openai" | "openai-premium" | "mock";
+export type ProviderType = "cloudflare" | "openai" | "openai-premium" | "openrouter" | "mock";
 
 export interface Env {
   HISTORY: import("@cloudflare/workers-types").KVNamespace;
@@ -32,6 +32,11 @@ export interface Env {
   PROFANITY_USER_PROMPT?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
+  OPENROUTER_API_KEY?: string;
+  OPENROUTER_BASE_URL?: string;
+  OPENROUTER_MODEL?: string;
+  OPENROUTER_REFERER?: string;
+  OPENROUTER_TITLE?: string;
   DEBUG_LOGS?: string;
   KV_BATCH_SIZE?: number;
   KV_BATCH_DELAY?: number;
@@ -76,6 +81,16 @@ export interface Env {
   // Text preview configuration
   CRIMINAL_STORE_TEXT_PREVIEW?: string | boolean;
   CRIMINAL_TEXT_PREVIEW_LENGTH?: string | number;
+  CRIMINAL_QUEUE_BATCH_SIZE?: string | number;
+  CRIMINAL_QUEUE_MAX_DELAY_MS?: string | number;
+  CRIMINAL_OPENROUTER_MIN_INTERVAL_MS?: string | number;
+  CRIMINAL_OPENROUTER_DAILY_SOFT_CAP?: string | number;
+  CRIMINAL_CONTEXT_BEFORE?: string | number;
+  CRIMINAL_CONTEXT_AFTER?: string | number;
+  CRIMINAL_AI_PREFILTER_ENABLED?: string | boolean;
+  CRIMINAL_PREFILTER_MODEL?: string;
+  CRIMINAL_PREFILTER_MIN_CONFIDENCE?: string | number;
+  CRIMINAL_PREFILTER_MAX_TOKENS?: string | number;
 
   // ========================================
   // 💰 LLM BUDGET CONFIGURATION (ADR-001)
@@ -110,6 +125,7 @@ export interface StoredMessage {
   username: string;
   text: string;
   ts: number;
+  messageId?: number;
 }
 
 export interface DayBlock {
@@ -154,6 +170,10 @@ export interface CriminalViolation {
   punishment: string;       // Possible punishment description
   severity: number;         // Severity level 1-10
   confidence: number;       // AI confidence 0.0-1.0
+  evidence?: CriminalViolationEvidence;
+  decision?: CriminalDecision;
+  targetMessageId?: number;
+  contextWindow?: CriminalContextWindow;
 }
 
 // Result of criminal code analysis
@@ -163,6 +183,54 @@ export interface CriminalAnalysisResult {
   totalSeverity: number;
   riskLevel: 'low' | 'medium' | 'high' | 'critical';
   analysisTimestamp: number;
+  decision?: CriminalDecision;
+  evidence?: CriminalViolationEvidence;
+  targetMessageId?: number;
+  contextWindow?: CriminalContextWindow;
+}
+
+export type CriminalDecision = 'violation' | 'no_violation' | 'uncertain';
+
+export interface CriminalViolationEvidence {
+  subject: string;
+  object: string;
+  intent: string;
+  contextSummary: string;
+  whyNotBenign: string;
+}
+
+export interface CriminalContextWindow {
+  before: number;
+  after: number;
+  totalMessages: number;
+}
+
+export interface CriminalContextMessage {
+  messageId?: number;
+  username: string;
+  userId?: number;
+  text: string;
+  ts: number;
+  relativePosition: number;
+  isTarget: boolean;
+}
+
+export interface CriminalContextAnalysisInput {
+  targetMessageId?: number;
+  targetUserId?: number;
+  targetUsername?: string;
+  targetText: string;
+  targetTimestamp: number;
+  chatId: number;
+  contextWindow: CriminalContextWindow;
+  messages: CriminalContextMessage[];
+}
+
+export interface CriminalSemanticPrefilterResult {
+  shouldAnalyze: boolean;
+  reason: 'threat' | 'incitement' | 'self_incrimination' | 'extremism' | 'dangerous_instruction' | 'none';
+  confidence: number;
+  explanation: string;
 }
 
 // Request for criminal code analysis
@@ -173,8 +241,10 @@ export interface CriminalAnalysisRequest {
   messageId?: number;
   username?: string;
   day?: string;
+  ts?: number;
   useCache?: boolean;
   forceRefresh?: boolean;
+  enqueueOnly?: boolean;
 }
 
 // Batch analysis request
