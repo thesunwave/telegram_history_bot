@@ -51,7 +51,8 @@ export class LegalRagProvider implements AIProvider {
     input: CriminalContextAnalysisInput,
     env?: Env
   ): Promise<CriminalAnalysisResult> {
-    return this.findLegalReferences(input.targetText, input, env);
+    const retrievalText = input.semanticPrefilter?.searchQuery?.trim() || input.targetText;
+    return this.findLegalReferences(retrievalText, input, env);
   }
 
   validateConfig(): void {

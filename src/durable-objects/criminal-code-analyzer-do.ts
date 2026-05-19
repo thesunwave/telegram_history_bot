@@ -586,7 +586,9 @@ export class CriminalCodeAnalyzerDO {
       'Реши, нужно ли отправлять target-сообщение в дорогой юридический анализ УК РФ.',
       'Ищи только реальные признаки: угрозы, призывы к насилию, экстремизм/терроризм, самообвинение в насилии, опасные инструкции.',
       'Мат, сексуальный сленг, шутки, бытовые фразы и действия с предметами сами по себе не являются причиной.',
-      'Верни строго JSON: {"shouldAnalyze":boolean,"reason":"threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short"}'
+      'Если shouldAnalyze=true, добавь searchQuery: нейтральную юридическую формулировку для поиска по УК РФ без номера статьи и без цитирования мата.',
+      'searchQuery должен описывать деяние простыми юридическими словами, например тип поведения, объект и направленность, но не предлагать квалификацию.',
+      'Верни строго JSON: {"shouldAnalyze":boolean,"reason":"threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty"}'
     ].join('\n');
     const userPayload = JSON.stringify({
       targetMessageId: input.targetMessageId,
@@ -668,6 +670,7 @@ export class CriminalCodeAnalyzerDO {
       reason,
       confidence: typeof result.confidence === 'number' ? Math.max(0, Math.min(1, result.confidence)) : 0,
       explanation: typeof result.explanation === 'string' ? result.explanation.slice(0, 200) : '',
+      searchQuery: typeof result.searchQuery === 'string' ? result.searchQuery.slice(0, 300) : '',
     };
   }
 

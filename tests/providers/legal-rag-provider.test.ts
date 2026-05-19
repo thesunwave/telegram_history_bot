@@ -91,6 +91,43 @@ describe("LegalRagProvider", () => {
     );
   });
 
+  it("uses semantic searchQuery for contextual retrieval when available", async () => {
+    const run = vi.fn().mockResolvedValue({ data: [{ embedding: [0.7, 0.8, 0.9] }] });
+    const env = createMockEnv({
+      AI: { run } as any,
+      LEGAL_RAG_INDEX: {
+        query: vi.fn().mockResolvedValue({ matches: [] }),
+      } as any,
+    });
+
+    const provider = new LegalRagProvider(env);
+    await provider.analyzeCriminalCodeWithContext({
+      targetText: "сырой сленговый текст",
+      targetTimestamp: 1779200000,
+      chatId: 123,
+      contextWindow: { before: 0, after: 0, totalMessages: 1 },
+      messages: [{
+        username: "user",
+        text: "сырой сленговый текст",
+        ts: 1779200000,
+        relativePosition: 0,
+        isTarget: true,
+      }],
+      semanticPrefilter: {
+        shouldAnalyze: true,
+        reason: "threat",
+        confidence: 0.9,
+        explanation: "direct threat",
+        searchQuery: "прямая угроза физической расправы адресату",
+      },
+    });
+
+    expect(run).toHaveBeenCalledWith(
+      expect.any(String),
+      { text: "прямая угроза физической расправы адресату" }
+    );
+  });
+
   it("filters out low-score matches", async () => {
     const env = createMockEnv({
       AI: {

@@ -256,6 +256,7 @@ export interface CriminalSemanticPrefilterResult {
   reason: 'threat' | 'incitement' | 'self_incrimination' | 'extremism' | 'dangerous_instruction' | 'none';
   confidence: number;
   explanation: string;
+  searchQuery?: string;
 }
 
 // Request for criminal code analysis
