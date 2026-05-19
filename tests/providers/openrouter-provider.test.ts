@@ -87,6 +87,8 @@ describe('OpenRouterProvider', () => {
     const body = JSON.parse(init.body);
     expect(body.model).toBe('nvidia/nemotron-3-super-120b-a12b:free');
     expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.messages[0].content).toContain('Не возвращай "analysisTimestamp"');
+    expect(body.messages[1].content).toContain('Do not calculate, convert, or return analysisTimestamp');
     expect(init.headers.Authorization).toBe('Bearer test-openrouter-key');
     expect(result.decision).toBe('no_violation');
   });

@@ -113,6 +113,7 @@ export class OpenRouterProvider implements AIProvider {
       task: 'contextual_criminal_risk_analysis',
       rules: [
         'Return compact JSON only. Do not include reasoning, markdown, prose, or analysis outside JSON.',
+        'Do not calculate, convert, or return analysisTimestamp; the application adds it after parsing.',
         'Analyze only Russian Criminal Code and extremist/incitement risks.',
         'Return violation only when the target message has concrete subject, object, intent, and legal relevance.',
         'If the target message is only a short clarification, denial, joke fragment, or neutral reply without concrete illegal act, return no_violation.',
