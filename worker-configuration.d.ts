@@ -8,6 +8,10 @@ interface Env {
   AI: any;
   LEGAL_RAG_INDEX?: any;
   LEGAL_RAG_INGEST_KEY?: string;
+  CRIMINAL_FINAL_JUDGE_ENABLED?: string | boolean;
+  CRIMINAL_FINAL_JUDGE_MODEL?: string;
+  CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE?: string | number;
+  CRIMINAL_FINAL_JUDGE_MAX_TOKENS?: string | number;
   TOKEN: string;
   SECRET: string;
   SUMMARY_MODEL: string;

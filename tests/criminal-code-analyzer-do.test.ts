@@ -495,6 +495,101 @@ describe("CriminalCodeAnalyzerDO", () => {
       );
     });
 
+    it("should use gpt-5-nano final judge after legal-rag references and store confirmed violations", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      const legalRagProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "legal-rag", model: "@cf/baai/bge-m3" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCodeWithContext: vi.fn().mockResolvedValue({
+          hasViolations: false,
+          decision: "uncertain",
+          violations: [],
+          totalSeverity: 0,
+          riskLevel: "low",
+          analysisTimestamp: Date.now(),
+          legalReferences: [{
+            article: "119",
+            subarticle: null,
+            articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+            quote: "Статья 119. Угроза убийством...",
+            sourceUrl: "https://uk-rf.ru/",
+            lawCode: "uk-rf",
+            score: 0.88,
+            vectorId: "uk-rf:119:main:0",
+          }],
+        }),
+        analyzeCriminalCode: vi.fn(),
+      };
+      ProviderFactory.createProvider = vi.fn().mockReturnValue(legalRagProvider);
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
+      mockEnv.CRIMINAL_FINAL_JUDGE_MODEL = "gpt-5-nano";
+      mockEnv.CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE = 0.75;
+      mockEnv.COUNTERS = {
+        get: vi.fn().mockResolvedValue("0"),
+        put: vi.fn().mockResolvedValue(undefined),
+      };
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        output_text: JSON.stringify({
+          decision: "violation",
+          confidence: 0.91,
+          evidence: {
+            subject: "author",
+            object: "victim",
+            intent: "threat",
+            contextSummary: "direct threat",
+            whyNotBenign: "literal threat"
+          },
+          violations: [{
+            article: "119",
+            subarticle: null,
+            articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+            quote: "я тебя убью",
+            punishment: "до двух лет лишения свободы",
+            severity: 7,
+            confidence: 0.91
+          }]
+        }),
+        usage: { input_tokens: 900, output_tokens: 120, total_tokens: 1020 }
+      }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "я тебя убью",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 119,
+          username: "testuser",
+          day: "2026-05-18"
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://api.openai.com/v1/responses",
+        expect.objectContaining({
+          body: expect.stringContaining("Classify this JSON payload and return JSON only")
+        })
+      );
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        expect.stringContaining("openrouter.ai"),
+        expect.anything()
+      );
+      expect(mockEnv.DB.prepare).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO criminal_violations"));
+      vi.unstubAllGlobals();
+    });
+
     it("should not postpone an existing queue alarm", async () => {
       const storage = new Map<string, any>();
       const futureAlarm = Date.now() + 30_000;

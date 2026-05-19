@@ -93,6 +93,10 @@ export interface Env {
   LEGAL_RAG_LAW_CODE?: string;
   LEGAL_RAG_EMBEDDING_MODEL?: string;
   LEGAL_RAG_INGEST_KEY?: string;
+  CRIMINAL_FINAL_JUDGE_ENABLED?: string | boolean;
+  CRIMINAL_FINAL_JUDGE_MODEL?: string;
+  CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE?: string | number;
+  CRIMINAL_FINAL_JUDGE_MAX_TOKENS?: string | number;
   CRIMINAL_CONTEXT_BEFORE?: string | number;
   CRIMINAL_CONTEXT_AFTER?: string | number;
   CRIMINAL_AI_PREFILTER_ENABLED?: string | boolean;

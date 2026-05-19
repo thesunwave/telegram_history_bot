@@ -15,7 +15,8 @@ import type {
   CriminalViolationStats,
   CriminalAnalysisCache,
   CriminalSemanticPrefilterResult,
-  StoredMessage
+  StoredMessage,
+  LegalReferenceHit
 } from '../core/env';
 import {
   CRIMINAL_MAX_TEXT_LENGTH,
@@ -39,6 +40,19 @@ interface QueuedCriminalAnalysisTask {
   ts?: number;
   reasons: CriminalPrefilterReason[];
   enqueuedAt: number;
+}
+
+interface CriminalFinalJudgeResult {
+  decision?: 'violation' | 'no_violation' | 'uncertain';
+  confidence?: number;
+  evidence?: {
+    subject?: string;
+    object?: string;
+    intent?: string;
+    contextSummary?: string;
+    whyNotBenign?: string;
+  };
+  violations?: Array<Partial<CriminalViolation>>;
 }
 
 const QUEUE_STORAGE_KEY = 'criminal_analysis_queue';
@@ -814,6 +828,12 @@ export class CriminalCodeAnalyzerDO {
 
     try {
       const result = await this.aiProvider.analyzeCriminalCode(text, this.env);
+      if (this.shouldRunOpenAIFinalJudge(result)) {
+        const input = this.buildSingleMessageContextInput(text);
+        const judged = await this.runOpenAIFinalJudge(input, result);
+        console.log(`✅ Analysis completed: ${judged.hasViolations ? judged.violations.length + ' violations found' : 'no violations'}`);
+        return judged;
+      }
       console.log(`✅ Analysis completed: ${result.hasViolations ? result.violations.length + ' violations found' : 'no violations'}`);
       return result;
     } catch (error: any) {
@@ -829,16 +849,45 @@ export class CriminalCodeAnalyzerDO {
     }
   }
 
+  private buildSingleMessageContextInput(text: string): CriminalContextAnalysisInput {
+    const ts = Math.floor(Date.now() / 1000);
+    return {
+      targetText: text,
+      targetTimestamp: ts,
+      chatId: 0,
+      contextWindow: {
+        before: 0,
+        after: 0,
+        totalMessages: 1,
+      },
+      messages: [{
+        username: 'unknown',
+        text,
+        ts,
+        relativePosition: 0,
+        isTarget: true,
+      }],
+    };
+  }
+
   private async performContextualAnalysis(input: CriminalContextAnalysisInput): Promise<CriminalAnalysisResult> {
     if (!this.aiProvider) {
       throw new Error('AI provider not initialized');
     }
 
     try {
+      let result: CriminalAnalysisResult;
       if (this.aiProvider.analyzeCriminalCodeWithContext) {
-        return await this.aiProvider.analyzeCriminalCodeWithContext(input, this.env);
+        result = await this.aiProvider.analyzeCriminalCodeWithContext(input, this.env);
+      } else {
+        result = await this.aiProvider.analyzeCriminalCode(input.targetText, this.env);
       }
-      return await this.aiProvider.analyzeCriminalCode(input.targetText, this.env);
+
+      if (this.shouldRunOpenAIFinalJudge(result)) {
+        return await this.runOpenAIFinalJudge(input, result);
+      }
+
+      return result;
     } catch (error: any) {
       console.error('❌ Contextual AI analysis failed:', error);
       return {
@@ -859,6 +908,243 @@ export class CriminalCodeAnalyzerDO {
         contextWindow: input.contextWindow,
       };
     }
+  }
+
+  private shouldRunOpenAIFinalJudge(result: CriminalAnalysisResult): boolean {
+    if (this.getCriminalProviderName() !== 'legal-rag') {
+      return false;
+    }
+    if (!this.getBooleanEnv('CRIMINAL_FINAL_JUDGE_ENABLED', true)) {
+      return false;
+    }
+    if (result.hasViolations) {
+      return false;
+    }
+    return Boolean(result.legalReferences?.length);
+  }
+
+  private async runOpenAIFinalJudge(
+    input: CriminalContextAnalysisInput,
+    retrievalResult: CriminalAnalysisResult
+  ): Promise<CriminalAnalysisResult> {
+    try {
+      const judge = await this.callOpenAIFinalJudge(input, retrievalResult.legalReferences || []);
+      return this.buildJudgedAnalysisResult(input, retrievalResult, judge);
+    } catch (error: any) {
+      console.warn('⚠️ Criminal final judge failed, keeping legal-rag result', {
+        chatId: input.chatId.toString(36),
+        messageId: input.targetMessageId,
+        error: error.message || String(error),
+      });
+      return retrievalResult;
+    }
+  }
+
+  private async callOpenAIFinalJudge(
+    input: CriminalContextAnalysisInput,
+    references: LegalReferenceHit[]
+  ): Promise<CriminalFinalJudgeResult> {
+    const apiKey = (this.env as any).OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY is required for criminal final judge');
+    }
+
+    const model = (this.env as any).CRIMINAL_FINAL_JUDGE_MODEL || 'gpt-5-nano';
+    const maxTokens = Math.max(this.getNumberEnv('CRIMINAL_FINAL_JUDGE_MAX_TOKENS', 1200), 512);
+    const isGpt5 = String(model).toLowerCase().includes('gpt-5');
+    const systemPrompt = [
+      'Ты юридический классификатор для Telegram-чата.',
+      'Твоя задача: по target-сообщению, краткому контексту и найденным статьям УК РФ решить, есть ли достаточно оснований сохранить событие как возможное нарушение.',
+      'Не фантазируй и не расширяй состав преступления. Если не хватает контекста, это uncertain или no_violation.',
+      'Используй только статьи из legalReferences. Не добавляй статьи, которых нет в списке.',
+      'violation разрешен только если target/context содержит конкретное деяние, угрозу, призыв, самообвинение или опасную инструкцию, подходящие под найденную статью.',
+      'Шутки, цитаты, обсуждение закона, новостей, книг, игр, мемов и гипотетические рассуждения не классифицируй как violation без прямого опасного смысла.',
+      'Верни строго JSON: {"decision":"violation|no_violation|uncertain","confidence":0..1,"evidence":{"subject":"short","object":"short","intent":"short","contextSummary":"short","whyNotBenign":"short"},"violations":[{"article":"119","subarticle":null,"articleTitle":"...","quote":"exact user quote","punishment":"short","severity":1..10,"confidence":0..1}]}',
+    ].join('\n');
+    const payload = {
+      targetMessageId: input.targetMessageId,
+      targetText: input.targetText,
+      targetUsername: input.targetUsername,
+      contextWindow: input.contextWindow,
+      messages: input.messages.map(message => ({
+        username: message.username,
+        text: message.text,
+        relativePosition: message.relativePosition,
+        isTarget: message.isTarget,
+      })),
+      legalReferences: references.slice(0, 5).map(reference => ({
+        article: reference.article,
+        subarticle: reference.subarticle,
+        articleTitle: reference.articleTitle,
+        quote: reference.quote,
+        sourceUrl: reference.sourceUrl,
+        score: reference.score,
+      })),
+    };
+    const userInput = `Classify this JSON payload and return JSON only:\n${JSON.stringify(payload)}`;
+
+    const response = await fetch(
+      isGpt5 ? 'https://api.openai.com/v1/responses' : 'https://api.openai.com/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(isGpt5
+          ? {
+            model,
+            instructions: systemPrompt,
+            input: [{ role: 'user', content: userInput }],
+            max_output_tokens: maxTokens,
+            reasoning: { effort: 'minimal' },
+            text: {
+              format: { type: 'json_object' },
+              verbosity: 'low',
+            },
+          }
+          : {
+            model,
+            max_tokens: maxTokens,
+            temperature: 0,
+            response_format: { type: 'json_object' },
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userInput },
+            ],
+          })
+      }
+    );
+
+    const parsed = await response.json().catch(() => null) as any;
+    if (!response.ok) {
+      throw new Error(parsed?.error?.message || `OpenAI final judge failed with ${response.status}`);
+    }
+
+    const usage = parsed?.usage;
+    if (usage) {
+      getBudgetTracker(this.env).recordUsage(model, 'criminal', {
+        promptTokens: usage.prompt_tokens || usage.input_tokens || 0,
+        completionTokens: usage.completion_tokens || usage.output_tokens || 0,
+        totalTokens: usage.total_tokens || ((usage.input_tokens || 0) + (usage.output_tokens || 0)),
+      });
+    }
+
+    const raw = isGpt5 ? this.extractOpenAIResponsesText(parsed) : parsed?.choices?.[0]?.message?.content;
+    if (!raw) {
+      throw new Error('OpenAI final judge returned empty content');
+    }
+
+    const jsonMatch = String(raw).match(/\{[\s\S]*\}/);
+    return JSON.parse(jsonMatch ? jsonMatch[0] : raw) as CriminalFinalJudgeResult;
+  }
+
+  private buildJudgedAnalysisResult(
+    input: CriminalContextAnalysisInput,
+    retrievalResult: CriminalAnalysisResult,
+    judge: CriminalFinalJudgeResult
+  ): CriminalAnalysisResult {
+    const decision = judge.decision === 'violation' ||
+      judge.decision === 'no_violation' ||
+      judge.decision === 'uncertain'
+      ? judge.decision
+      : 'uncertain';
+    const minConfidence = this.getNumberEnv('CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE', 0.75);
+    const allowedReferences = new Map(
+      (retrievalResult.legalReferences || []).map(reference => [
+        `${reference.article}:${reference.subarticle || ''}`,
+        reference,
+      ])
+    );
+    const evidence = {
+      subject: this.cleanJudgeText(judge.evidence?.subject, input.targetUsername || 'unknown'),
+      object: this.cleanJudgeText(judge.evidence?.object, 'unknown'),
+      intent: this.cleanJudgeText(judge.evidence?.intent, decision === 'violation' ? 'possible criminal intent' : 'not established'),
+      contextSummary: this.cleanJudgeText(judge.evidence?.contextSummary, 'Final judge completed'),
+      whyNotBenign: this.cleanJudgeText(judge.evidence?.whyNotBenign, decision === 'violation' ? 'model classified as non-benign' : 'not classified as violation'),
+    };
+    const violations = (judge.violations || [])
+      .map(violation => this.normalizeJudgedViolation(violation, allowedReferences, evidence, input))
+      .filter((violation): violation is CriminalViolation => Boolean(violation));
+    const confidentViolations = violations.filter(violation => violation.confidence >= minConfidence);
+    const hasViolations = decision === 'violation' && confidentViolations.length > 0;
+    const totalSeverity = hasViolations
+      ? confidentViolations.reduce((sum, violation) => sum + violation.severity, 0)
+      : 0;
+
+    return {
+      hasViolations,
+      decision: hasViolations ? 'violation' : decision === 'violation' ? 'uncertain' : decision,
+      evidence,
+      violations: hasViolations ? confidentViolations : [],
+      totalSeverity,
+      riskLevel: this.calculateRiskLevel(totalSeverity),
+      analysisTimestamp: Date.now(),
+      targetMessageId: input.targetMessageId,
+      contextWindow: input.contextWindow,
+      legalReferences: retrievalResult.legalReferences || [],
+    };
+  }
+
+  private normalizeJudgedViolation(
+    violation: Partial<CriminalViolation>,
+    allowedReferences: Map<string, LegalReferenceHit>,
+    evidence: NonNullable<CriminalAnalysisResult['evidence']>,
+    input: CriminalContextAnalysisInput
+  ): CriminalViolation | null {
+    const article = typeof violation.article === 'string' ? violation.article.trim() : '';
+    const subarticle = typeof violation.subarticle === 'string' && violation.subarticle.trim()
+      ? violation.subarticle.trim()
+      : null;
+    const reference = allowedReferences.get(`${article}:${subarticle || ''}`);
+    if (!article || !reference) {
+      return null;
+    }
+
+    const confidence = this.clampNumber(Number(violation.confidence ?? 0), 0, 1);
+    const severity = Math.round(this.clampNumber(Number(violation.severity ?? 1), 1, 10));
+
+    return {
+      article,
+      subarticle,
+      articleTitle: this.cleanJudgeText(violation.articleTitle, reference.articleTitle),
+      quote: this.cleanJudgeText(violation.quote, input.targetText).slice(0, 500),
+      punishment: this.cleanJudgeText(violation.punishment, reference.quote).slice(0, 500),
+      severity,
+      confidence,
+      decision: 'violation',
+      evidence,
+      targetMessageId: input.targetMessageId,
+      contextWindow: input.contextWindow,
+    };
+  }
+
+  private cleanJudgeText(value: unknown, fallback: string): string {
+    if (typeof value !== 'string') {
+      return fallback;
+    }
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    return normalized ? normalized.slice(0, 1000) : fallback;
+  }
+
+  private clampNumber(value: number, min: number, max: number): number {
+    if (!Number.isFinite(value)) {
+      return min;
+    }
+    return Math.max(min, Math.min(max, value));
+  }
+
+  private calculateRiskLevel(totalSeverity: number): 'low' | 'medium' | 'high' | 'critical' {
+    if (totalSeverity >= 16) {
+      return 'critical';
+    }
+    if (totalSeverity >= 8) {
+      return 'high';
+    }
+    if (totalSeverity >= 4) {
+      return 'medium';
+    }
+    return 'low';
   }
 
   private async sendAdminViolationReport(
