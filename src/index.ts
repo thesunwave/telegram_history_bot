@@ -23,6 +23,7 @@ import { DayBlockManager } from "./durable-objects/day-block-manager";
 import { CriminalCodeAnalyzerDO } from "./durable-objects/criminal-code-analyzer-do";
 import { ProviderInitializer } from "./core/providers/provider-init";
 import { Logger } from "./core/logger";
+import { handleLegalRagIngestBatch, handleLegalRagSearch } from "./features/legal-rag/ingest";
 import type {
   ExecutionContext,
   ScheduledEvent,
@@ -79,6 +80,28 @@ export default {
       const cursor = url.searchParams.get("cursor") || undefined;
       const result = await resetActivityBatch(env, cursor);
       return Response.json(result);
+    }
+
+    if (url.pathname === "/api/legal-rag/ingest-batch" && req.method === "POST") {
+      try {
+        return await handleLegalRagIngestBatch(req, env);
+      } catch (error: any) {
+        return Response.json({
+          ok: false,
+          error: error?.message || String(error),
+        }, { status: 400 });
+      }
+    }
+
+    if (url.pathname === "/api/legal-rag/search" && req.method === "POST") {
+      try {
+        return await handleLegalRagSearch(req, env);
+      } catch (error: any) {
+        return Response.json({
+          ok: false,
+          error: error?.message || String(error),
+        }, { status: 400 });
+      }
     }
 
     if (url.pathname === "/healthz") return new Response("ok");

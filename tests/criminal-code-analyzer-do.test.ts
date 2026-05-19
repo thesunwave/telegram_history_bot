@@ -19,6 +19,8 @@ vi.mock("../src/core/logger", () => ({
 vi.mock("../src/core/providers/provider-factory", () => ({
   ProviderFactory: {
     createProvider: vi.fn().mockReturnValue({
+      getProviderInfo: vi.fn().mockReturnValue({ name: "mock", model: "mock" }),
+      validateConfig: vi.fn(),
       analyzeCriminalCode: vi.fn().mockResolvedValue({
         hasViolations: true,
         violations: [{
@@ -119,6 +121,33 @@ describe("CriminalCodeAnalyzerDO", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (ProviderFactory.createProvider as any).mockReturnValue({
+      getProviderInfo: vi.fn().mockReturnValue({ name: "mock", model: "mock" }),
+      validateConfig: vi.fn(),
+      analyzeCriminalCode: vi.fn().mockResolvedValue({
+        hasViolations: true,
+        violations: [{
+          article: "282",
+          subarticle: null,
+          articleTitle: "Возбуждение ненависти либо вражды",
+          quote: "Призываю к насилию против определенной группы людей",
+          punishment: "Штраф до 300 000 рублей",
+          severity: 5,
+          confidence: 0.9,
+          decision: "violation",
+          evidence: {
+            subject: "author",
+            object: "group",
+            intent: "incitement",
+            contextSummary: "direct call",
+            whyNotBenign: "not a joke"
+          }
+        }],
+        totalSeverity: 5,
+        riskLevel: "high",
+        analysisTimestamp: Date.now()
+      })
+    });
     mockState = createMockState();
     mockEnv = createMockEnv();
     analyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
@@ -213,6 +242,8 @@ describe("CriminalCodeAnalyzerDO", () => {
 
       // Mock provider for this test to return no violations
       const cacheTestProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "mock", model: "mock" }),
+        validateConfig: vi.fn(),
         analyzeCriminalCode: vi.fn().mockResolvedValue({
           hasViolations: false,
           violations: [],
@@ -361,6 +392,107 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(requestBody.max_output_tokens).toBeGreaterThanOrEqual(512);
       expect(requestBody.reasoning).toEqual({ effort: "minimal" });
       vi.unstubAllGlobals();
+    });
+
+    it("should skip semantic prefilter when the daily cap is exhausted", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_PREFILTER_DAILY_CAP = 1;
+      mockEnv.COUNTERS = {
+        get: vi.fn((key: string) => Promise.resolve(
+          key.startsWith("criminal_prefilter_daily:") ? "1" : "0"
+        )),
+        put: vi.fn().mockResolvedValue(undefined),
+      };
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "угрожаю причинить вред людям, это сообщение достаточно длинное для проверки лимита",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 117,
+          username: "testuser",
+          day: "2026-05-18"
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+        expect.stringContaining("criminal_prefilter_skipped_daily:"),
+        "1",
+        expect.any(Object)
+      );
+      vi.unstubAllGlobals();
+    });
+
+    it("should skip legal-rag final analysis when the daily cap is exhausted", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      const legalRagProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "legal-rag", model: "@cf/baai/bge-m3" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCodeWithContext: vi.fn().mockResolvedValue({
+          hasViolations: false,
+          decision: "uncertain",
+          violations: [],
+          totalSeverity: 0,
+          riskLevel: "low",
+          analysisTimestamp: Date.now(),
+          legalReferences: [],
+        }),
+        analyzeCriminalCode: vi.fn(),
+      };
+      ProviderFactory.createProvider = vi.fn().mockReturnValue(legalRagProvider);
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
+      mockEnv.LEGAL_RAG_DAILY_QUERY_CAP = 1;
+      mockEnv.COUNTERS = {
+        get: vi.fn((key: string) => Promise.resolve(
+          key.startsWith("legal_rag_daily:") ? "1" : "0"
+        )),
+        put: vi.fn().mockResolvedValue(undefined),
+      };
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "пора всех их убивать",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 118,
+          username: "testuser",
+          day: "2026-05-18"
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(legalRagProvider.analyzeCriminalCodeWithContext).not.toHaveBeenCalled();
+      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+        expect.stringContaining("legal_rag_skipped_daily:"),
+        "1",
+        expect.any(Object)
+      );
     });
 
     it("should not postpone an existing queue alarm", async () => {

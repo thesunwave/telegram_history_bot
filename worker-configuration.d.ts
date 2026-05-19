@@ -1,4 +1,4 @@
-type ProviderType = 'cloudflare' | 'openai' | 'openai-premium' | 'mock';
+type ProviderType = 'cloudflare' | 'openai' | 'openai-premium' | 'openrouter' | 'legal-rag' | 'mock';
 
 interface Env {
   HISTORY: KVNamespace;
@@ -6,6 +6,8 @@ interface Env {
   COUNTERS_DO: DurableObjectNamespace;
   DB: D1Database;
   AI: any;
+  LEGAL_RAG_INDEX?: any;
+  LEGAL_RAG_INGEST_KEY?: string;
   TOKEN: string;
   SECRET: string;
   SUMMARY_MODEL: string;

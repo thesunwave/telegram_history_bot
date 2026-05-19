@@ -100,6 +100,16 @@ export function createMockAI() {
   };
 }
 
+export function createMockVectorizeIndex() {
+  return {
+    query: vi.fn().mockResolvedValue({ matches: [] }),
+    insert: vi.fn().mockResolvedValue({ mutationId: "test-mutation" }),
+    upsert: vi.fn().mockResolvedValue({ mutationId: "test-mutation" }),
+    deleteByIds: vi.fn().mockResolvedValue({ mutationId: "test-mutation" }),
+    getByIds: vi.fn().mockResolvedValue([]),
+  };
+}
+
 /**
  * Creates a mock environment with all required fields for testing
  */
@@ -111,8 +121,10 @@ export function createMockEnv(overrides: Partial<Env> = {}): Env {
     MESSAGE_FETCHER_DO: createMockDurableObjectNamespace(),
     MESSAGE_AGGREGATOR_DO: createMockDurableObjectNamespace(),
     DAY_BLOCK_MANAGER_DO: createMockDurableObjectNamespace(),
+    CRIMINAL_CODE_ANALYZER_DO: createMockDurableObjectNamespace(),
     DB: createMockD1Database(),
     AI: createMockAI(),
+    LEGAL_RAG_INDEX: createMockVectorizeIndex(),
     TOKEN: "test-token",
     SECRET: "test-secret",
     SUMMARY_MODEL: "test-model",

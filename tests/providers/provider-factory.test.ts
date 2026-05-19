@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { ProviderFactory } from "../../src/core/providers/provider-factory";
 import { CloudflareAIProvider } from "../../src/core/providers/cloudflare-provider";
+import { LegalRagProvider } from "../../src/core/providers/legal-rag-provider";
 import { OpenAIProvider } from "../../src/core/providers/openai-provider";
 import { OpenRouterProvider } from "../../src/core/providers/openrouter-provider";
 import { Env } from '../../src/core/env';
@@ -23,6 +24,7 @@ describe("ProviderFactory", () => {
       COUNTERS: {} as any,
       COUNTERS_DO: {} as any,
       DB: {} as any,
+      LEGAL_RAG_INDEX: { query: () => Promise.resolve({ matches: [] }) } as any,
       TOKEN: "test-token",
       SECRET: "test-secret",
     } as Env;
@@ -68,6 +70,16 @@ describe("ProviderFactory", () => {
       expect(provider.getProviderInfo().name).toBe("openrouter");
     });
 
+    it('should create LegalRagProvider when CRIMINAL_PROVIDER is "legal-rag"', () => {
+      (mockEnv as any).SUMMARY_PROVIDER = "cloudflare";
+      (mockEnv as any).CRIMINAL_PROVIDER = "legal-rag";
+
+      const provider = ProviderFactory.createProvider(mockEnv, "criminal");
+
+      expect(provider).toBeInstanceOf(LegalRagProvider);
+      expect(provider.getProviderInfo().name).toBe("legal-rag");
+    });
+
     it("should create CloudflareAIProvider when SUMMARY_PROVIDER is undefined (default fallback)", () => {
       // SUMMARY_PROVIDER is not set, should default to cloudflare
       const provider = ProviderFactory.createProvider(mockEnv);
@@ -108,7 +120,7 @@ describe("ProviderFactory", () => {
       (mockEnv as any).SUMMARY_PROVIDER = "unsupported-provider";
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider: unsupported-provider. Supported providers: cloudflare, openai, openai-premium, openrouter, mock",
+        "Unsupported provider: unsupported-provider. Supported providers: cloudflare, openai, openai-premium, openrouter, legal-rag, mock",
       );
     });
 
@@ -116,7 +128,7 @@ describe("ProviderFactory", () => {
       (mockEnv as any).SUMMARY_PROVIDER = "anthropic";
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider: anthropic. Supported providers: cloudflare, openai, openai-premium, openrouter, mock",
+        "Unsupported provider: anthropic. Supported providers: cloudflare, openai, openai-premium, openrouter, legal-rag, mock",
       );
     });
 
@@ -140,6 +152,7 @@ describe("ProviderFactory", () => {
         "openai",
         "openai-premium",
         "openrouter",
+        "legal-rag",
         "mock",
       ]);
       expect(Array.isArray(supportedProviders)).toBe(true);
@@ -177,7 +190,7 @@ describe("ProviderFactory", () => {
 
       // Should fail because we don't trim whitespace
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider:   openai  . Supported providers: cloudflare, openai, openai-premium, openrouter, mock",
+        "Unsupported provider:   openai  . Supported providers: cloudflare, openai, openai-premium, openrouter, legal-rag, mock",
       );
     });
 
@@ -185,7 +198,7 @@ describe("ProviderFactory", () => {
       (mockEnv as any).SUMMARY_PROVIDER = 123;
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider: 123. Supported providers: cloudflare, openai, openai-premium, openrouter, mock",
+        "Unsupported provider: 123. Supported providers: cloudflare, openai, openai-premium, openrouter, legal-rag, mock",
       );
     });
 
@@ -193,7 +206,7 @@ describe("ProviderFactory", () => {
       (mockEnv as any).SUMMARY_PROVIDER = true;
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider: true. Supported providers: cloudflare, openai, openai-premium, openrouter, mock",
+        "Unsupported provider: true. Supported providers: cloudflare, openai, openai-premium, openrouter, legal-rag, mock",
       );
     });
 

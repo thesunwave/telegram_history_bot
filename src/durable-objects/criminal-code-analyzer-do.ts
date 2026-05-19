@@ -43,6 +43,7 @@ interface QueuedCriminalAnalysisTask {
 
 const QUEUE_STORAGE_KEY = 'criminal_analysis_queue';
 const LAST_OPENROUTER_CALL_KEY = 'criminal_openrouter_last_call';
+const LAST_FINAL_ANALYSIS_CALL_KEY = 'criminal_final_analysis_last_call';
 
 export class CriminalCodeAnalyzerDO {
   private state: DurableObjectState;
@@ -378,7 +379,7 @@ export class CriminalCodeAnalyzerDO {
       const contextInput = await this.buildContextInput(task);
       const semanticPrefilter = await this.runSemanticPrefilter(contextInput, task);
       if (!semanticPrefilter.shouldAnalyze) {
-        console.log('✅ Criminal semantic prefilter skipped OpenRouter analysis', {
+        console.log('✅ Criminal semantic prefilter skipped final analysis', {
           chatId: task.chatId.toString(36),
           messageId: task.messageId,
           reason: semanticPrefilter.reason,
@@ -387,17 +388,22 @@ export class CriminalCodeAnalyzerDO {
         continue;
       }
 
-      if (!(await this.canSpendOpenRouterRequest())) {
-        await this.saveQueue([task, ...remaining]);
-        await this.scheduleQueueAlarm();
-        console.warn('⚠️ Criminal queue paused by OpenRouter daily soft cap');
-        return;
+      if (!(await this.canSpendFinalAnalysisRequest())) {
+        await this.recordDailyCounter(this.getSkippedFinalAnalysisUsageKey());
+        console.warn('⚠️ Criminal final analysis skipped by daily cap', {
+          chatId: task.chatId.toString(36),
+          messageId: task.messageId,
+          provider: this.getCriminalProviderName(),
+        });
+        continue;
       }
 
-      await this.waitForOpenRouterInterval();
+      await this.recordFinalAnalysisRequest();
 
+      if (this.getCriminalProviderName() === 'openrouter') {
+        await this.waitForFinalAnalysisInterval();
+      }
       const result = await this.performContextualAnalysis(contextInput);
-      await this.recordOpenRouterRequest();
 
       if (result.hasViolations && result.violations.length > 0) {
         await this.storeViolations(
@@ -414,6 +420,12 @@ export class CriminalCodeAnalyzerDO {
           await this.sendAdminViolationReport(result, task);
         } catch (error: any) {
           console.error('❌ Failed to send admin criminal violation report:', error);
+        }
+      } else if (this.hasStrongLocalSignal(task) && result.legalReferences && result.legalReferences.length > 0) {
+        try {
+          await this.sendAdminLegalReferenceReport(result, task);
+        } catch (error: any) {
+          console.error('❌ Failed to send admin legal reference report:', error);
         }
       } else {
         console.log(`✅ Criminal queue task analyzed without confirmed violation (${reason})`);
@@ -511,6 +523,16 @@ export class CriminalCodeAnalyzerDO {
     }
 
     try {
+      if (!(await this.canSpendPrefilterRequest())) {
+        await this.recordDailyCounter(this.getSkippedPrefilterUsageKey());
+        return {
+          shouldAnalyze: false,
+          reason: 'none',
+          confidence: 0,
+          explanation: 'semantic prefilter daily cap exceeded'
+        };
+      }
+      await this.recordPrefilterRequest();
       const result = await this.callOpenAIPrefilter(input);
       const threshold = this.getNumberEnv('CRIMINAL_PREFILTER_MIN_CONFIDENCE', 0.55);
       return {
@@ -876,6 +898,35 @@ export class CriminalCodeAnalyzerDO {
     await sendMessage(this.env, adminId, lines.join('\n'));
   }
 
+  private async sendAdminLegalReferenceReport(
+    result: CriminalAnalysisResult,
+    task: QueuedCriminalAnalysisTask
+  ): Promise<void> {
+    const adminId = this.getAdminUserId();
+    if (!adminId) {
+      return;
+    }
+
+    const references = (result.legalReferences || []).slice(0, 5);
+    const lines = [
+      'Справка УК РФ: найдены релевантные статьи',
+      '',
+      `Чат: ${task.chatId}`,
+      `Сообщение: ${task.messageId || 'unknown'}`,
+      `Пользователь: ${task.username || task.userId || 'unknown'}`,
+      'Это справочная привязка, не юридическая квалификация.',
+      '',
+      ...references.map(reference => {
+        const article = reference.subarticle
+          ? `${reference.article}.${reference.subarticle}`
+          : reference.article;
+        return `ст. ${article} ${reference.articleTitle} (${Math.round(reference.score * 100)}%)`;
+      }),
+    ];
+
+    await sendMessage(this.env, adminId, lines.join('\n'));
+  }
+
   // ========================================
   // 💾 CACHE OPERATIONS
   // ========================================
@@ -943,12 +994,12 @@ export class CriminalCodeAnalyzerDO {
     await storage.setAlarm(Date.now() + delay);
   }
 
-  private async waitForOpenRouterInterval(): Promise<void> {
+  private async waitForFinalAnalysisInterval(): Promise<void> {
     const storage = (this.state as any).storage;
     if (!storage?.get) {
       return;
     }
-    const lastCall = await storage.get(LAST_OPENROUTER_CALL_KEY) as number | undefined;
+    const lastCall = await storage.get(LAST_FINAL_ANALYSIS_CALL_KEY) as number | undefined;
     const minInterval = this.getNumberEnv('CRIMINAL_OPENROUTER_MIN_INTERVAL_MS', 3500);
     const elapsed = lastCall ? Date.now() - lastCall : minInterval;
     if (elapsed < minInterval) {
@@ -956,29 +1007,74 @@ export class CriminalCodeAnalyzerDO {
     }
     if (storage.put) {
       await storage.put(LAST_OPENROUTER_CALL_KEY, Date.now());
+      await storage.put(LAST_FINAL_ANALYSIS_CALL_KEY, Date.now());
     }
   }
 
-  private async canSpendOpenRouterRequest(): Promise<boolean> {
-    const cap = this.getNumberEnv('CRIMINAL_OPENROUTER_DAILY_SOFT_CAP', 45);
+  private async canSpendPrefilterRequest(): Promise<boolean> {
+    const cap = this.getNumberEnv('CRIMINAL_PREFILTER_DAILY_CAP', 250);
+    return await this.canSpendDailyCounter(this.getPrefilterUsageKey(), cap);
+  }
+
+  private async recordPrefilterRequest(): Promise<void> {
+    await this.recordDailyCounter(this.getPrefilterUsageKey());
+  }
+
+  private async canSpendFinalAnalysisRequest(): Promise<boolean> {
+    const provider = this.getCriminalProviderName();
+    const cap = provider === 'legal-rag'
+      ? this.getNumberEnv('LEGAL_RAG_DAILY_QUERY_CAP', 250)
+      : this.getNumberEnv('CRIMINAL_OPENROUTER_DAILY_SOFT_CAP', 45);
+    return await this.canSpendDailyCounter(this.getFinalAnalysisUsageKey(), cap);
+  }
+
+  private async recordFinalAnalysisRequest(): Promise<void> {
+    await this.recordDailyCounter(this.getFinalAnalysisUsageKey());
+  }
+
+  private async canSpendDailyCounter(key: string, cap: number): Promise<boolean> {
     if (!this.env.COUNTERS?.get) {
       return true;
     }
-    const count = parseInt(await this.env.COUNTERS.get(this.getDailyUsageKey()) || '0', 10);
+    const count = parseInt(await this.env.COUNTERS.get(key) || '0', 10);
     return count < cap;
   }
 
-  private async recordOpenRouterRequest(): Promise<void> {
+  private async recordDailyCounter(key: string): Promise<void> {
     if (!this.env.COUNTERS?.get || !this.env.COUNTERS?.put) {
       return;
     }
-    const key = this.getDailyUsageKey();
     const count = parseInt(await this.env.COUNTERS.get(key) || '0', 10);
     await this.env.COUNTERS.put(key, String(count + 1), { expirationTtl: 2 * 24 * 60 * 60 } as any);
   }
 
-  private getDailyUsageKey(): string {
+  private getPrefilterUsageKey(): string {
+    return `criminal_prefilter_daily:${new Date().toISOString().slice(0, 10)}`;
+  }
+
+  private getSkippedPrefilterUsageKey(): string {
+    return `criminal_prefilter_skipped_daily:${new Date().toISOString().slice(0, 10)}`;
+  }
+
+  private getFinalAnalysisUsageKey(): string {
+    const provider = this.getCriminalProviderName();
+    if (provider === 'legal-rag') {
+      return `legal_rag_daily:${new Date().toISOString().slice(0, 10)}`;
+    }
     return `criminal_openrouter_daily:${new Date().toISOString().slice(0, 10)}`;
+  }
+
+  private getSkippedFinalAnalysisUsageKey(): string {
+    const provider = this.getCriminalProviderName();
+    return `${provider.replace(/[^a-z0-9_]+/gi, '_')}_skipped_daily:${new Date().toISOString().slice(0, 10)}`;
+  }
+
+  private getCriminalProviderName(): string {
+    return this.aiProvider?.getProviderInfo?.().name || String((this.env as any).CRIMINAL_PROVIDER || '');
+  }
+
+  private hasStrongLocalSignal(task: QueuedCriminalAnalysisTask): boolean {
+    return task.reasons.some(reason => reason !== 'semantic_prefilter' && reason !== 'benign_object_context');
   }
 
   private async getRecentContextTexts(chatId: number): Promise<string[]> {

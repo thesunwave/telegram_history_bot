@@ -1,4 +1,4 @@
-export type ProviderType = "cloudflare" | "openai" | "openai-premium" | "openrouter" | "mock";
+export type ProviderType = "cloudflare" | "openai" | "openai-premium" | "openrouter" | "legal-rag" | "mock";
 
 export interface Env {
   HISTORY: import("@cloudflare/workers-types").KVNamespace;
@@ -11,6 +11,7 @@ export interface Env {
   CRIMINAL_CODE_ANALYZER_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
   DB: import("@cloudflare/workers-types").D1Database;
   AI: any;
+  LEGAL_RAG_INDEX?: any;
   ENVIRONMENT?: string;
   TOKEN: string;
   SECRET: string;
@@ -85,6 +86,13 @@ export interface Env {
   CRIMINAL_QUEUE_MAX_DELAY_MS?: string | number;
   CRIMINAL_OPENROUTER_MIN_INTERVAL_MS?: string | number;
   CRIMINAL_OPENROUTER_DAILY_SOFT_CAP?: string | number;
+  CRIMINAL_PREFILTER_DAILY_CAP?: string | number;
+  LEGAL_RAG_DAILY_QUERY_CAP?: string | number;
+  LEGAL_RAG_TOP_K?: string | number;
+  LEGAL_RAG_MIN_SCORE?: string | number;
+  LEGAL_RAG_LAW_CODE?: string;
+  LEGAL_RAG_EMBEDDING_MODEL?: string;
+  LEGAL_RAG_INGEST_KEY?: string;
   CRIMINAL_CONTEXT_BEFORE?: string | number;
   CRIMINAL_CONTEXT_AFTER?: string | number;
   CRIMINAL_AI_PREFILTER_ENABLED?: string | boolean;
@@ -176,6 +184,17 @@ export interface CriminalViolation {
   contextWindow?: CriminalContextWindow;
 }
 
+export interface LegalReferenceHit {
+  article: string;
+  subarticle: string | null;
+  articleTitle: string;
+  quote: string;
+  sourceUrl: string | null;
+  lawCode: string;
+  score: number;
+  vectorId: string;
+}
+
 // Result of criminal code analysis
 export interface CriminalAnalysisResult {
   hasViolations: boolean;
@@ -187,6 +206,7 @@ export interface CriminalAnalysisResult {
   evidence?: CriminalViolationEvidence;
   targetMessageId?: number;
   contextWindow?: CriminalContextWindow;
+  legalReferences?: LegalReferenceHit[];
 }
 
 export type CriminalDecision = 'violation' | 'no_violation' | 'uncertain';

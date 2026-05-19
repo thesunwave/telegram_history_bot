@@ -60,6 +60,17 @@ export interface CriminalViolation {
   contextWindow?: CriminalContextWindow;
 }
 
+export interface LegalReferenceHit {
+  article: string;
+  subarticle: string | null;
+  articleTitle: string;
+  quote: string;
+  sourceUrl: string | null;
+  lawCode: string;
+  score: number;
+  vectorId: string;
+}
+
 export interface CriminalAnalysisResult {
   hasViolations: boolean;
   violations: CriminalViolation[];
@@ -70,6 +81,7 @@ export interface CriminalAnalysisResult {
   evidence?: CriminalViolationEvidence;
   targetMessageId?: number;
   contextWindow?: CriminalContextWindow;
+  legalReferences?: LegalReferenceHit[];
 }
 
 export type CriminalDecision = 'violation' | 'no_violation' | 'uncertain';
