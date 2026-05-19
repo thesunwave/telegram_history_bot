@@ -417,7 +417,10 @@ export class CriminalCodeAnalyzerDO {
       if (this.getCriminalProviderName() === 'openrouter') {
         await this.waitForFinalAnalysisInterval();
       }
-      const result = await this.performContextualAnalysis(contextInput);
+      const result = await this.performContextualAnalysis({
+        ...contextInput,
+        semanticPrefilter,
+      });
 
       if (result.hasViolations && result.violations.length > 0) {
         await this.storeViolations(
@@ -560,11 +563,10 @@ export class CriminalCodeAnalyzerDO {
         error: error.message || String(error),
       });
 
-      const hasStrongLocalSignal = task.reasons.some(reason => reason !== 'semantic_prefilter' && reason !== 'benign_object_context');
       return {
-        shouldAnalyze: hasStrongLocalSignal,
-        reason: hasStrongLocalSignal ? 'threat' : 'none',
-        confidence: hasStrongLocalSignal ? 1 : 0,
+        shouldAnalyze: false,
+        reason: 'none',
+        confidence: 0,
         explanation: 'fallback after semantic prefilter failure',
       };
     }
@@ -959,7 +961,7 @@ export class CriminalCodeAnalyzerDO {
       'Используй только статьи из legalReferences. Не добавляй статьи, которых нет в списке.',
       'violation разрешен только если target/context содержит конкретное деяние, угрозу, призыв, самообвинение или опасную инструкцию, подходящие под найденную статью.',
       'Шутки, цитаты, обсуждение закона, новостей, книг, игр, мемов и гипотетические рассуждения не классифицируй как violation без прямого опасного смысла.',
-      'Верни строго JSON: {"decision":"violation|no_violation|uncertain","confidence":0..1,"evidence":{"subject":"short","object":"short","intent":"short","contextSummary":"short","whyNotBenign":"short"},"violations":[{"article":"119","subarticle":null,"articleTitle":"...","quote":"exact user quote","punishment":"short","severity":1..10,"confidence":0..1}]}',
+      'Верни строго JSON: {"decision":"violation|no_violation|uncertain","confidence":0..1,"evidence":{"subject":"short","object":"short","intent":"short","contextSummary":"short","whyNotBenign":"short"},"violations":[{"article":"article number from legalReferences","subarticle":null,"articleTitle":"...","quote":"exact user quote","punishment":"short","severity":1..10,"confidence":0..1}]}',
     ].join('\n');
     const payload = {
       targetMessageId: input.targetMessageId,
@@ -1360,7 +1362,7 @@ export class CriminalCodeAnalyzerDO {
   }
 
   private hasStrongLocalSignal(task: QueuedCriminalAnalysisTask): boolean {
-    return task.reasons.some(reason => reason !== 'semantic_prefilter' && reason !== 'benign_object_context');
+    return task.reasons.some(reason => reason !== 'semantic_prefilter');
   }
 
   private async getRecentContextTexts(chatId: number): Promise<string[]> {

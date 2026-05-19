@@ -119,6 +119,14 @@ export interface CriminalContextAnalysisInput {
   chatId: number;
   contextWindow: CriminalContextWindow;
   messages: CriminalContextMessage[];
+  semanticPrefilter?: CriminalSemanticPrefilterResult;
+}
+
+export interface CriminalSemanticPrefilterResult {
+  shouldAnalyze: boolean;
+  reason: 'threat' | 'incitement' | 'self_incrimination' | 'extremism' | 'dangerous_instruction' | 'none';
+  confidence: number;
+  explanation: string;
 }
 
 // Default profanity analysis prompts (fallback if not configured)

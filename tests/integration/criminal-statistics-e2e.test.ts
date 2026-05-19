@@ -621,7 +621,7 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       const mockAnalyzerResponse = new Response(
         JSON.stringify({
           queued: true,
-          reasons: ['threat_or_violence'],
+          reasons: ['semantic_prefilter'],
           queueSize: 1
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }

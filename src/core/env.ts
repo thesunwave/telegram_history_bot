@@ -248,6 +248,7 @@ export interface CriminalContextAnalysisInput {
   chatId: number;
   contextWindow: CriminalContextWindow;
   messages: CriminalContextMessage[];
+  semanticPrefilter?: CriminalSemanticPrefilterResult;
 }
 
 export interface CriminalSemanticPrefilterResult {

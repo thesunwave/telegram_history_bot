@@ -279,7 +279,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(mockEnv.HISTORY.get).toHaveBeenCalled();
     });
 
-    it("should skip short local no-signal messages before semantic prefilter", async () => {
+    it("should enqueue short no-signal messages for semantic prefilter", async () => {
       const request = new Request("http://localhost/enqueue", {
         method: "POST",
         body: JSON.stringify({
@@ -295,8 +295,8 @@ describe("CriminalCodeAnalyzerDO", () => {
       const result = await response.json() as any;
 
       expect(response.status).toBe(200);
-      expect(result.queued).toBe(false);
-      expect(result.reasons).toContain("short_neutral");
+      expect(result.queued).toBe(true);
+      expect(result.reasons).toContain("semantic_prefilter");
     });
 
     it("should enqueue and flush suspicious messages when batch size is reached", async () => {
@@ -334,7 +334,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(result.queued).toBe(true);
       expect(ProviderFactory.createProvider).toHaveBeenCalled();
       expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
-        expect.stringContaining('criminal_openrouter_daily:'),
+        expect.stringContaining('criminal_prefilter_daily:'),
         '1',
         expect.any(Object)
       );
