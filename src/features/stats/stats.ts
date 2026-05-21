@@ -3,6 +3,8 @@ import type { KVNamespace } from '@cloudflare/workers-types';
 import { sendMessage, sendPhoto } from '../../core/telegram';
 import { summariseChat } from '../summary/summary';
 import { ViolationHandler } from './violation-handler';
+import { ViolationRepository } from '../../core/repositories/violation-repository';
+import { formatSentenceTotalValue } from '../criminal/sentence-calculator';
 
 const WEEK_LENGTH_DAYS = 7;
 const MONTH_LENGTH_DAYS = 30;
@@ -1090,6 +1092,8 @@ export interface UserCriminalStat {
   userId: number;
   username: string;
   count: number;
+  totalYears?: number;
+  lifeSentences?: number;
 }
 
 export interface UserPersonalCriminalStats {
@@ -1165,6 +1169,39 @@ export async function getTopCriminalUsers(
   return result;
 }
 
+export async function getTopCriminalUsersBySentence(
+  env: Env,
+  chatId: number,
+  limit: number = 5,
+  period: string = 'today'
+): Promise<UserCriminalStat[]> {
+  if (!env.DB) {
+    return getTopCriminalUsers(env, chatId, limit, period);
+  }
+
+  const repository = new ViolationRepository(env);
+  const sentenceUsers = await repository.getTopUsersBySentenceStats(
+    chatId.toString(),
+    criminalPeriodToDays(period),
+    limit
+  );
+  if (sentenceUsers.length === 0) {
+    return getTopCriminalUsers(env, chatId, limit, period);
+  }
+
+  const usernames = await Promise.all(
+    sentenceUsers.map(user => env.COUNTERS.get(`user:${user.userId}`)),
+  );
+
+  return sentenceUsers.map((user, index) => ({
+    userId: parseInt(user.userId, 10),
+    username: usernames[index] || `id${user.userId}`,
+    count: user.count,
+    totalYears: user.totalYears || 0,
+    lifeSentences: user.lifeSentences || 0,
+  }));
+}
+
 // Get personal criminal violations statistics for a user
 export async function getUserCriminalStats(
   env: Env,
@@ -1234,7 +1271,16 @@ export async function criminalTopUsers(
   const limit = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
 
   try {
-    const topUsers = await getTopCriminalUsers(env, chatId, limit, period);
+    let topUsers: UserCriminalStat[];
+    try {
+      topUsers = await getTopCriminalUsersBySentence(env, chatId, limit, period);
+    } catch (sentenceError: any) {
+      console.error('criminal sentence top users error', {
+        chatId,
+        error: sentenceError.message || String(sentenceError)
+      });
+      topUsers = await getTopCriminalUsers(env, chatId, limit, period);
+    }
 
     if (topUsers.length === 0) {
       return await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
@@ -1246,7 +1292,13 @@ export async function criminalTopUsers(
     const lines = [`Топ нарушителей УК РФ ${periodText}:`];
     for (let i = 0; i < topUsers.length; i++) {
       const user = topUsers[i];
-      lines.push(`${i + 1}. ${user.username}: ${user.count}`);
+      const sentenceText = user.totalYears !== undefined || user.lifeSentences !== undefined
+        ? `, напиздел: ${formatSentenceTotalValue({
+          totalYears: user.totalYears || 0,
+          lifeSentences: user.lifeSentences || 0,
+        })}`
+        : '';
+      lines.push(`${i + 1}. ${user.username}: ${user.count} нарушений${sentenceText}`);
     }
 
     const text = lines.join('\n');
@@ -1257,6 +1309,18 @@ export async function criminalTopUsers(
       error: error.message || String(error)
     });
     return await sendMessage(env, chatId, 'Ошибка при получении топа нарушителей');
+  }
+}
+
+function criminalPeriodToDays(period: string): number {
+  switch (period) {
+    case 'week':
+      return 7;
+    case 'month':
+      return 30;
+    case 'today':
+    default:
+      return 1;
   }
 }
 

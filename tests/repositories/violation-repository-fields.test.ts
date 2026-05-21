@@ -358,4 +358,71 @@ describe('ViolationRepository Fields Test', () => {
       });
     });
   });
+
+  describe('getTopUsersBySentenceStats method', () => {
+    it('should rank users by sentence totals from D1 aggregates', async () => {
+      mockStmt.all.mockResolvedValueOnce({
+        results: [
+          {
+            user_id: 1,
+            article: '205',
+            subarticle: null,
+            article_title: 'Терроризм',
+            punishment: 'лишение свободы на срок до 15 лет',
+            count: 2,
+            average_severity: 9
+          },
+          {
+            user_id: 2,
+            article: '105',
+            subarticle: null,
+            article_title: 'Убийство',
+            punishment: 'пожизненное лишение свободы',
+            count: 1,
+            average_severity: 10
+          },
+          {
+            user_id: 3,
+            article: '159',
+            subarticle: null,
+            article_title: 'Мошенничество',
+            punishment: 'штраф в размере до ста двадцати тысяч рублей',
+            count: 10,
+            average_severity: 4
+          }
+        ]
+      });
+
+      const result = await repository.getTopUsersBySentenceStats('67890', 7, 3);
+
+      expect(result).toEqual([
+        {
+          userId: '2',
+          count: 1,
+          averageSeverity: 10,
+          riskLevel: 'high',
+          totalYears: 0,
+          lifeSentences: 1
+        },
+        {
+          userId: '1',
+          count: 2,
+          averageSeverity: 9,
+          riskLevel: 'high',
+          totalYears: 30,
+          lifeSentences: 0
+        },
+        {
+          userId: '3',
+          count: 10,
+          averageSeverity: 4,
+          riskLevel: 'medium',
+          totalYears: 0,
+          lifeSentences: 0
+        }
+      ]);
+      expect(mockDB.prepare).toHaveBeenCalledWith(expect.stringContaining('GROUP BY user_id'));
+      expect(mockStmt.bind).toHaveBeenCalledWith(67890);
+    });
+  });
 });

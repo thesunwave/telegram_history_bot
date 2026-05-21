@@ -54,6 +54,11 @@ import {
   ViolationCount,
   UserViolationCount
 } from './models/statistics';
+import {
+  calculateSentenceFromViolationCount,
+  calculateSentenceFromViolationCounts,
+  formatSentenceTotalValue,
+} from '../features/criminal/sentence-calculator';
 
 /**
  * Interface for the MessageFormatter
@@ -173,6 +178,7 @@ export class MessageFormatter implements IMessageFormatter {
       '📊 ' + this.htmlBuilder.bold('Статистика пользователя'),
       '',
       `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations || 0}`,
+      `${this.htmlBuilder.bold('Итого напиздел:')} ${this.formatSentenceTotalForStats(stats)}`,
       `${this.htmlBuilder.bold('Средняя серьезность:')} ${(stats.averageSeverity || 0).toFixed(1)}/10`,
       `${this.htmlBuilder.bold('Уровень риска:')} ${this.formatRiskLevel(stats.riskLevel || 'low')}`
     ];
@@ -223,6 +229,18 @@ export class MessageFormatter implements IMessageFormatter {
             if (legalSummary.term) {
               lines.push(`  ${this.htmlBuilder.bold('Срок:')} ${legalSummary.term}`);
             }
+            const sentenceTotal = calculateSentenceFromViolationCount({
+              article,
+              subarticle,
+              articleTitle,
+              punishment,
+              count,
+              averageSeverity,
+            });
+            const sentenceText = formatSentenceTotalValue(sentenceTotal);
+            if (sentenceText !== 'срок не распознан') {
+              lines.push(`  ${this.htmlBuilder.bold('Напиздел:')} ${sentenceText}`);
+            }
           } catch (emojiError) {
             console.warn('⚠️ Error formatting violation:', emojiError);
             const fullArticle = formatFullArticle(article, subarticle);
@@ -265,6 +283,7 @@ export class MessageFormatter implements IMessageFormatter {
 
     lines.push(
       `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations || 0}`,
+      `${this.htmlBuilder.bold('Итого напиздел:')} ${this.formatSentenceTotalForStats(stats)}`,
       `${this.htmlBuilder.bold('Уникальных пользователей:')} ${stats.uniqueUsers || 0}`,
       `${this.htmlBuilder.bold('Средняя серьезность:')} ${(stats.averageSeverity || 0).toFixed(1)}/10`,
       ''
@@ -324,6 +343,18 @@ export class MessageFormatter implements IMessageFormatter {
             if (legalSummary.term) {
               lines.push(`  ${this.htmlBuilder.bold('Срок:')} ${legalSummary.term}`);
             }
+            const sentenceTotal = calculateSentenceFromViolationCount({
+              article,
+              subarticle,
+              articleTitle,
+              punishment,
+              count,
+              averageSeverity,
+            });
+            const sentenceText = formatSentenceTotalValue(sentenceTotal);
+            if (sentenceText !== 'срок не распознан') {
+              lines.push(`  ${this.htmlBuilder.bold('Напиздел:')} ${sentenceText}`);
+            }
           } catch (emojiError) {
             console.warn('⚠️ Error formatting period violation:', emojiError);
             const fullArticle = formatFullArticle(article, subarticle);
@@ -351,6 +382,7 @@ export class MessageFormatter implements IMessageFormatter {
       '📊 ' + this.htmlBuilder.bold('Общая статистика чата'),
       '',
       `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations || 0}`,
+      `${this.htmlBuilder.bold('Итого напиздел:')} ${this.formatSentenceTotalForStats(stats)}`,
       `${this.htmlBuilder.bold('Средняя серьезность:')} ${(stats.averageSeverity || 0).toFixed(1)}/10`,
       `${this.htmlBuilder.bold('Общий уровень риска:')} ${this.formatRiskLevel(stats.overallRiskLevel || 'low')}`,
       ''
@@ -392,6 +424,11 @@ export class MessageFormatter implements IMessageFormatter {
             if (legalSummary.term) {
               lines.push(`   ${this.htmlBuilder.bold('Срок:')} ${legalSummary.term}`);
             }
+            const sentenceTotal = calculateSentenceFromViolationCount(violation);
+            const sentenceText = formatSentenceTotalValue(sentenceTotal);
+            if (sentenceText !== 'срок не распознан') {
+              lines.push(`   ${this.htmlBuilder.bold('Напиздел:')} ${sentenceText}`);
+            }
           } catch (violationError) {
             console.warn('⚠️ Error formatting top violation:', violationError);
             const fullArticle = formatFullArticle(violation.article, violation.subarticle);
@@ -424,7 +461,8 @@ export class MessageFormatter implements IMessageFormatter {
             const count = user.count || 0;
             const violationsText = count === 1 ? 'нарушение' :
               count < 5 ? 'нарушения' : 'нарушений';
-            lines.push(`${positionEmoji} ${this.htmlBuilder.bold(username)}: ${count} ${violationsText}, риск: ${riskEmoji} (ср. ${(user.averageSeverity || 0).toFixed(1)})`);
+            const sentenceText = this.formatSentenceTotalForStats(user);
+            lines.push(`${positionEmoji} ${this.htmlBuilder.bold(username)}: ${sentenceText}, ${count} ${violationsText}, риск: ${riskEmoji} (ср. ${(user.averageSeverity || 0).toFixed(1)})`);
           } catch (userError) {
             console.warn('⚠️ Error formatting top user:', userError);
             const username = user.username ? `@${user.username}` : `ID: ${user.userId}`;
@@ -494,6 +532,21 @@ export class MessageFormatter implements IMessageFormatter {
       punishment: this.summarizePunishment(punishment || ''),
       term: this.summarizeTerm(punishment || ''),
     };
+  }
+
+  private formatSentenceTotalForStats(stats: {
+    totalYears?: number;
+    lifeSentences?: number;
+    violationsByArticle?: ViolationCount[];
+  }): string {
+    const total = stats.totalYears !== undefined || stats.lifeSentences !== undefined
+      ? {
+        totalYears: stats.totalYears || 0,
+        lifeSentences: stats.lifeSentences || 0,
+      }
+      : calculateSentenceFromViolationCounts(stats.violationsByArticle || []);
+
+    return formatSentenceTotalValue(total);
   }
 
   private summarizePunishment(value: string): string {

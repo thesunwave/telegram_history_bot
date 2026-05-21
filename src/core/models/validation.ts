@@ -137,6 +137,16 @@ export function validateViolationCount(violationCount: any): violationCount is V
     throw new ValidationError('averageSeverity must be a number between 1 and 10', 'averageSeverity');
   }
 
+  if (violationCount.totalYears !== undefined &&
+      (typeof violationCount.totalYears !== 'number' || violationCount.totalYears < 0)) {
+    throw new ValidationError('totalYears must be a non-negative number', 'totalYears');
+  }
+
+  if (violationCount.lifeSentences !== undefined &&
+      (typeof violationCount.lifeSentences !== 'number' || violationCount.lifeSentences < 0)) {
+    throw new ValidationError('lifeSentences must be a non-negative number', 'lifeSentences');
+  }
+
   return true;
 }
 
@@ -169,6 +179,16 @@ export function validateUserViolationCount(userViolationCount: any): userViolati
   const validRiskLevels = ['low', 'medium', 'high'];
   if (!validRiskLevels.includes(userViolationCount.riskLevel)) {
     throw new ValidationError('riskLevel must be one of: low, medium, high', 'riskLevel');
+  }
+
+  if (userViolationCount.totalYears !== undefined &&
+      (typeof userViolationCount.totalYears !== 'number' || userViolationCount.totalYears < 0)) {
+    throw new ValidationError('totalYears must be a non-negative number', 'totalYears');
+  }
+
+  if (userViolationCount.lifeSentences !== undefined &&
+      (typeof userViolationCount.lifeSentences !== 'number' || userViolationCount.lifeSentences < 0)) {
+    throw new ValidationError('lifeSentences must be a non-negative number', 'lifeSentences');
   }
 
   return true;
@@ -215,6 +235,16 @@ export function validateUserStats(userStats: any): userStats is UserStats {
   const validRiskLevels = ['low', 'medium', 'high'];
   if (!validRiskLevels.includes(userStats.riskLevel)) {
     throw new ValidationError('riskLevel must be one of: low, medium, high', 'riskLevel');
+  }
+
+  if (userStats.totalYears !== undefined &&
+      (typeof userStats.totalYears !== 'number' || userStats.totalYears < 0)) {
+    throw new ValidationError('totalYears must be a non-negative number', 'totalYears');
+  }
+
+  if (userStats.lifeSentences !== undefined &&
+      (typeof userStats.lifeSentences !== 'number' || userStats.lifeSentences < 0)) {
+    throw new ValidationError('lifeSentences must be a non-negative number', 'lifeSentences');
   }
 
   if (userStats.lastViolationDate !== undefined && !(userStats.lastViolationDate instanceof Date)) {
@@ -301,6 +331,16 @@ export function validatePeriodStats(periodStats: any): periodStats is PeriodStat
     throw new ValidationError('uniqueUsers must be a non-negative number', 'uniqueUsers');
   }
 
+  if (periodStats.totalYears !== undefined &&
+      (typeof periodStats.totalYears !== 'number' || periodStats.totalYears < 0)) {
+    throw new ValidationError('totalYears must be a non-negative number', 'totalYears');
+  }
+
+  if (periodStats.lifeSentences !== undefined &&
+      (typeof periodStats.lifeSentences !== 'number' || periodStats.lifeSentences < 0)) {
+    throw new ValidationError('lifeSentences must be a non-negative number', 'lifeSentences');
+  }
+
   if (periodStats.comparisonWithPreviousPeriod !== undefined) {
     try {
       validatePeriodComparison(periodStats.comparisonWithPreviousPeriod);
@@ -361,6 +401,16 @@ export function validateGeneralStats(generalStats: any): generalStats is General
       generalStats.averageSeverity < 1 || 
       generalStats.averageSeverity > 10) {
     throw new ValidationError('averageSeverity must be a number between 1 and 10', 'averageSeverity');
+  }
+
+  if (generalStats.totalYears !== undefined &&
+      (typeof generalStats.totalYears !== 'number' || generalStats.totalYears < 0)) {
+    throw new ValidationError('totalYears must be a non-negative number', 'totalYears');
+  }
+
+  if (generalStats.lifeSentences !== undefined &&
+      (typeof generalStats.lifeSentences !== 'number' || generalStats.lifeSentences < 0)) {
+    throw new ValidationError('lifeSentences must be a non-negative number', 'lifeSentences');
   }
 
   if (!Array.isArray(generalStats.criticalViolations)) {

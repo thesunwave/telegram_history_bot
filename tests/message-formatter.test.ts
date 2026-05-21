@@ -241,6 +241,13 @@ describe('MessageFormatter', () => {
       expect(result).toContain('<b>Срок:</b> на срок до 15 лет');
     });
 
+    it('should display personal sentence totals and per-article contributions', () => {
+      const result = formatter.formatUserStats(mockUserStats);
+
+      expect(result).toContain('<b>Итого напиздел:</b> 30 лет');
+      expect(result).toContain('<b>Напиздел:</b> 30 лет');
+    });
+
     it('should handle empty violations by article', () => {
       const statsWithoutViolations: UserStats = {
         ...mockUserStats,
@@ -357,6 +364,13 @@ describe('MessageFormatter', () => {
       expect(result).toContain('<b>Срок:</b> на срок до 15 лет');
       expect(result).toContain('<b>Наказание:</b> штраф в размере до сорока тысяч рублей');
     });
+
+    it('should display period sentence totals', () => {
+      const result = formatter.formatPeriodStats(mockPeriodStats);
+
+      expect(result).toContain('<b>Итого напиздел:</b> 60 лет');
+      expect(result).toContain('<b>Напиздел:</b> 60 лет');
+    });
   });
 
   describe('formatGeneralStats', () => {
@@ -444,11 +458,30 @@ describe('MessageFormatter', () => {
       const result = formatter.formatGeneralStats(mockGeneralStats);
       
       expect(result).toContain('<b>👤 Топ-5 пользователей с наибольшим количеством нарушений:</b>');
-      expect(result).toContain('🥇 <b>@baduser1</b>: 12 нарушений, риск: 🔴 Высокий (ср. 7.2)');
-      expect(result).toContain('🥈 <b>@baduser2</b>: 8 нарушений, риск: 🟡 Средний (ср. 5.5)');
-      expect(result).toContain('🥉 <b>ID: user3</b>: 6 нарушений, риск: 🟢 Низкий (ср. 4.0)');
-      expect(result).toContain('4. <b>@baduser4</b>: 4 нарушения, риск: 🟡 Средний (ср. 6.8)');
-      expect(result).toContain('5. <b>ID: user5</b>: 3 нарушения, риск: 🟢 Низкий (ср. 3.2)');
+      expect(result).toContain('🥇 <b>@baduser1</b>: срок не распознан, 12 нарушений, риск: 🔴 Высокий (ср. 7.2)');
+      expect(result).toContain('🥈 <b>@baduser2</b>: срок не распознан, 8 нарушений, риск: 🟡 Средний (ср. 5.5)');
+      expect(result).toContain('🥉 <b>ID: user3</b>: срок не распознан, 6 нарушений, риск: 🟢 Низкий (ср. 4.0)');
+      expect(result).toContain('4. <b>@baduser4</b>: срок не распознан, 4 нарушения, риск: 🟡 Средний (ср. 6.8)');
+      expect(result).toContain('5. <b>ID: user5</b>: срок не распознан, 3 нарушения, риск: 🟢 Низкий (ср. 3.2)');
+    });
+
+    it('should display top user sentence totals when available', () => {
+      const result = formatter.formatGeneralStats({
+        ...mockGeneralStats,
+        topUsers: [
+          {
+            userId: 'user1',
+            username: 'baduser1',
+            count: 12,
+            averageSeverity: 7.2,
+            riskLevel: 'high',
+            totalYears: 30,
+            lifeSentences: 1
+          }
+        ]
+      });
+
+      expect(result).toContain('🥇 <b>@baduser1</b>: 30 лет и 1 пожизненное, 12 нарушений');
     });
 
     it('should format critical violations section', () => {

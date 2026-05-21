@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getTopProfanityUsers, getTopProfanityWords } from '../src/features/stats/stats';
+import {
+  getTopCriminalUsersBySentence,
+  getTopProfanityUsers,
+  getTopProfanityWords
+} from '../src/features/stats/stats';
 import { Env } from '../src/core/env';
 
 describe("Profanity Stats Optimization", () => {
@@ -120,6 +124,65 @@ describe("Profanity Stats Optimization", () => {
       expect(mockCounters.get).toHaveBeenCalledWith(`profanity_words:${chatId}:fuck:${today}`);
       expect(mockCounters.get).toHaveBeenCalledWith(`profanity_words:${chatId}:damn:${today}`);
       expect(mockCounters.get).not.toHaveBeenCalledWith(`profanity_words:${chatId}:shit:${yesterday}`);
+    });
+  });
+
+  describe("getTopCriminalUsersBySentence", () => {
+    it("should rank criminal users by sentence totals from D1", async () => {
+      const chatId = 123;
+      mockCounters.get.mockImplementation((key: string) => {
+        if (key === 'user:1') return Promise.resolve('first_user');
+        if (key === 'user:2') return Promise.resolve('life_user');
+        return Promise.resolve(null);
+      });
+
+      mockEnv.DB = {
+        prepare: vi.fn().mockReturnValue({
+          bind: vi.fn().mockReturnValue({
+            all: vi.fn().mockResolvedValue({
+              results: [
+                {
+                  user_id: 1,
+                  article: '205',
+                  subarticle: null,
+                  article_title: 'Терроризм',
+                  punishment: 'лишение свободы на срок до 15 лет',
+                  count: 2,
+                  average_severity: 9,
+                },
+                {
+                  user_id: 2,
+                  article: '105',
+                  subarticle: null,
+                  article_title: 'Убийство',
+                  punishment: 'пожизненное лишение свободы',
+                  count: 1,
+                  average_severity: 10,
+                },
+              ],
+            }),
+          }),
+        }),
+      } as any;
+
+      const result = await getTopCriminalUsersBySentence(mockEnv, chatId, 2, 'today');
+
+      expect(result).toEqual([
+        {
+          userId: 2,
+          username: 'life_user',
+          count: 1,
+          totalYears: 0,
+          lifeSentences: 1,
+        },
+        {
+          userId: 1,
+          username: 'first_user',
+          count: 2,
+          totalYears: 30,
+          lifeSentences: 0,
+        },
+      ]);
     });
   });
 });

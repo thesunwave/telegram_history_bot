@@ -37,6 +37,8 @@ export interface ViolationCount {
   punishment: string;
   count: number;
   averageSeverity: number;
+  totalYears?: number;
+  lifeSentences?: number;
 }
 
 /**
@@ -48,6 +50,8 @@ export interface UserViolationCount {
   count: number;
   averageSeverity: number;
   riskLevel: 'low' | 'medium' | 'high';
+  totalYears?: number;
+  lifeSentences?: number;
 }
 
 /**
@@ -60,6 +64,8 @@ export interface UserStats {
   violationsByArticle: ViolationCount[];
   averageSeverity: number;
   riskLevel: 'low' | 'medium' | 'high';
+  totalYears?: number;
+  lifeSentences?: number;
   lastViolationDate?: Date;
   mostCommonViolation?: string;
 }
@@ -84,6 +90,8 @@ export interface PeriodStats {
   violationsByArticle: ViolationCount[];
   averageSeverity: number;
   uniqueUsers: number;
+  totalYears?: number;
+  lifeSentences?: number;
   comparisonWithPreviousPeriod?: PeriodComparison;
 }
 
@@ -97,5 +105,7 @@ export interface GeneralStats {
   topUsers: UserViolationCount[]; // топ-5 пользователей с наибольшим количеством нарушений
   overallRiskLevel: 'low' | 'medium' | 'high';
   averageSeverity: number;
+  totalYears?: number;
+  lifeSentences?: number;
   criticalViolations: Violation[]; // нарушения с серьезностью >= 8
 }

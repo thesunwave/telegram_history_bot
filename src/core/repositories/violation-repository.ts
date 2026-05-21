@@ -14,6 +14,11 @@ import type {
   PeriodComparison
 } from '../models/statistics';
 import { ValidationUtils } from '../models/validation';
+import {
+  addSentenceTotals,
+  calculateSentenceFromViolationCount,
+  calculateSentenceFromViolationCounts,
+} from '../../features/criminal/sentence-calculator';
 
 /**
  * Интерфейс репозитория для работы с нарушениями
@@ -28,6 +33,7 @@ export interface IViolationRepository {
   getUserStats(userId: string, chatId: string): Promise<UserStats>;
   getPeriodStats(chatId: string, days: number): Promise<PeriodStats>;
   getGeneralStats(chatId: string): Promise<GeneralStats>;
+  getTopUsersBySentenceStats?(chatId: string, days: number, limit: number): Promise<UserViolationCount[]>;
 }
 
 /**
@@ -191,7 +197,7 @@ export class ViolationRepository implements IViolationRepository {
         WHERE user_id = ? AND chat_id = ?
       `);
 
-      const userStatsResult = await userStatsStmt.bind(parseInt(userId), parseInt(chatId)).first();
+      const userStatsResult: any = await userStatsStmt.bind(parseInt(userId), parseInt(chatId)).first();
 
       // Получаем нарушения по статьям
       const violationsByArticleStmt = this.env.DB.prepare(`
@@ -210,20 +216,15 @@ export class ViolationRepository implements IViolationRepository {
 
       const violationsByArticleResult = await violationsByArticleStmt.bind(parseInt(userId), parseInt(chatId)).all();
 
-      const totalViolations = userStatsResult?.total_violations || 0;
-      const averageSeverity = userStatsResult?.average_severity || 0;
+      const totalViolations = Number(userStatsResult?.total_violations || 0);
+      const averageSeverity = Number(userStatsResult?.average_severity || 0);
       const lastViolationDate = userStatsResult?.last_violation_date 
         ? new Date(userStatsResult.last_violation_date as string) 
         : undefined;
 
-      const violationsByArticle: ViolationCount[] = (violationsByArticleResult.results || []).map((row: any) => ({
-        article: row.article,
-        subarticle: row.subarticle || null,
-        articleTitle: row.article_title || '',
-        punishment: row.punishment || '',
-        count: row.count,
-        averageSeverity: row.average_severity
-      }));
+      const violationsByArticle: ViolationCount[] = (violationsByArticleResult.results || [])
+        .map((row: any) => this.mapViolationCount(row));
+      const sentenceTotal = calculateSentenceFromViolationCounts(violationsByArticle);
 
       const mostCommonViolation = violationsByArticle.length > 0 
         ? violationsByArticle[0].article 
@@ -238,13 +239,15 @@ export class ViolationRepository implements IViolationRepository {
         violationsByArticle,
         averageSeverity,
         riskLevel,
+        totalYears: sentenceTotal.totalYears,
+        lifeSentences: sentenceTotal.lifeSentences,
         lastViolationDate,
         mostCommonViolation
       };
 
     } catch (error) {
       console.error('❌ Error getting user stats:', error);
-      throw new Error(`Failed to get user stats: ${error.message}`);
+      throw new Error(`Failed to get user stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -271,7 +274,7 @@ export class ViolationRepository implements IViolationRepository {
         WHERE chat_id = ? AND created_at >= datetime('now', '-${days} days')
       `);
 
-      const currentPeriodResult = await currentPeriodStmt.bind(parseInt(chatId)).first();
+      const currentPeriodResult: any = await currentPeriodStmt.bind(parseInt(chatId)).first();
 
       // Нарушения по статьям за период
       const violationsByArticleStmt = this.env.DB.prepare(`
@@ -302,27 +305,22 @@ export class ViolationRepository implements IViolationRepository {
         AND created_at < datetime('now', '-${days} days')
       `);
 
-      const previousPeriodResult = await previousPeriodStmt.bind(parseInt(chatId)).first();
+      const previousPeriodResult: any = await previousPeriodStmt.bind(parseInt(chatId)).first();
 
-      const totalViolations = currentPeriodResult?.total_violations || 0;
-      const averageSeverity = currentPeriodResult?.average_severity || 0;
-      const uniqueUsers = currentPeriodResult?.unique_users || 0;
+      const totalViolations = Number(currentPeriodResult?.total_violations || 0);
+      const averageSeverity = Number(currentPeriodResult?.average_severity || 0);
+      const uniqueUsers = Number(currentPeriodResult?.unique_users || 0);
 
-      const violationsByArticle: ViolationCount[] = (violationsByArticleResult.results || []).map((row: any) => ({
-        article: row.article,
-        subarticle: row.subarticle || null,
-        articleTitle: row.article_title || '',
-        punishment: row.punishment || '',
-        count: row.count,
-        averageSeverity: row.average_severity
-      }));
+      const violationsByArticle: ViolationCount[] = (violationsByArticleResult.results || [])
+        .map((row: any) => this.mapViolationCount(row));
+      const sentenceTotal = calculateSentenceFromViolationCounts(violationsByArticle);
 
       // Вычисляем сравнение с предыдущим периодом
       let comparisonWithPreviousPeriod: PeriodComparison | undefined;
       if (previousPeriodResult) {
-        const prevViolations = previousPeriodResult.total_violations || 0;
-        const prevSeverity = previousPeriodResult.average_severity || 0;
-        const prevUsers = previousPeriodResult.unique_users || 0;
+        const prevViolations = Number(previousPeriodResult.total_violations || 0);
+        const prevSeverity = Number(previousPeriodResult.average_severity || 0);
+        const prevUsers = Number(previousPeriodResult.unique_users || 0);
 
         comparisonWithPreviousPeriod = {
           violationsChange: prevViolations > 0 ? ((totalViolations - prevViolations) / prevViolations) * 100 : 0,
@@ -339,12 +337,14 @@ export class ViolationRepository implements IViolationRepository {
         violationsByArticle,
         averageSeverity,
         uniqueUsers,
+        totalYears: sentenceTotal.totalYears,
+        lifeSentences: sentenceTotal.lifeSentences,
         comparisonWithPreviousPeriod
       };
 
     } catch (error) {
       console.error('❌ Error getting period stats:', error);
-      throw new Error(`Failed to get period stats: ${error.message}`);
+      throw new Error(`Failed to get period stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -366,7 +366,7 @@ export class ViolationRepository implements IViolationRepository {
         WHERE chat_id = ?
       `);
 
-      const generalStatsResult = await generalStatsStmt.bind(parseInt(chatId)).first();
+      const generalStatsResult: any = await generalStatsStmt.bind(parseInt(chatId)).first();
 
       // Топ-5 самых частых нарушений
       const topViolationsStmt = this.env.DB.prepare(`
@@ -412,17 +412,12 @@ export class ViolationRepository implements IViolationRepository {
 
       const criticalViolationsResult = await criticalViolationsStmt.bind(parseInt(chatId)).all();
 
-      const totalViolations = generalStatsResult?.total_violations || 0;
-      const averageSeverity = generalStatsResult?.average_severity || 0;
+      const totalViolations = Number(generalStatsResult?.total_violations || 0);
+      const averageSeverity = Number(generalStatsResult?.average_severity || 0);
 
-      const topViolations: ViolationCount[] = (topViolationsResult.results || []).map((row: any) => ({
-        article: row.article,
-        subarticle: row.subarticle || null,
-        articleTitle: row.article_title || '',
-        punishment: row.punishment || '',
-        count: row.count,
-        averageSeverity: row.average_severity
-      }));
+      const topViolations: ViolationCount[] = (topViolationsResult.results || [])
+        .map((row: any) => this.mapViolationCount(row));
+      const sentenceTotal = calculateSentenceFromViolationCounts(topViolations);
 
       const topUsers: UserViolationCount[] = (topUsersResult.results || []).map((row: any) => ({
         userId: String(row.user_id),
@@ -450,12 +445,111 @@ export class ViolationRepository implements IViolationRepository {
         topUsers,
         overallRiskLevel,
         averageSeverity,
+        totalYears: sentenceTotal.totalYears,
+        lifeSentences: sentenceTotal.lifeSentences,
         criticalViolations
       };
 
     } catch (error) {
       console.error('❌ Error getting general stats:', error);
-      throw new Error(`Failed to get general stats: ${error.message}`);
+      throw new Error(`Failed to get general stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  /**
+   * Получить топ пользователей по суммарному сроку наказаний за период
+   */
+  async getTopUsersBySentenceStats(
+    chatId: string,
+    days: number,
+    limit: number
+  ): Promise<UserViolationCount[]> {
+    if (!this.env.DB) {
+      throw new Error('Database not available');
+    }
+
+    try {
+      const safeDays = Math.max(1, Math.min(365, Math.floor(days || 1)));
+      const safeLimit = Math.max(1, Math.min(20, Math.floor(limit || 5)));
+      const stmt = this.env.DB.prepare(`
+        SELECT 
+          user_id,
+          article,
+          subarticle,
+          article_title,
+          punishment,
+          COUNT(*) as count,
+          AVG(severity) as average_severity
+        FROM criminal_violations 
+        WHERE chat_id = ? AND created_at >= datetime('now', '-${safeDays} days')
+        GROUP BY user_id, article, subarticle, article_title, punishment
+      `);
+
+      const result = await stmt.bind(parseInt(chatId)).all();
+      const users = new Map<string, UserViolationCount>();
+
+      for (const row of result.results || []) {
+        const rawRow = row as any;
+        const userId = String(rawRow.user_id);
+        const violationCount = this.mapViolationCount(rawRow);
+        const sentenceTotal = calculateSentenceFromViolationCount(violationCount);
+        const existing = users.get(userId) || {
+          userId,
+          count: 0,
+          averageSeverity: 0,
+          riskLevel: 'low' as const,
+          totalYears: 0,
+          lifeSentences: 0,
+        };
+
+        const nextCount = existing.count + violationCount.count;
+        const weightedSeverity = nextCount > 0
+          ? (
+            (existing.averageSeverity * existing.count) +
+            (violationCount.averageSeverity * violationCount.count)
+          ) / nextCount
+          : 0;
+        const nextSentence = addSentenceTotals(
+          {
+            totalYears: existing.totalYears || 0,
+            lifeSentences: existing.lifeSentences || 0,
+          },
+          sentenceTotal
+        );
+
+        users.set(userId, {
+          ...existing,
+          count: nextCount,
+          averageSeverity: weightedSeverity,
+          riskLevel: ValidationUtils.calculateRiskLevel(weightedSeverity),
+          totalYears: nextSentence.totalYears,
+          lifeSentences: nextSentence.lifeSentences,
+        });
+      }
+
+      return Array.from(users.values())
+        .sort((a, b) =>
+          (b.lifeSentences || 0) - (a.lifeSentences || 0) ||
+          (b.totalYears || 0) - (a.totalYears || 0) ||
+          b.count - a.count
+        )
+        .slice(0, safeLimit);
+    } catch (error) {
+      console.error('❌ Error getting top users by sentence stats:', error);
+      throw new Error(
+        `Failed to get top users by sentence stats: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  private mapViolationCount(row: any): ViolationCount {
+    return {
+      article: row.article,
+      subarticle: row.subarticle || null,
+      articleTitle: row.article_title || '',
+      punishment: row.punishment || '',
+      count: row.count || 0,
+      averageSeverity: row.average_severity || 0
+    };
   }
 }
