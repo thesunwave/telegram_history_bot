@@ -1,6 +1,41 @@
 import { Env, LOG_ID_RADIX, TELEGRAM_LIMIT } from "./env";
 import { chunkText } from "./utils";
 
+const TELEGRAM_HTML_TAG_RE = /&lt;(\/?)(b|i|u|s|code|pre)&gt;/g;
+
+function restoreTelegramHtmlTags(text: string): string {
+  const rangesToRestore = new Set<number>();
+  const stack: Array<{ tag: string; index: number }> = [];
+  const matches = Array.from(text.matchAll(TELEGRAM_HTML_TAG_RE));
+
+  for (const match of matches) {
+    const [, closing, tag] = match;
+    const index = match.index ?? 0;
+
+    if (!closing) {
+      stack.push({ tag, index });
+      continue;
+    }
+
+    const opening = stack[stack.length - 1];
+    if (opening?.tag !== tag) {
+      continue;
+    }
+
+    rangesToRestore.add(opening.index);
+    rangesToRestore.add(index);
+    stack.pop();
+  }
+
+  return text.replace(TELEGRAM_HTML_TAG_RE, (match, closing, tag, offset) => {
+    if (!rangesToRestore.has(offset)) {
+      return match;
+    }
+
+    return `<${closing}${tag}>`;
+  });
+}
+
 /**
  * Converts basic markdown to HTML for Telegram messages.
  * 
@@ -16,13 +51,13 @@ function convertToHtml(text: string): string {
   // Convert **text** to <b>text</b>
   result = result.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
 
-  // Escape HTML special characters (except our bold tags)
-  result = result.replace(/&/g, '&amp;');
+  // Escape HTML special characters while preserving entities produced by HTMLBuilder.
+  result = result.replace(/&(?!(?:amp|lt|gt|quot);|#\d+;|#x[0-9a-fA-F]+;)/g, '&amp;');
   result = result.replace(/</g, '&lt;');
   result = result.replace(/>/g, '&gt;');
 
-  // Restore our bold tags
-  result = result.replace(/&lt;b&gt;(.*?)&lt;\/b&gt;/g, '<b>$1</b>');
+  // Restore Telegram HTML tags produced by internal formatters.
+  result = restoreTelegramHtmlTags(result);
 
   return result;
 }

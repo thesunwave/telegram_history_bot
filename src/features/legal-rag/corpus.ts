@@ -49,6 +49,9 @@ export async function prepareLegalDocument(
     const articleNumber = normalizeRequired(article.article, 'article');
     const subarticle = normalizeOptional(article.subarticle);
     const articleTitle = normalizeOptional(article.articleTitle) || '';
+    if (isObsoleteLegalArticle(articleTitle, article.text)) {
+      continue;
+    }
     const paragraphs = splitIntoChunks(article.text, maxChunkChars);
 
     for (let index = 0; index < paragraphs.length; index += 1) {
@@ -101,7 +104,7 @@ export async function prepareLegalDocument(
 }
 
 function splitIntoChunks(text: string, maxChunkChars: number): string[] {
-  const rawText = text?.trim();
+  const rawText = stripObsoleteLegalFragments(text)?.trim();
   if (!rawText) {
     throw new Error('text is required');
   }
@@ -124,6 +127,31 @@ function splitIntoChunks(text: string, maxChunkChars: number): string[] {
     }
   }
   return chunks;
+}
+
+export function stripObsoleteLegalFragments(text: string): string {
+  return text
+    .replace(/\([^)]*утратил[аои]? силу[^)]*\)/gi, ' ')
+    .replace(
+      /(?:^|\s)\d+(?:\.\d+)*\.\s*Утратил[аои]? силу\.?(?:\s+[сc]\s+[^.]+?г\.)?(?:\s*-\s*Федеральный закон от .*?N\s*\d+(?:-\S+)?)?\s*/gim,
+      ' '
+    )
+    .replace(
+      /(?:Примечани[ея]\.?\s*)?Утратил[аои]? силу\.?(?:\s+[сc]\s+[^.]+?г\.)?(?:\s*-\s*Федеральный закон от .*?N\s*\d+(?:-\S+)?)?\s*/gi,
+      ' '
+    )
+    .replace(/(?:Примечани[ея]\.?\s*)?Утратил[аои]? силу\.\s*/gi, ' ')
+    .replace(/(?:^|\s)\d+(?:\.\d+)*\.\s*Утратил[аои]? силу\.\s*/gim, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+export function isObsoleteLegalArticle(articleTitle: string, text: string): boolean {
+  return /утратил[аои]? силу/i.test(articleTitle) ||
+    /^Статья\s+\d+(?:\.\d+)*\.\s*Утратил[аои]? силу/i.test(text.trim());
 }
 
 function normalizeRequired(value: string | null | undefined, field: string): string {

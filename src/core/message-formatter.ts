@@ -18,6 +18,12 @@ function formatFullArticle(article: string, subarticle: string | null): string {
   return article;
 }
 
+interface CompactLegalSummary {
+  description: string;
+  punishment: string;
+  term: string;
+}
+
 /**
  * Represents a single violation from the analysis
  */
@@ -206,12 +212,16 @@ export class MessageFormatter implements IMessageFormatter {
           try {
             const severityEmoji = this.getSeverityEmoji(Math.floor(averageSeverity || 1));
             const fullArticle = formatFullArticle(article, subarticle);
+            const legalSummary = this.buildCompactLegalSummary(articleTitle, punishment);
             lines.push(`• ${this.htmlBuilder.bold(`${formatArticleForDisplay(fullArticle)}`)} ${count || 0} раз ${severityEmoji} (ср. ${(averageSeverity || 0).toFixed(1)})`);
-            if (articleTitle) {
-              lines.push(`  ${this.htmlBuilder.italic(articleTitle)}`);
+            if (legalSummary.description) {
+              lines.push(`  ${this.htmlBuilder.bold('Описание:')} ${this.htmlBuilder.italic(legalSummary.description)}`);
             }
-            if (punishment) {
-              lines.push(`  ${this.htmlBuilder.bold('Наказание:')} ${punishment}`);
+            if (legalSummary.punishment) {
+              lines.push(`  ${this.htmlBuilder.bold('Наказание:')} ${legalSummary.punishment}`);
+            }
+            if (legalSummary.term) {
+              lines.push(`  ${this.htmlBuilder.bold('Срок:')} ${legalSummary.term}`);
             }
           } catch (emojiError) {
             console.warn('⚠️ Error formatting violation:', emojiError);
@@ -303,12 +313,16 @@ export class MessageFormatter implements IMessageFormatter {
           try {
             const severityEmoji = this.getSeverityEmoji(Math.floor(averageSeverity || 1));
             const fullArticle = formatFullArticle(article, subarticle);
+            const legalSummary = this.buildCompactLegalSummary(articleTitle, punishment);
             lines.push(`• ${this.htmlBuilder.bold(`${formatArticleForDisplay(fullArticle)}`)} ${count || 0} раз ${severityEmoji} (ср. ${(averageSeverity || 0).toFixed(1)})`);
-            if (articleTitle) {
-              lines.push(`  ${this.htmlBuilder.italic(articleTitle)}`);
+            if (legalSummary.description) {
+              lines.push(`  ${this.htmlBuilder.bold('Описание:')} ${this.htmlBuilder.italic(legalSummary.description)}`);
             }
-            if (punishment) {
-              lines.push(`  ${this.htmlBuilder.bold('Наказание:')} ${punishment}`);
+            if (legalSummary.punishment) {
+              lines.push(`  ${this.htmlBuilder.bold('Наказание:')} ${legalSummary.punishment}`);
+            }
+            if (legalSummary.term) {
+              lines.push(`  ${this.htmlBuilder.bold('Срок:')} ${legalSummary.term}`);
             }
           } catch (emojiError) {
             console.warn('⚠️ Error formatting period violation:', emojiError);
@@ -363,13 +377,20 @@ export class MessageFormatter implements IMessageFormatter {
             const positionEmoji = this.getPositionEmoji(position);
             const severityEmoji = this.getSeverityEmoji(Math.floor(violation.averageSeverity || 1));
             const fullArticle = formatFullArticle(violation.article, violation.subarticle);
+            const legalSummary = this.buildCompactLegalSummary(
+              violation.articleTitle,
+              violation.punishment
+            );
 
             lines.push(`${positionEmoji} ${this.htmlBuilder.bold(`${formatArticleForDisplay(fullArticle)}`)} ${violation.count || 0} раз ${severityEmoji} (ср. ${(violation.averageSeverity || 0).toFixed(1)})`);
-            if (violation.articleTitle) {
-              lines.push(`   ${this.htmlBuilder.italic(violation.articleTitle)}`);
+            if (legalSummary.description) {
+              lines.push(`   ${this.htmlBuilder.bold('Описание:')} ${this.htmlBuilder.italic(legalSummary.description)}`);
             }
-            if (violation.punishment) {
-              lines.push(`   ${this.htmlBuilder.bold('Наказание:')} ${violation.punishment}`);
+            if (legalSummary.punishment) {
+              lines.push(`   ${this.htmlBuilder.bold('Наказание:')} ${legalSummary.punishment}`);
+            }
+            if (legalSummary.term) {
+              lines.push(`   ${this.htmlBuilder.bold('Срок:')} ${legalSummary.term}`);
             }
           } catch (violationError) {
             console.warn('⚠️ Error formatting top violation:', violationError);
@@ -462,6 +483,97 @@ export class MessageFormatter implements IMessageFormatter {
       default:
         return '❓ Неопределенный';
     }
+  }
+
+  private buildCompactLegalSummary(
+    articleTitle?: string,
+    punishment?: string
+  ): CompactLegalSummary {
+    return {
+      description: this.truncatePlainText(articleTitle || '', 140),
+      punishment: this.summarizePunishment(punishment || ''),
+      term: this.summarizeTerm(punishment || ''),
+    };
+  }
+
+  private summarizePunishment(value: string): string {
+    const normalized = this.normalizeLegalText(value);
+    if (!normalized) {
+      return '';
+    }
+
+    const parts: string[] = [];
+    const fine = this.extractFirstMatch(normalized, [
+      /штраф(?:ом)? в размере от [^.]{1,80}? до [^.]{1,80}? рублей/i,
+      /штраф(?:ом)? в размере до [^.]{1,80}? рублей/i,
+      /штраф(?:ом)? до [^.]{1,80}? рублей/i,
+    ]);
+    if (fine) {
+      parts.push(this.lowercaseFirst(fine));
+    }
+
+    if (/лишением свободы|лишение свободы/i.test(normalized)) {
+      parts.push('лишение свободы');
+    }
+    if (/принудительными работами|принудительные работы/i.test(normalized)) {
+      parts.push('принудительные работы');
+    }
+    if (/обязательными работами|обязательные работы/i.test(normalized)) {
+      parts.push('обязательные работы');
+    }
+    if (/исправительными работами|исправительные работы/i.test(normalized)) {
+      parts.push('исправительные работы');
+    }
+    if (/арестом|арест/i.test(normalized)) {
+      parts.push('арест');
+    }
+
+    return this.unique(parts).slice(0, 3).join('; ');
+  }
+
+  private summarizeTerm(value: string): string {
+    const normalized = this.normalizeLegalText(value);
+    const terms = [
+      ...normalized.matchAll(/на срок от [^.]{1,40}? до [^.]{1,40}?(?:лет|года|год|месяцев|месяца|месяц|часов|часа|час)/gi),
+      ...normalized.matchAll(/на срок до [^.]{1,40}?(?:лет|года|год|месяцев|месяца|месяц|часов|часа|час)/gi),
+    ]
+      .map(match => this.lowercaseFirst(match[0]))
+      .filter(term => !/занимать определенные должности|заниматься определенной деятельностью/i.test(term));
+
+    return this.unique(terms).slice(0, 2).join('; ');
+  }
+
+  private normalizeLegalText(value: string): string {
+    return value
+      .replace(/Статья\s+\d+(?:\.\d+)*\.\s*/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private extractFirstMatch(value: string, patterns: RegExp[]): string {
+    for (const pattern of patterns) {
+      const match = value.match(pattern);
+      if (match?.[0]) {
+        return match[0];
+      }
+    }
+    return '';
+  }
+
+  private lowercaseFirst(value: string): string {
+    return value ? value[0].toLocaleLowerCase('ru-RU') + value.slice(1) : '';
+  }
+
+  private truncatePlainText(value: string, maxLength: number): string {
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return `${normalized.slice(0, maxLength - 1).trim()}…`;
+  }
+
+  private unique(values: string[]): string[] {
+    return [...new Set(values.map(value => value.trim()).filter(Boolean))];
   }
 
   /**

@@ -96,6 +96,12 @@ export interface Env {
   CRIMINAL_FINAL_JUDGE_ENABLED?: string | boolean;
   CRIMINAL_FINAL_JUDGE_MODEL?: string;
   CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE?: string | number;
+  CRIMINAL_FINAL_JUDGE_MIN_RAG_SCORE?: string | number;
+  CRIMINAL_FINAL_JUDGE_MIN_QUALITY_REFERENCES?: string | number;
+  CRIMINAL_FINAL_JUDGE_CONTEXT_BEFORE?: string | number;
+  CRIMINAL_FINAL_JUDGE_CONTEXT_AFTER?: string | number;
+  CRIMINAL_FINAL_JUDGE_MAX_REFERENCES?: string | number;
+  CRIMINAL_FINAL_JUDGE_MAX_REFERENCE_CHARS?: string | number;
   CRIMINAL_FINAL_JUDGE_MAX_TOKENS?: string | number;
   CRIMINAL_CONTEXT_BEFORE?: string | number;
   CRIMINAL_CONTEXT_AFTER?: string | number;
@@ -103,6 +109,11 @@ export interface Env {
   CRIMINAL_PREFILTER_MODEL?: string;
   CRIMINAL_PREFILTER_MIN_CONFIDENCE?: string | number;
   CRIMINAL_PREFILTER_MAX_TOKENS?: string | number;
+  CRIMINAL_PREFILTER_CACHE_ENABLED?: string | boolean;
+  CRIMINAL_PREFILTER_CACHE_TTL?: string | number;
+  CRIMINAL_PREFILTER_CACHE_VERSION?: string;
+  CRIMINAL_PREFILTER_BATCH_ENABLED?: string | boolean;
+  CRIMINAL_PREFILTER_BATCH_SIZE?: string | number;
 
   // ========================================
   // 💰 LLM BUDGET CONFIGURATION (ADR-001)
@@ -253,7 +264,7 @@ export interface CriminalContextAnalysisInput {
 
 export interface CriminalSemanticPrefilterResult {
   shouldAnalyze: boolean;
-  reason: 'threat' | 'incitement' | 'self_incrimination' | 'extremism' | 'dangerous_instruction' | 'none';
+  reason: 'threat' | 'sexual_threat' | 'incitement' | 'self_incrimination' | 'extremism' | 'dangerous_instruction' | 'none';
   confidence: number;
   explanation: string;
   searchQuery?: string;

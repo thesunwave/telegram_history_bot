@@ -145,6 +145,47 @@ export default {
       }
     }
 
+    if (url.pathname === "/api/criminal/diagnose" && req.method === "POST") {
+      const key = url.searchParams.get("key") || req.headers.get("X-Legal-Rag-Ingest-Key");
+      const ingestKey = env.LEGAL_RAG_INGEST_KEY || env.SECRET;
+      if (key !== ingestKey && key !== env.SECRET) {
+        return new Response("Unauthorized", { status: 403 });
+      }
+
+      try {
+        const payload = await req.json<any>();
+        const text = typeof payload.text === "string" ? payload.text.trim() : "";
+        if (!text) {
+          return Response.json({ ok: false, error: "text is required" }, { status: 400 });
+        }
+
+        const chatId = Number.isFinite(Number(payload.chatId)) ? Number(payload.chatId) : -990519001;
+        const analyzerId = env.CRIMINAL_CODE_ANALYZER_DO.idFromName(String(chatId));
+        const analyzer = env.CRIMINAL_CODE_ANALYZER_DO.get(analyzerId);
+        const response = await analyzer.fetch("https://do/diagnose", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...payload,
+            text,
+            chatId,
+            userId: Number.isFinite(Number(payload.userId)) ? Number(payload.userId) : 990519001,
+            username: typeof payload.username === "string" ? payload.username : "diagnostic",
+            messageId: Number.isFinite(Number(payload.messageId)) ? Number(payload.messageId) : Date.now(),
+            day: typeof payload.day === "string" ? payload.day : new Date().toISOString().slice(0, 10),
+          }),
+        });
+
+        const result = await response.json().catch(() => null);
+        return Response.json(result, { status: response.status });
+      } catch (error: any) {
+        return Response.json({
+          ok: false,
+          error: error?.message || String(error),
+        }, { status: 500 });
+      }
+    }
+
     if (url.pathname === "/healthz") return new Response("ok");
     if (
       url.pathname.startsWith("/tg/") &&

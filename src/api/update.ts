@@ -61,6 +61,7 @@ export function buildHelpText(env: Env): string {
     `/criminal_stats [period] – статистика нарушений УК РФ${criminalLabel}`,
     `/my_criminal [period] – ваша статистика нарушений УК РФ${criminalLabel}`,
     `/criminal_top [n] [period] – топ N нарушителей УК РФ${criminalLabel}`,
+    `/criminal_backfill [n|today|week|month] – админский replay последних сообщений${criminalLabel}`,
     'period: today | week | month',
     '',
     '/help – показать эту справку',
@@ -750,6 +751,8 @@ export async function handleUpdate(msg: any, env: Env) {
     const count = parseInt(args[1]) || 5;
     const period = args[2] || 'today';
     await criminalTopUsers(env, chatId, count, period);
+  } else if (command.name === '/criminal_backfill') {
+    await handleCriminalBackfillCommand(env, msg, command.args);
   } else if (command.name === '/criminal_reset') {
     await resetCriminalCounters(env, chatId);
     await sendMessage(env, chatId, 'Счетчики нарушений УК РФ сброшены');
@@ -759,6 +762,92 @@ export async function handleUpdate(msg: any, env: Env) {
     await sendMessage(env, chatId, buildHelpText(env));
   }
   // Note: Background analysis (profanity and criminal code) is handled in recordMessage function
+}
+
+async function handleCriminalBackfillCommand(env: Env, msg: any, args: string[]): Promise<void> {
+  const userId = msg.from?.id || 0;
+  const adminId = parseInt(env.ADMIN_USER_ID || '0', 10);
+  const isPrivateChat = msg.chat?.type === 'private';
+  if ((adminId && userId !== adminId) || (!adminId && !isPrivateChat)) {
+    await sendMessage(env, msg.chat.id, 'Эта команда доступна только администратору или в личке с ботом');
+    return;
+  }
+
+  const chatId = msg.chat.id;
+  const now = Math.floor(Date.now() / 1000);
+  const requested = args[0] || 'today';
+  const numericLimit = parseInt(requested, 10);
+  const maxMessages = Math.min(Math.max(Number.isFinite(numericLimit) ? numericLimit : 100, 1), 250);
+  const rangeStart = getCriminalBackfillRangeStart(requested, now);
+
+  const { fetchMessagesOptimized } = await import('../features/history/history-optimized');
+  const messages = await fetchMessagesOptimized(env, chatId, rangeStart, now);
+  const candidates = messages
+    .filter(message => Boolean(message.text) && !message.text!.startsWith('/'))
+    .sort((a, b) => b.ts - a.ts)
+    .slice(0, maxMessages)
+    .reverse();
+
+  if (candidates.length === 0) {
+    await sendMessage(env, chatId, 'Не нашел сохраненных текстовых сообщений для replay');
+    return;
+  }
+
+  const analyzerId = env.CRIMINAL_CODE_ANALYZER_DO.idFromName(String(chatId));
+  const analyzer = env.CRIMINAL_CODE_ANALYZER_DO.get(analyzerId);
+  let queued = 0;
+  let skipped = 0;
+
+  for (const message of candidates) {
+    const response = await analyzer.fetch('https://do/enqueue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: message.text,
+        chatId,
+        userId: message.user,
+        messageId: message.messageId,
+        username: message.username,
+        day: new Date(message.ts * 1000).toISOString().slice(0, 10),
+        ts: message.ts,
+        enqueueOnly: true,
+      }),
+    });
+
+    if (!response.ok) {
+      skipped++;
+      continue;
+    }
+
+    const result: any = await response.json().catch(() => null);
+    if (result?.queued) {
+      queued++;
+    } else {
+      skipped++;
+    }
+  }
+
+  await sendMessage(
+    env,
+    chatId,
+    [
+      'Criminal backfill запущен',
+      `Кандидатов: ${candidates.length}`,
+      `Поставлено в очередь: ${queued}`,
+      `Пропущено: ${skipped}`,
+      'Результаты появятся после обработки очереди; cap сейчас ограничивает до 250 анализов в день.',
+    ].join('\n')
+  );
+}
+
+function getCriminalBackfillRangeStart(requested: string, now: number): number {
+  if (requested === 'week') {
+    return now - 7 * DAY;
+  }
+  if (requested === 'month') {
+    return now - 30 * DAY;
+  }
+  return now - DAY;
 }
 
 /**

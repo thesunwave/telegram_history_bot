@@ -237,7 +237,8 @@ describe('MessageFormatter', () => {
       
       // Check that punishments are displayed
       expect(result).toContain('<b>Наказание:</b> штраф в размере до трехсот тысяч рублей');
-      expect(result).toContain('<b>Наказание:</b> лишение свободы на срок до 15 лет');
+      expect(result).toContain('<b>Наказание:</b> лишение свободы');
+      expect(result).toContain('<b>Срок:</b> на срок до 15 лет');
     });
 
     it('should handle empty violations by article', () => {
@@ -352,7 +353,8 @@ describe('MessageFormatter', () => {
       
       // Check that punishments are displayed
       expect(result).toContain('<b>Наказание:</b> штраф в размере до трехсот тысяч рублей');
-      expect(result).toContain('<b>Наказание:</b> лишение свободы на срок до 15 лет');
+      expect(result).toContain('<b>Наказание:</b> лишение свободы');
+      expect(result).toContain('<b>Срок:</b> на срок до 15 лет');
       expect(result).toContain('<b>Наказание:</b> штраф в размере до сорока тысяч рублей');
     });
   });
@@ -431,9 +433,10 @@ describe('MessageFormatter', () => {
       
       // Check that punishments are displayed
       expect(result).toContain('<b>Наказание:</b> штраф в размере до трехсот тысяч рублей');
-      expect(result).toContain('<b>Наказание:</b> лишение свободы на срок до 15 лет');
+      expect(result).toContain('<b>Наказание:</b> лишение свободы');
+      expect(result).toContain('<b>Срок:</b> на срок до 15 лет');
       expect(result).toContain('<b>Наказание:</b> штраф в размере до сорока тысяч рублей');
-      expect(result).toContain('<b>Наказание:</b> лишение свободы на срок до трех лет');
+      expect(result).toContain('<b>Срок:</b> на срок до трех лет');
       expect(result).toContain('<b>Наказание:</b> штраф в размере до ста двадцати тысяч рублей');
     });
 

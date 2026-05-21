@@ -124,7 +124,7 @@ export interface CriminalContextAnalysisInput {
 
 export interface CriminalSemanticPrefilterResult {
   shouldAnalyze: boolean;
-  reason: 'threat' | 'incitement' | 'self_incrimination' | 'extremism' | 'dangerous_instruction' | 'none';
+  reason: 'threat' | 'sexual_threat' | 'incitement' | 'self_incrimination' | 'extremism' | 'dangerous_instruction' | 'none';
   confidence: number;
   explanation: string;
   searchQuery?: string;

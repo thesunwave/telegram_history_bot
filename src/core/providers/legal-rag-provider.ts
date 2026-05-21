@@ -31,6 +31,7 @@ const DEFAULT_EMBEDDING_MODEL = '@cf/baai/bge-m3';
 const DEFAULT_LAW_CODE = 'uk-rf';
 const DEFAULT_TOP_K = 5;
 const DEFAULT_MIN_SCORE = 0.55;
+const DEFAULT_QUERY_VARIANTS = 2;
 
 export class LegalRagProvider implements AIProvider {
   constructor(private env: Env) {}
@@ -51,8 +52,8 @@ export class LegalRagProvider implements AIProvider {
     input: CriminalContextAnalysisInput,
     env?: Env
   ): Promise<CriminalAnalysisResult> {
-    const retrievalText = input.semanticPrefilter?.searchQuery?.trim() || input.targetText;
-    return this.findLegalReferences(retrievalText, input, env);
+    const retrievalTexts = this.buildRetrievalTexts(input, env || this.env);
+    return this.findLegalReferences(retrievalTexts, input, env);
   }
 
   validateConfig(): void {
@@ -75,18 +76,17 @@ export class LegalRagProvider implements AIProvider {
   }
 
   private async findLegalReferences(
-    text: string,
+    textOrTexts: string | string[],
     input?: CriminalContextAnalysisInput,
     envOverride?: Env
   ): Promise<CriminalAnalysisResult> {
     const env = envOverride || this.env;
     this.validateConfig();
 
-    const vector = await this.embedQuery(text, env);
     const lawCode = this.getStringEnv('LEGAL_RAG_LAW_CODE', DEFAULT_LAW_CODE, env);
     const topK = this.getNumberEnv('LEGAL_RAG_TOP_K', DEFAULT_TOP_K, env);
     const minScore = this.getNumberEnv('LEGAL_RAG_MIN_SCORE', DEFAULT_MIN_SCORE, env);
-    const matches = await this.queryVectorIndex(vector, lawCode, topK, minScore, env);
+    const matches = await this.retrieveMatches(textOrTexts, lawCode, topK, minScore, env);
     const references = await this.loadLegalReferences(matches, lawCode, env);
 
     return {
@@ -109,6 +109,70 @@ export class LegalRagProvider implements AIProvider {
       contextWindow: input?.contextWindow,
       legalReferences: references,
     };
+  }
+
+  private buildRetrievalTexts(input: CriminalContextAnalysisInput, env: Env): string[] {
+    const maxVariants = Math.max(
+      1,
+      Math.min(this.getNumberEnv('LEGAL_RAG_QUERY_VARIANTS', DEFAULT_QUERY_VARIANTS, env), 3)
+    );
+    const candidates = [
+      input.semanticPrefilter?.searchQuery,
+      input.targetText,
+      this.buildCompactContextQuery(input),
+    ];
+    return this.uniqueNonEmptyTexts(candidates).slice(0, maxVariants);
+  }
+
+  private buildCompactContextQuery(input: CriminalContextAnalysisInput): string {
+    if (input.messages.length <= 1) {
+      return '';
+    }
+    return input.messages
+      .filter(message => message.isTarget || Math.abs(message.relativePosition) <= 1)
+      .map(message => message.text)
+      .join('\n')
+      .slice(0, 1000);
+  }
+
+  private uniqueNonEmptyTexts(values: Array<string | undefined | null>): string[] {
+    const result: string[] = [];
+    const seen = new Set<string>();
+    for (const value of values) {
+      const normalized = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+      if (!normalized || seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      result.push(normalized);
+    }
+    return result.length > 0 ? result : [''];
+  }
+
+  private async retrieveMatches(
+    textOrTexts: string | string[],
+    lawCode: string,
+    topK: number,
+    minScore: number,
+    env: Env
+  ): Promise<VectorizeMatch[]> {
+    const texts = Array.isArray(textOrTexts) ? textOrTexts : [textOrTexts];
+    const matchesById = new Map<string, VectorizeMatch>();
+
+    for (const text of texts) {
+      const vector = await this.embedQuery(text, env);
+      const matches = await this.queryVectorIndex(vector, lawCode, topK, minScore, env);
+      for (const match of matches) {
+        const existing = matchesById.get(match.id);
+        if (!existing || (match.score ?? 0) > (existing.score ?? 0)) {
+          matchesById.set(match.id, match);
+        }
+      }
+    }
+
+    return Array.from(matchesById.values())
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      .slice(0, topK);
   }
 
   private async embedQuery(text: string, env: Env): Promise<number[]> {

@@ -149,7 +149,7 @@ function parseArticles(text) {
       articleTitle,
       text: articleText,
     };
-  });
+  }).filter(article => !isObsoleteLegalArticle(article.articleTitle, article.text));
 }
 
 async function prepareDocument(input, maxChunkChars) {
@@ -204,7 +204,8 @@ async function prepareDocument(input, maxChunkChars) {
 }
 
 function splitIntoChunks(text, maxChunkChars) {
-  const paragraphs = text
+  const cleanedText = stripObsoleteLegalFragments(text);
+  const paragraphs = cleanedText
     .split(/\n{2,}/)
     .map(part => part.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
@@ -220,6 +221,31 @@ function splitIntoChunks(text, maxChunkChars) {
     }
   }
   return chunks;
+}
+
+function stripObsoleteLegalFragments(text) {
+  return text
+    .replace(/\([^)]*утратил[аои]? силу[^)]*\)/gi, ' ')
+    .replace(
+      /(?:^|\s)\d+(?:\.\d+)*\.\s*Утратил[аои]? силу\.?(?:\s+[сc]\s+[^.]+?г\.)?(?:\s*-\s*Федеральный закон от .*?N\s*\d+(?:-\S+)?)?\s*/gim,
+      ' '
+    )
+    .replace(
+      /(?:Примечани[ея]\.?\s*)?Утратил[аои]? силу\.?(?:\s+[сc]\s+[^.]+?г\.)?(?:\s*-\s*Федеральный закон от .*?N\s*\d+(?:-\S+)?)?\s*/gi,
+      ' '
+    )
+    .replace(/(?:Примечани[ея]\.?\s*)?Утратил[аои]? силу\.\s*/gi, ' ')
+    .replace(/(?:^|\s)\d+(?:\.\d+)*\.\s*Утратил[аои]? силу\.\s*/gim, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function isObsoleteLegalArticle(articleTitle, text) {
+  return /утратил[аои]? силу/i.test(articleTitle) ||
+    /^Статья\s+\d+(?:\.\d+)*\.\s*Утратил[аои]? силу/i.test(text.trim());
 }
 
 function findSourceUrl(text) {

@@ -48,8 +48,9 @@ describe('ViolationCount Fields Test', () => {
       expect(result).toContain('<i>Терроризм</i>');
 
       // Проверяем, что отображаются наказания
-      expect(result).toContain('<b>Наказание:</b> штраф в размере до трехсот тысяч рублей или лишение свободы на срок до двух лет');
-      expect(result).toContain('<b>Наказание:</b> лишение свободы на срок от восьми до пятнадцати лет');
+      expect(result).toContain('<b>Наказание:</b> штраф в размере до трехсот тысяч рублей; лишение свободы');
+      expect(result).toContain('<b>Срок:</b> на срок до двух лет');
+      expect(result).toContain('<b>Срок:</b> на срок от восьми до пятнадцати лет');
     });
 
     it('should display articleTitle and punishment in period stats', () => {
@@ -87,7 +88,8 @@ describe('ViolationCount Fields Test', () => {
       expect(result).toContain('<i>Мошенничество</i>');
 
       // Проверяем, что отображаются наказания
-      expect(result).toContain('<b>Наказание:</b> лишение свободы на срок до трех лет');
+      expect(result).toContain('<b>Наказание:</b> лишение свободы');
+      expect(result).toContain('<b>Срок:</b> на срок до трех лет');
       expect(result).toContain('<b>Наказание:</b> штраф в размере до ста двадцати тысяч рублей');
     });
 
@@ -127,7 +129,8 @@ describe('ViolationCount Fields Test', () => {
 
       // Проверяем, что отображаются наказания
       expect(result).toContain('<b>Наказание:</b> штраф в размере до сорока тысяч рублей');
-      expect(result).toContain('<b>Наказание:</b> штраф в размере до сорока тысяч рублей или обязательные работы на срок до ста двадцати часов');
+      expect(result).toContain('<b>Наказание:</b> штраф в размере до сорока тысяч рублей; обязательные работы');
+      expect(result).toContain('<b>Срок:</b> на срок до ста двадцати часов');
     });
 
     it('should handle missing articleTitle gracefully', () => {

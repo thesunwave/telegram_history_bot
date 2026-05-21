@@ -394,6 +394,189 @@ describe("CriminalCodeAnalyzerDO", () => {
       vi.unstubAllGlobals();
     });
 
+    it("should not continue to RAG when semantic prefilter rejects the target", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      const legalRagProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "legal-rag", model: "@cf/baai/bge-m3" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCodeWithContext: vi.fn(),
+        analyzeCriminalCode: vi.fn(),
+      };
+      ProviderFactory.createProvider = vi.fn().mockReturnValue(legalRagProvider);
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
+      mockEnv.COUNTERS = {
+        get: vi.fn().mockResolvedValue("0"),
+        put: vi.fn().mockResolvedValue(undefined),
+      };
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        output_text: JSON.stringify({
+          shouldAnalyze: false,
+          reason: "none",
+          confidence: 0.12,
+          explanation: "target is a complaint, risky content is only in neighboring messages",
+          searchQuery: ""
+        }),
+        usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 }
+      }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "Ппп херня полная где моя административка",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 115,
+          username: "testuser",
+          day: "2026-05-18"
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(legalRagProvider.analyzeCriminalCodeWithContext).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+
+    it("should reuse cached semantic prefilter results for repeated normalized text", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      const kv = new Map<string, string>();
+      mockEnv.HISTORY = {
+        get: vi.fn((key: string) => Promise.resolve(kv.has(key) ? JSON.parse(kv.get(key)!) : null)),
+        put: vi.fn((key: string, value: string) => {
+          kv.set(key, value);
+          return Promise.resolve();
+        }),
+      };
+      const legalRagProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "legal-rag", model: "@cf/baai/bge-m3" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCodeWithContext: vi.fn(),
+        analyzeCriminalCode: vi.fn(),
+      };
+      ProviderFactory.createProvider = vi.fn().mockReturnValue(legalRagProvider);
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
+      mockEnv.COUNTERS = {
+        get: vi.fn().mockResolvedValue("0"),
+        put: vi.fn().mockResolvedValue(undefined),
+      };
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        output_text: JSON.stringify({
+          shouldAnalyze: false,
+          reason: "none",
+          confidence: 0.2,
+          explanation: "no legal signal",
+          searchQuery: ""
+        }),
+        usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 }
+      }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      for (const messageId of [1161, 1162]) {
+        await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+          method: "POST",
+          body: JSON.stringify({
+            text: "  Просто херня полная  ",
+            chatId: 12345,
+            userId: 67890,
+            messageId,
+            username: "testuser",
+            day: "2026-05-18"
+          }),
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(legalRagProvider.analyzeCriminalCodeWithContext).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+
+    it("should batch semantic prefilter requests for queued messages", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+        getAlarm: vi.fn().mockResolvedValue(null),
+      };
+      mockEnv.HISTORY = {
+        get: vi.fn().mockResolvedValue(null),
+        put: vi.fn().mockResolvedValue(undefined),
+      };
+      const legalRagProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "legal-rag", model: "@cf/baai/bge-m3" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCodeWithContext: vi.fn(),
+        analyzeCriminalCode: vi.fn(),
+      };
+      ProviderFactory.createProvider = vi.fn().mockReturnValue(legalRagProvider);
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 2;
+      mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
+      mockEnv.CRIMINAL_PREFILTER_BATCH_ENABLED = true;
+      mockEnv.CRIMINAL_PREFILTER_BATCH_SIZE = 8;
+      mockEnv.COUNTERS = {
+        get: vi.fn().mockResolvedValue("0"),
+        put: vi.fn().mockResolvedValue(undefined),
+      };
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        output_text: JSON.stringify({
+          items: [
+            { id: "0", shouldAnalyze: false, reason: "none", confidence: 0.1, explanation: "benign", searchQuery: "" },
+            { id: "1", shouldAnalyze: false, reason: "none", confidence: 0.1, explanation: "benign", searchQuery: "" }
+          ]
+        }),
+        usage: { input_tokens: 150, output_tokens: 40, total_tokens: 190 }
+      }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      for (const [messageId, text] of [[1163, "первая обычная фраза"], [1164, "вторая обычная фраза"]] as const) {
+        await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+          method: "POST",
+          body: JSON.stringify({
+            text,
+            chatId: 12345,
+            userId: 67890,
+            messageId,
+            username: "testuser",
+            day: "2026-05-18"
+          }),
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.instructions).toContain('"items"');
+      expect(body.input[0].content).toContain('"items"');
+      expect(legalRagProvider.analyzeCriminalCodeWithContext).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+
     it("should skip semantic prefilter when the daily cap is exhausted", async () => {
       const storage = new Map<string, any>();
       mockState.storage = {
@@ -587,6 +770,97 @@ describe("CriminalCodeAnalyzerDO", () => {
         expect.anything()
       );
       expect(mockEnv.DB.prepare).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO criminal_violations"));
+      vi.unstubAllGlobals();
+    });
+
+    it("should reject final judge violations quoted from neighboring context", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      const legalRagProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "legal-rag", model: "@cf/baai/bge-m3" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCodeWithContext: vi.fn().mockResolvedValue({
+          hasViolations: false,
+          decision: "uncertain",
+          violations: [],
+          totalSeverity: 0,
+          riskLevel: "low",
+          analysisTimestamp: Date.now(),
+          legalReferences: [{
+            article: "280",
+            subarticle: null,
+            articleTitle: "Публичные призывы к осуществлению экстремистской деятельности",
+            quote: "Статья 280. Публичные призывы к осуществлению экстремистской деятельности...",
+            sourceUrl: "https://uk-rf.ru/",
+            lawCode: "uk-rf",
+            score: 0.88,
+            vectorId: "uk-rf:280:main:0",
+          }],
+        }),
+        analyzeCriminalCode: vi.fn(),
+      };
+      ProviderFactory.createProvider = vi.fn().mockReturnValue(legalRagProvider);
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
+      mockEnv.CRIMINAL_FINAL_JUDGE_MODEL = "gpt-5-nano";
+      mockEnv.CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE = 0.7;
+      mockEnv.COUNTERS = {
+        get: vi.fn().mockResolvedValue("0"),
+        put: vi.fn().mockResolvedValue(undefined),
+      };
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        output_text: JSON.stringify({
+          decision: "violation",
+          confidence: 0.92,
+          evidence: {
+            subject: "testuser",
+            object: "neighboring user",
+            intent: "threat",
+            contextSummary: "neighboring message contains a threat",
+            whyNotBenign: "context contains threat"
+          },
+          violations: [{
+            article: "280",
+            subarticle: null,
+            articleTitle: "Публичные призывы к осуществлению экстремистской деятельности",
+            quote: "Я тебе ебало набью",
+            punishment: "до четырех лет лишения свободы",
+            severity: 4,
+            confidence: 0.92
+          }]
+        }),
+        usage: { input_tokens: 900, output_tokens: 120, total_tokens: 1020 }
+      }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "Ппп херня полная где моя административка",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 120,
+          username: "testuser",
+          day: "2026-05-18"
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://api.openai.com/v1/responses",
+        expect.anything()
+      );
+      expect(mockEnv.DB.prepare.mock.calls.some(([query]: [string]) =>
+        query.includes("INSERT INTO criminal_violations")
+      )).toBe(false);
       vi.unstubAllGlobals();
     });
 
