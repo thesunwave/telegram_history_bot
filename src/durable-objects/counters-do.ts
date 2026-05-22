@@ -120,6 +120,19 @@ export class CountersDO {
   private validateProfanity(p: ProfanityIncrementPayload) {
     if (p.chatId == null || p.userId == null || !p.day || p.count == null || !Array.isArray(p.words))
       throw new Error('invalid profanity payload');
+    if (!Number.isInteger(p.count) || p.count <= 0)
+      throw new Error('invalid profanity count');
+
+    let wordCountTotal = 0;
+    for (const word of p.words) {
+      if (!word || typeof word.baseForm !== 'string' || word.baseForm.trim().length === 0)
+        throw new Error('invalid profanity word');
+      if (!Number.isInteger(word.count) || word.count <= 0)
+        throw new Error('invalid profanity word count');
+      wordCountTotal += word.count;
+    }
+    if (wordCountTotal !== p.count)
+      throw new Error('profanity count mismatch');
   }
 
   private validateCriminal(p: CriminalIncrementPayload) {

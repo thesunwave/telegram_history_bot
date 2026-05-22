@@ -26,7 +26,11 @@ import type { DurableObjectState } from '@cloudflare/workers-types';
 import { ProviderFactory } from '../core/providers/provider-factory';
 import type { AIProvider } from '../core/providers/ai-provider';
 import { criminalPrefilter, CriminalPrefilterReason } from '../features/criminal/prefilter';
-import { detectLocalProfanity, type LocalProfanityResult } from '../features/profanity/local-detector';
+import {
+  canonicalizeLocalProfanityBaseForm,
+  detectLocalProfanity,
+  type LocalProfanityResult,
+} from '../features/profanity/local-detector';
 import { fetchLastMessagesOptimized } from '../features/history/history-optimized';
 import { sendMessage } from '../core/telegram';
 import { getBudgetTracker } from '../core/llm';
@@ -815,15 +819,19 @@ export class CriminalCodeAnalyzerDO {
       if (!source?.hasProfanity || !Array.isArray(source.words)) {
         continue;
       }
+      const sourceCounts = new Map<string, number>();
       for (const rawWord of source.words) {
         const normalized = this.normalizeProfanityCounterWord(rawWord);
         if (!normalized) {
           continue;
         }
-        counts.set(
+        sourceCounts.set(
           normalized.baseForm,
-          Math.max(counts.get(normalized.baseForm) || 0, normalized.count)
+          (sourceCounts.get(normalized.baseForm) || 0) + normalized.count
         );
+      }
+      for (const [baseForm, count] of sourceCounts) {
+        counts.set(baseForm, Math.max(counts.get(baseForm) || 0, count));
       }
     }
     return Array.from(counts.entries()).map(([baseForm, count]) => ({ baseForm, count }));
@@ -843,11 +851,12 @@ export class CriminalCodeAnalyzerDO {
       .toLowerCase()
       .replace(/ё/g, 'е')
       .replace(/[^a-zа-я0-9_-]+/gi, '');
+    const canonicalBaseForm = canonicalizeLocalProfanityBaseForm(baseForm) || baseForm;
     const count = Math.round(this.clampNumber(Number(rawWord?.count ?? 1), 0, 100));
-    if (!baseForm || count <= 0) {
+    if (!canonicalBaseForm || count <= 0) {
       return null;
     }
-    return { baseForm, count };
+    return { baseForm: canonicalBaseForm, count };
   }
 
   private async runSemanticPrefilter(

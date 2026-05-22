@@ -61,6 +61,11 @@ export function detectLocalProfanity(text: string): LocalProfanityResult {
   };
 }
 
+export function canonicalizeLocalProfanityBaseForm(value: string): string | null {
+  const result = detectLocalProfanity(value);
+  return result.words[0]?.baseForm || null;
+}
+
 function normalizeProfanityText(text: string): string {
   return text
     .normalize('NFKC')

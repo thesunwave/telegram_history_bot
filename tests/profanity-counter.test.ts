@@ -84,6 +84,66 @@ describe('Profanity Counter System', () => {
       const response = await countersDO.fetch(request);
       expect(response.status).toBe(400);
     });
+
+    it('should reject non-positive profanity counts', async () => {
+      const invalidPayload = {
+        chatId: 123,
+        userId: 456,
+        username: 'testuser',
+        day: '2025-01-01',
+        count: -1,
+        words: [{ baseForm: 'word1', count: 1 }]
+      };
+
+      const request = new Request('https://test.com/profanity', {
+        method: 'POST',
+        body: JSON.stringify(invalidPayload)
+      }) as any;
+
+      const response = await countersDO.fetch(request);
+      expect(response.status).toBe(400);
+    });
+
+    it('should reject profanity payloads when total count differs from word counts', async () => {
+      const invalidPayload = {
+        chatId: 123,
+        userId: 456,
+        username: 'testuser',
+        day: '2025-01-01',
+        count: 4,
+        words: [
+          { baseForm: 'word1', count: 2 },
+          { baseForm: 'word2', count: 1 }
+        ]
+      };
+
+      const request = new Request('https://test.com/profanity', {
+        method: 'POST',
+        body: JSON.stringify(invalidPayload)
+      }) as any;
+
+      const response = await countersDO.fetch(request);
+      expect(response.status).toBe(400);
+    });
+
+    it('should reject malformed profanity word entries', async () => {
+      const invalidPayload = {
+        chatId: 123,
+        userId: 456,
+        username: 'testuser',
+        day: '2025-01-01',
+        count: 1,
+        words: [{ baseForm: '', count: 1 }]
+      };
+
+      const request = new Request('https://test.com/profanity', {
+        method: 'POST',
+        body: JSON.stringify(invalidPayload)
+      }) as any;
+
+      const response = await countersDO.fetch(request);
+      expect(response.status).toBe(400);
+    });
   });
 
   describe('Profanity counter increments', () => {
