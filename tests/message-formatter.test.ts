@@ -368,8 +368,9 @@ describe('MessageFormatter', () => {
     it('should display period sentence totals', () => {
       const result = formatter.formatPeriodStats(mockPeriodStats);
 
-      expect(result).toContain('<b>Итого напиздел:</b> 60 лет');
-      expect(result).toContain('<b>Напиздел:</b> 60 лет');
+      expect(result).toContain('<b>Суммарный срок по чату:</b> 60 лет');
+      expect(result).toContain('<b>Срок по статье:</b> 60 лет');
+      expect(result).not.toContain('Итого напиздел');
     });
   });
 

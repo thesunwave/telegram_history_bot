@@ -283,7 +283,7 @@ export class MessageFormatter implements IMessageFormatter {
 
     lines.push(
       `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations || 0}`,
-      `${this.htmlBuilder.bold('Итого напиздел:')} ${this.formatSentenceTotalForStats(stats)}`,
+      `${this.htmlBuilder.bold('Суммарный срок по чату:')} ${this.formatSentenceTotalForStats(stats)}`,
       `${this.htmlBuilder.bold('Уникальных пользователей:')} ${stats.uniqueUsers || 0}`,
       `${this.htmlBuilder.bold('Средняя серьезность:')} ${(stats.averageSeverity || 0).toFixed(1)}/10`,
       ''
@@ -353,7 +353,7 @@ export class MessageFormatter implements IMessageFormatter {
             });
             const sentenceText = formatSentenceTotalValue(sentenceTotal);
             if (sentenceText !== 'срок не распознан') {
-              lines.push(`  ${this.htmlBuilder.bold('Напиздел:')} ${sentenceText}`);
+              lines.push(`  ${this.htmlBuilder.bold('Срок по статье:')} ${sentenceText}`);
             }
           } catch (emojiError) {
             console.warn('⚠️ Error formatting period violation:', emojiError);
@@ -382,7 +382,7 @@ export class MessageFormatter implements IMessageFormatter {
       '📊 ' + this.htmlBuilder.bold('Общая статистика чата'),
       '',
       `${this.htmlBuilder.bold('Всего нарушений:')} ${stats.totalViolations || 0}`,
-      `${this.htmlBuilder.bold('Итого напиздел:')} ${this.formatSentenceTotalForStats(stats)}`,
+      `${this.htmlBuilder.bold('Суммарный срок по чату:')} ${this.formatSentenceTotalForStats(stats)}`,
       `${this.htmlBuilder.bold('Средняя серьезность:')} ${(stats.averageSeverity || 0).toFixed(1)}/10`,
       `${this.htmlBuilder.bold('Общий уровень риска:')} ${this.formatRiskLevel(stats.overallRiskLevel || 'low')}`,
       ''
@@ -427,7 +427,7 @@ export class MessageFormatter implements IMessageFormatter {
             const sentenceTotal = calculateSentenceFromViolationCount(violation);
             const sentenceText = formatSentenceTotalValue(sentenceTotal);
             if (sentenceText !== 'срок не распознан') {
-              lines.push(`   ${this.htmlBuilder.bold('Напиздел:')} ${sentenceText}`);
+              lines.push(`   ${this.htmlBuilder.bold('Срок по статье:')} ${sentenceText}`);
             }
           } catch (violationError) {
             console.warn('⚠️ Error formatting top violation:', violationError);
