@@ -700,9 +700,9 @@ describe("CriminalCodeAnalyzerDO", () => {
           analysisTimestamp: Date.now(),
           legalReferences: [{
             article: "119",
-            subarticle: null,
+            subarticle: "1",
             articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
-            quote: "Статья 119. Угроза убийством...",
+            quote: "Статья 119. Угроза убийством или причинением тяжкого вреда здоровью 1. Угроза убийством или причинением тяжкого вреда здоровью, если имелись основания опасаться осуществления этой угрозы, - наказывается обязательными работами на срок до четырехсот восьмидесяти часов, либо лишением свободы на срок до двух лет.",
             sourceUrl: "https://uk-rf.ru/",
             lawCode: "uk-rf",
             score: 0.88,
@@ -736,7 +736,7 @@ describe("CriminalCodeAnalyzerDO", () => {
             subarticle: null,
             articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
             quote: "я тебя убью",
-            punishment: "до двух лет лишения свободы",
+            punishment: "обязательные работы",
             severity: 7,
             confidence: 0.91
           }]
@@ -770,6 +770,14 @@ describe("CriminalCodeAnalyzerDO", () => {
         expect.anything()
       );
       expect(mockEnv.DB.prepare).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO criminal_violations"));
+      const insertStatement = mockEnv.DB.prepare.mock.results
+        .map((result: any) => result.value)
+        .find((statement: any) =>
+          statement.bind.mock.calls.some((call: any[]) => call.includes("119"))
+        );
+      const insertCall = insertStatement.bind.mock.calls.find((call: any[]) => call.includes("119"));
+      expect(insertCall[4]).toBe("1");
+      expect(insertCall[7]).toContain("лишением свободы на срок до двух лет");
       vi.unstubAllGlobals();
     });
 

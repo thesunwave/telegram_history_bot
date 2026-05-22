@@ -372,6 +372,30 @@ describe('MessageFormatter', () => {
       expect(result).toContain('<b>Срок по статье:</b> 60 лет');
       expect(result).not.toContain('Итого напиздел');
     });
+
+    it('should not invent sentence terms when stored punishment is incomplete', () => {
+      const result = formatter.formatPeriodStats({
+        ...mockPeriodStats,
+        totalViolations: 1,
+        violationsByArticle: [
+          {
+            article: '119',
+            subarticle: null,
+            articleTitle: 'Угроза убийством или причинением тяжкого вреда здоровью',
+            punishment: 'обязательные работы',
+            count: 1,
+            averageSeverity: 6
+          }
+        ],
+        averageSeverity: 6,
+        uniqueUsers: 1
+      });
+
+      expect(result).toContain('<b>Суммарный срок по чату:</b> срок не распознан');
+      expect(result).toContain('<b>Наказание:</b> обязательные работы');
+      expect(result).not.toContain('<b>Срок:</b>');
+      expect(result).not.toContain('<b>Срок по статье:</b>');
+    });
   });
 
   describe('formatGeneralStats', () => {

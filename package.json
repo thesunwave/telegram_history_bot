@@ -12,7 +12,8 @@
 		"test:all": "npm test && npm run test:race-conditions",
 		"dev:remote": "wrangler dev --remote --var ENVIRONMENT:development",
 		"dev:polling": "node scripts/local-polling.js",
-		"ingest:legal-rag": "node scripts/ingest-legal-rag.mjs"
+		"ingest:legal-rag": "node scripts/ingest-legal-rag.mjs",
+		"backfill:criminal-punishments": "node scripts/fixes/backfill-criminal-punishments.mjs"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20250810.0",

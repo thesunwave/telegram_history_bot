@@ -1548,6 +1548,7 @@ export class CriminalCodeAnalyzerDO {
       'violation разрешен только если target/context содержит конкретное деяние, угрозу, призыв, самообвинение или опасную инструкцию, подходящие под найденную статью.',
       'Шутки, цитаты, обсуждение закона, новостей, книг, игр, мемов и гипотетические рассуждения не классифицируй как violation без прямого опасного смысла.',
       'Поле violations[].quote должно быть точной цитатой из targetText, а не из соседнего сообщения и не из legalReferences.',
+      'Поле violations[].punishment не используй для вольного пересказа санкции: если сомневаешься, верни пустую строку. Приложение сохранит наказание из legalReferences.',
       'Верни строго JSON: {"decision":"violation|no_violation|uncertain","confidence":0..1,"evidence":{"subject":"short","object":"short","intent":"short","contextSummary":"short","whyNotBenign":"short"},"violations":[{"article":"article number from legalReferences","subarticle":null,"articleTitle":"...","quote":"exact user quote","punishment":"short","severity":1..10,"confidence":0..1}]}',
     ].join('\n');
     const payload = {
@@ -1687,16 +1688,10 @@ export class CriminalCodeAnalyzerDO {
       ? judge.decision
       : 'uncertain';
     const minConfidence = this.getNumberEnv('CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE', 0.75);
-    const allowedReferences = new Map(
-      this.selectFinalJudgeReferences(
-        retrievalResult.legalReferences || [],
-        this.getFinalJudgeMaxReferences()
-      )
-        .map(reference => [
-          `${reference.article}:${reference.subarticle || ''}`,
-          reference,
-        ])
-    );
+    const allowedReferences = this.buildAllowedReferenceMap(this.selectFinalJudgeReferences(
+      retrievalResult.legalReferences || [],
+      this.getFinalJudgeMaxReferences()
+    ));
     const evidence = {
       subject: this.cleanJudgeText(judge.evidence?.subject, input.targetUsername || 'unknown'),
       object: this.cleanJudgeText(judge.evidence?.object, 'unknown'),
@@ -1756,14 +1751,11 @@ export class CriminalCodeAnalyzerDO {
     }
 
     return {
-      article,
-      subarticle,
-      articleTitle: this.cleanJudgeText(violation.articleTitle, reference.articleTitle),
+      article: reference.article,
+      subarticle: reference.subarticle || null,
+      articleTitle: reference.articleTitle || this.cleanJudgeText(violation.articleTitle, ''),
       quote,
-      punishment: this.cleanJudgeText(
-        violation.punishment,
-        this.cleanLegalReferenceText(reference.quote)
-      ).slice(0, 500),
+      punishment: this.buildStoredPunishment(reference),
       severity,
       confidence,
       decision: 'violation',
@@ -1771,6 +1763,51 @@ export class CriminalCodeAnalyzerDO {
       targetMessageId: input.targetMessageId,
       contextWindow: input.contextWindow,
     };
+  }
+
+  private buildAllowedReferenceMap(references: LegalReferenceHit[]): Map<string, LegalReferenceHit> {
+    const result = new Map<string, LegalReferenceHit>();
+    const referencesByArticle = new Map<string, LegalReferenceHit[]>();
+
+    for (const reference of references) {
+      result.set(`${reference.article}:${reference.subarticle || ''}`, reference);
+      const articleReferences = referencesByArticle.get(reference.article) || [];
+      articleReferences.push(reference);
+      referencesByArticle.set(reference.article, articleReferences);
+    }
+
+    for (const [article, articleReferences] of referencesByArticle) {
+      if (articleReferences.length === 1) {
+        result.set(`${article}:`, articleReferences[0]);
+      }
+    }
+
+    return result;
+  }
+
+  private buildStoredPunishment(reference: LegalReferenceHit): string {
+    const referenceText = this.cleanLegalReferenceText(reference.quote);
+    const punishmentText = this.extractPunishmentText(referenceText);
+    return (punishmentText || referenceText).slice(0, 1000);
+  }
+
+  private extractPunishmentText(value: string): string {
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    if (!normalized) {
+      return '';
+    }
+
+    const startIndex = normalized.search(/наказыва(?:ет|ю)тся/i);
+    if (startIndex < 0) {
+      return '';
+    }
+
+    const tail = normalized.slice(startIndex);
+    const nextPartIndex = tail.search(/\s\d+(?:\.\d+)*\.\s+[А-ЯЁA-Z]/);
+    const clause = nextPartIndex > 0 ? tail.slice(0, nextPartIndex) : tail;
+    return clause
+      .replace(/\((?:в\s+ред\.|см\.).*$/i, '')
+      .trim();
   }
 
   private cleanJudgeText(value: unknown, fallback: string): string {

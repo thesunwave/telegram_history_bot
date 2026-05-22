@@ -155,33 +155,38 @@ function parseArticles(text) {
 async function prepareDocument(input, maxChunkChars) {
   const chunks = [];
   for (const article of input.articles) {
-    const articleChunks = splitIntoChunks(article.text, maxChunkChars);
-    for (let index = 0; index < articleChunks.length; index += 1) {
-      const chunkText = articleChunks[index];
-      const checksum = sha256([
-        input.lawCode,
-        input.versionDate,
-        article.article,
-        article.subarticle || '',
-        article.articleTitle,
-        chunkText,
-      ].join('\n'));
-      chunks.push({
-        lawCode: input.lawCode,
-        article: article.article,
-        subarticle: article.subarticle,
-        articleTitle: article.articleTitle,
-        chunkText,
-        vectorId: [
+    const sections = splitArticleIntoSections(article);
+    for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex += 1) {
+      const section = sections[sectionIndex];
+      const subarticle = section.section || article.subarticle;
+      const articleChunks = splitIntoChunks(section.text, maxChunkChars);
+      for (let index = 0; index < articleChunks.length; index += 1) {
+        const chunkText = articleChunks[index];
+        const vectorIdParts = [
           input.lawCode,
           article.article,
-          article.subarticle || 'main',
+          section.section || 'main',
           index,
-          checksum.slice(0, 12),
-        ].join(':'),
-        sourceUrl: input.sourceUrl,
-        checksum,
-      });
+        ];
+        const checksum = sha256([
+          input.lawCode,
+          input.versionDate,
+          article.article,
+          subarticle || '',
+          article.articleTitle,
+          chunkText,
+        ].join('\n'));
+        chunks.push({
+          lawCode: input.lawCode,
+          article: article.article,
+          subarticle,
+          articleTitle: article.articleTitle,
+          chunkText,
+          vectorId: [...vectorIdParts, checksum.slice(0, 12)].join(':'),
+          sourceUrl: input.sourceUrl,
+          checksum,
+        });
+      }
     }
   }
 
@@ -201,6 +206,28 @@ async function prepareDocument(input, maxChunkChars) {
     checksum,
     chunks,
   };
+}
+
+function splitArticleIntoSections(article) {
+  const cleanedText = stripObsoleteLegalFragments(article.text);
+  const partRegex = /(?:^|\n)\s*(\d+(?:\.\d+)*)\.\s+/g;
+  const matches = [...cleanedText.matchAll(partRegex)]
+    .filter(match => match.index !== undefined && match.index > 0);
+
+  if (matches.length === 0) {
+    return [{ section: null, text: cleanedText }];
+  }
+
+  const header = cleanedText.slice(0, matches[0].index).trim();
+  return matches.map((match, index) => {
+    const start = match.index || 0;
+    const end = index + 1 < matches.length ? matches[index + 1].index : cleanedText.length;
+    const partText = cleanedText.slice(start, end).trim();
+    return {
+      section: match[1],
+      text: [header, partText].filter(Boolean).join('\n'),
+    };
+  });
 }
 
 function splitIntoChunks(text, maxChunkChars) {

@@ -78,7 +78,7 @@ const NUMBER_WORDS: Record<string, number> = {
 const NUMBER_TOKEN = '(?:\\d+(?:[.,]\\d+)?|[а-яё]+(?:\\s+[а-яё]+){0,3})';
 const YEAR_UNIT = '(?:лет|года|год)';
 const IMPRISONMENT_CONTEXT =
-  '(?:лишени[ея]\\s+свободы|лишением\\s+свободы|свободы|колони[ияю]|заключени[ея])';
+  '(?:лишени[ея]\\s+свободы|лишением\\s+свободы|колони[ияю]|заключени[ея])';
 
 /**
  * Parses a punishment string into the maximum imprisonment term in years.

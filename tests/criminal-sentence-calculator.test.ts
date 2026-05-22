@@ -36,10 +36,27 @@ describe('criminal sentence calculator', () => {
     ).toEqual({ totalYears: 0, lifeSentences: 0 });
   });
 
+  it('ignores restriction of liberty when there is no imprisonment term', () => {
+    expect(
+      calculateSentenceFromPunishment('ограничение свободы на срок до трех лет')
+    ).toEqual({ totalYears: 0, lifeSentences: 0 });
+  });
+
   it('counts life sentences separately', () => {
     expect(
       calculateSentenceFromPunishment('пожизненное лишение свободы')
     ).toEqual({ totalYears: 0, lifeSentences: 1 });
+  });
+
+  it('does not infer prison terms from article number fallbacks', () => {
+    expect(calculateSentenceFromViolationCount({
+      article: '119',
+      subarticle: null,
+      articleTitle: 'Угроза убийством или причинением тяжкого вреда здоровью',
+      punishment: 'обязательные работы',
+      count: 1,
+      averageSeverity: 6,
+    })).toEqual({ totalYears: 0, lifeSentences: 0 });
   });
 
   it('formats totals for report lines', () => {
