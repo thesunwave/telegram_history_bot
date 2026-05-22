@@ -128,6 +128,16 @@ export interface CriminalSemanticPrefilterResult {
   confidence: number;
   explanation: string;
   searchQuery?: string;
+  profanity?: CriminalSemanticPrefilterProfanityResult;
+}
+
+export interface CriminalSemanticPrefilterProfanityResult {
+  hasProfanity: boolean;
+  words: Array<{
+    baseForm: string;
+    count: number;
+    confidence: number;
+  }>;
 }
 
 // Default profanity analysis prompts (fallback if not configured)

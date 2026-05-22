@@ -26,6 +26,7 @@ import type { DurableObjectState } from '@cloudflare/workers-types';
 import { ProviderFactory } from '../core/providers/provider-factory';
 import type { AIProvider } from '../core/providers/ai-provider';
 import { criminalPrefilter, CriminalPrefilterReason } from '../features/criminal/prefilter';
+import { detectLocalProfanity, type LocalProfanityResult } from '../features/profanity/local-detector';
 import { fetchLastMessagesOptimized } from '../features/history/history-optimized';
 import { sendMessage } from '../core/telegram';
 import { getBudgetTracker } from '../core/llm';
@@ -40,6 +41,7 @@ interface QueuedCriminalAnalysisTask {
   ts?: number;
   reasons: CriminalPrefilterReason[];
   enqueuedAt: number;
+  localProfanity?: LocalProfanityResult;
 }
 
 interface CriminalFinalJudgeResult {
@@ -254,6 +256,7 @@ export class CriminalCodeAnalyzerDO {
         return new Response(JSON.stringify({ error: 'Chat ID is required' }), { status: 400 });
       }
 
+      const localProfanity = this.detectLocalProfanityForMessage(text);
       const previousTexts = await this.getRecentContextTexts(chatId);
       const prefilter = criminalPrefilter({
         text,
@@ -262,6 +265,21 @@ export class CriminalCodeAnalyzerDO {
       });
 
       if (!prefilter.shouldQueue) {
+        await this.recordProfanityCountersFromAnalysis({
+          task: {
+            text,
+            chatId,
+            userId,
+            messageId,
+            username,
+            day,
+            ts,
+            reasons: prefilter.reasons,
+            enqueuedAt: Date.now(),
+            localProfanity,
+          },
+          semanticPrefilter: undefined,
+        });
         return new Response(
           JSON.stringify({ queued: false, reasons: prefilter.reasons }),
           { headers: { 'Content-Type': 'application/json' } }
@@ -281,6 +299,7 @@ export class CriminalCodeAnalyzerDO {
           ts,
           reasons: prefilter.reasons,
           enqueuedAt: Date.now(),
+          localProfanity,
         });
         await this.saveQueue(queue);
       }
@@ -573,6 +592,7 @@ export class CriminalCodeAnalyzerDO {
       const semanticPrefilter = semanticPrefilters.get(item.id) || this.buildNoSignalPrefilter(
         'missing semantic prefilter result'
       );
+      await this.recordProfanityCountersFromAnalysis({ task, semanticPrefilter });
       if (!semanticPrefilter.shouldAnalyze) {
         console.log('ℹ️ Criminal semantic prefilter skipped RAG/final judge', {
           chatId: task.chatId.toString(36),
@@ -714,6 +734,120 @@ export class CriminalCodeAnalyzerDO {
       message.text === task.text
     ));
     return byText;
+  }
+
+  private detectLocalProfanityForMessage(text: string): LocalProfanityResult | undefined {
+    if (!this.getBooleanEnv('ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER', false)) {
+      return undefined;
+    }
+    if (text.trim().startsWith('/')) {
+      return undefined;
+    }
+    return detectLocalProfanity(text);
+  }
+
+  private async recordProfanityCountersFromAnalysis(input: {
+    task: QueuedCriminalAnalysisTask;
+    semanticPrefilter?: CriminalSemanticPrefilterResult;
+  }): Promise<void> {
+    if (!this.getBooleanEnv('ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER', false)) {
+      return;
+    }
+
+    const words = this.mergeProfanityWords(
+      input.task.localProfanity,
+      input.semanticPrefilter?.profanity
+    );
+    if (words.length === 0) {
+      return;
+    }
+    if (input.task.userId === undefined || !input.task.day) {
+      console.warn('⚠️ Profanity counters skipped because task identity is incomplete', {
+        chatId: input.task.chatId.toString(36),
+        messageId: input.task.messageId,
+        hasUserId: input.task.userId !== undefined,
+        hasDay: Boolean(input.task.day),
+      });
+      return;
+    }
+
+    const count = words.reduce((sum, word) => sum + word.count, 0);
+    try {
+      const id = this.env.COUNTERS_DO.idFromName(String(input.task.chatId));
+      const response = await this.env.COUNTERS_DO.get(id).fetch('https://do/profanity', {
+        method: 'POST',
+        body: JSON.stringify({
+          chatId: input.task.chatId,
+          userId: input.task.userId,
+          username: input.task.username || String(input.task.userId),
+          day: input.task.day,
+          count,
+          words,
+        }),
+      });
+      if (!response.ok) {
+        const responseText = await response.text().catch(() => 'Unable to read response');
+        throw new Error(`Counter update failed with status: ${response.status}, response: ${responseText}`);
+      }
+      console.log('✅ Profanity counters updated from criminal prefilter path', {
+        chatId: input.task.chatId.toString(36),
+        userId: input.task.userId.toString(36),
+        messageId: input.task.messageId,
+        count,
+        uniqueWords: words.length,
+      });
+    } catch (error: any) {
+      console.warn('⚠️ Profanity counter update from criminal prefilter failed', {
+        chatId: input.task.chatId.toString(36),
+        userId: input.task.userId?.toString(36),
+        messageId: input.task.messageId,
+        error: error.message || String(error),
+      });
+    }
+  }
+
+  private mergeProfanityWords(
+    localResult?: LocalProfanityResult,
+    modelResult?: CriminalSemanticPrefilterResult['profanity']
+  ): Array<{ baseForm: string; count: number }> {
+    const counts = new Map<string, number>();
+    for (const source of [localResult, modelResult]) {
+      if (!source?.hasProfanity || !Array.isArray(source.words)) {
+        continue;
+      }
+      for (const rawWord of source.words) {
+        const normalized = this.normalizeProfanityCounterWord(rawWord);
+        if (!normalized) {
+          continue;
+        }
+        counts.set(
+          normalized.baseForm,
+          Math.max(counts.get(normalized.baseForm) || 0, normalized.count)
+        );
+      }
+    }
+    return Array.from(counts.entries()).map(([baseForm, count]) => ({ baseForm, count }));
+  }
+
+  private normalizeProfanityCounterWord(rawWord: any): { baseForm: string; count: number } | null {
+    const confidence = typeof rawWord?.confidence === 'number'
+      ? this.clampNumber(rawWord.confidence, 0, 1)
+      : 0;
+    if (confidence < 0.5) {
+      return null;
+    }
+
+    const baseForm = String(rawWord?.baseForm || rawWord?.word || '')
+      .normalize('NFKC')
+      .trim()
+      .toLowerCase()
+      .replace(/ё/g, 'е')
+      .replace(/[^a-zа-я0-9_-]+/gi, '');
+    const count = Math.round(this.clampNumber(Number(rawWord?.count ?? 1), 0, 100));
+    if (!baseForm || count <= 0) {
+      return null;
+    }
+    return { baseForm, count };
   }
 
   private async runSemanticPrefilter(
@@ -928,7 +1062,7 @@ export class CriminalCodeAnalyzerDO {
     const model = (this.env as any).CRIMINAL_PREFILTER_MODEL || (this.env as any).LLM_NANO_MODEL || 'gpt-4.1-nano';
     const maxTokens = Math.max(
       this.getNumberEnv('CRIMINAL_PREFILTER_MAX_TOKENS', 512),
-      Math.min(2048, 220 * items.length)
+      Math.min(2048, 260 * items.length)
     );
     const isGpt5 = String(model).toLowerCase().includes('gpt-5');
     const systemPrompt = this.buildSemanticPrefilterSystemPrompt(true);
@@ -1016,9 +1150,11 @@ export class CriminalCodeAnalyzerDO {
       'Если shouldAnalyze=true, добавь searchQuery на русском: нейтральную юридическую формулировку для поиска по УК РФ без номера статьи и без цитирования мата.',
       'searchQuery должен описывать деяние простыми юридическими словами, например: угроза убийством, угроза причинением вреда здоровью, угроза сексуального насилия.',
       'Не используй английский язык, жаргон, странные слова, номера статей или фразы вроде "без указания конкретной статьи" в searchQuery.',
+      'Одновременно проверь target-сообщение на русскую обсценную лексику. Это не влияет на shouldAnalyze.',
+      'В profanity.words возвращай только базовые формы мата и count по target-сообщению. Не включай грубые, но не обсценные слова.',
       isBatch
-        ? 'Верни строго JSON: {"items":[{"id":"same id","shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty"}]}'
-        : 'Верни строго JSON: {"shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty"}'
+        ? 'Верни строго JSON: {"items":[{"id":"same id","shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","profanity":{"hasProfanity":boolean,"words":[{"baseForm":"string","count":1,"confidence":0..1}]}}]}'
+        : 'Верни строго JSON: {"shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","profanity":{"hasProfanity":boolean,"words":[{"baseForm":"string","count":1,"confidence":0..1}]}}'
     ].join('\n');
   }
 
@@ -1057,6 +1193,30 @@ export class CriminalCodeAnalyzerDO {
       confidence: typeof result.confidence === 'number' ? Math.max(0, Math.min(1, result.confidence)) : 0,
       explanation: typeof result.explanation === 'string' ? result.explanation.slice(0, 200) : '',
       searchQuery: typeof result.searchQuery === 'string' ? result.searchQuery.slice(0, 300) : '',
+      profanity: this.normalizeSemanticPrefilterProfanity((result as any).profanity),
+    };
+  }
+
+  private normalizeSemanticPrefilterProfanity(
+    result: any
+  ): CriminalSemanticPrefilterResult['profanity'] {
+    const words = Array.isArray(result?.words)
+      ? result.words
+        .map((word: any) => {
+          const normalized = this.normalizeProfanityCounterWord(word);
+          if (!normalized) {
+            return null;
+          }
+          const confidence = typeof word?.confidence === 'number'
+            ? this.clampNumber(word.confidence, 0, 1)
+            : 0.5;
+          return { ...normalized, confidence };
+        })
+        .filter((word: any): word is { baseForm: string; count: number; confidence: number } => Boolean(word))
+      : [];
+    return {
+      hasProfanity: Boolean(result?.hasProfanity) && words.length > 0,
+      words,
     };
   }
 
@@ -1163,7 +1323,7 @@ export class CriminalCodeAnalyzerDO {
   private async getSemanticPrefilterCacheKey(input: CriminalContextAnalysisInput): Promise<string> {
     const normalized = this.normalizeTextForSemanticCache(input.targetText);
     const hash = await this.hashText(normalized);
-    const version = String((this.env as any).CRIMINAL_PREFILTER_CACHE_VERSION || 'v3')
+    const version = String((this.env as any).CRIMINAL_PREFILTER_CACHE_VERSION || 'v4')
       .replace(/[^a-z0-9_-]+/gi, '_');
     const model = String((this.env as any).CRIMINAL_PREFILTER_MODEL || (this.env as any).LLM_NANO_MODEL || 'default')
       .replace(/[^a-z0-9_.-]+/gi, '_');

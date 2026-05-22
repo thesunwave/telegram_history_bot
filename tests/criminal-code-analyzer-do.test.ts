@@ -155,6 +155,7 @@ describe("CriminalCodeAnalyzerDO", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   describe("initialization", () => {
@@ -1087,6 +1088,203 @@ describe("CriminalCodeAnalyzerDO", () => {
       const putCall = mockEnv.HISTORY.put.mock.calls[0];
       expect(putCall).toBeDefined();
       expect(putCall[2]).toBeDefined(); // TTL parameter
+    });
+  });
+
+  describe("profanity counters from criminal prefilter", () => {
+    it("updates profanity counters for short local profanity without OpenAI fetch", async () => {
+      const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+      mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = true;
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const response = await analyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "хуй",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 2001,
+          username: "testuser",
+          day: "2026-05-18",
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+      const result = await response.json() as any;
+
+      expect(result.queued).toBe(false);
+      expect(result.reasons).toContain("too_short");
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(counterFetch).toHaveBeenCalledTimes(1);
+      const payload = JSON.parse((counterFetch.mock.calls[0][1] as RequestInit).body as string);
+      expect(payload).toMatchObject({
+        chatId: 12345,
+        userId: 67890,
+        username: "testuser",
+        day: "2026-05-18",
+        count: 1,
+        words: [{ baseForm: "хуй", count: 1 }],
+      });
+    });
+
+    it("parses semantic prefilter profanity and updates counters", async () => {
+      const storage = new Map<string, any>();
+      const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+      };
+      mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = true;
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        output_text: JSON.stringify({
+          shouldAnalyze: false,
+          reason: "none",
+          confidence: 0.1,
+          explanation: "no legal signal",
+          searchQuery: "",
+          profanity: {
+            hasProfanity: true,
+            words: [{ baseForm: "ебать", count: 2, confidence: 0.91 }],
+          },
+        }),
+        usage: { input_tokens: 100, output_tokens: 30, total_tokens: 130 },
+      }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "обычная достаточно длинная фраза для модельной проверки",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 2002,
+          username: "testuser",
+          day: "2026-05-18",
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(counterFetch).toHaveBeenCalledTimes(1);
+      const payload = JSON.parse((counterFetch.mock.calls[0][1] as RequestInit).body as string);
+      expect(payload.count).toBe(2);
+      expect(payload.words).toEqual([{ baseForm: "ебать", count: 2 }]);
+    });
+
+    it("merges local and model profanity without double-counting the same base form", async () => {
+      const storage = new Map<string, any>();
+      const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+      };
+      mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = true;
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        output_text: JSON.stringify({
+          shouldAnalyze: false,
+          reason: "none",
+          confidence: 0.1,
+          explanation: "no legal signal",
+          searchQuery: "",
+          profanity: {
+            hasProfanity: true,
+            words: [{ baseForm: "пизда", count: 1, confidence: 0.9 }],
+          },
+        }),
+        usage: { input_tokens: 100, output_tokens: 30, total_tokens: 130 },
+      }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "пиздец какая достаточно длинная фраза для модельной проверки",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 2003,
+          username: "testuser",
+          day: "2026-05-18",
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(counterFetch).toHaveBeenCalledTimes(1);
+      const payload = JSON.parse((counterFetch.mock.calls[0][1] as RequestInit).body as string);
+      expect(payload.count).toBe(1);
+      expect(payload.words).toEqual([{ baseForm: "пизда", count: 1 }]);
+    });
+
+    it("does not update profanity counters when the new flag is disabled", async () => {
+      const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+      mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = false;
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+
+      await analyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "хуй",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 2004,
+          username: "testuser",
+          day: "2026-05-18",
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(counterFetch).not.toHaveBeenCalled();
+    });
+
+    it("updates counters when the old profanity flag is disabled but the new path is enabled", async () => {
+      const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+      mockEnv.ENABLE_PROFANITY_ANALYSIS = false;
+      mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = true;
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+
+      await analyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "хуй",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 2005,
+          username: "testuser",
+          day: "2026-05-18",
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(counterFetch).toHaveBeenCalledTimes(1);
     });
   });
 

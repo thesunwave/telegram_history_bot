@@ -128,6 +128,7 @@
     // ========================================
     "ENABLE_CRIMINAL_ANALYSIS": true,
     "ENABLE_PROFANITY_ANALYSIS": false,
+    "ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER": true,
     "ENABLE_SUMMARY": false,
     "ENABLE_ACTIVITY_TRACKING": true,
     // ========================================
@@ -193,7 +194,7 @@
     "CRIMINAL_PREFILTER_MAX_TOKENS": 512,
     "CRIMINAL_PREFILTER_CACHE_ENABLED": true,
     "CRIMINAL_PREFILTER_CACHE_TTL": 2592000,
-    "CRIMINAL_PREFILTER_CACHE_VERSION": "v3",
+    "CRIMINAL_PREFILTER_CACHE_VERSION": "v4",
     "CRIMINAL_PREFILTER_BATCH_ENABLED": true,
     "CRIMINAL_PREFILTER_BATCH_SIZE": 8,
     // ========================================

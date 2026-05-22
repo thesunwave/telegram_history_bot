@@ -73,9 +73,10 @@ export interface Env {
   PROFANITY_ANALYSIS_CACHE_TTL?: string | number;
   MESSAGE_BLOCK_CACHE_TTL?: string | number;
 
-  // Feature Toggles (default to true if undefined)
+  // Feature Toggles
   ENABLE_CRIMINAL_ANALYSIS?: string | boolean;
   ENABLE_PROFANITY_ANALYSIS?: string | boolean;
+  ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER?: string | boolean;
   ENABLE_SUMMARY?: string | boolean;
   ENABLE_ACTIVITY_TRACKING?: string | boolean;
 
@@ -268,6 +269,16 @@ export interface CriminalSemanticPrefilterResult {
   confidence: number;
   explanation: string;
   searchQuery?: string;
+  profanity?: CriminalSemanticPrefilterProfanityResult;
+}
+
+export interface CriminalSemanticPrefilterProfanityResult {
+  hasProfanity: boolean;
+  words: Array<{
+    baseForm: string;
+    count: number;
+    confidence: number;
+  }>;
 }
 
 // Request for criminal code analysis
