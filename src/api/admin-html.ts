@@ -220,6 +220,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       gap: 12px;
       margin-bottom: 10px;
     }
+    .chartHeadControls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
     .chartTitle {
       color: var(--muted);
       font-size: 12px;
@@ -229,6 +236,20 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       font-size: 12px;
       font-weight: 750;
       color: var(--text);
+    }
+    .chartTimezone {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .chartTimezone select {
+      width: 122px;
+      min-height: 32px;
+      padding: 0 8px;
+      font-size: 12px;
     }
     .chartCanvas {
       position: relative;
@@ -495,8 +516,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </div>
           <div class="chartPanel wide">
             <div class="chartHead">
-              <div class="chartTitle">Средняя активность по часам UTC</div>
-              <div class="chartValue" id="hourlyPeak">0 peak</div>
+              <div class="chartTitle" id="hourlyTitle">Средняя активность по часам</div>
+              <div class="chartHeadControls">
+                <label class="chartTimezone">Зона
+                  <select id="hourlyTimezone"></select>
+                </label>
+                <div class="chartValue" id="hourlyPeak">0 peak</div>
+              </div>
             </div>
             <div class="chartCanvas tall"><canvas id="hourlyChart"></canvas></div>
             <div class="chartEmpty hidden" id="hourlyEmpty">Нет данных</div>
@@ -562,7 +588,15 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
   <script>
     const botUsername = ${botUsername};
     const principal = ${principal};
-    const state = { chatId: '', period: 'today', notificationTypes: [], chats: [], loading: false };
+    const HOURLY_TIMEZONE_STORAGE_KEY = 'telegramStatsAdmin.hourlyTimezoneOffset';
+    const state = {
+      chatId: '',
+      period: 'today',
+      notificationTypes: [],
+      chats: [],
+      loading: false,
+      currentActivity: null
+    };
     const chartInstances = {};
     const labels = {
       criminal_reports: 'УК РФ',
@@ -586,6 +620,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       document.getElementById('dateFrom').disabled = disabled;
       document.getElementById('dateTo').disabled = disabled;
       document.getElementById('refreshButton').disabled = disabled;
+      document.getElementById('hourlyTimezone').disabled = disabled;
       document.getElementById('saveNotifications').disabled = disabled;
       document.getElementById('notificationsEnabled').disabled = disabled;
       for (const input of document.querySelectorAll('#notificationTypes input')) {
@@ -903,10 +938,87 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       };
     }
 
+    function padHour(value) {
+      return String(value).padStart(2, '0');
+    }
+
+    function clampTimezoneOffset(value) {
+      const offset = Number(value);
+      if (!Number.isInteger(offset) || offset < -12 || offset > 14) {
+        return 0;
+      }
+      return offset;
+    }
+
+    function formatTimezoneOffset(offset) {
+      if (offset === 0) return 'UTC';
+      return 'UTC' + (offset > 0 ? '+' : '-') + padHour(Math.abs(offset)) + ':00';
+    }
+
+    function getBrowserTimezoneOffset() {
+      return clampTimezoneOffset(Math.round(-new Date().getTimezoneOffset() / 60));
+    }
+
+    function readTimezoneOffset() {
+      try {
+        const stored = localStorage.getItem(HOURLY_TIMEZONE_STORAGE_KEY);
+        if (stored !== null) return clampTimezoneOffset(stored);
+      } catch (_error) {
+        return getBrowserTimezoneOffset();
+      }
+      return getBrowserTimezoneOffset();
+    }
+
+    function writeTimezoneOffset(offset) {
+      try {
+        localStorage.setItem(HOURLY_TIMEZONE_STORAGE_KEY, String(offset));
+      } catch (_error) {
+        // Local storage can be unavailable in restricted browser modes.
+      }
+    }
+
+    function setupHourlyTimezoneControl() {
+      const select = document.getElementById('hourlyTimezone');
+      select.innerHTML = '';
+      for (let offset = -12; offset <= 14; offset += 1) {
+        const option = document.createElement('option');
+        option.value = String(offset);
+        option.textContent = formatTimezoneOffset(offset);
+        select.append(option);
+      }
+      select.value = String(readTimezoneOffset());
+    }
+
+    function getHourlyTimezoneOffset() {
+      return clampTimezoneOffset(document.getElementById('hourlyTimezone').value);
+    }
+
+    function shiftHourlyAverages(hourlyAverages) {
+      const byUtcHour = new Map(
+        (hourlyAverages || []).map(row => [padHour(Number(row.hour) || 0), Number(row.count) || 0])
+      );
+      const offset = getHourlyTimezoneOffset();
+      return Array.from({ length: 24 }, (_, localHour) => {
+        const utcHour = (localHour - offset + 24) % 24;
+        return {
+          hour: padHour(localHour),
+          count: byUtcHour.get(padHour(utcHour)) || 0
+        };
+      });
+    }
+
+    function getHourColor(hour) {
+      if (hour >= 5 && hour < 12) return '#176b87';
+      if (hour >= 12 && hour < 17) return '#16825d';
+      if (hour >= 17 && hour < 22) return '#b75d19';
+      return '#6d5bd0';
+    }
+
     function renderCharts(activity) {
+      state.currentActivity = activity;
       const dailyMessages = activity.dailyMessages || [];
       const dailyActiveUsers = activity.dailyActiveUsers || [];
-      const hourlyAverages = activity.hourlyAverages || [];
+      const hourlyAverages = shiftHourlyAverages(activity.hourlyAverages || []);
       const dailyMessageTotal = dailyMessages.reduce((sum, row) => sum + (Number(row.count) || 0), 0);
       const activePeak = Math.max(...dailyActiveUsers.map(row => Number(row.count) || 0), 0);
       const hourlyPeak = Math.max(...hourlyAverages.map(row => Number(row.count) || 0), 0);
@@ -914,10 +1026,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       document.getElementById('dailyMessagesTotal').textContent = String(dailyMessageTotal);
       document.getElementById('dailyActiveUsersPeak').textContent = activePeak + ' peak';
       document.getElementById('hourlyPeak').textContent = hourlyPeak + ' peak';
+      document.getElementById('hourlyTitle').textContent =
+        'Средняя активность по часам, ' + formatTimezoneOffset(getHourlyTimezoneOffset());
 
       setChartEmpty('dailyMessages', dailyMessages.length === 0);
       setChartEmpty('dailyActiveUsers', dailyActiveUsers.length === 0);
-      setChartEmpty('hourly', hourlyAverages.length === 0);
+      setChartEmpty('hourly', (activity.hourlyAverages || []).length === 0);
 
       if (dailyMessages.length) {
         makeChart('dailyMessagesChart', {
@@ -955,7 +1069,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         });
       }
 
-      if (hourlyAverages.length) {
+      if ((activity.hourlyAverages || []).length) {
         makeChart('hourlyChart', {
           type: 'bar',
           data: {
@@ -964,10 +1078,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
               data: hourlyAverages.map(row => Number(row.count) || 0),
               backgroundColor: hourlyAverages.map(row => {
                 const hour = Number(row.hour);
-                if (hour >= 5 && hour < 12) return '#176b87';
-                if (hour >= 12 && hour < 17) return '#16825d';
-                if (hour >= 17 && hour < 22) return '#b75d19';
-                return '#6d5bd0';
+                return getHourColor(hour);
               }),
               borderRadius: 5,
               maxBarThickness: 20
@@ -1184,7 +1295,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       loadDashboard();
     });
     document.getElementById('period').addEventListener('change', syncCustomPeriodControls);
+    document.getElementById('hourlyTimezone').addEventListener('change', event => {
+      writeTimezoneOffset(clampTimezoneOffset(event.target.value));
+      if (state.currentActivity) {
+        renderCharts(state.currentActivity);
+      }
+    });
     document.getElementById('saveNotifications').addEventListener('click', saveNotifications);
+    setupHourlyTimezoneControl();
     setupCustomPeriodDefaults();
     syncCustomPeriodControls();
     if (principal?.type === 'telegram') {
