@@ -179,6 +179,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
           day,
           hour: new Date(ts * 1000).getUTCHours(),
           wordCount,
+          ts,
         }),
       });
 

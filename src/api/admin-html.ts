@@ -134,7 +134,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
     .metrics {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 12px;
       margin-bottom: 12px;
     }
@@ -189,6 +189,82 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       color: var(--muted);
       font-size: 12px;
       font-weight: 700;
+    }
+    .charts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .chart {
+      min-width: 0;
+    }
+    .chartTitle {
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+    }
+    .bars {
+      display: grid;
+      grid-auto-rows: 22px;
+      gap: 7px;
+    }
+    .barRow {
+      display: grid;
+      grid-template-columns: 54px minmax(0, 1fr) 44px;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .barLabel,
+    .barValue {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .barValue {
+      text-align: right;
+      color: var(--text);
+    }
+    .barTrack {
+      height: 12px;
+      border-radius: 999px;
+      background: #eef1f5;
+      overflow: hidden;
+    }
+    .barFill {
+      height: 100%;
+      min-width: 2px;
+      border-radius: inherit;
+      background: var(--accent);
+    }
+    .bucketGrid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .bucket {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      min-width: 0;
+    }
+    .bucket h3 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      letter-spacing: 0;
+    }
+    .bucket ol {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+    }
+    .bucket li {
+      margin: 4px 0;
+      overflow-wrap: anywhere;
     }
     table {
       width: 100%;
@@ -307,7 +383,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       .topbar { align-items: flex-start; flex-direction: column; padding: 14px 0; }
       form.controls { grid-template-columns: 1fr; }
       .grid { grid-template-columns: 1fr; }
-      .metrics { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .charts { grid-template-columns: 1fr; }
+      .bucketGrid { grid-template-columns: 1fr; }
       .toggles { grid-template-columns: 1fr; }
     }
   </style>
@@ -358,11 +436,44 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             <div class="metric" id="activityWordsPerMessage">0</div>
             <div class="metricLabel">Слов/сообщ.</div>
           </div>
+          <div class="metricBox">
+            <div class="metric" id="activityActiveUsers">0</div>
+            <div class="metricLabel">Активные</div>
+          </div>
+          <div class="metricBox">
+            <div class="metric" id="activityAvgDaily">0</div>
+            <div class="metricLabel">Сообщ./день</div>
+          </div>
+          <div class="metricBox">
+            <div class="metric" id="activityAvgDailyUsers">0</div>
+            <div class="metricLabel">Активн./день</div>
+          </div>
         </div>
         <table>
           <thead><tr><th>Пользователь</th><th>Сообщения</th><th>Слова</th><th>Слов/сообщ.</th></tr></thead>
           <tbody id="activityUsers"></tbody>
         </table>
+      </section>
+      <section class="wide">
+        <h2>Графики</h2>
+        <div class="charts">
+          <div class="chart">
+            <div class="chartTitle">Сообщения по дням</div>
+            <div class="bars" id="dailyMessagesChart"></div>
+          </div>
+          <div class="chart">
+            <div class="chartTitle">Активные пользователи по дням</div>
+            <div class="bars" id="dailyActiveUsersChart"></div>
+          </div>
+          <div class="chart">
+            <div class="chartTitle">Средняя активность по часам UTC</div>
+            <div class="bars" id="hourlyChart"></div>
+          </div>
+        </div>
+      </section>
+      <section class="wide">
+        <h2>Лидеры по времени суток</h2>
+        <div class="bucketGrid" id="timeBuckets"></div>
       </section>
       <section>
         <h2>Болтуны</h2>
@@ -473,11 +584,22 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       state.loading = true;
       document.getElementById('dashboard').classList.remove('hidden');
       setControlsDisabled(true);
-      for (const id of ['activityTotal', 'activityWords', 'activityWordsPerMessage']) {
+      for (const id of [
+        'activityTotal',
+        'activityWords',
+        'activityWordsPerMessage',
+        'activityActiveUsers',
+        'activityAvgDaily',
+        'activityAvgDailyUsers'
+      ]) {
         const el = document.getElementById(id);
         el.textContent = '';
         el.classList.add('skeletonText');
       }
+      for (const id of ['dailyMessagesChart', 'dailyActiveUsersChart', 'hourlyChart']) {
+        renderBars(id, [], 'day', 'count');
+      }
+      renderTimeBuckets([]);
       renderSkeletonRows('activityUsers', 4);
       renderSkeletonRows('activityTalkers', 4);
       renderSkeletonRows('profanityUsers', 2, 3);
@@ -489,7 +611,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     function finishDashboardLoading() {
       state.loading = false;
       setControlsDisabled(false);
-      for (const id of ['activityTotal', 'activityWords', 'activityWordsPerMessage']) {
+      for (const id of [
+        'activityTotal',
+        'activityWords',
+        'activityWordsPerMessage',
+        'activityActiveUsers',
+        'activityAvgDaily',
+        'activityAvgDailyUsers'
+      ]) {
         document.getElementById(id).classList.remove('skeletonText');
       }
     }
@@ -498,6 +627,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       document.getElementById('activityTotal').textContent = '0';
       document.getElementById('activityWords').textContent = '0';
       document.getElementById('activityWordsPerMessage').textContent = '0';
+      document.getElementById('activityActiveUsers').textContent = '0';
+      document.getElementById('activityAvgDaily').textContent = '0';
+      document.getElementById('activityAvgDailyUsers').textContent = '0';
+      renderBars('dailyMessagesChart', [], 'day', 'count');
+      renderBars('dailyActiveUsersChart', [], 'day', 'count');
+      renderBars('hourlyChart', [], 'hour', 'count');
+      renderTimeBuckets([]);
       renderActivityRows('activityUsers', [], 'messages');
       renderActivityRows('activityTalkers', [], 'words');
       renderRows('profanityUsers', [], 'username', 'count');
@@ -617,6 +753,71 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }
     }
 
+    function compactDayLabel(day) {
+      return String(day || '').slice(5) || '-';
+    }
+
+    function renderBars(id, rows, labelKey, valueKey, limit) {
+      const box = document.getElementById(id);
+      box.innerHTML = '';
+      const visibleRows = Array.isArray(rows) ? rows.slice(-(limit || rows.length)) : [];
+      if (!visibleRows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'muted';
+        empty.textContent = 'Нет данных';
+        box.append(empty);
+        return;
+      }
+      const max = Math.max(...visibleRows.map(row => Number(row[valueKey]) || 0), 1);
+      for (const row of visibleRows) {
+        const value = Number(row[valueKey]) || 0;
+        const line = document.createElement('div');
+        line.className = 'barRow';
+        const label = document.createElement('div');
+        label.className = 'barLabel';
+        label.textContent = labelKey === 'day' ? compactDayLabel(row[labelKey]) : String(row[labelKey]);
+        const track = document.createElement('div');
+        track.className = 'barTrack';
+        const fill = document.createElement('div');
+        fill.className = 'barFill';
+        fill.style.width = Math.max(2, Math.round((value / max) * 100)) + '%';
+        const count = document.createElement('div');
+        count.className = 'barValue';
+        count.textContent = String(value);
+        track.append(fill);
+        line.append(label, track, count);
+        box.append(line);
+      }
+    }
+
+    function renderTimeBuckets(buckets) {
+      const box = document.getElementById('timeBuckets');
+      box.innerHTML = '';
+      for (const bucket of buckets || []) {
+        const card = document.createElement('div');
+        card.className = 'bucket';
+        const title = document.createElement('h3');
+        title.textContent = bucket.label;
+        const users = bucket.topUsers || [];
+        if (!users.length) {
+          const empty = document.createElement('div');
+          empty.className = 'muted';
+          empty.textContent = 'Нет данных';
+          card.append(title, empty);
+          box.append(card);
+          continue;
+        }
+        const list = document.createElement('ol');
+        for (const user of users) {
+          const item = document.createElement('li');
+          item.textContent = user.username + ': ' + user.count;
+          list.append(item);
+        }
+        card.append(title, list);
+        box.append(card);
+      }
+    }
+
     function formatNotificationEditMeta(settings, canEdit) {
       if (!settings?.updatedAt) {
         return canEdit
@@ -727,6 +928,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         document.getElementById('activityTotal').textContent = String(stats.activity.total);
         document.getElementById('activityWords').textContent = String(stats.activity.totalWords || 0);
         document.getElementById('activityWordsPerMessage').textContent = String(stats.activity.wordsPerMessage || 0);
+        document.getElementById('activityActiveUsers').textContent = String(stats.activity.activeUsers || 0);
+        document.getElementById('activityAvgDaily').textContent = String(stats.activity.averageDailyMessages || 0);
+        document.getElementById('activityAvgDailyUsers').textContent = String(stats.activity.averageDailyActiveUsers || 0);
+        renderBars('dailyMessagesChart', stats.activity.dailyMessages || [], 'day', 'count', 30);
+        renderBars('dailyActiveUsersChart', stats.activity.dailyActiveUsers || [], 'day', 'count', 30);
+        renderBars('hourlyChart', stats.activity.hourlyAverages || [], 'hour', 'count', 24);
+        renderTimeBuckets(stats.activity.timeBuckets || []);
         renderActivityRows('activityUsers', stats.activity.topUsers || [], 'messages');
         renderActivityRows('activityTalkers', stats.activity.topTalkers || [], 'words');
         renderRows('profanityUsers', stats.profanity.topUsers, 'username', 'count');

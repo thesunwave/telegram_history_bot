@@ -233,6 +233,9 @@ describe("webhook", () => {
 
     await env.COUNTERS.put(`stats_v2:1:${day}:2`, "3");
     await env.COUNTERS.put(`word_stats_v2:1:${day}:2`, "21");
+    await env.COUNTERS.put(`activity_hour:1:${day}:13`, "3");
+    await env.COUNTERS.put(`activity_time_bucket:1:${day}:noon:2`, "3");
+    await env.COUNTERS.put("last_message:1:2", "1778158800");
     await env.COUNTERS.put("user:2", "alice");
 
     const response = await worker.fetch(
@@ -250,6 +253,13 @@ describe("webhook", () => {
     expect(body.activity.total).toBe(3);
     expect(body.activity.totalWords).toBe(21);
     expect(body.activity.wordsPerMessage).toBe(7);
+    expect(body.activity.activeUsers).toBe(1);
+    expect(body.activity.averageDailyMessages).toBe(3);
+    expect(body.activity.averageDailyActiveUsers).toBe(1);
+    expect(body.activity.averageHourlyMessages).toBe(0.13);
+    expect(body.activity.dailyMessages).toContainEqual({ day, count: 3 });
+    expect(body.activity.dailyActiveUsers).toContainEqual({ day, count: 1 });
+    expect(body.activity.hourlyAverages[13]).toEqual({ hour: "13", count: 3 });
     expect(body.activity.topUsers).toContainEqual(
       expect.objectContaining({
         userId: "2",
@@ -257,6 +267,8 @@ describe("webhook", () => {
         count: 3,
         words: 21,
         wordsPerMessage: 7,
+        activeDays: 1,
+        lastMessageTs: 1778158800,
       }),
     );
     expect(body.activity.topTalkers).toContainEqual(
@@ -266,6 +278,19 @@ describe("webhook", () => {
         count: 3,
         words: 21,
         wordsPerMessage: 7,
+      }),
+    );
+    expect(body.activity.timeBuckets).toContainEqual(
+      expect.objectContaining({
+        bucket: "noon",
+        label: "День",
+        topUsers: [
+          expect.objectContaining({
+            userId: "2",
+            username: "alice",
+            count: 3,
+          }),
+        ],
       }),
     );
   });

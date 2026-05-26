@@ -164,11 +164,14 @@ describe('activity flexible periods', () => {
         day: '2026-05-07',
         hour: 13,
         wordCount: 4,
+        ts: 1778158800,
       }),
     }));
 
     expect(response.status).toBe(200);
     expect(kvData.get('activity_hour:123:2026-05-07:13')).toBe('1');
+    expect(kvData.get('activity_time_bucket:123:2026-05-07:noon:456')).toBe('1');
+    expect(kvData.get('last_message:123:456')).toBe('1778158800');
     expect(kvData.get('word_stats:123:456:2026-05-07')).toBe('4');
     expect(kvData.get('word_stats_v2:123:2026-05-07:456')).toBe('4');
     expect(kvData.get('word_activity:123:2026-05-07')).toBe('4');

@@ -324,6 +324,26 @@ export async function resetCounters(env: Env, chatId: number) {
     }
   } while (cursor);
 
+  const timeBucketPrefix = `activity_time_bucket:${chatId}:`;
+  cursor = undefined;
+  do {
+    const list: any = await env.COUNTERS.list({ prefix: timeBucketPrefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    for (const key of list.keys) {
+      await env.COUNTERS.delete(key.name);
+    }
+  } while (cursor);
+
+  const lastMessagePrefix = `last_message:${chatId}:`;
+  cursor = undefined;
+  do {
+    const list: any = await env.COUNTERS.list({ prefix: lastMessagePrefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    for (const key of list.keys) {
+      await env.COUNTERS.delete(key.name);
+    }
+  } while (cursor);
+
   const wordPrefix = `word_stats:${chatId}:`;
   cursor = undefined;
   do {

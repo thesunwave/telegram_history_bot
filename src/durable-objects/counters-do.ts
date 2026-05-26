@@ -6,14 +6,23 @@ const STATS_PREFIX = 'stats';
 const USER_PREFIX = 'user';
 const ACTIVITY_PREFIX = 'activity';
 const ACTIVITY_HOUR_PREFIX = 'activity_hour';
+const ACTIVITY_TIME_BUCKET_PREFIX = 'activity_time_bucket';
 const WORD_STATS_PREFIX = 'word_stats';
 const WORD_ACTIVITY_PREFIX = 'word_activity';
+const LAST_MESSAGE_PREFIX = 'last_message';
 const PROFANITY_USER_PREFIX = 'profanity';
 const PROFANITY_WORDS_PREFIX = 'profanity_words';
 const PROFANITY_WORD_USERS_PREFIX = 'profanity_word_users';
 const CRIMINAL_USER_PREFIX = 'criminal';
 const CRIMINAL_ARTICLE_PREFIX = 'criminal_article';
 const CRIMINAL_SEVERITY_PREFIX = 'criminal_severity';
+
+function getTimeBucket(hour: number): 'night' | 'morning' | 'noon' | 'evening' {
+  if (hour >= 5 && hour < 12) return 'morning';
+  if (hour >= 12 && hour < 17) return 'noon';
+  if (hour >= 17 && hour < 22) return 'evening';
+  return 'night';
+}
 
 export interface IncrementPayload {
   chatId: number;
@@ -22,6 +31,7 @@ export interface IncrementPayload {
   day: string;
   hour?: number;
   wordCount?: number;
+  ts?: number;
 }
 
 export interface ProfanityIncrementPayload {
@@ -121,6 +131,8 @@ export class CountersDO {
       throw new Error('invalid payload');
     if (p.wordCount !== undefined && (!Number.isInteger(p.wordCount) || p.wordCount < 0))
       throw new Error('invalid word count');
+    if (p.ts !== undefined && (!Number.isInteger(p.ts) || p.ts < 0))
+      throw new Error('invalid timestamp');
   }
 
   private validateProfanity(p: ProfanityIncrementPayload) {
@@ -153,6 +165,7 @@ export class CountersDO {
     day,
     hour,
     wordCount = 0,
+    ts,
   }: IncrementPayload): Promise<{
     userDayCount: number;
     chatDayActivity: number;
@@ -191,6 +204,19 @@ export class CountersDO {
       const activityHourKey = `${ACTIVITY_HOUR_PREFIX}:${chatId}:${day}:${hour.toString().padStart(2, '0')}`;
       const hourCnt = parseInt((await this.env.COUNTERS.get(activityHourKey)) || '0', 10) + 1;
       await this.env.COUNTERS.put(activityHourKey, String(hourCnt));
+
+      const bucket = getTimeBucket(hour);
+      const timeBucketKey = `${ACTIVITY_TIME_BUCKET_PREFIX}:${chatId}:${day}:${bucket}:${userId}`;
+      const bucketCnt = parseInt((await this.env.COUNTERS.get(timeBucketKey)) || '0', 10) + 1;
+      await this.env.COUNTERS.put(timeBucketKey, String(bucketCnt));
+    }
+
+    if (ts !== undefined) {
+      const lastMessageKey = `${LAST_MESSAGE_PREFIX}:${chatId}:${userId}`;
+      const previousTs = parseInt((await this.env.COUNTERS.get(lastMessageKey)) || '0', 10);
+      if (ts > previousTs) {
+        await this.env.COUNTERS.put(lastMessageKey, String(ts));
+      }
     }
 
     if (this.env.DB) {
