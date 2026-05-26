@@ -376,6 +376,16 @@ export async function resetCounters(env: Env, chatId: number) {
     }
   } while (cursor);
 
+  const pwuPrefix = `profanity_word_users:${chatId}:`;
+  cursor = undefined;
+  do {
+    const list: any = await env.COUNTERS.list({ prefix: pwuPrefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    for (const key of list.keys) {
+      await env.COUNTERS.delete(key.name);
+    }
+  } while (cursor);
+
   if (env.DB) {
     try {
       await env.DB.prepare('DELETE FROM activity WHERE chat_id = ?')
@@ -694,6 +704,7 @@ export interface WordProfanityStat {
   word: string;
   count: number;
   censored: string;
+  contributors: UserProfanityStat[];
 }
 
 export interface UserPersonalProfanityStats {
@@ -743,6 +754,60 @@ function censorWord(word: string): string {
     word.slice(-endChars);
 }
 
+function isInProfanityPeriod(day: string, startStr: string, period: string): boolean {
+  if (period === 'today') return day === startStr;
+  return day >= startStr;
+}
+
+async function getTopProfanityWordUsers(
+  env: Env,
+  chatId: number,
+  word: string,
+  limit: number,
+  period: string,
+): Promise<UserProfanityStat[]> {
+  const { startStr } = getDateRange(period);
+  const prefix = `profanity_word_users:${chatId}:${word}:`;
+  let cursor: string | undefined = undefined;
+  const totals: Record<string, number> = {};
+
+  do {
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+
+    const keysToFetch = list.keys.filter((k: any) => {
+      const parts = k.name.split(':');
+      // format: profanity_word_users:chatId:word:day:userId
+      if (parts.length !== 5) return false;
+      return isInProfanityPeriod(parts[3], startStr, period);
+    });
+
+    for (let i = 0; i < keysToFetch.length; i += 10) {
+      const batch = keysToFetch.slice(i, i + 10);
+      const values = await Promise.all(batch.map((k: any) => env.COUNTERS.get(k.name)));
+
+      for (let j = 0; j < batch.length; j++) {
+        const parts = batch[j].name.split(':');
+        const userId = parts[4];
+        const count = parseInt(values[j] || '0', 10);
+        totals[userId] = (totals[userId] || 0) + count;
+      }
+    }
+  } while (cursor);
+
+  const sorted = Object.entries(totals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit);
+
+  const names = await Promise.all(sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`)));
+
+  return sorted.map(([userId, count], index) => ({
+    userId: parseInt(userId, 10),
+    username: names[index] || `id${userId}`,
+    count,
+  }));
+}
+
 // Get top users by profanity count for a specific period
 export async function getTopProfanityUsers(
   env: Env,
@@ -766,8 +831,7 @@ export async function getTopProfanityUsers(
       if (parts.length !== 4) return false;
       const day = parts[3];
 
-      if (period === 'today') return day === startStr;
-      return day >= startStr;
+      return isInProfanityPeriod(day, startStr, period);
     });
 
     if (keysToFetch.length === 0) continue;
@@ -830,8 +894,7 @@ export async function getTopProfanityWords(
       if (parts.length !== 4) return false;
       const day = parts[3];
 
-      if (period === 'today') return day === startStr;
-      return day >= startStr;
+      return isInProfanityPeriod(day, startStr, period);
     });
 
     if (keysToFetch.length === 0) continue;
@@ -859,10 +922,15 @@ export async function getTopProfanityWords(
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit);
 
-  return sorted.map(([word, count]) => ({
+  const contributorsByWord = await Promise.all(
+    sorted.map(([word]) => getTopProfanityWordUsers(env, chatId, word, 10, period))
+  );
+
+  return sorted.map(([word, count], index) => ({
     word,
     count,
     censored: censorWord(word),
+    contributors: contributorsByWord[index],
   }));
 }
 
@@ -939,6 +1007,16 @@ export async function resetProfanityCounters(env: Env, chatId: number) {
   cursor = undefined;
   do {
     const list: any = await env.COUNTERS.list({ prefix: pwPrefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    for (const key of list.keys) {
+      await env.COUNTERS.delete(key.name);
+    }
+  } while (cursor);
+
+  const pwuPrefix = `profanity_word_users:${chatId}:`;
+  cursor = undefined;
+  do {
+    const list: any = await env.COUNTERS.list({ prefix: pwuPrefix, cursor });
     cursor = !list.list_complete ? list.cursor : undefined;
     for (const key of list.keys) {
       await env.COUNTERS.delete(key.name);

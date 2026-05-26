@@ -28,7 +28,11 @@ export interface AdminChatStats {
   };
   profanity: {
     topUsers: Array<{ userId: number; username: string; count: number }>;
-    topWords: Array<{ word: string; count: number }>;
+    topWords: Array<{
+      word: string;
+      count: number;
+      contributors: Array<{ userId: number; username: string; count: number }>;
+    }>;
   };
   criminal: {
     topUsers: Array<{

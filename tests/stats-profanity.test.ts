@@ -125,6 +125,53 @@ describe("Profanity Stats Optimization", () => {
       expect(mockCounters.get).toHaveBeenCalledWith(`profanity_words:${chatId}:damn:${today}`);
       expect(mockCounters.get).not.toHaveBeenCalledWith(`profanity_words:${chatId}:shit:${yesterday}`);
     });
+
+    it("should include top users for each profanity word", async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const chatId = 123;
+
+      mockCounters.list.mockImplementation(({ prefix }: { prefix: string }) => {
+        if (prefix === `profanity_words:${chatId}:`) {
+          return Promise.resolve({
+            keys: [{ name: `profanity_words:${chatId}:fuck:${today}` }],
+            list_complete: true,
+          });
+        }
+        if (prefix === `profanity_word_users:${chatId}:fuck:`) {
+          return Promise.resolve({
+            keys: [
+              { name: `profanity_word_users:${chatId}:fuck:${today}:1` },
+              { name: `profanity_word_users:${chatId}:fuck:${today}:2` },
+            ],
+            list_complete: true,
+          });
+        }
+        return Promise.resolve({ keys: [], list_complete: true });
+      });
+
+      mockCounters.get.mockImplementation((key: string) => {
+        if (key === `profanity_words:${chatId}:fuck:${today}`) return Promise.resolve("92");
+        if (key === `profanity_word_users:${chatId}:fuck:${today}:1`) return Promise.resolve("60");
+        if (key === `profanity_word_users:${chatId}:fuck:${today}:2`) return Promise.resolve("32");
+        if (key === "user:1") return Promise.resolve("alice");
+        if (key === "user:2") return Promise.resolve("bob");
+        return Promise.resolve(null);
+      });
+
+      const result = await getTopProfanityWords(mockEnv, chatId, 5, "today");
+
+      expect(result).toEqual([
+        {
+          word: "fuck",
+          count: 92,
+          censored: "f**k",
+          contributors: [
+            { userId: 1, username: "alice", count: 60 },
+            { userId: 2, username: "bob", count: 32 },
+          ],
+        },
+      ]);
+    });
   });
 
   describe("getTopCriminalUsersBySentence", () => {

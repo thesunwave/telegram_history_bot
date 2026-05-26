@@ -251,6 +251,14 @@ describe('Profanity Counter System', () => {
         'profanity_words:123:word2:2025-01-01',
         '1'
       ) as any;
+      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
+        'profanity_word_users:123:word1:2025-01-01:456',
+        '2'
+      ) as any;
+      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
+        'profanity_word_users:123:word2:2025-01-01:456',
+        '1'
+      ) as any;
     });
 
     it('should accumulate existing counters', async () => {
@@ -438,10 +446,13 @@ describe('Profanity Counter System', () => {
         ['profanity:123:789:2025-01-01', '2'],
         ['profanity_words:123:word1:2025-01-01', '2'],
         ['profanity_words:123:word2:2025-01-01', '1'],
+        ['profanity_word_users:123:word1:2025-01-01:456', '2'],
+        ['profanity_word_users:123:word2:2025-01-01:789', '1'],
         
         // Other chat profanity counters (should not be deleted)
         ['profanity:456:123:2025-01-01', '1'],
-        ['profanity_words:456:word1:2025-01-01', '1']
+        ['profanity_words:456:word1:2025-01-01', '1'],
+        ['profanity_word_users:456:word1:2025-01-01:123', '1']
       ]);
 
       // Mock the list method to return keys based on prefix
@@ -474,16 +485,20 @@ describe('Profanity Counter System', () => {
       expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity:123:789:2025-01-01');
       expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_words:123:word1:2025-01-01');
       expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_words:123:word2:2025-01-01');
+      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_word_users:123:word1:2025-01-01:456');
+      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_word_users:123:word2:2025-01-01:789');
 
       // Verify that regular counters and other chat counters were NOT deleted
       expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('stats:123:456:2025-01-01');
       expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('activity:123:2025-01-01');
       expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity:456:123:2025-01-01');
       expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity_words:456:word1:2025-01-01');
+      expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity_word_users:456:word1:2025-01-01:123');
 
       // Verify that list was called with correct prefixes
       expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'profanity:123:', cursor: undefined });
       expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'profanity_words:123:', cursor: undefined });
+      expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'profanity_word_users:123:', cursor: undefined });
     });
 
     it('should handle empty profanity data gracefully', async () => {
@@ -500,6 +515,7 @@ describe('Profanity Counter System', () => {
       // Should still call list with correct prefixes
       expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'profanity:123:', cursor: undefined });
       expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'profanity_words:123:', cursor: undefined });
+      expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'profanity_word_users:123:', cursor: undefined });
     });
 
     it('should reset profanity counters when general reset is called', async () => {
@@ -515,10 +531,12 @@ describe('Profanity Counter System', () => {
         ['profanity:123:789:2025-01-01', '2'],
         ['profanity_words:123:word1:2025-01-01', '2'],
         ['profanity_words:123:word2:2025-01-01', '1'],
+        ['profanity_word_users:123:word1:2025-01-01:456', '2'],
         
         // Other chat counters (should not be deleted)
         ['stats:456:123:2025-01-01', '1'],
-        ['profanity:456:123:2025-01-01', '1']
+        ['profanity:456:123:2025-01-01', '1'],
+        ['profanity_word_users:456:word1:2025-01-01:123', '1']
       ]);
 
       // Mock the list method to return keys based on prefix
@@ -554,16 +572,19 @@ describe('Profanity Counter System', () => {
       expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity:123:789:2025-01-01');
       expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_words:123:word1:2025-01-01');
       expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_words:123:word2:2025-01-01');
+      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_word_users:123:word1:2025-01-01:456');
 
       // Verify that other chat counters were NOT deleted
       expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('stats:456:123:2025-01-01');
       expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity:456:123:2025-01-01');
+      expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity_word_users:456:word1:2025-01-01:123');
 
       // Verify that list was called with all the correct prefixes
       expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'stats:123:', cursor: undefined });
       expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'activity:123:', cursor: undefined });
       expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'profanity:123:', cursor: undefined });
       expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'profanity_words:123:', cursor: undefined });
+      expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'profanity_word_users:123:', cursor: undefined });
     });
   });
 });

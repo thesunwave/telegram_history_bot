@@ -208,6 +208,46 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       color: var(--text);
       font-weight: 750;
     }
+    .hasTooltip {
+      position: relative;
+      cursor: help;
+    }
+    .tooltip {
+      display: none;
+      position: absolute;
+      z-index: 5;
+      left: 6px;
+      top: calc(100% - 2px);
+      width: min(260px, calc(100vw - 48px));
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel);
+      box-shadow: 0 10px 24px rgba(24, 32, 42, .14);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 500;
+      overflow-wrap: anywhere;
+    }
+    .hasTooltip:hover .tooltip,
+    .hasTooltip:focus .tooltip {
+      display: block;
+    }
+    .tooltipTitle {
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .tooltipRow {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 2px 0;
+    }
+    .tooltipCount {
+      flex: 0 0 auto;
+      font-weight: 750;
+    }
     .hidden { display: none !important; }
     @media (max-width: 720px) {
       .topbar { align-items: flex-start; flex-direction: column; padding: 14px 0; }
@@ -372,12 +412,35 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const name = document.createElement('td');
         const count = document.createElement('td');
         const isCurrentUser = principal?.telegramId && String(row.userId) === String(principal.telegramId);
+        const contributors = Array.isArray(row.contributors) ? row.contributors : [];
         if (isCurrentUser) {
           const currentUser = document.createElement('strong');
           currentUser.textContent = row[nameKey];
           name.append(currentUser);
         } else {
           name.textContent = row[nameKey];
+        }
+        if (contributors.length) {
+          const tooltip = document.createElement('span');
+          tooltip.className = 'tooltip';
+          const title = document.createElement('div');
+          title.className = 'tooltipTitle';
+          title.textContent = 'Кто произносил';
+          tooltip.append(title);
+          for (const contributor of contributors) {
+            const line = document.createElement('div');
+            line.className = 'tooltipRow';
+            const username = document.createElement('span');
+            const value = document.createElement('span');
+            value.className = 'tooltipCount';
+            username.textContent = contributor.username;
+            value.textContent = String(contributor.count);
+            line.append(username, value);
+            tooltip.append(line);
+          }
+          name.classList.add('hasTooltip');
+          name.tabIndex = 0;
+          name.append(tooltip);
         }
         count.textContent = String(row[countKey]);
         tr.append(name, count);

@@ -10,6 +10,7 @@ const WORD_STATS_PREFIX = 'word_stats';
 const WORD_ACTIVITY_PREFIX = 'word_activity';
 const PROFANITY_USER_PREFIX = 'profanity';
 const PROFANITY_WORDS_PREFIX = 'profanity_words';
+const PROFANITY_WORD_USERS_PREFIX = 'profanity_word_users';
 const CRIMINAL_USER_PREFIX = 'criminal';
 const CRIMINAL_ARTICLE_PREFIX = 'criminal_article';
 const CRIMINAL_SEVERITY_PREFIX = 'criminal_severity';
@@ -231,12 +232,17 @@ export class CountersDO {
     // Update user profanity count in KV
     const currentUserCount = parseInt((await this.env.COUNTERS.get(profanityUserKey)) || '0', 10);
     await this.env.COUNTERS.put(profanityUserKey, String(currentUserCount + count));
+    await this.env.COUNTERS.put(`${USER_PREFIX}:${userId}`, username);
 
     // Update word-specific counts in KV
     for (const word of words) {
       const wordKey = `${PROFANITY_WORDS_PREFIX}:${chatId}:${word.baseForm}:${day}`;
       const currentWordCount = parseInt((await this.env.COUNTERS.get(wordKey)) || '0', 10);
       await this.env.COUNTERS.put(wordKey, String(currentWordCount + word.count));
+
+      const wordUserKey = `${PROFANITY_WORD_USERS_PREFIX}:${chatId}:${word.baseForm}:${day}:${userId}`;
+      const currentWordUserCount = parseInt((await this.env.COUNTERS.get(wordUserKey)) || '0', 10);
+      await this.env.COUNTERS.put(wordUserKey, String(currentWordUserCount + word.count));
     }
   }
 
