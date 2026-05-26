@@ -53,6 +53,7 @@ export interface ChatNotificationSettings {
     createdAt: Date;                     // Дата создания настроек
     updatedAt: Date;                     // Дата последнего обновления
     updatedBy: string;                   // ID пользователя, который обновил настройки
+    updatedByName?: string;              // Отображаемое имя пользователя, который обновил настройки
 
     // Настройки для каждого типа уведомлений
     notifications: {

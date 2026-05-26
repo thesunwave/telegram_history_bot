@@ -140,6 +140,10 @@ export function validateChatNotificationSettings(settings: any): settings is Cha
     throw new NotificationValidationError('updatedBy must be a non-empty string', 'updatedBy');
   }
 
+  if (settings.updatedByName !== undefined && typeof settings.updatedByName !== 'string') {
+    throw new NotificationValidationError('updatedByName must be a string or undefined', 'updatedByName');
+  }
+
   if (!settings.notifications || typeof settings.notifications !== 'object') {
     throw new NotificationValidationError('notifications must be an object', 'notifications');
   }
@@ -577,6 +581,10 @@ export const NotificationDataSanitizer = {
 
     if (typeof settings.updatedBy === 'string' && settings.updatedBy.trim()) {
       sanitized.updatedBy = settings.updatedBy.trim();
+    }
+
+    if (typeof settings.updatedByName === 'string' && settings.updatedByName.trim()) {
+      sanitized.updatedByName = settings.updatedByName.trim();
     }
 
     // Санитизируем настройки уведомлений

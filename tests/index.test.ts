@@ -394,7 +394,7 @@ describe("webhook", () => {
   });
 
   it("updates notification settings from admin API", async () => {
-    mockTelegramMembership();
+    mockTelegramMembership("administrator");
     const response = await worker.fetch(
       new Request("http://localhost/admin/api/notifications?chatId=1", {
         method: "POST",
@@ -419,6 +419,35 @@ describe("webhook", () => {
     expect(body.settings.enabled).toBe(true);
     expect(body.settings.notifications.daily_summary.enabled).toBe(true);
     expect(body.settings.updatedBy).toBe("admin-telegram:42");
+    expect(body.settings.updatedByName).toBe("Admin");
+  });
+
+  it("rejects notification setting updates from non-admin chat members", async () => {
+    mockTelegramMembership("member");
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/notifications?chatId=2", {
+        method: "POST",
+        headers: {
+          ...(await adminSessionHeaders()),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          enabled: true,
+          notifications: {
+            daily_summary: { enabled: true },
+          },
+        }),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      error: "only chat administrators can edit notification settings",
+    });
+    expect(await env.HISTORY.get("notification_settings:2")).toBeNull();
   });
 
   it("stores and summarises messages", async () => {

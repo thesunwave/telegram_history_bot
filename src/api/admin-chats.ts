@@ -171,6 +171,34 @@ export async function isTelegramUserInChat(
   }
 }
 
+export async function isTelegramUserChatAdmin(
+  env: Env,
+  chatId: number,
+  userId: number,
+): Promise<boolean> {
+  if (!env.TOKEN) {
+    return false;
+  }
+
+  try {
+    const url = `https://api.telegram.org/bot${env.TOKEN}/getChatMember`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, user_id: userId }),
+    });
+    if (!response.ok) {
+      return false;
+    }
+
+    const payload = await response.json().catch(() => null) as any;
+    const status = payload?.result?.status;
+    return status === 'creator' || status === 'administrator';
+  } catch {
+    return false;
+  }
+}
+
 export async function listAdminChatsForTelegramUser(
   env: Env,
   userId: number,

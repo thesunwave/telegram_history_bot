@@ -212,6 +212,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       color: var(--muted);
     }
     .status.error { color: var(--danger); }
+    .notificationMeta {
+      margin: 2px 0 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
     .toggles {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -388,6 +394,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       </section>
       <section class="wide">
         <h2>Автоуведомления</h2>
+        <div class="notificationMeta" id="notificationMeta">Настройки еще не сохранялись</div>
         <label class="check"><input type="checkbox" id="notificationsEnabled"> Включены</label>
         <div class="toggles" id="notificationTypes"></div>
         <button class="secondary" id="saveNotifications" type="button">Сохранить настройки</button>
@@ -425,6 +432,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }
     }
 
+    function setNotificationEditAllowed(canEdit) {
+      document.getElementById('saveNotifications').disabled = !canEdit;
+      document.getElementById('notificationsEnabled').disabled = !canEdit;
+      for (const input of document.querySelectorAll('#notificationTypes input')) {
+        input.disabled = !canEdit;
+      }
+    }
+
     function renderSkeletonRows(id, columns, rows = 4) {
       const tbody = document.getElementById(id);
       tbody.innerHTML = '';
@@ -444,6 +459,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     function renderNotificationSkeleton() {
       document.getElementById('notificationsEnabled').checked = false;
+      document.getElementById('notificationMeta').textContent = 'Загрузка настроек...';
       const box = document.getElementById('notificationTypes');
       box.innerHTML = '';
       for (let index = 0; index < 6; index += 1) {
@@ -487,7 +503,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       renderRows('profanityUsers', [], 'username', 'count');
       renderRows('profanityWords', [], 'word', 'count');
       renderRows('criminalUsers', [], 'username', 'count');
-      renderNotifications({ enabled: false, notifications: {} }, []);
+      renderNotifications({ enabled: false, notifications: {} }, [], false);
     }
 
     function showLogin() {
@@ -601,9 +617,26 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }
     }
 
-    function renderNotifications(settings, types) {
+    function formatNotificationEditMeta(settings, canEdit) {
+      if (!settings?.updatedAt) {
+        return canEdit
+          ? 'Настройки еще не сохранялись'
+          : 'Настройки еще не сохранялись. Редактировать может только администратор чата.';
+      }
+
+      const date = new Date(settings.updatedAt);
+      const formattedDate = Number.isNaN(date.getTime())
+        ? String(settings.updatedAt)
+        : date.toLocaleString('ru-RU');
+      const editor = settings.updatedByName || settings.updatedBy || 'неизвестный пользователь';
+      const suffix = canEdit ? '' : '. Редактировать может только администратор чата.';
+      return 'Последнее изменение: ' + editor + ', ' + formattedDate + suffix;
+    }
+
+    function renderNotifications(settings, types, canEdit) {
       state.notificationTypes = types;
       document.getElementById('notificationsEnabled').checked = Boolean(settings?.enabled);
+      document.getElementById('notificationMeta').textContent = formatNotificationEditMeta(settings, canEdit);
       const box = document.getElementById('notificationTypes');
       box.innerHTML = '';
       for (const type of types) {
@@ -616,6 +649,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         label.append(input, document.createTextNode(labels[type] || type));
         box.append(label);
       }
+      setNotificationEditAllowed(Boolean(canEdit));
     }
 
     function renderChats(chats) {
@@ -698,7 +732,11 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         renderRows('profanityUsers', stats.profanity.topUsers, 'username', 'count');
         renderRows('profanityWords', stats.profanity.topWords, 'word', 'count');
         renderRows('criminalUsers', stats.criminal.topUsers, 'username', 'count');
-        renderNotifications(notifications.settings, notifications.availableTypes);
+        renderNotifications(
+          notifications.settings,
+          notifications.availableTypes,
+          notifications.canEdit
+        );
         setStatus('Обновлено');
       } catch (error) {
         finishDashboardLoading();

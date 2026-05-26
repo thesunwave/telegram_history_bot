@@ -26,7 +26,7 @@ import { ProviderFactory } from '../core/providers/provider-factory';
 import { NotificationService } from '../core/services/notification-service';
 import { NotificationRepository } from '../core/repositories/notification-repository';
 import type { NotificationType } from '../core/models/notification-settings';
-import { saveAdminChatMeta } from './admin-chats';
+import { isTelegramUserChatAdmin, saveAdminChatMeta } from './admin-chats';
 
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
@@ -890,6 +890,19 @@ function getCriminalBackfillRangeStart(requested: string, now: number): number {
   return now - DAY;
 }
 
+async function canEditAutoNotifications(env: Env, chatId: number, userId: string): Promise<boolean> {
+  if (chatId > 0) {
+    return true;
+  }
+
+  const numericUserId = Number(userId);
+  if (!Number.isFinite(numericUserId)) {
+    return false;
+  }
+
+  return await isTelegramUserChatAdmin(env, chatId, numericUserId);
+}
+
 /**
  * Обработчик команды управления автоматическими уведомлениями
  */
@@ -905,7 +918,8 @@ async function handleAutoNotificationsCommand(env: Env, msg: any) {
     const notificationService = new NotificationService(env, notificationRepository);
 
     // Проверяем права пользователя
-    const canModify = await notificationService.canUserModifySettings(userId, chatId.toString());
+    const settingsPermission = await notificationService.canUserModifySettings(userId, chatId.toString());
+    const canModify = settingsPermission && await canEditAutoNotifications(env, chatId, userId);
 
     switch (subcommand.toLowerCase()) {
       case 'status':

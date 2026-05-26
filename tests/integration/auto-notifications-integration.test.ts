@@ -263,6 +263,34 @@ describe('Auto Notifications Integration', () => {
       );
     });
 
+    it('should reject enable command from non-admin group member', async () => {
+      const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(
+        Response.json({ ok: true, result: { status: 'member' } })
+      );
+      const mockMessage = {
+        chat: { id: -100123, title: 'Group', type: 'supergroup' },
+        from: { id: 456, username: 'testuser' },
+        text: '/auto_notifications enable',
+        date: Math.floor(Date.now() / 1000)
+      };
+
+      await handleUpdate(mockMessage, mockEnv);
+
+      const { sendMessage } = await import('../../src/core/telegram');
+      expect(sendMessage).toHaveBeenCalledWith(
+        mockEnv,
+        -100123,
+        expect.stringContaining('У вас нет прав')
+      );
+      expect(mockEnv.HISTORY.put).not.toHaveBeenCalledWith(
+        expect.stringContaining('notification_settings:'),
+        expect.any(String),
+        expect.anything()
+      );
+
+      fetchMock.mockRestore();
+    });
+
     it('should show current settings when they exist', async () => {
       const existingSettings = {
         chatId: '123',

@@ -12,6 +12,7 @@ import {
   type AdminPrincipal,
 } from './admin-auth';
 import {
+  isTelegramUserChatAdmin,
   isTelegramUserInChat,
   listAdminChatsForTelegramUser,
 } from './admin-chats';
@@ -50,15 +51,24 @@ function isNotificationType(value: string, types: NotificationType[]): value is 
   return types.includes(value as NotificationType);
 }
 
-async function handleNotificationGet(env: Env, chatId: number): Promise<Response> {
+async function handleNotificationGet(
+  env: Env,
+  chatId: number,
+  principal: AdminPrincipal,
+): Promise<Response> {
   const repository = new NotificationRepository(env);
   const service = new NotificationService(env, repository);
   const availableTypes = service.getAvailableNotificationTypes();
   const settings = await service.getChatSettings(String(chatId));
+  const canEdit =
+    principal.type === 'telegram' &&
+    Boolean(principal.telegramId) &&
+    await isTelegramUserChatAdmin(env, chatId, principal.telegramId!);
 
   return Response.json({
     ok: true,
     chatId,
+    canEdit,
     availableTypes,
     settings,
   });
@@ -103,6 +113,31 @@ async function requireTelegramChatAccess(
   return null;
 }
 
+async function requireTelegramChatAdmin(
+  env: Env,
+  principal: AdminPrincipal,
+  chatId: number,
+): Promise<Response | null> {
+  if (principal.type !== 'telegram' || !principal.telegramId) {
+    return unauthorizedAdminResponse();
+  }
+
+  const allowed = await isTelegramUserChatAdmin(env, chatId, principal.telegramId);
+  if (!allowed) {
+    return jsonError('only chat administrators can edit notification settings', 403);
+  }
+
+  return null;
+}
+
+function formatPrincipalName(principal: AdminPrincipal): string {
+  if (principal.displayName?.trim()) {
+    return principal.displayName.trim();
+  }
+
+  return principal.username;
+}
+
 async function handleNotificationPost(
   req: Request,
   env: Env,
@@ -121,6 +156,7 @@ async function handleNotificationPost(
     principal.type === 'telegram' && principal.telegramId
       ? `admin-telegram:${principal.telegramId}`
       : `admin-basic:${principal.username}`;
+  const updatedByName = formatPrincipalName(principal);
   const currentSettings =
     (await service.getChatSettings(String(chatId))) ||
     (await service.resetChatSettings(String(chatId), updatedBy));
@@ -128,6 +164,7 @@ async function handleNotificationPost(
   const nextSettings = {
     ...currentSettings,
     enabled: typeof payload.enabled === 'boolean' ? payload.enabled : currentSettings.enabled,
+    updatedByName,
     notifications: { ...currentSettings.notifications },
   };
 
@@ -245,13 +282,17 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
         return denied;
       }
 
-      return await handleNotificationGet(env, chatId);
+      return await handleNotificationGet(env, chatId, principal);
     }
 
     if (req.method === 'POST') {
       const denied = await requireTelegramChatAccess(env, principal, chatId);
       if (denied) {
         return denied;
+      }
+      const adminDenied = await requireTelegramChatAdmin(env, principal, chatId);
+      if (adminDenied) {
+        return adminDenied;
       }
 
       return await handleNotificationPost(req, env, chatId, principal);
