@@ -101,6 +101,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       opacity: .55;
       cursor: default;
     }
+    .loadingControl {
+      background:
+        linear-gradient(90deg, #eef1f5 25%, #f7f8fa 37%, #eef1f5 63%);
+      background-size: 400% 100%;
+      animation: skeletonPulse 1.35s ease-in-out infinite;
+      color: transparent;
+    }
     .grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -140,6 +147,43 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     .metricBox .metric {
       font-size: 26px;
       margin-bottom: 4px;
+    }
+    .skeletonText {
+      display: block;
+      width: 100%;
+      height: 1em;
+      border-radius: 999px;
+      background:
+        linear-gradient(90deg, #eef1f5 25%, #f7f8fa 37%, #eef1f5 63%);
+      background-size: 400% 100%;
+      color: transparent;
+      animation: skeletonPulse 1.35s ease-in-out infinite;
+    }
+    .metric.skeletonText {
+      width: 68px;
+      height: 26px;
+      margin-top: 2px;
+    }
+    .skeletonCell {
+      display: block;
+      height: 14px;
+      border-radius: 999px;
+      background:
+        linear-gradient(90deg, #eef1f5 25%, #f7f8fa 37%, #eef1f5 63%);
+      background-size: 400% 100%;
+      animation: skeletonPulse 1.35s ease-in-out infinite;
+    }
+    .skeletonCell.short { width: 42%; }
+    .skeletonCell.medium { width: 64%; }
+    .skeletonCell.long { width: 86%; }
+    .skeletonCheck {
+      width: min(260px, 100%);
+      height: 18px;
+      border-radius: 999px;
+      background:
+        linear-gradient(90deg, #eef1f5 25%, #f7f8fa 37%, #eef1f5 63%);
+      background-size: 400% 100%;
+      animation: skeletonPulse 1.35s ease-in-out infinite;
     }
     .metricLabel {
       color: var(--muted);
@@ -248,6 +292,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       flex: 0 0 auto;
       font-weight: 750;
     }
+    @keyframes skeletonPulse {
+      0% { background-position: 100% 50%; }
+      100% { background-position: 0 50%; }
+    }
     .hidden { display: none !important; }
     @media (max-width: 720px) {
       .topbar { align-items: flex-start; flex-direction: column; padding: 14px 0; }
@@ -285,7 +333,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           <option value="month">Месяц</option>
         </select>
       </label>
-      <button type="submit">Обновить</button>
+      <button id="refreshButton" type="submit">Обновить</button>
     </form>
     <div id="status" class="status hidden"></div>
     <div class="grid hidden" id="dashboard">
@@ -349,7 +397,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
   <script>
     const botUsername = ${botUsername};
     const principal = ${principal};
-    const state = { chatId: '', period: 'today', notificationTypes: [], chats: [] };
+    const state = { chatId: '', period: 'today', notificationTypes: [], chats: [], loading: false };
     const labels = {
       criminal_reports: 'УК РФ',
       profanity_reports: 'Мат',
@@ -364,6 +412,82 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       el.classList.remove('hidden');
       el.textContent = text;
       el.className = isError ? 'status error' : 'status';
+    }
+
+    function setControlsDisabled(disabled) {
+      document.getElementById('chatSelect').disabled = disabled;
+      document.getElementById('period').disabled = disabled;
+      document.getElementById('refreshButton').disabled = disabled;
+      document.getElementById('saveNotifications').disabled = disabled;
+      document.getElementById('notificationsEnabled').disabled = disabled;
+      for (const input of document.querySelectorAll('#notificationTypes input')) {
+        input.disabled = disabled;
+      }
+    }
+
+    function renderSkeletonRows(id, columns, rows = 4) {
+      const tbody = document.getElementById(id);
+      tbody.innerHTML = '';
+      for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
+        const tr = document.createElement('tr');
+        for (let columnIndex = 0; columnIndex < columns; columnIndex += 1) {
+          const td = document.createElement('td');
+          const line = document.createElement('span');
+          line.className =
+            'skeletonCell ' + (columnIndex === 0 ? 'long' : columnIndex % 2 ? 'short' : 'medium');
+          td.append(line);
+          tr.append(td);
+        }
+        tbody.append(tr);
+      }
+    }
+
+    function renderNotificationSkeleton() {
+      document.getElementById('notificationsEnabled').checked = false;
+      const box = document.getElementById('notificationTypes');
+      box.innerHTML = '';
+      for (let index = 0; index < 6; index += 1) {
+        const item = document.createElement('div');
+        item.className = 'skeletonCheck';
+        box.append(item);
+      }
+    }
+
+    function renderDashboardSkeleton() {
+      state.loading = true;
+      document.getElementById('dashboard').classList.remove('hidden');
+      setControlsDisabled(true);
+      for (const id of ['activityTotal', 'activityWords', 'activityWordsPerMessage']) {
+        const el = document.getElementById(id);
+        el.textContent = '';
+        el.classList.add('skeletonText');
+      }
+      renderSkeletonRows('activityUsers', 4);
+      renderSkeletonRows('activityTalkers', 4);
+      renderSkeletonRows('profanityUsers', 2, 3);
+      renderSkeletonRows('profanityWords', 2, 3);
+      renderSkeletonRows('criminalUsers', 2, 3);
+      renderNotificationSkeleton();
+    }
+
+    function finishDashboardLoading() {
+      state.loading = false;
+      setControlsDisabled(false);
+      for (const id of ['activityTotal', 'activityWords', 'activityWordsPerMessage']) {
+        document.getElementById(id).classList.remove('skeletonText');
+      }
+    }
+
+    function renderEmptyDashboard() {
+      document.getElementById('activityTotal').textContent = '0';
+      document.getElementById('activityWords').textContent = '0';
+      document.getElementById('activityWordsPerMessage').textContent = '0';
+      renderActivityRows('activityUsers', [], 'messages');
+      renderActivityRows('activityTalkers', [], 'words');
+      renderRows('profanityUsers', [], 'username', 'count');
+      renderRows('profanityWords', [], 'word', 'count');
+      renderRows('criminalUsers', [], 'username', 'count');
+      renderNotifications({ enabled: false, notifications: {} }, []);
     }
 
     function showLogin() {
@@ -515,6 +639,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     async function loadChats() {
+      setStatus('Загрузка чатов...');
+      document.getElementById('chatSelect').classList.add('loadingControl');
+      renderDashboardSkeleton();
       try {
         const res = await fetch('/admin/api/chats');
         if (res.status === 401) {
@@ -525,22 +652,31 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const body = await res.json();
         renderChats(body.chats || []);
         if ((body.chats || []).length) {
+          finishDashboardLoading();
           await loadDashboard();
         } else {
+          finishDashboardLoading();
+          document.getElementById('dashboard').classList.add('hidden');
           setStatus('Чаты появятся после новых сообщений или после обнаружения старых счетчиков.');
         }
       } catch (error) {
+        finishDashboardLoading();
+        renderEmptyDashboard();
         setStatus(error.message || String(error), true);
+      } finally {
+        document.getElementById('chatSelect').classList.remove('loadingControl');
       }
     }
 
     async function loadDashboard() {
+      if (state.loading) return;
       const chatId = document.getElementById('chatSelect').value;
       const period = document.getElementById('period').value;
       if (!chatId) return;
       state.chatId = chatId;
       state.period = period;
       setStatus('Загрузка...');
+      renderDashboardSkeleton();
 
       try {
         const [statsRes, notificationsRes] = await Promise.all([
@@ -553,6 +689,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const stats = await statsRes.json();
         const notifications = await notificationsRes.json();
 
+        finishDashboardLoading();
         document.getElementById('activityTotal').textContent = String(stats.activity.total);
         document.getElementById('activityWords').textContent = String(stats.activity.totalWords || 0);
         document.getElementById('activityWordsPerMessage').textContent = String(stats.activity.wordsPerMessage || 0);
@@ -564,12 +701,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         renderNotifications(notifications.settings, notifications.availableTypes);
         setStatus('Обновлено');
       } catch (error) {
+        finishDashboardLoading();
+        renderEmptyDashboard();
         setStatus(error.message || String(error), true);
       }
     }
 
     async function saveNotifications() {
-      if (!state.chatId) return;
+      if (!state.chatId || state.loading) return;
       const notifications = {};
       for (const input of document.querySelectorAll('#notificationTypes input')) {
         notifications[input.dataset.type] = { enabled: input.checked };
