@@ -3,6 +3,7 @@ import { getPlatformProxy } from "wrangler";
 import { KVNamespace } from "@miniflare/kv";
 import { MemoryStorage } from "@miniflare/storage-memory";
 import worker from "../src/index";
+import { createTelegramSessionCookie } from "../src/api/admin-auth";
 import { disableConsoleLogging } from "./test-utils";
 
 vi.mock("wrangler", () => ({
@@ -20,6 +21,9 @@ const { env } = await getPlatformProxy<any>();
 // Установим переменные окружения для тестов
 env.TOKEN = "t";
 env.SECRET = "s";
+env.ADMIN_BASIC_USER = "admin";
+env.ADMIN_BASIC_PASSWORD = "password";
+env.TELEGRAM_BOT_USERNAME = "test_bot";
 env.SUMMARY_PROVIDER = "cloudflare";
 env.SUMMARY_MODEL = "test-model";
 env.DEBUG_LOGS = "false"; // Disable debug logging to prevent infinite recursion in tests
@@ -53,7 +57,7 @@ beforeEach(() => {
       fetch: vi.fn(async (url: string, init?: any) => {
         if (url === "https://do/inc" && init?.method === "POST") {
           const body = JSON.parse(init.body);
-          const { chatId, userId, username, day } = body;
+          const { chatId, userId, username, day, wordCount = 0 } = body;
 
           // Store user name
           await env.COUNTERS.put(`user:${userId}`, username);
@@ -81,6 +85,14 @@ beforeEach(() => {
           // Also update stats_v2 and activity keys which are used by new stats.ts
           const statsV2Key = `stats_v2:${chatId}:${day}:${userId}`;
           await env.COUNTERS.put(statsV2Key, String(current + increment));
+
+          const wordKey = `word_stats:${chatId}:${userId}:${day}`;
+          const currentWords = parseInt((await env.COUNTERS.get(wordKey)) || "0", 10);
+          const nextWords = currentWords + wordCount * increment;
+          await env.COUNTERS.put(wordKey, String(nextWords));
+
+          const wordStatsV2Key = `word_stats_v2:${chatId}:${day}:${userId}`;
+          await env.COUNTERS.put(wordStatsV2Key, String(nextWords));
 
           const activityKey = `activity:${chatId}:${day}`;
           const currentActivity = parseInt((await env.COUNTERS.get(activityKey)) || "0", 10);
@@ -128,6 +140,287 @@ async function waitForAllAsync() {
 }
 
 describe("webhook", () => {
+  const adminAuth = `Basic ${btoa("admin:password")}`;
+  const telegramUserId = 42;
+
+  async function adminSessionHeaders(userId = telegramUserId) {
+    const cookie = await createTelegramSessionCookie(env, {
+      id: userId,
+      first_name: "Admin",
+      username: "admin_user",
+      auth_date: Math.floor(Date.now() / 1000),
+    });
+
+    return { Cookie: cookie };
+  }
+
+  function mockTelegramMembership(status = "member") {
+    return vi.spyOn(global, "fetch").mockImplementation(async (input: any, init?: any) => {
+      const url = String(input);
+      if (url.includes("/getChatMember")) {
+        return Response.json({ ok: true, result: { status } });
+      }
+      if (url.includes("/sendMessage")) {
+        return new Response(null, { status: 200 });
+      }
+
+      return new Response(null, { status: 200 });
+    });
+  }
+
+  it("serves telegram login page for unauthenticated admin page", async () => {
+    const response = await worker.fetch(new Request("http://localhost/admin"), env, ctx);
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("Вход через Telegram");
+    expect(html).toContain("test_bot");
+  });
+
+  it("requires telegram auth for admin API routes", async () => {
+    const response = await worker.fetch(new Request("http://localhost/admin/api/chats"), env, ctx);
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toContain("Basic");
+  });
+
+  it("rejects basic auth for chat-scoped admin API routes", async () => {
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/chats", {
+        headers: { Authorization: adminAuth },
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(401);
+  });
+
+  it("serves dashboard shell with telegram session", async () => {
+    const response = await worker.fetch(
+      new Request("http://localhost/admin", {
+        headers: await adminSessionHeaders(),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/html");
+    const html = await response.text();
+    expect(html).toContain("Telegram Stats Admin");
+    expect(html).toContain("admin_user");
+  });
+
+  it("validates admin chat API input", async () => {
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/chat", {
+        headers: await adminSessionHeaders(),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ ok: false });
+  });
+
+  it("returns admin chat stats as JSON", async () => {
+    mockTelegramMembership();
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const day = today.toISOString().slice(0, 10);
+
+    await env.COUNTERS.put(`stats_v2:1:${day}:2`, "3");
+    await env.COUNTERS.put(`word_stats_v2:1:${day}:2`, "21");
+    await env.COUNTERS.put("user:2", "alice");
+
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/chat?chatId=1&period=today", {
+        headers: await adminSessionHeaders(),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as any;
+    expect(body.chatId).toBe(1);
+    expect(body.period).toBe("today");
+    expect(body.activity.total).toBe(3);
+    expect(body.activity.totalWords).toBe(21);
+    expect(body.activity.wordsPerMessage).toBe(7);
+    expect(body.activity.topUsers).toContainEqual(
+      expect.objectContaining({
+        userId: "2",
+        username: "alice",
+        count: 3,
+        words: 21,
+        wordsPerMessage: 7,
+      }),
+    );
+    expect(body.activity.topTalkers).toContainEqual(
+      expect.objectContaining({
+        userId: "2",
+        username: "alice",
+        count: 3,
+        words: 21,
+        wordsPerMessage: 7,
+      }),
+    );
+  });
+
+  it("lists admin chats from stored metadata and counter fallback", async () => {
+    mockTelegramMembership();
+    await env.HISTORY.put(
+      "admin_chat:-1001",
+      JSON.stringify({
+        chatId: -1001,
+        title: "Main Group",
+        type: "supergroup",
+        lastSeenAt: 123,
+      }),
+    );
+    await env.COUNTERS.put("stats_v2:-1002:2026-05-26:2", "1");
+
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/chats", {
+        headers: await adminSessionHeaders(),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as any;
+    expect(body.chats).toContainEqual({
+      chatId: -1001,
+      title: "Main Group",
+      type: "supergroup",
+      lastSeenAt: 123,
+    });
+    expect(body.chats).toContainEqual({
+      chatId: -1002,
+      title: "Chat -1002",
+      lastSeenAt: 0,
+    });
+  });
+
+  it("filters admin chats by telegram membership", async () => {
+    vi.spyOn(global, "fetch").mockImplementation(async (input: any, init?: any) => {
+      const url = String(input);
+      if (url.includes("/getChatMember")) {
+        const body = JSON.parse(init?.body || "{}");
+        if (body.chat_id === -1001) {
+          return Response.json({ ok: true, result: { status: "member" } });
+        }
+
+        return Response.json({ ok: true, result: { status: "left" } });
+      }
+
+      return new Response(null, { status: 200 });
+    });
+    await env.HISTORY.put(
+      "admin_chat:-1001",
+      JSON.stringify({ chatId: -1001, title: "Allowed", lastSeenAt: 2 }),
+    );
+    await env.HISTORY.put(
+      "admin_chat:-1002",
+      JSON.stringify({ chatId: -1002, title: "Denied", lastSeenAt: 1 }),
+    );
+
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/chats", {
+        headers: await adminSessionHeaders(),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as any;
+    expect(body.chats.map((chat: any) => chat.title)).toEqual(["Allowed"]);
+  });
+
+  it("rejects direct chat access when telegram user is not in chat", async () => {
+    mockTelegramMembership("left");
+
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/chat?chatId=1&period=today", {
+        headers: await adminSessionHeaders(),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(403);
+  });
+
+  it("stores chat metadata from webhook messages", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const update = {
+      message: {
+        message_id: 1,
+        text: "hello",
+        chat: { id: -1003, title: "Stored Group", type: "supergroup" },
+        from: { id: 2, username: "u" },
+        date: now,
+      },
+    };
+
+    const response = await worker.fetch(
+      new Request("http://localhost/tg/t/webhook", {
+        method: "POST",
+        headers: {
+          "X-Telegram-Bot-Api-Secret-Token": "s",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(update),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    await waitForAllAsync();
+
+    const stored = await env.HISTORY.get("admin_chat:-1003");
+    expect(JSON.parse(stored || "{}")).toMatchObject({
+      chatId: -1003,
+      title: "Stored Group",
+      type: "supergroup",
+      lastSeenAt: now,
+    });
+  });
+
+  it("updates notification settings from admin API", async () => {
+    mockTelegramMembership();
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/notifications?chatId=1", {
+        method: "POST",
+        headers: {
+          ...(await adminSessionHeaders()),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          enabled: true,
+          notifications: {
+            daily_summary: { enabled: true },
+            profanity_reports: { enabled: false },
+          },
+        }),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as any;
+    expect(body.settings.enabled).toBe(true);
+    expect(body.settings.notifications.daily_summary.enabled).toBe(true);
+    expect(body.settings.updatedBy).toBe("admin-telegram:42");
+  });
+
   it("stores and summarises messages", async () => {
     const fetchMock = vi
       .spyOn(global, "fetch")

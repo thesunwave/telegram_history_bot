@@ -5,6 +5,7 @@ import {
   activityHours,
   parseActivityCommand,
   parseActivityPeriod,
+  topTalkers,
 } from '../src/features/stats/stats';
 import { CountersDO } from '../src/durable-objects/counters-do';
 import { Env } from '../src/core/env';
@@ -162,11 +163,32 @@ describe('activity flexible periods', () => {
         username: 'alice',
         day: '2026-05-07',
         hour: 13,
+        wordCount: 4,
       }),
     }));
 
     expect(response.status).toBe(200);
     expect(kvData.get('activity_hour:123:2026-05-07:13')).toBe('1');
+    expect(kvData.get('word_stats:123:456:2026-05-07')).toBe('4');
+    expect(kvData.get('word_stats_v2:123:2026-05-07:456')).toBe('4');
+    expect(kvData.get('word_activity:123:2026-05-07')).toBe('4');
+  });
+
+  it('renders talkers sorted by total words with words per message rate', async () => {
+    kvData.set('stats_v2:123:2026-05-06:1', '5');
+    kvData.set('word_stats_v2:123:2026-05-06:1', '20');
+    kvData.set('stats_v2:123:2026-05-07:2', '2');
+    kvData.set('word_stats_v2:123:2026-05-07:2', '50');
+    kvData.set('user:1', 'shorty');
+    kvData.set('user:2', 'speaker');
+
+    await topTalkers(env, 123, 2, ['week']);
+
+    expect(mocks.sendMessage).toHaveBeenCalled();
+    const text = mocks.sendMessage.mock.calls[0][2];
+    expect(text).toContain('Топ болтунов: 2026-05-01 - 2026-05-07');
+    expect(text).toContain('1. speaker: 50 слов, 2 сообщений, 25 слов/сообщение');
+    expect(text).toContain('2. shorty: 20 слов, 5 сообщений, 4 слов/сообщение');
   });
 
   it('renders hourly average chart over selected period', async () => {

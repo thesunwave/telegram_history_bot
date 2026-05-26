@@ -6,6 +6,8 @@ const STATS_PREFIX = 'stats';
 const USER_PREFIX = 'user';
 const ACTIVITY_PREFIX = 'activity';
 const ACTIVITY_HOUR_PREFIX = 'activity_hour';
+const WORD_STATS_PREFIX = 'word_stats';
+const WORD_ACTIVITY_PREFIX = 'word_activity';
 const PROFANITY_USER_PREFIX = 'profanity';
 const PROFANITY_WORDS_PREFIX = 'profanity_words';
 const CRIMINAL_USER_PREFIX = 'criminal';
@@ -18,6 +20,7 @@ export interface IncrementPayload {
   username: string;
   day: string;
   hour?: number;
+  wordCount?: number;
 }
 
 export interface ProfanityIncrementPayload {
@@ -115,6 +118,8 @@ export class CountersDO {
   private validate(p: IncrementPayload) {
     if (p.chatId == null || p.userId == null || !p.day)
       throw new Error('invalid payload');
+    if (p.wordCount !== undefined && (!Number.isInteger(p.wordCount) || p.wordCount < 0))
+      throw new Error('invalid word count');
   }
 
   private validateProfanity(p: ProfanityIncrementPayload) {
@@ -140,7 +145,19 @@ export class CountersDO {
       throw new Error('invalid criminal payload');
   }
 
-  private async incrementCounters({ chatId, userId, username, day, hour }: IncrementPayload): Promise<{ userDayCount: number; chatDayActivity: number }> {
+  private async incrementCounters({
+    chatId,
+    userId,
+    username,
+    day,
+    hour,
+    wordCount = 0,
+  }: IncrementPayload): Promise<{
+    userDayCount: number;
+    chatDayActivity: number;
+    userDayWordCount: number;
+    chatDayWords: number;
+  }> {
     const statsKey = `${STATS_PREFIX}:${chatId}:${userId}:${day}`;
     const count = parseInt((await this.env.COUNTERS.get(statsKey)) || '0', 10) + 1;
     await this.env.COUNTERS.put(statsKey, String(count));
@@ -150,11 +167,24 @@ export class CountersDO {
     const statsV2Key = `stats_v2:${chatId}:${day}:${userId}`;
     await this.env.COUNTERS.put(statsV2Key, String(count));
 
+    const wordStatsKey = `${WORD_STATS_PREFIX}:${chatId}:${userId}:${day}`;
+    const userDayWordCount =
+      parseInt((await this.env.COUNTERS.get(wordStatsKey)) || '0', 10) + wordCount;
+    await this.env.COUNTERS.put(wordStatsKey, String(userDayWordCount));
+
+    const wordStatsV2Key = `${WORD_STATS_PREFIX}_v2:${chatId}:${day}:${userId}`;
+    await this.env.COUNTERS.put(wordStatsV2Key, String(userDayWordCount));
+
     await this.env.COUNTERS.put(`${USER_PREFIX}:${userId}`, username);
 
     const activityKey = `${ACTIVITY_PREFIX}:${chatId}:${day}`;
     const actCnt = parseInt((await this.env.COUNTERS.get(activityKey)) || '0', 10) + 1;
     await this.env.COUNTERS.put(activityKey, String(actCnt));
+
+    const wordActivityKey = `${WORD_ACTIVITY_PREFIX}:${chatId}:${day}`;
+    const chatDayWords =
+      parseInt((await this.env.COUNTERS.get(wordActivityKey)) || '0', 10) + wordCount;
+    await this.env.COUNTERS.put(wordActivityKey, String(chatDayWords));
 
     if (hour !== undefined && Number.isInteger(hour) && hour >= 0 && hour <= 23) {
       const activityHourKey = `${ACTIVITY_HOUR_PREFIX}:${chatId}:${day}:${hour.toString().padStart(2, '0')}`;
@@ -178,7 +208,12 @@ export class CountersDO {
       }
     }
 
-    return { userDayCount: count, chatDayActivity: actCnt };
+    return {
+      userDayCount: count,
+      chatDayActivity: actCnt,
+      userDayWordCount,
+      chatDayWords,
+    };
   }
 
   private async incrementProfanityCounters(payload: ProfanityIncrementPayload) {

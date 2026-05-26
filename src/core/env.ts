@@ -46,6 +46,9 @@ export interface Env {
   VERY_LARGE_DATASET_BATCH_SIZE?: number;
   VERY_LARGE_DATASET_BATCH_DELAY?: number;
   ADMIN_USER_ID?: string;
+  ADMIN_BASIC_USER?: string;
+  ADMIN_BASIC_PASSWORD?: string;
+  TELEGRAM_BOT_USERNAME?: string;
   DRY_RUN?: string;
 
   // Optimized summary system configuration

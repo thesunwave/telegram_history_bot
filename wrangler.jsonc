@@ -82,6 +82,7 @@
   ],
   "vars": {
     "ENVIRONMENT": "production",
+    "ADMIN_BASIC_USER": "admin",
     // Available values: "cloudflare", "openai", "openai-premium", "openrouter", "legal-rag", "mock"
     "SUMMARY_PROVIDER": "openai",
     "PROFANITY_PROVIDER": "openai",

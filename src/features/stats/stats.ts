@@ -126,6 +126,77 @@ function resolveActivityRange(periodArgs: string[] | string | ActivityDateRange)
   return periodArgs;
 }
 
+export interface UserActivityStat {
+  userId: string;
+  username: string;
+  messages: number;
+  words: number;
+  wordsPerMessage: number;
+}
+
+async function aggregateUserActivity(
+  env: Env,
+  chatId: number,
+  days: string[],
+): Promise<Record<string, { messages: number; words: number }>> {
+  const totals: Record<string, { messages: number; words: number }> = {};
+
+  for (const day of days) {
+    const messagePrefix = `stats_v2:${chatId}:${day}:`;
+    let cursor: string | undefined;
+    do {
+      const list: any = await env.COUNTERS.list({
+        prefix: messagePrefix,
+        cursor,
+      });
+      cursor = !list.list_complete ? list.cursor : undefined;
+
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < list.keys.length; i += BATCH_SIZE) {
+        const batch = list.keys.slice(i, i + BATCH_SIZE);
+        const messageValues = await Promise.all(
+          batch.map((k: any) => env.COUNTERS.get(k.name)),
+        );
+        const wordValues = await Promise.all(
+          batch.map((k: any) => {
+            const [, , , userId] = k.name.split(':');
+            return env.COUNTERS.get(`word_stats_v2:${chatId}:${day}:${userId}`);
+          }),
+        );
+
+        for (let j = 0; j < batch.length; j++) {
+          const [, , , userId] = batch[j].name.split(':');
+          const messages = parseInt(messageValues[j] || '0', 10);
+          const words = parseInt(wordValues[j] || '0', 10);
+          const current = totals[userId] || { messages: 0, words: 0 };
+          totals[userId] = {
+            messages: current.messages + messages,
+            words: current.words + words,
+          };
+        }
+      }
+    } while (cursor);
+  }
+
+  return totals;
+}
+
+async function hydrateUserActivityStats(
+  env: Env,
+  entries: Array<[string, { messages: number; words: number }]>,
+): Promise<UserActivityStat[]> {
+  const names = await Promise.all(
+    entries.map(([userId]) => env.COUNTERS.get(`user:${userId}`)),
+  );
+  return entries.map(([userId, stat], index) => ({
+    userId,
+    username: names[index] || `id${userId}`,
+    messages: stat.messages,
+    words: stat.words,
+    wordsPerMessage: stat.messages > 0 ? Number((stat.words / stat.messages).toFixed(1)) : 0,
+  }));
+}
+
 export async function topChat(
   env: Env,
   chatId: number,
@@ -172,6 +243,49 @@ export async function topChat(
   return await sendMessage(env, chatId, text);
 }
 
+export async function topTalkers(
+  env: Env,
+  chatId: number,
+  n: number,
+  periodArgs: string[] | string | ActivityDateRange = ['week'],
+): Promise<string | void> {
+  let range: ActivityDateRange;
+  try {
+    range = resolveActivityRange(periodArgs);
+  } catch (error: any) {
+    return await sendMessage(env, chatId, error.message || 'Неверный период');
+  }
+
+  const totals = await aggregateUserActivity(
+    env,
+    chatId,
+    listActivityDays(range),
+  );
+  const sorted = Object.entries(totals)
+    .filter(([, stat]) => stat.messages > 0)
+    .sort((a, b) => b[1].words - a[1].words || b[1].messages - a[1].messages)
+    .slice(0, n);
+
+  if (sorted.length === 0) {
+    return await sendMessage(
+      env,
+      chatId,
+      `${formatRangeTitle('Топ болтунов', range)}\nНет данных`,
+    );
+  }
+
+  const stats = await hydrateUserActivityStats(env, sorted);
+  const lines = stats.map((stat, index) =>
+    `${index + 1}. ${stat.username}: ${stat.words} слов, ${stat.messages} сообщений, ${stat.wordsPerMessage} слов/сообщение`,
+  );
+
+  return await sendMessage(
+    env,
+    chatId,
+    `${formatRangeTitle('Топ болтунов', range)}\n${lines.join('\n')}`,
+  );
+}
+
 export async function resetCounters(env: Env, chatId: number) {
   const prefix = `stats:${chatId}:`;
   let cursor: string | undefined = undefined;
@@ -204,6 +318,36 @@ export async function resetCounters(env: Env, chatId: number) {
   cursor = undefined;
   do {
     const list: any = await env.COUNTERS.list({ prefix: hourPrefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    for (const key of list.keys) {
+      await env.COUNTERS.delete(key.name);
+    }
+  } while (cursor);
+
+  const wordPrefix = `word_stats:${chatId}:`;
+  cursor = undefined;
+  do {
+    const list: any = await env.COUNTERS.list({ prefix: wordPrefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    for (const key of list.keys) {
+      await env.COUNTERS.delete(key.name);
+    }
+  } while (cursor);
+
+  const wordV2Prefix = `word_stats_v2:${chatId}:`;
+  cursor = undefined;
+  do {
+    const list: any = await env.COUNTERS.list({ prefix: wordV2Prefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    for (const key of list.keys) {
+      await env.COUNTERS.delete(key.name);
+    }
+  } while (cursor);
+
+  const wordActivityPrefix = `word_activity:${chatId}:`;
+  cursor = undefined;
+  do {
+    const list: any = await env.COUNTERS.list({ prefix: wordActivityPrefix, cursor });
     cursor = !list.list_complete ? list.cursor : undefined;
     for (const key of list.keys) {
       await env.COUNTERS.delete(key.name);

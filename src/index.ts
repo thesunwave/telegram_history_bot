@@ -16,6 +16,7 @@ import {
   cleanupOldData
 } from "./features/stats/stats";
 import { handleUpdate, recordMessage, getTextMessage } from "./api/update";
+import { handleAdminRequest } from "./api/admin";
 import { CountersDO } from "./durable-objects/counters-do";
 import { MessageFetcherDO } from "./durable-objects/message-fetcher-do";
 import { MessageAggregatorDO } from "./durable-objects/message-aggregator-do";
@@ -49,6 +50,10 @@ export default {
     }
 
     const url = new URL(req.url);
+
+    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+      return await handleAdminRequest(req, env);
+    }
 
     // Migration endpoints
     if (url.pathname === "/migrate") {

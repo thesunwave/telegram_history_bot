@@ -1,7 +1,24 @@
 import { Env, DAY, MAX_LAST_MESSAGES } from '../core/env';
 import type { KVNamespace, ExecutionContext } from '@cloudflare/workers-types';
 import { summariseChat, summariseChatMessages } from '../features/summary/summary';
-import { topChat, resetCounters, activityChart, activityByUser, activityHours, parseActivityCommand, profanityTopUsers, profanityWordsStats, myProfanityStats, profanityChart, resetProfanityCounters, criminalCodeStats, criminalTopUsers, myCriminalStats, resetCriminalCounters } from '../features/stats/stats';
+import {
+  topChat,
+  topTalkers,
+  resetCounters,
+  activityChart,
+  activityByUser,
+  activityHours,
+  parseActivityCommand,
+  profanityTopUsers,
+  profanityWordsStats,
+  myProfanityStats,
+  profanityChart,
+  resetProfanityCounters,
+  criminalCodeStats,
+  criminalTopUsers,
+  myCriminalStats,
+  resetCriminalCounters,
+} from '../features/stats/stats';
 import { sendMessage } from '../core/telegram';
 import { Logger } from '../core/logger';
 import { ProfanityAnalyzer } from '../features/profanity/profanity';
@@ -9,6 +26,7 @@ import { ProviderFactory } from '../core/providers/provider-factory';
 import { NotificationService } from '../core/services/notification-service';
 import { NotificationRepository } from '../core/repositories/notification-repository';
 import type { NotificationType } from '../core/models/notification-settings';
+import { saveAdminChatMeta } from './admin-chats';
 
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
@@ -40,6 +58,7 @@ export function buildHelpText(env: Env): string {
     '',
     'Активность',
     `/top <n> – топ N активных пользователей за сегодня (по умолчанию 5)${activityLabel}`,
+    `/talkers <n> [period] – топ болтунов по словам и словам/сообщение${activityLabel}`,
     `/activity_week – график активности за неделю${activityLabel}`,
     `/activity_month – график активности за последние 30 дней${activityLabel}`,
     `/activity_users_week – активность по пользователям за неделю${activityLabel}`,
@@ -75,6 +94,11 @@ export function getTextMessage(update: any) {
   return msg;
 }
 
+export function countWords(text: string | undefined): number {
+  if (!text) return 0;
+  return text.trim().match(/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+}
+
 export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) {
   if (!msg) {
     Logger.debug(env, 'recordMessage: no message');
@@ -88,6 +112,8 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   const userId = msg.from?.id || 0;
   const username = msg.from?.username || `id${userId}`;
   const ts = msg.date;
+  const wordCount = countWords(msg.text);
+  await saveAdminChatMeta(env, msg.chat, ts);
   const stored = {
     chat: chatId,
     user: userId,
@@ -152,6 +178,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
           username,
           day,
           hour: new Date(ts * 1000).getUTCHours(),
+          wordCount,
         }),
       });
 
@@ -179,7 +206,9 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
             chatId: chatId.toString(36),
             day,
             userDayCount: parsed.userDayCount,
+            userDayWordCount: parsed.userDayWordCount,
             chatDayActivity: parsed.chatDayActivity,
+            chatDayWords: parsed.chatDayWords,
             ok: parsed.ok,
           });
         } else {
@@ -658,6 +687,17 @@ export async function handleUpdate(msg: any, env: Env) {
   } else if (command.name === '/top') {
     const n = parseInt(msg.text.split(' ')[1] || '5');
     await topChat(env, chatId, n, day);
+  } else if (command.name === '/talkers' || command.name === '/top_talkers') {
+    const requestedCount = parseInt(command.args[0] || '', 10);
+    const hasCount = Number.isFinite(requestedCount);
+    const count = hasCount ? Math.min(Math.max(requestedCount, 1), 20) : 10;
+    const periodArgs = hasCount ? command.args.slice(1) : command.args;
+    await topTalkers(
+      env,
+      chatId,
+      count,
+      periodArgs.length > 0 ? periodArgs : ['week'],
+    );
   } else if (command.name === '/profanity_top') {
     const parts = msg.text.split(/\s+/);
     const count = Math.min(Math.max(parseInt(parts[1] || '10', 10), 1), 20);
