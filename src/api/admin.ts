@@ -261,7 +261,16 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
       return jsonError('chatId is required', 400);
     }
 
-    const period = parseAdminPeriod(url.searchParams.get('period'));
+    let period;
+    try {
+      period = parseAdminPeriod(
+        url.searchParams.get('period'),
+        url.searchParams.get('from'),
+        url.searchParams.get('to'),
+      );
+    } catch (error) {
+      return jsonError(error instanceof Error ? error.message : 'invalid period', 400);
+    }
     const denied = await requireTelegramChatAccess(env, principal, chatId);
     if (denied) {
       return denied;

@@ -20,13 +20,17 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
   <style>
     :root {
       color-scheme: light;
-      --bg: #f6f7f9;
+      --bg: #f3f5f7;
       --panel: #ffffff;
       --text: #18202a;
       --muted: #667085;
       --line: #d9dee7;
       --accent: #176b87;
       --accent-strong: #0f4f66;
+      --accent-soft: #e8f3f6;
+      --green: #16825d;
+      --orange: #b75d19;
+      --purple: #6d5bd0;
       --danger: #b42318;
     }
     * { box-sizing: border-box; }
@@ -60,10 +64,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     main { padding: 24px 0 40px; }
     form.controls {
       display: grid;
-      grid-template-columns: minmax(260px, 1fr) 160px auto;
-      gap: 12px;
+      grid-template-columns: minmax(320px, 1fr) 180px 150px 150px auto;
+      gap: 14px;
       align-items: end;
-      margin-bottom: 20px;
+      margin-bottom: 18px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
     }
     label {
       display: grid;
@@ -117,7 +125,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 16px;
+      padding: 18px;
       min-width: 0;
     }
     section.wide { grid-column: 1 / -1; }
@@ -127,22 +135,23 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       letter-spacing: 0;
     }
     .metric {
-      font-size: 32px;
+      font-size: 30px;
       font-weight: 750;
       line-height: 1;
       margin-bottom: 12px;
     }
     .metrics {
       display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-columns: repeat(7, minmax(0, 1fr));
       gap: 12px;
-      margin-bottom: 12px;
+      margin-bottom: 16px;
     }
     .metricBox {
       border: 1px solid var(--line);
       border-radius: 6px;
-      padding: 10px;
+      padding: 12px;
       min-width: 0;
+      background: linear-gradient(180deg, #fff 0%, #f9fbfc 100%);
     }
     .metricBox .metric {
       font-size: 26px;
@@ -192,54 +201,54 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
     .charts {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 16px;
     }
-    .chart {
+    .chartPanel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
       min-width: 0;
+      min-height: 300px;
+      background: #fff;
+    }
+    .chartPanel.wide { grid-column: 1 / -1; }
+    .chartHead {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
     }
     .chartTitle {
-      margin-bottom: 10px;
       color: var(--muted);
       font-size: 12px;
       font-weight: 750;
     }
-    .bars {
-      display: grid;
-      grid-auto-rows: 22px;
-      gap: 7px;
-    }
-    .barRow {
-      display: grid;
-      grid-template-columns: 54px minmax(0, 1fr) 44px;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-    }
-    .barLabel,
-    .barValue {
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 650;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .barValue {
-      text-align: right;
+    .chartValue {
+      font-size: 12px;
+      font-weight: 750;
       color: var(--text);
     }
-    .barTrack {
-      height: 12px;
-      border-radius: 999px;
-      background: #eef1f5;
-      overflow: hidden;
+    .chartCanvas {
+      position: relative;
+      height: 238px;
     }
-    .barFill {
-      height: 100%;
-      min-width: 2px;
-      border-radius: inherit;
-      background: var(--accent);
+    .chartCanvas.tall { height: 300px; }
+    .chartEmpty {
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+      height: 220px;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }
+    .tableScroll {
+      overflow-x: auto;
+    }
+    .activityTable {
+      margin-top: 16px;
     }
     .bucketGrid {
       display: grid;
@@ -251,6 +260,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       border-radius: 6px;
       padding: 10px;
       min-width: 0;
+      background: #fbfcfd;
     }
     .bucket h3 {
       margin: 0 0 8px;
@@ -266,8 +276,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       margin: 4px 0;
       overflow-wrap: anywhere;
     }
+    .bucketCount {
+      color: var(--text);
+      font-weight: 750;
+    }
     table {
       width: 100%;
+      min-width: 520px;
       border-collapse: collapse;
       table-layout: fixed;
     }
@@ -385,6 +400,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       .grid { grid-template-columns: 1fr; }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .charts { grid-template-columns: 1fr; }
+      .chartPanel.wide { grid-column: auto; }
       .bucketGrid { grid-template-columns: 1fr; }
       .toggles { grid-template-columns: 1fr; }
     }
@@ -415,13 +431,20 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           <option value="today">Сегодня</option>
           <option value="week">Неделя</option>
           <option value="month">Месяц</option>
+          <option value="custom">Период</option>
         </select>
+      </label>
+      <label class="customPeriod hidden">С
+        <input id="dateFrom" name="from" type="date">
+      </label>
+      <label class="customPeriod hidden">По
+        <input id="dateTo" name="to" type="date">
       </label>
       <button id="refreshButton" type="submit">Обновить</button>
     </form>
     <div id="status" class="status hidden"></div>
     <div class="grid hidden" id="dashboard">
-      <section>
+      <section class="wide">
         <h2>Активность</h2>
         <div class="metrics">
           <div class="metricBox">
@@ -448,27 +471,42 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             <div class="metric" id="activityAvgDailyUsers">0</div>
             <div class="metricLabel">Активн./день</div>
           </div>
+          <div class="metricBox">
+            <div class="metric" id="activityAvgHourly">0</div>
+            <div class="metricLabel">Сообщ./час</div>
+          </div>
         </div>
-        <table>
-          <thead><tr><th>Пользователь</th><th>Сообщения</th><th>Слова</th><th>Слов/сообщ.</th></tr></thead>
-          <tbody id="activityUsers"></tbody>
-        </table>
-      </section>
-      <section class="wide">
-        <h2>Графики</h2>
         <div class="charts">
-          <div class="chart">
-            <div class="chartTitle">Сообщения по дням</div>
-            <div class="bars" id="dailyMessagesChart"></div>
+          <div class="chartPanel">
+            <div class="chartHead">
+              <div class="chartTitle">Сообщения по дням</div>
+              <div class="chartValue" id="dailyMessagesTotal">0</div>
+            </div>
+            <div class="chartCanvas"><canvas id="dailyMessagesChart"></canvas></div>
+            <div class="chartEmpty hidden" id="dailyMessagesEmpty">Нет данных</div>
           </div>
-          <div class="chart">
-            <div class="chartTitle">Активные пользователи по дням</div>
-            <div class="bars" id="dailyActiveUsersChart"></div>
+          <div class="chartPanel">
+            <div class="chartHead">
+              <div class="chartTitle">Активные пользователи по дням</div>
+              <div class="chartValue" id="dailyActiveUsersPeak">0 peak</div>
+            </div>
+            <div class="chartCanvas"><canvas id="dailyActiveUsersChart"></canvas></div>
+            <div class="chartEmpty hidden" id="dailyActiveUsersEmpty">Нет данных</div>
           </div>
-          <div class="chart">
-            <div class="chartTitle">Средняя активность по часам UTC</div>
-            <div class="bars" id="hourlyChart"></div>
+          <div class="chartPanel wide">
+            <div class="chartHead">
+              <div class="chartTitle">Средняя активность по часам UTC</div>
+              <div class="chartValue" id="hourlyPeak">0 peak</div>
+            </div>
+            <div class="chartCanvas tall"><canvas id="hourlyChart"></canvas></div>
+            <div class="chartEmpty hidden" id="hourlyEmpty">Нет данных</div>
           </div>
+        </div>
+        <div class="tableScroll activityTable">
+          <table>
+            <thead><tr><th>Пользователь</th><th>Сообщения</th><th>Слова</th><th>Слов/сообщ.</th></tr></thead>
+            <tbody id="activityUsers"></tbody>
+          </table>
         </div>
       </section>
       <section class="wide">
@@ -477,31 +515,39 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       </section>
       <section>
         <h2>Болтуны</h2>
-        <table>
-          <thead><tr><th>Пользователь</th><th>Слова</th><th>Сообщения</th><th>Слов/сообщ.</th></tr></thead>
-          <tbody id="activityTalkers"></tbody>
-        </table>
+        <div class="tableScroll">
+          <table>
+            <thead><tr><th>Пользователь</th><th>Слова</th><th>Сообщения</th><th>Слов/сообщ.</th></tr></thead>
+            <tbody id="activityTalkers"></tbody>
+          </table>
+        </div>
       </section>
       <section>
         <h2>Мат</h2>
-        <table>
-          <thead><tr><th>Пользователь</th><th>Счет</th></tr></thead>
-          <tbody id="profanityUsers"></tbody>
-        </table>
+        <div class="tableScroll">
+          <table>
+            <thead><tr><th>Пользователь</th><th>Счет</th></tr></thead>
+            <tbody id="profanityUsers"></tbody>
+          </table>
+        </div>
       </section>
       <section>
         <h2>Слова</h2>
-        <table>
-          <thead><tr><th>Слово</th><th>Счет</th></tr></thead>
-          <tbody id="profanityWords"></tbody>
-        </table>
+        <div class="tableScroll">
+          <table>
+            <thead><tr><th>Слово</th><th>Счет</th></tr></thead>
+            <tbody id="profanityWords"></tbody>
+          </table>
+        </div>
       </section>
       <section>
         <h2>УК РФ</h2>
-        <table>
-          <thead><tr><th>Пользователь</th><th>Нарушения</th></tr></thead>
-          <tbody id="criminalUsers"></tbody>
-        </table>
+        <div class="tableScroll">
+          <table>
+            <thead><tr><th>Пользователь</th><th>Нарушения</th></tr></thead>
+            <tbody id="criminalUsers"></tbody>
+          </table>
+        </div>
       </section>
       <section class="wide">
         <h2>Автоуведомления</h2>
@@ -512,10 +558,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       </section>
     </div>
   </main>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script>
     const botUsername = ${botUsername};
     const principal = ${principal};
     const state = { chatId: '', period: 'today', notificationTypes: [], chats: [], loading: false };
+    const chartInstances = {};
     const labels = {
       criminal_reports: 'УК РФ',
       profanity_reports: 'Мат',
@@ -535,12 +583,58 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     function setControlsDisabled(disabled) {
       document.getElementById('chatSelect').disabled = disabled;
       document.getElementById('period').disabled = disabled;
+      document.getElementById('dateFrom').disabled = disabled;
+      document.getElementById('dateTo').disabled = disabled;
       document.getElementById('refreshButton').disabled = disabled;
       document.getElementById('saveNotifications').disabled = disabled;
       document.getElementById('notificationsEnabled').disabled = disabled;
       for (const input of document.querySelectorAll('#notificationTypes input')) {
         input.disabled = disabled;
       }
+    }
+
+    function toDayInputValue(date) {
+      return date.toISOString().slice(0, 10);
+    }
+
+    function setupCustomPeriodDefaults() {
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const weekAgo = new Date(today);
+      weekAgo.setUTCDate(today.getUTCDate() - 6);
+      const todayValue = toDayInputValue(today);
+      document.getElementById('dateFrom').value = toDayInputValue(weekAgo);
+      document.getElementById('dateTo').value = todayValue;
+      document.getElementById('dateFrom').max = todayValue;
+      document.getElementById('dateTo').max = todayValue;
+    }
+
+    function syncCustomPeriodControls() {
+      const isCustom = document.getElementById('period').value === 'custom';
+      for (const el of document.querySelectorAll('.customPeriod')) {
+        el.classList.toggle('hidden', !isCustom);
+      }
+    }
+
+    function buildStatsUrl(chatId, period) {
+      const url = new URL('/admin/api/chat', window.location.origin);
+      url.searchParams.set('chatId', chatId);
+      url.searchParams.set('period', period);
+
+      if (period === 'custom') {
+        const from = document.getElementById('dateFrom').value;
+        const to = document.getElementById('dateTo').value;
+        if (!from || !to) {
+          throw new Error('Выберите даты начала и конца периода');
+        }
+        if (from > to) {
+          throw new Error('Дата начала должна быть раньше или равна дате конца');
+        }
+        url.searchParams.set('from', from);
+        url.searchParams.set('to', to);
+      }
+
+      return url.pathname + url.search;
     }
 
     function setNotificationEditAllowed(canEdit) {
@@ -590,15 +684,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         'activityWordsPerMessage',
         'activityActiveUsers',
         'activityAvgDaily',
-        'activityAvgDailyUsers'
+        'activityAvgDailyUsers',
+        'activityAvgHourly'
       ]) {
         const el = document.getElementById(id);
         el.textContent = '';
         el.classList.add('skeletonText');
       }
-      for (const id of ['dailyMessagesChart', 'dailyActiveUsersChart', 'hourlyChart']) {
-        renderBars(id, [], 'day', 'count');
-      }
+      renderCharts({ dailyMessages: [], dailyActiveUsers: [], hourlyAverages: [] });
       renderTimeBuckets([]);
       renderSkeletonRows('activityUsers', 4);
       renderSkeletonRows('activityTalkers', 4);
@@ -617,7 +710,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         'activityWordsPerMessage',
         'activityActiveUsers',
         'activityAvgDaily',
-        'activityAvgDailyUsers'
+        'activityAvgDailyUsers',
+        'activityAvgHourly'
       ]) {
         document.getElementById(id).classList.remove('skeletonText');
       }
@@ -630,9 +724,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       document.getElementById('activityActiveUsers').textContent = '0';
       document.getElementById('activityAvgDaily').textContent = '0';
       document.getElementById('activityAvgDailyUsers').textContent = '0';
-      renderBars('dailyMessagesChart', [], 'day', 'count');
-      renderBars('dailyActiveUsersChart', [], 'day', 'count');
-      renderBars('hourlyChart', [], 'hour', 'count');
+      document.getElementById('activityAvgHourly').textContent = '0';
+      renderCharts({ dailyMessages: [], dailyActiveUsers: [], hourlyAverages: [] });
       renderTimeBuckets([]);
       renderActivityRows('activityUsers', [], 'messages');
       renderActivityRows('activityTalkers', [], 'words');
@@ -753,40 +846,147 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }
     }
 
+    function destroyChart(id) {
+      if (chartInstances[id]) {
+        chartInstances[id].destroy();
+        delete chartInstances[id];
+      }
+    }
+
+    function setChartEmpty(id, isEmpty) {
+      document.getElementById(id + 'Empty').classList.toggle('hidden', !isEmpty);
+      document.getElementById(id + 'Chart').parentElement.classList.toggle('hidden', isEmpty);
+      if (isEmpty) destroyChart(id + 'Chart');
+    }
+
     function compactDayLabel(day) {
       return String(day || '').slice(5) || '-';
     }
 
-    function renderBars(id, rows, labelKey, valueKey, limit) {
-      const box = document.getElementById(id);
-      box.innerHTML = '';
-      const visibleRows = Array.isArray(rows) ? rows.slice(-(limit || rows.length)) : [];
-      if (!visibleRows.length) {
-        const empty = document.createElement('div');
-        empty.className = 'muted';
-        empty.textContent = 'Нет данных';
-        box.append(empty);
+    function makeChart(id, config) {
+      if (!window.Chart) {
+        setChartEmpty(id.replace('Chart', ''), true);
         return;
       }
-      const max = Math.max(...visibleRows.map(row => Number(row[valueKey]) || 0), 1);
-      for (const row of visibleRows) {
-        const value = Number(row[valueKey]) || 0;
-        const line = document.createElement('div');
-        line.className = 'barRow';
-        const label = document.createElement('div');
-        label.className = 'barLabel';
-        label.textContent = labelKey === 'day' ? compactDayLabel(row[labelKey]) : String(row[labelKey]);
-        const track = document.createElement('div');
-        track.className = 'barTrack';
-        const fill = document.createElement('div');
-        fill.className = 'barFill';
-        fill.style.width = Math.max(2, Math.round((value / max) * 100)) + '%';
-        const count = document.createElement('div');
-        count.className = 'barValue';
-        count.textContent = String(value);
-        track.append(fill);
-        line.append(label, track, count);
-        box.append(line);
+      destroyChart(id);
+      const ctx = document.getElementById(id);
+      chartInstances[id] = new Chart(ctx, config);
+    }
+
+    function commonChartOptions(extra = {}) {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { intersect: false, mode: 'index' },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#18202a',
+            padding: 10,
+            titleFont: { size: 12, weight: '700' },
+            bodyFont: { size: 12 }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: '#667085', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: '#eef1f5' },
+            ticks: { color: '#667085', precision: 0 }
+          }
+        },
+        ...extra
+      };
+    }
+
+    function renderCharts(activity) {
+      const dailyMessages = activity.dailyMessages || [];
+      const dailyActiveUsers = activity.dailyActiveUsers || [];
+      const hourlyAverages = activity.hourlyAverages || [];
+      const dailyMessageTotal = dailyMessages.reduce((sum, row) => sum + (Number(row.count) || 0), 0);
+      const activePeak = Math.max(...dailyActiveUsers.map(row => Number(row.count) || 0), 0);
+      const hourlyPeak = Math.max(...hourlyAverages.map(row => Number(row.count) || 0), 0);
+
+      document.getElementById('dailyMessagesTotal').textContent = String(dailyMessageTotal);
+      document.getElementById('dailyActiveUsersPeak').textContent = activePeak + ' peak';
+      document.getElementById('hourlyPeak').textContent = hourlyPeak + ' peak';
+
+      setChartEmpty('dailyMessages', dailyMessages.length === 0);
+      setChartEmpty('dailyActiveUsers', dailyActiveUsers.length === 0);
+      setChartEmpty('hourly', hourlyAverages.length === 0);
+
+      if (dailyMessages.length) {
+        makeChart('dailyMessagesChart', {
+          type: 'line',
+          data: {
+            labels: dailyMessages.map(row => compactDayLabel(row.day)),
+            datasets: [{
+              data: dailyMessages.map(row => Number(row.count) || 0),
+              borderColor: '#176b87',
+              backgroundColor: 'rgba(23,107,135,.14)',
+              borderWidth: 2,
+              pointRadius: 3,
+              pointHoverRadius: 5,
+              tension: .3,
+              fill: true
+            }]
+          },
+          options: commonChartOptions()
+        });
+      }
+
+      if (dailyActiveUsers.length) {
+        makeChart('dailyActiveUsersChart', {
+          type: 'bar',
+          data: {
+            labels: dailyActiveUsers.map(row => compactDayLabel(row.day)),
+            datasets: [{
+              data: dailyActiveUsers.map(row => Number(row.count) || 0),
+              backgroundColor: '#16825d',
+              borderRadius: 5,
+              maxBarThickness: 28
+            }]
+          },
+          options: commonChartOptions()
+        });
+      }
+
+      if (hourlyAverages.length) {
+        makeChart('hourlyChart', {
+          type: 'bar',
+          data: {
+            labels: hourlyAverages.map(row => row.hour),
+            datasets: [{
+              data: hourlyAverages.map(row => Number(row.count) || 0),
+              backgroundColor: hourlyAverages.map(row => {
+                const hour = Number(row.hour);
+                if (hour >= 5 && hour < 12) return '#176b87';
+                if (hour >= 12 && hour < 17) return '#16825d';
+                if (hour >= 17 && hour < 22) return '#b75d19';
+                return '#6d5bd0';
+              }),
+              borderRadius: 5,
+              maxBarThickness: 20
+            }]
+          },
+          options: commonChartOptions({
+            scales: {
+              x: {
+                grid: { display: false },
+                ticks: { color: '#667085', maxRotation: 0, autoSkip: false }
+              },
+              y: {
+                beginAtZero: true,
+                grid: { color: '#eef1f5' },
+                ticks: { color: '#667085' }
+              }
+            }
+          })
+        });
       }
     }
 
@@ -810,7 +1010,11 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const list = document.createElement('ol');
         for (const user of users) {
           const item = document.createElement('li');
-          item.textContent = user.username + ': ' + user.count;
+          item.textContent = user.username + ': ';
+          const count = document.createElement('span');
+          count.className = 'bucketCount';
+          count.textContent = String(user.count);
+          item.append(count);
           list.append(item);
         }
         card.append(title, list);
@@ -910,12 +1114,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       if (!chatId) return;
       state.chatId = chatId;
       state.period = period;
-      setStatus('Загрузка...');
-      renderDashboardSkeleton();
 
       try {
+        const statsUrl = buildStatsUrl(chatId, period);
+        setStatus('Загрузка...');
+        renderDashboardSkeleton();
         const [statsRes, notificationsRes] = await Promise.all([
-          fetch('/admin/api/chat?chatId=' + encodeURIComponent(chatId) + '&period=' + encodeURIComponent(period)),
+          fetch(statsUrl),
           fetch('/admin/api/notifications?chatId=' + encodeURIComponent(chatId))
         ]);
         if (!statsRes.ok) throw new Error(await statsRes.text());
@@ -931,9 +1136,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         document.getElementById('activityActiveUsers').textContent = String(stats.activity.activeUsers || 0);
         document.getElementById('activityAvgDaily').textContent = String(stats.activity.averageDailyMessages || 0);
         document.getElementById('activityAvgDailyUsers').textContent = String(stats.activity.averageDailyActiveUsers || 0);
-        renderBars('dailyMessagesChart', stats.activity.dailyMessages || [], 'day', 'count', 30);
-        renderBars('dailyActiveUsersChart', stats.activity.dailyActiveUsers || [], 'day', 'count', 30);
-        renderBars('hourlyChart', stats.activity.hourlyAverages || [], 'hour', 'count', 24);
+        document.getElementById('activityAvgHourly').textContent = String(stats.activity.averageHourlyMessages || 0);
+        renderCharts(stats.activity || {});
         renderTimeBuckets(stats.activity.timeBuckets || []);
         renderActivityRows('activityUsers', stats.activity.topUsers || [], 'messages');
         renderActivityRows('activityTalkers', stats.activity.topTalkers || [], 'words');
@@ -979,7 +1183,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       event.preventDefault();
       loadDashboard();
     });
+    document.getElementById('period').addEventListener('change', syncCustomPeriodControls);
     document.getElementById('saveNotifications').addEventListener('click', saveNotifications);
+    setupCustomPeriodDefaults();
+    syncCustomPeriodControls();
     if (principal?.type === 'telegram') {
       showDashboardShell();
       loadChats();

@@ -295,6 +295,65 @@ describe("webhook", () => {
     );
   });
 
+  it("returns admin chat stats for a custom date range", async () => {
+    mockTelegramMembership();
+
+    await env.COUNTERS.put("stats_v2:1:2026-05-24:2", "2");
+    await env.COUNTERS.put("stats_v2:1:2026-05-25:2", "3");
+    await env.COUNTERS.put("stats_v2:1:2026-05-26:2", "5");
+    await env.COUNTERS.put("word_stats_v2:1:2026-05-24:2", "4");
+    await env.COUNTERS.put("word_stats_v2:1:2026-05-25:2", "6");
+    await env.COUNTERS.put("word_stats_v2:1:2026-05-26:2", "10");
+    await env.COUNTERS.put("activity_hour:1:2026-05-24:09", "2");
+    await env.COUNTERS.put("activity_hour:1:2026-05-25:09", "4");
+    await env.COUNTERS.put("activity_hour:1:2026-05-26:09", "99");
+    await env.COUNTERS.put("profanity:1:2:2026-05-24", "1");
+    await env.COUNTERS.put("profanity:1:2:2026-05-25", "2");
+    await env.COUNTERS.put("profanity:1:2:2026-05-26", "9");
+    await env.COUNTERS.put("profanity_words:1:testword:2026-05-24", "1");
+    await env.COUNTERS.put("profanity_words:1:testword:2026-05-25", "2");
+    await env.COUNTERS.put("profanity_word_users:1:testword:2026-05-25:2", "2");
+    await env.COUNTERS.put("criminal:1:2:2026-05-24", "4");
+    await env.COUNTERS.put("criminal:1:2:2026-05-26", "8");
+    await env.COUNTERS.put("user:2", "alice");
+
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/chat?chatId=1&period=custom&from=2026-05-24&to=2026-05-25", {
+        headers: await adminSessionHeaders(),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as any;
+    expect(body.period).toBe("custom");
+    expect(body.range).toEqual({ from: "2026-05-24", to: "2026-05-25", days: 2 });
+    expect(body.activity.total).toBe(5);
+    expect(body.activity.totalWords).toBe(10);
+    expect(body.activity.averageDailyMessages).toBe(2.5);
+    expect(body.activity.dailyMessages).toEqual([
+      { day: "2026-05-24", count: 2 },
+      { day: "2026-05-25", count: 3 },
+    ]);
+    expect(body.activity.hourlyAverages[9]).toEqual({ hour: "09", count: 3 });
+    expect(body.profanity.topUsers).toContainEqual({
+      userId: 2,
+      username: "alice",
+      count: 3,
+    });
+    expect(body.profanity.topWords).toContainEqual({
+      word: "testword",
+      count: 3,
+      contributors: [{ userId: 2, username: "alice", count: 2 }],
+    });
+    expect(body.criminal.topUsers).toContainEqual({
+      userId: 2,
+      username: "alice",
+      count: 4,
+    });
+  });
+
   it("lists admin chats from stored metadata and counter fallback", async () => {
     mockTelegramMembership();
     await env.HISTORY.put(

@@ -6,7 +6,14 @@ import {
   getTopProfanityWords,
 } from '../features/stats/stats';
 
-export type AdminPeriod = 'today' | 'week' | 'month';
+export type AdminPeriod = 'today' | 'week' | 'month' | 'custom';
+
+export interface AdminDateRange {
+  period: AdminPeriod;
+  from: string;
+  to: string;
+  days: string[];
+}
 
 export interface AdminUserCount {
   userId: string;
@@ -21,6 +28,11 @@ export interface AdminUserCount {
 export interface AdminChatStats {
   chatId: number;
   period: AdminPeriod;
+  range: {
+    from: string;
+    to: string;
+    days: number;
+  };
   activity: {
     total: number;
     totalWords: number;
@@ -63,9 +75,12 @@ const PERIOD_DAYS: Record<AdminPeriod, number> = {
   today: 1,
   week: 7,
   month: 30,
+  custom: 1,
 };
 
 const HOURS = Array.from({ length: 24 }, (_, index) => index.toString().padStart(2, '0'));
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MAX_CUSTOM_RANGE_DAYS = 90;
 const TIME_BUCKETS = [
   { bucket: 'morning' as const, label: 'Утро' },
   { bucket: 'noon' as const, label: 'День' },
@@ -73,26 +88,90 @@ const TIME_BUCKETS = [
   { bucket: 'night' as const, label: 'Ночь' },
 ];
 
-export function parseAdminPeriod(value: string | null): AdminPeriod {
-  if (value === 'week' || value === 'month') {
-    return value;
+function formatDay(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function parseDay(value: string | null): Date | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
   }
 
-  return 'today';
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || formatDay(date) !== value) {
+    return null;
+  }
+
+  return date;
 }
 
-function listDays(period: AdminPeriod): string[] {
+function buildPresetRange(period: Exclude<AdminPeriod, 'custom'>): AdminDateRange {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
-
-  return Array.from({ length: PERIOD_DAYS[period] }, (_, index) => {
+  const days = Array.from({ length: PERIOD_DAYS[period] }, (_, index) => {
     const day = new Date(today);
     day.setUTCDate(today.getUTCDate() - (PERIOD_DAYS[period] - index - 1));
-    return day.toISOString().slice(0, 10);
+    return formatDay(day);
   });
+
+  return {
+    period,
+    from: days[0],
+    to: days[days.length - 1],
+    days,
+  };
 }
 
-async function getActivityStats(env: Env, chatId: number, period: AdminPeriod) {
+function buildCustomRange(fromValue: string | null, toValue: string | null): AdminDateRange {
+  const from = parseDay(fromValue);
+  const to = parseDay(toValue);
+
+  if (!from || !to) {
+    throw new Error('custom period requires valid from and to dates');
+  }
+  if (from.getTime() > to.getTime()) {
+    throw new Error('custom period from date must be before or equal to to date');
+  }
+
+  const dayCount = Math.floor((to.getTime() - from.getTime()) / DAY_MS) + 1;
+  if (dayCount > MAX_CUSTOM_RANGE_DAYS) {
+    throw new Error(`custom period cannot be longer than ${MAX_CUSTOM_RANGE_DAYS} days`);
+  }
+
+  const days = Array.from({ length: dayCount }, (_, index) => {
+    const day = new Date(from);
+    day.setUTCDate(from.getUTCDate() + index);
+    return formatDay(day);
+  });
+
+  return {
+    period: 'custom',
+    from: formatDay(from),
+    to: formatDay(to),
+    days,
+  };
+}
+
+export function parseAdminPeriod(
+  value: string | null,
+  fromValue: string | null = null,
+  toValue: string | null = null,
+): AdminDateRange {
+  if (value === 'custom') {
+    return buildCustomRange(fromValue, toValue);
+  }
+  if (value === 'week' || value === 'month') {
+    return buildPresetRange(value);
+  }
+
+  return buildPresetRange('today');
+}
+
+function isInRange(day: string, range: AdminDateRange): boolean {
+  return day >= range.from && day <= range.to;
+}
+
+async function getActivityStats(env: Env, chatId: number, range: AdminDateRange) {
   const totals: Record<string, { messages: number; words: number }> = {};
   const activeDaysByUser: Record<string, Set<string>> = {};
   const dayTotals: Record<string, number> = {};
@@ -101,7 +180,7 @@ async function getActivityStats(env: Env, chatId: number, period: AdminPeriod) {
   const bucketTotals: Record<string, Record<string, number>> = Object.fromEntries(
     TIME_BUCKETS.map(({ bucket }) => [bucket, {}]),
   );
-  const days = listDays(period);
+  const days = range.days;
 
   for (const day of days) {
     const prefix = `stats_v2:${chatId}:${day}:`;
@@ -213,7 +292,7 @@ async function getActivityStats(env: Env, chatId: number, period: AdminPeriod) {
 
   const total = Object.values(totals).reduce((sum, stats) => sum + stats.messages, 0);
   const totalWords = Object.values(totals).reduce((sum, stats) => sum + stats.words, 0);
-  const dayCount = PERIOD_DAYS[period];
+  const dayCount = days.length;
   const activeUsers = Object.keys(totals).length;
 
   return {
@@ -248,29 +327,191 @@ async function getActivityStats(env: Env, chatId: number, period: AdminPeriod) {
   };
 }
 
-async function getCriminalTopUsers(env: Env, chatId: number, period: AdminPeriod) {
+async function getRangeTopProfanityUsers(env: Env, chatId: number, range: AdminDateRange) {
+  const prefix = `profanity:${chatId}:`;
+  const totals: Record<string, number> = {};
+  let cursor: string | undefined;
+
+  do {
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    const keysToFetch = list.keys.filter((key: any) => {
+      const parts = key.name.split(':');
+      return parts.length === 4 && isInRange(parts[3], range);
+    });
+
+    for (let i = 0; i < keysToFetch.length; i += 10) {
+      const batch = keysToFetch.slice(i, i + 10);
+      const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
+      for (let j = 0; j < batch.length; j++) {
+        const userId = batch[j].name.split(':')[2];
+        totals[userId] = (totals[userId] || 0) + parseInt(values[j] || '0', 10);
+      }
+    }
+  } while (cursor);
+
+  const sorted = Object.entries(totals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+  const names = await Promise.all(sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`)));
+
+  return sorted.map(([userId, count], index) => ({
+    userId: parseInt(userId, 10),
+    username: names[index] || `id${userId}`,
+    count,
+  }));
+}
+
+async function getRangeTopProfanityWordUsers(
+  env: Env,
+  chatId: number,
+  word: string,
+  range: AdminDateRange,
+) {
+  const prefix = `profanity_word_users:${chatId}:${word}:`;
+  const totals: Record<string, number> = {};
+  let cursor: string | undefined;
+
+  do {
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    const keysToFetch = list.keys.filter((key: any) => {
+      const parts = key.name.split(':');
+      return parts.length === 5 && isInRange(parts[3], range);
+    });
+
+    for (let i = 0; i < keysToFetch.length; i += 10) {
+      const batch = keysToFetch.slice(i, i + 10);
+      const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
+      for (let j = 0; j < batch.length; j++) {
+        const userId = batch[j].name.split(':')[4];
+        totals[userId] = (totals[userId] || 0) + parseInt(values[j] || '0', 10);
+      }
+    }
+  } while (cursor);
+
+  const sorted = Object.entries(totals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+  const names = await Promise.all(sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`)));
+
+  return sorted.map(([userId, count], index) => ({
+    userId: parseInt(userId, 10),
+    username: names[index] || `id${userId}`,
+    count,
+  }));
+}
+
+async function getRangeTopProfanityWords(env: Env, chatId: number, range: AdminDateRange) {
+  const prefix = `profanity_words:${chatId}:`;
+  const totals: Record<string, number> = {};
+  let cursor: string | undefined;
+
+  do {
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    const keysToFetch = list.keys.filter((key: any) => {
+      const parts = key.name.split(':');
+      return parts.length === 4 && isInRange(parts[3], range);
+    });
+
+    for (let i = 0; i < keysToFetch.length; i += 10) {
+      const batch = keysToFetch.slice(i, i + 10);
+      const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
+      for (let j = 0; j < batch.length; j++) {
+        const word = batch[j].name.split(':')[2];
+        totals[word] = (totals[word] || 0) + parseInt(values[j] || '0', 10);
+      }
+    }
+  } while (cursor);
+
+  const sorted = Object.entries(totals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+  const contributors = await Promise.all(
+    sorted.map(([word]) => getRangeTopProfanityWordUsers(env, chatId, word, range)),
+  );
+
+  return sorted.map(([word, count], index) => ({
+    word,
+    count,
+    contributors: contributors[index],
+  }));
+}
+
+async function getRangeTopCriminalUsers(env: Env, chatId: number, range: AdminDateRange) {
+  const prefix = `criminal:${chatId}:`;
+  const totals: Record<string, number> = {};
+  let cursor: string | undefined;
+
+  do {
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    const keysToFetch = list.keys.filter((key: any) => {
+      const parts = key.name.split(':');
+      return parts.length === 4 && isInRange(parts[3], range);
+    });
+
+    for (let i = 0; i < keysToFetch.length; i += 10) {
+      const batch = keysToFetch.slice(i, i + 10);
+      const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
+      for (let j = 0; j < batch.length; j++) {
+        const userId = batch[j].name.split(':')[2];
+        totals[userId] = (totals[userId] || 0) + parseInt(values[j] || '0', 10);
+      }
+    }
+  } while (cursor);
+
+  const sorted = Object.entries(totals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+  const names = await Promise.all(sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`)));
+
+  return sorted.map(([userId, count], index) => ({
+    userId: parseInt(userId, 10),
+    username: names[index] || `id${userId}`,
+    count,
+  }));
+}
+
+async function getCriminalTopUsers(env: Env, chatId: number, range: AdminDateRange) {
+  if (range.period === 'custom') {
+    return getRangeTopCriminalUsers(env, chatId, range);
+  }
+
   try {
-    return await getTopCriminalUsersBySentence(env, chatId, 10, period);
+    return await getTopCriminalUsersBySentence(env, chatId, 10, range.period);
   } catch {
-    return await getTopCriminalUsers(env, chatId, 10, period);
+    return await getTopCriminalUsers(env, chatId, 10, range.period);
   }
 }
 
 export async function getAdminChatStats(
   env: Env,
   chatId: number,
-  period: AdminPeriod,
+  range: AdminDateRange,
 ): Promise<AdminChatStats> {
+  const profanityTopUsersPromise = range.period === 'custom'
+    ? getRangeTopProfanityUsers(env, chatId, range)
+    : getTopProfanityUsers(env, chatId, 10, range.period);
+  const profanityTopWordsPromise = range.period === 'custom'
+    ? getRangeTopProfanityWords(env, chatId, range)
+    : getTopProfanityWords(env, chatId, 10, range.period);
   const [activity, profanityTopUsers, profanityTopWords, criminalTopUsers] = await Promise.all([
-    getActivityStats(env, chatId, period),
-    getTopProfanityUsers(env, chatId, 10, period),
-    getTopProfanityWords(env, chatId, 10, period),
-    getCriminalTopUsers(env, chatId, period),
+    getActivityStats(env, chatId, range),
+    profanityTopUsersPromise,
+    profanityTopWordsPromise,
+    getCriminalTopUsers(env, chatId, range),
   ]);
 
   return {
     chatId,
-    period,
+    period: range.period,
+    range: {
+      from: range.from,
+      to: range.to,
+      days: range.days.length,
+    },
     activity,
     profanity: {
       topUsers: profanityTopUsers,
