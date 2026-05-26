@@ -22,6 +22,10 @@ export class DayBlockManager {
     this.state = state;
   }
 
+  async alarm(): Promise<void> {
+    await this.deleteAllData();
+  }
+
   async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
@@ -151,6 +155,7 @@ export class DayBlockManager {
 
       // Backup to KV (meta + affected shards only)
       await this.backupToKV(blockId, meta, shardIndex, meta.shardCount - 1);
+      await this.scheduleRetentionAlarm(date);
 
       Logger.debug(this.env, 'DayBlockManager: message added successfully', {
         chat: message.chat.toString(LOG_ID_RADIX),
@@ -408,6 +413,23 @@ export class DayBlockManager {
 
   private async backupAllShardsToKV(blockId: string, meta: DayBlockMeta): Promise<void> {
     await this.backupToKV(blockId, meta, 0, Math.max(0, meta.shardCount - 1));
+  }
+
+  private async scheduleRetentionAlarm(date: string): Promise<void> {
+    if (!this.storage.setAlarm) {
+      return;
+    }
+
+    const rawRetentionDays = Number(this.env.RAW_MESSAGE_RETENTION_DAYS ?? 7);
+    const retentionDays = Number.isFinite(rawRetentionDays) && rawRetentionDays > 0
+      ? Math.ceil(rawRetentionDays)
+      : 7;
+    const deleteAt = Date.parse(`${date}T00:00:00.000Z`) + (retentionDays + 1) * DAY * 1000;
+    const existingAlarm = await this.storage.getAlarm?.();
+
+    if (!existingAlarm || existingAlarm > deleteAt) {
+      await this.storage.setAlarm(deleteAt);
+    }
   }
 }
 

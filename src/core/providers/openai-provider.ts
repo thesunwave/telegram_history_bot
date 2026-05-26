@@ -255,9 +255,8 @@ export class OpenAIProvider implements AIProvider {
       Logger.debug(env, 'OpenAI provider: request details', {
         messageCount: request.messages.length,
         contentLength: content.length,
-        contentPreview: content.substring(0, 500),
-        systemPrompt: request.systemPrompt?.substring(0, 200),
-        userPrompt: request.userPrompt?.substring(0, 200)
+        systemPromptLength: request.systemPrompt?.length || 0,
+        userPromptLength: request.userPrompt?.length || 0
       });
     }
 
@@ -296,7 +295,6 @@ export class OpenAIProvider implements AIProvider {
       if (env) {
         Logger.debug(env, 'OpenAI provider: response details', {
           responseLength: raw.length,
-          responsePreview: raw.substring(0, 200),
           tokensUsed: response.usage?.total_tokens || 0,
           cachedTokens: response.usage?.prompt_tokens_details?.cached_tokens || 0
         });
