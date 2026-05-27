@@ -96,7 +96,8 @@ export function getTextMessage(update: any) {
 
 export function countWords(text: string | undefined): number {
   if (!text) return 0;
-  return text.trim().match(/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+  const textWithoutUrls = text.replace(/\b(?:https?:\/\/|www\.)\S+/giu, ' ');
+  return textWithoutUrls.trim().match(/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu)?.length ?? 0;
 }
 
 export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) {
