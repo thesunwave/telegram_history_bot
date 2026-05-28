@@ -13,6 +13,7 @@ import {
   profanityWordsStats,
   myProfanityStats,
   profanityChart,
+  profanityRateChart,
   resetProfanityCounters,
   criminalCodeStats,
   criminalTopUsers,
@@ -74,6 +75,7 @@ export function buildHelpText(env: Env): string {
     `/my_profanity [period] – ваша статистика мата${profanityLabel}`,
     `/profanity_chart_week – график мата за неделю${profanityLabel}`,
     `/profanity_chart_month – график мата за месяц${profanityLabel}`,
+    `/profanity_rate [n] [period] – график доли мата среди всех слов${profanityLabel}`,
     'period: today | week | month',
     '',
     'УК РФ',
@@ -719,6 +721,17 @@ export async function handleUpdate(msg: any, env: Env) {
     await profanityChart(env, chatId, 'week');
   } else if (command.name === '/profanity_chart_month') {
     await profanityChart(env, chatId, 'month');
+  } else if (command.name === '/profanity_rate' || command.name === '/profanity_rate_chart') {
+    const requestedCount = parseInt(command.args[0] || '', 10);
+    const hasCount = Number.isFinite(requestedCount);
+    const count = hasCount ? Math.min(Math.max(requestedCount, 1), 20) : 10;
+    const period = hasCount ? command.args[1] : command.args[0];
+    await profanityRateChart(
+      env,
+      chatId,
+      count,
+      ['today', 'week', 'month'].includes(period) ? period : 'week',
+    );
   } else if (command.name === '/profanity_reset') {
     await resetProfanityCounters(env, chatId);
     await sendMessage(env, chatId, 'Счетчики матерной лексики сброшены');

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   getTopCriminalUsersBySentence,
+  getTopProfanityRateUsers,
   getTopProfanityUsers,
   getTopProfanityWords
 } from '../src/features/stats/stats';
@@ -89,6 +90,69 @@ describe("Profanity Stats Optimization", () => {
       // Verify all gets were called (15 for stats + 15 for usernames)
       // Note: we can't easily verify batching via spy, but we verify functionality holds
       expect(mockCounters.get).toHaveBeenCalledTimes(15 + 15);
+    });
+  });
+
+  describe("getTopProfanityRateUsers", () => {
+    it("should rank users by profanity share and ignore users below the word threshold", async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const chatId = 123;
+
+      mockCounters.list.mockImplementation(({ prefix }: { prefix: string }) => {
+        if (prefix === `profanity:${chatId}:`) {
+          return Promise.resolve({
+            keys: [
+              { name: `profanity:${chatId}:1:${today}` },
+              { name: `profanity:${chatId}:2:${today}` },
+              { name: `profanity:${chatId}:3:${today}` },
+            ],
+            list_complete: true,
+          });
+        }
+        if (prefix === `word_stats_v2:${chatId}:`) {
+          return Promise.resolve({
+            keys: [
+              { name: `word_stats_v2:${chatId}:${today}:1` },
+              { name: `word_stats_v2:${chatId}:${today}:2` },
+              { name: `word_stats_v2:${chatId}:${today}:3` },
+            ],
+            list_complete: true,
+          });
+        }
+        return Promise.resolve({ keys: [], list_complete: true });
+      });
+
+      mockCounters.get.mockImplementation((key: string) => {
+        if (key === `profanity:${chatId}:1:${today}`) return Promise.resolve("50");
+        if (key === `profanity:${chatId}:2:${today}`) return Promise.resolve("20");
+        if (key === `profanity:${chatId}:3:${today}`) return Promise.resolve("1");
+        if (key === `word_stats_v2:${chatId}:${today}:1`) return Promise.resolve("5000");
+        if (key === `word_stats_v2:${chatId}:${today}:2`) return Promise.resolve("400");
+        if (key === `word_stats_v2:${chatId}:${today}:3`) return Promise.resolve("2");
+        if (key === "user:1") return Promise.resolve("anna");
+        if (key === "user:2") return Promise.resolve("boris");
+        if (key === "user:3") return Promise.resolve("short");
+        return Promise.resolve(null);
+      });
+
+      const result = await getTopProfanityRateUsers(mockEnv, chatId, 10, "today", 100);
+
+      expect(result).toEqual([
+        {
+          userId: 2,
+          username: "boris",
+          profanityCount: 20,
+          wordCount: 400,
+          rate: 5,
+        },
+        {
+          userId: 1,
+          username: "anna",
+          profanityCount: 50,
+          wordCount: 5000,
+          rate: 1,
+        },
+      ]);
     });
   });
   

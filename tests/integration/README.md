@@ -9,7 +9,7 @@ The integration tests cover the following aspects:
 ### 1. Command Functionality
 - **Summary Commands**: `/summary_last`, `/summary` with date ranges
 - **Statistics Commands**: `/top` for active users
-- **Profanity Commands**: `/profanity_top`, `/profanity_words`, `/my_profanity`, `/profanity_chart_week`, `/profanity_chart_month`, `/profanity_reset`
+- **Profanity Commands**: `/profanity_top`, `/profanity_words`, `/my_profanity`, `/profanity_chart_week`, `/profanity_chart_month`, `/profanity_rate`, `/profanity_reset`
 - **Activity Commands**: `/activity_week`, `/activity_month`, `/activity users week`
 - **Criminal Code Commands**: `/criminal_stats`, `/my_criminal`, `/criminal_top`, `/criminal_reset`
 - **Reset Commands**: `/reset` for counters

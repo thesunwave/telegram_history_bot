@@ -9,6 +9,7 @@ import { formatSentenceTotalValue } from '../criminal/sentence-calculator';
 const WEEK_LENGTH_DAYS = 7;
 const MONTH_LENGTH_DAYS = 30;
 const MAX_ACTIVITY_RANGE_DAYS = 180;
+const MIN_PROFANITY_RATE_WORDS = 100;
 
 export interface ActivityDateRange {
   startDate: string;
@@ -720,6 +721,14 @@ export interface UserProfanityStat {
   count: number;
 }
 
+export interface UserProfanityRateStat {
+  userId: number;
+  username: string;
+  profanityCount: number;
+  wordCount: number;
+  rate: number;
+}
+
 export interface WordProfanityStat {
   word: string;
   count: number;
@@ -888,6 +897,122 @@ export async function getTopProfanityUsers(
     userId: parseInt(userId, 10),
     username: names[index] || `id${userId}`,
     count,
+  }));
+}
+
+async function aggregateProfanityUserTotals(
+  env: Env,
+  chatId: number,
+  period: string,
+): Promise<Record<string, number>> {
+  const { startStr } = getDateRange(period);
+  const prefix = `profanity:${chatId}:`;
+  let cursor: string | undefined = undefined;
+  const totals: Record<string, number> = {};
+
+  do {
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+
+    const keysToFetch = list.keys.filter((k: any) => {
+      const parts = k.name.split(':');
+      if (parts.length !== 4) return false;
+      return isInProfanityPeriod(parts[3], startStr, period);
+    });
+
+    for (let i = 0; i < keysToFetch.length; i += 10) {
+      const batch = keysToFetch.slice(i, i + 10);
+      const values = await Promise.all(batch.map((k: any) => env.COUNTERS.get(k.name)));
+
+      for (let j = 0; j < batch.length; j++) {
+        const parts = batch[j].name.split(':');
+        const userId = parts[2];
+        const count = parseInt(values[j] || '0', 10);
+        totals[userId] = (totals[userId] || 0) + count;
+      }
+    }
+  } while (cursor);
+
+  return totals;
+}
+
+async function aggregateUserWordTotals(
+  env: Env,
+  chatId: number,
+  period: string,
+): Promise<Record<string, number>> {
+  const { startStr } = getDateRange(period);
+  const prefix = `word_stats_v2:${chatId}:`;
+  let cursor: string | undefined = undefined;
+  const totals: Record<string, number> = {};
+
+  do {
+    const list: any = await env.COUNTERS.list({ prefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+
+    const keysToFetch = list.keys.filter((k: any) => {
+      const parts = k.name.split(':');
+      // format: word_stats_v2:chatId:day:userId
+      if (parts.length !== 4) return false;
+      return isInProfanityPeriod(parts[2], startStr, period);
+    });
+
+    for (let i = 0; i < keysToFetch.length; i += 10) {
+      const batch = keysToFetch.slice(i, i + 10);
+      const values = await Promise.all(batch.map((k: any) => env.COUNTERS.get(k.name)));
+
+      for (let j = 0; j < batch.length; j++) {
+        const parts = batch[j].name.split(':');
+        const userId = parts[3];
+        const count = parseInt(values[j] || '0', 10);
+        totals[userId] = (totals[userId] || 0) + count;
+      }
+    }
+  } while (cursor);
+
+  return totals;
+}
+
+export async function getTopProfanityRateUsers(
+  env: Env,
+  chatId: number,
+  limit: number = 10,
+  period: string = 'week',
+  minWords: number = MIN_PROFANITY_RATE_WORDS,
+): Promise<UserProfanityRateStat[]> {
+  const [profanityTotals, wordTotals] = await Promise.all([
+    aggregateProfanityUserTotals(env, chatId, period),
+    aggregateUserWordTotals(env, chatId, period),
+  ]);
+
+  const ranked = Object.entries(profanityTotals)
+    .map(([userId, profanityCount]) => {
+      const wordCount = wordTotals[userId] || 0;
+      return {
+        userId,
+        profanityCount,
+        wordCount,
+        rate: wordCount > 0 ? (profanityCount / wordCount) * 100 : 0,
+      };
+    })
+    .filter((stat) => stat.profanityCount > 0 && stat.wordCount >= minWords)
+    .sort((a, b) =>
+      b.rate - a.rate ||
+      b.profanityCount - a.profanityCount ||
+      b.wordCount - a.wordCount,
+    )
+    .slice(0, limit);
+
+  const names = await Promise.all(
+    ranked.map((stat) => env.COUNTERS.get(`user:${stat.userId}`)),
+  );
+
+  return ranked.map((stat, index) => ({
+    userId: parseInt(stat.userId, 10),
+    username: names[index] || `id${stat.userId}`,
+    profanityCount: stat.profanityCount,
+    wordCount: stat.wordCount,
+    rate: stat.rate,
   }));
 }
 
@@ -1125,6 +1250,91 @@ export async function profanityWordsStats(
       error: error.message || String(error)
     });
     return await sendMessage(env, chatId, 'Ошибка при получении статистики слов');
+  }
+}
+
+function formatPercent(value: number): string {
+  return value.toFixed(2).replace(/\.?0+$/, '') + '%';
+}
+
+export async function profanityRateChart(
+  env: Env,
+  chatId: number,
+  count: number = 10,
+  period: string = 'week',
+): Promise<{ text: string; imageUrl?: string } | void> {
+  const validPeriods = ['today', 'week', 'month'];
+  if (!validPeriods.includes(period)) {
+    await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
+    return;
+  }
+
+  const limit = Math.min(Math.max(count, 1), 20);
+  const periodText = period === 'today' ? 'сегодня' :
+    period === 'week' ? 'за неделю' : 'за месяц';
+
+  try {
+    const topUsers = await getTopProfanityRateUsers(
+      env,
+      chatId,
+      limit,
+      period,
+      MIN_PROFANITY_RATE_WORDS,
+    );
+
+    if (topUsers.length === 0) {
+      const text = `Нет данных для графика доли мата ${periodText}. Минимум: ${MIN_PROFANITY_RATE_WORDS} слов на пользователя.`;
+      if (env.DRY_RUN) return { text };
+      await sendMessage(env, chatId, text);
+      return;
+    }
+
+    const title = `Доля мата ${periodText} (мин. ${MIN_PROFANITY_RATE_WORDS} слов)`;
+    const lines = [title];
+    for (let i = 0; i < topUsers.length; i++) {
+      const user = topUsers[i];
+      lines.push(
+        `${i + 1}. ${user.username}: ${formatPercent(user.rate)} (${user.profanityCount}/${user.wordCount} слов)`,
+      );
+    }
+
+    let imageUrl: string | undefined;
+    try {
+      const labels = topUsers.map((user) => sanitizeLabel(user.username));
+      const values = topUsers.map((user) => Number(user.rate.toFixed(2)));
+      imageUrl = createBarChartUrl(labels, values, '% мата', title);
+    } catch (error: any) {
+      console.error('profanity rate chart generation error', {
+        chatId,
+        period,
+        error: error.message || String(error),
+      });
+    }
+
+    const text = lines.join('\n');
+    if (env.DRY_RUN) {
+      return { text, imageUrl };
+    }
+
+    await sendMessage(env, chatId, text);
+    if (imageUrl) {
+      try {
+        await sendPhoto(env, chatId, imageUrl);
+      } catch (error: any) {
+        console.error('profanity rate chart send photo error', {
+          chatId,
+          error: error.message || String(error),
+        });
+      }
+    }
+  } catch (error: any) {
+    console.error('profanity rate chart error', {
+      chatId,
+      period,
+      error: error.message || String(error),
+    });
+    await sendMessage(env, chatId, 'Ошибка при построении графика доли мата');
+    return;
   }
 }
 
