@@ -48,6 +48,8 @@ export class MockProvider implements AIProvider {
       if (lowerText.includes(word)) {
         const violation = {
           article: 'Статья 119 УК РФ',
+          subarticle: null,
+          articleTitle: 'Угроза убийством или причинением тяжкого вреда здоровью',
           quote: `Обнаружена угроза: "${word}"`,
           punishment: 'Штраф до 40 000 рублей или исправительные работы до 2 лет',
           severity: 6,

@@ -3,7 +3,7 @@
  */
 
 // Экспорт типов и интерфейсов статистики
-export {
+export type {
   Violation,
   ViolationAnalysis,
   ViolationCount,
@@ -29,7 +29,7 @@ export {
 } from './validation';
 
 // Экспорт типов и интерфейсов уведомлений
-export {
+export type {
   NotificationType,
   NotificationFrequency,
   NotificationTime,
@@ -39,7 +39,10 @@ export {
   ScheduledNotification,
   NotificationTemplate,
   NotificationContext,
-  NotificationResult,
+  NotificationResult
+} from './notification-settings';
+
+export {
   DEFAULT_NOTIFICATION_SETTINGS,
   DEFAULT_NOTIFICATION_TEMPLATES
 } from './notification-settings';

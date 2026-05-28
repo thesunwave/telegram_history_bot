@@ -33,6 +33,7 @@ export interface Env {
   PROFANITY_USER_PROMPT?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
+  OPENAI_MAX_TOKENS?: string | number;
   OPENROUTER_API_KEY?: string;
   OPENROUTER_BASE_URL?: string;
   OPENROUTER_MODEL?: string;

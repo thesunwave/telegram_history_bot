@@ -1,0 +1,20 @@
+# Required secrets for local development and Deploy to Cloudflare.
+# Do not commit a real .dev.vars file.
+
+# Telegram bot token from BotFather.
+TOKEN=123456789:replace-with-your-bot-token
+
+# Random webhook secret. Generate one with:
+# openssl rand -hex 32
+SECRET=replace-with-a-random-webhook-secret
+
+# Optional admin UI password.
+# ADMIN_BASIC_PASSWORD=replace-with-a-random-admin-password
+
+# Optional external AI providers. The public default uses Workers AI and does
+# not require these keys.
+# OPENAI_API_KEY=sk-replace-me
+# OPENROUTER_API_KEY=replace-me
+
+# Optional legal RAG ingestion key. Falls back to SECRET if not set.
+# LEGAL_RAG_INGEST_KEY=replace-me

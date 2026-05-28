@@ -193,8 +193,8 @@ function createSummaryRequest(
   }
 
   // Заменяем плейсхолдеры в промпте
-  let systemPrompt = env.SUMMARY_SYSTEM;
-  let userPrompt = env.SUMMARY_PROMPT;
+  let systemPrompt = env.SUMMARY_SYSTEM || "";
+  let userPrompt = env.SUMMARY_PROMPT || "";
   systemPrompt = systemPrompt.replace("{messages}", ""); // Сообщения добавляются отдельно провайдером
   systemPrompt = systemPrompt.replace("{chatTitle}", chatTitle);
   systemPrompt = systemPrompt.replace("{startDate}", startDate);

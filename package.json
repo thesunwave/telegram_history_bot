@@ -1,12 +1,14 @@
 {
-	"name": "purple-bread-9739",
+	"name": "telegram-stats-bot",
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
-		"deploy": "wrangler deploy",
+		"deploy": "npm run db:migrations:apply && wrangler deploy",
+		"db:migrations:apply": "wrangler d1 migrations apply DB --remote",
 		"start": "wrangler dev",
 		"dev": "wrangler dev",
 		"cf-typegen": "wrangler types",
+		"typecheck": "tsc --noEmit --allowJs false",
 		"test": "vitest run",
 		"test:race-conditions": "vitest run tests/race-condition.test.ts --reporter=verbose",
 		"test:all": "npm test && npm run test:race-conditions",
@@ -27,5 +29,30 @@
 	},
 	"dependencies": {
 		"dotenv": "^17.2.3"
+	},
+	"cloudflare": {
+		"bindings": {
+			"TOKEN": {
+				"description": "Telegram bot token from BotFather. Create a bot with `/newbot`, then paste the token here. This value must stay secret."
+			},
+			"SECRET": {
+				"description": "Random webhook secret sent by Telegram in `X-Telegram-Bot-Api-Secret-Token`. Generate one with `openssl rand -hex 32`."
+			},
+			"HISTORY": {
+				"description": "KV namespace for recent Telegram messages. Messages are kept for 7 days by default."
+			},
+			"COUNTERS": {
+				"description": "KV namespace for counters, caches, and lightweight bot state."
+			},
+			"DB": {
+				"description": "D1 database for summaries, activity, and optional moderation/history tables."
+			},
+			"AI": {
+				"description": "Workers AI binding used for chat summaries in the default free-first configuration."
+			},
+			"LEGAL_RAG_INDEX": {
+				"description": "Optional Vectorize index for legal RAG experiments. The public default bot works with criminal/legal analysis disabled."
+			}
+		}
 	}
 }

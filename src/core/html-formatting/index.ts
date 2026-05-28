@@ -20,10 +20,9 @@ export {
   messageFormatter,
   type IMessageFormatter,
   type Violation,
-  type ViolationAnalysis,
-  type UserStats,
-  type PeriodStats
+  type ViolationAnalysis
 } from '../message-formatter';
+export type { UserStats, PeriodStats } from '../models/statistics';
 
 // Export HTML utilities
 export {

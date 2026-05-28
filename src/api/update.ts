@@ -204,7 +204,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
         }
 
         if (parsed && typeof parsed === 'object') {
-          Logger.log('recordMessage: counter update successful (verified)', {
+          Logger.debug(env, 'recordMessage: counter update successful (verified)', {
             chatId: chatId.toString(36),
             day,
             userDayCount: parsed.userDayCount,
@@ -239,7 +239,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
 
   // Schedule profanity analysis in background (fire-and-forget)
   // Only for text messages that are not commands and not in test environment
-  Logger.log('PROFANITY ANALYSIS CHECK', {
+  Logger.debug(env, 'profanity analysis eligibility check', {
     hasText: !!msg.text,
     isCommand: msg.text?.startsWith('/'),
     isTestEnv: isTestEnvironment(env),
@@ -250,14 +250,6 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   const profanityAnalysisEnabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
 
   if (profanityAnalysisEnabled && msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
-    Logger.log('STARTING PROFANITY ANALYSIS', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
-      username,
-      messageId: msg.message_id,
-      textLength: msg.text.length
-    });
-
     Logger.debug(env, 'Scheduling profanity analysis for message', {
       chatId: chatId.toString(36),
       userId: userId.toString(36),
@@ -294,7 +286,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
 
   // Schedule criminal code analysis in background (fire-and-forget)
   // Only for text messages that are not commands and not in test environment
-  Logger.log('CRIMINAL CODE ANALYSIS CHECK', {
+  Logger.debug(env, 'criminal code analysis eligibility check', {
     hasText: !!msg.text,
     isCommand: msg.text?.startsWith('/'),
     isTestEnv: isTestEnvironment(env),
@@ -305,14 +297,6 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   const criminalAnalysisEnabled = env.ENABLE_CRIMINAL_ANALYSIS !== 'false' && env.ENABLE_CRIMINAL_ANALYSIS !== false;
 
   if (criminalAnalysisEnabled && msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
-    Logger.log('STARTING CRIMINAL CODE ANALYSIS', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
-      username,
-      messageId: msg.message_id,
-      textLength: msg.text.length
-    });
-
     Logger.debug(env, 'Scheduling criminal code analysis for message', {
       chatId: chatId.toString(36),
       userId: userId.toString(36),
@@ -357,7 +341,7 @@ async function analyzeProfanityAsync(
   username: string,
   day: string
 ): Promise<void> {
-  Logger.log('PROFANITY ANALYSIS FUNCTION STARTED', {
+  Logger.debug(env, 'profanity analysis function started', {
     chatId: chatId.toString(36),
     userId: userId.toString(36),
     username,
@@ -395,14 +379,14 @@ async function analyzeProfanityAsync(
 
     // Create AI provider and profanity analyzer
     const providerStart = Date.now();
-    Logger.log('PROFANITY: Creating AI provider', {
+    Logger.debug(env, 'PROFANITY: Creating AI provider', {
       chatId: chatId.toString(36),
       textLength: msg.text?.length
     });
     const aiProvider = ProviderFactory.createProvider(env, 'profanity');
     const profanityAnalyzer = new ProfanityAnalyzer(aiProvider);
     timings.providerCreation = Date.now() - providerStart;
-    Logger.log('PROFANITY: AI provider created successfully', {
+    Logger.debug(env, 'PROFANITY: AI provider created successfully', {
       chatId: chatId.toString(36),
       creationTime: timings.providerCreation
     });
@@ -415,12 +399,12 @@ async function analyzeProfanityAsync(
 
     // Analyze message for profanity
     const analysisStart = Date.now();
-    Logger.log('PROFANITY: Starting analysis', {
+    Logger.debug(env, 'PROFANITY: Starting analysis', {
       chatId: chatId.toString(36)
     });
     const profanityResult = await profanityAnalyzer.analyzeMessage(msg.text, env);
     timings.analysis = Date.now() - analysisStart;
-    Logger.log('PROFANITY: Analysis completed', {
+    Logger.debug(env, 'PROFANITY: Analysis completed', {
       chatId: chatId.toString(36),
       analysisTime: timings.analysis,
       hasProfanity: profanityResult.totalCount > 0,
@@ -436,7 +420,7 @@ async function analyzeProfanityAsync(
 
     // If profanity was found, update counters
     if (profanityResult.totalCount > 0) {
-      Logger.log('Profanity detection: words found, processing for counter update', {
+      Logger.debug(env, 'Profanity detection: words found, processing for counter update', {
         chatId: chatId.toString(36),
         userId: userId.toString(36),
         username,
@@ -489,7 +473,7 @@ async function analyzeProfanityAsync(
         const totalDuration = Date.now() - startTime;
         timings.total = totalDuration;
 
-        Logger.log('Profanity counters: update successful with performance metrics', {
+        Logger.debug(env, 'Profanity counters: update successful with performance metrics', {
           chatId: chatId.toString(36),
           userId: userId.toString(36),
           totalCount: profanityResult.totalCount,
@@ -559,7 +543,7 @@ async function analyzeCriminalCodeAsync(
   username: string,
   day: string
 ): Promise<void> {
-  Logger.log('CRIMINAL CODE ANALYSIS FUNCTION STARTED', {
+  Logger.debug(env, 'criminal code analysis function started', {
     chatId: chatId.toString(36),
     userId: userId.toString(36),
     username,
@@ -628,7 +612,7 @@ async function analyzeCriminalCodeAsync(
       const totalDuration = Date.now() - startTime;
 
       if (result.queued) {
-        Logger.log('Criminal code analysis: queued for contextual processing', {
+        Logger.debug(env, 'Criminal code analysis: queued for contextual processing', {
           chatId: chatId.toString(36),
           userId: userId.toString(36),
           username,

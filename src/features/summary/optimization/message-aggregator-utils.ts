@@ -3,7 +3,7 @@
  */
 
 import { Env, StoredMessage } from '../../../core/env';
-import { TelegramMessage } from '../../core/providers/ai-provider';
+import { TelegramMessage } from '../../../core/providers/ai-provider';
 import { Logger, PerformanceTracker } from '../../../core/logger';
 
 // Response type definitions for MessageAggregatorDO

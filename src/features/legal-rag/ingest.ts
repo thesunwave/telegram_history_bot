@@ -38,7 +38,7 @@ export async function handleLegalRagIngestBatch(req: Request, env: Env): Promise
     return Response.json({ error: 'Legal RAG bindings are not configured' }, { status: 500 });
   }
 
-  const payload = await req.json<IngestLegalRagBatchRequest>();
+  const payload = await req.json() as IngestLegalRagBatchRequest;
   validatePayload(payload);
 
   if (payload.replaceExisting) {
@@ -63,7 +63,7 @@ export async function handleLegalRagSearch(req: Request, env: Env): Promise<Resp
     return new Response('Unauthorized', { status: 403 });
   }
 
-  const payload = await req.json<{ text?: string }>();
+  const payload = await req.json() as { text?: string };
   const text = payload.text?.trim();
   if (!text) {
     return Response.json({ error: 'text is required' }, { status: 400 });

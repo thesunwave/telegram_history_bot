@@ -41,7 +41,7 @@ export default {
       try {
         await ProviderInitializer.initializeProvider(env);
       } catch (error: any) {
-        console.error("Failed to initialize provider on request", {
+        Logger.error("Failed to initialize provider on request", {
           error: error.message || String(error),
           path: new URL(req.url).pathname,
         });
@@ -117,13 +117,13 @@ export default {
       }
 
       try {
-        const payload = await req.json<any>();
+        const payload = await req.json() as any;
         const text = typeof payload.text === "string" ? payload.text.trim() : "";
         if (!text) {
           return Response.json({ ok: false, error: "text is required" }, { status: 400 });
         }
 
-        const chatId = Number.isFinite(Number(payload.chatId)) ? Number(payload.chatId) : -990519001;
+        const chatId = Number.isFinite(Number(payload.chatId)) ? Number(payload.chatId) : -1;
         const analyzerId = env.CRIMINAL_CODE_ANALYZER_DO.idFromName(String(chatId));
         const analyzer = env.CRIMINAL_CODE_ANALYZER_DO.get(analyzerId);
         const response = await analyzer.fetch("https://do/analyze", {
@@ -132,7 +132,7 @@ export default {
           body: JSON.stringify({
             text,
             chatId,
-            userId: Number.isFinite(Number(payload.userId)) ? Number(payload.userId) : 990519001,
+            userId: Number.isFinite(Number(payload.userId)) ? Number(payload.userId) : 1,
             username: typeof payload.username === "string" ? payload.username : "legal_rag_test",
             messageId: Number.isFinite(Number(payload.messageId)) ? Number(payload.messageId) : Date.now(),
             day: typeof payload.day === "string" ? payload.day : new Date().toISOString().slice(0, 10),
@@ -158,13 +158,13 @@ export default {
       }
 
       try {
-        const payload = await req.json<any>();
+        const payload = await req.json() as any;
         const text = typeof payload.text === "string" ? payload.text.trim() : "";
         if (!text) {
           return Response.json({ ok: false, error: "text is required" }, { status: 400 });
         }
 
-        const chatId = Number.isFinite(Number(payload.chatId)) ? Number(payload.chatId) : -990519001;
+        const chatId = Number.isFinite(Number(payload.chatId)) ? Number(payload.chatId) : -1;
         const analyzerId = env.CRIMINAL_CODE_ANALYZER_DO.idFromName(String(chatId));
         const analyzer = env.CRIMINAL_CODE_ANALYZER_DO.get(analyzerId);
         const response = await analyzer.fetch("https://do/diagnose", {
@@ -174,7 +174,7 @@ export default {
             ...payload,
             text,
             chatId,
-            userId: Number.isFinite(Number(payload.userId)) ? Number(payload.userId) : 990519001,
+            userId: Number.isFinite(Number(payload.userId)) ? Number(payload.userId) : 1,
             username: typeof payload.username === "string" ? payload.username : "diagnostic",
             messageId: Number.isFinite(Number(payload.messageId)) ? Number(payload.messageId) : Date.now(),
             day: typeof payload.day === "string" ? payload.day : new Date().toISOString().slice(0, 10),
@@ -224,8 +224,6 @@ export default {
       }
 
       if (!secretMatches) {
-        console.log('DEBUG: env.ENVIRONMENT =', `"${env.ENVIRONMENT}"`);
-        console.log('DEBUG: secretMatches =', secretMatches);
         if (env.ENVIRONMENT === "development") {
           Logger.warn(env, "webhook secret mismatch (IGNORED IN DEVELOPMENT)", {
             secretProvided: Boolean(secretHeader),
@@ -735,7 +733,7 @@ export default {
       try {
         await ProviderInitializer.initializeProvider(env);
       } catch (error: any) {
-        console.error("Failed to initialize provider on scheduled event", {
+        Logger.error("Failed to initialize provider on scheduled event", {
           error: error.message || String(error),
         });
         // Continue processing - provider will be created on-demand if needed
@@ -748,7 +746,7 @@ export default {
     if (summaryEnabled) {
       await dailySummary(env);
     } else {
-      console.log('Daily summary skipped (ENABLE_SUMMARY is false)');
+      Logger.info(env, 'Daily summary skipped (ENABLE_SUMMARY is false)');
     }
 
     // Run cleanup job
