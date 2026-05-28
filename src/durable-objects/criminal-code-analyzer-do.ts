@@ -27,8 +27,9 @@ import { ProviderFactory } from '../core/providers/provider-factory';
 import type { AIProvider } from '../core/providers/ai-provider';
 import { criminalPrefilter, CriminalPrefilterReason } from '../features/criminal/prefilter';
 import {
-  canonicalizeLocalProfanityBaseForm,
+  countNormalizedProfanityTokens,
   detectLocalProfanity,
+  normalizeProfanityWord,
   type LocalProfanityResult,
 } from '../features/profanity/local-detector';
 import { fetchLastMessagesOptimized } from '../features/history/history-optimized';
@@ -759,6 +760,7 @@ export class CriminalCodeAnalyzerDO {
     }
 
     const words = this.mergeProfanityWords(
+      input.task.text,
       input.task.localProfanity,
       input.semanticPrefilter?.profanity
     );
@@ -811,10 +813,13 @@ export class CriminalCodeAnalyzerDO {
   }
 
   private mergeProfanityWords(
+    text: string,
     localResult?: LocalProfanityResult,
     modelResult?: CriminalSemanticPrefilterResult['profanity']
-  ): Array<{ baseForm: string; count: number }> {
+  ): Array<{ word: string; count: number }> {
     const counts = new Map<string, number>();
+    const tokenCounts = countNormalizedProfanityTokens(text);
+
     for (const source of [localResult, modelResult]) {
       if (!source?.hasProfanity || !Array.isArray(source.words)) {
         continue;
@@ -825,19 +830,24 @@ export class CriminalCodeAnalyzerDO {
         if (!normalized) {
           continue;
         }
+        const tokenCount = tokenCounts.get(normalized.word) || 0;
+        if (tokenCount <= 0) {
+          continue;
+        }
+        const count = Math.min(normalized.count, tokenCount);
         sourceCounts.set(
-          normalized.baseForm,
-          (sourceCounts.get(normalized.baseForm) || 0) + normalized.count
+          normalized.word,
+          (sourceCounts.get(normalized.word) || 0) + count
         );
       }
-      for (const [baseForm, count] of sourceCounts) {
-        counts.set(baseForm, Math.max(counts.get(baseForm) || 0, count));
+      for (const [word, count] of sourceCounts) {
+        counts.set(word, Math.max(counts.get(word) || 0, count));
       }
     }
-    return Array.from(counts.entries()).map(([baseForm, count]) => ({ baseForm, count }));
+    return Array.from(counts.entries()).map(([word, count]) => ({ word, count }));
   }
 
-  private normalizeProfanityCounterWord(rawWord: any): { baseForm: string; count: number } | null {
+  private normalizeProfanityCounterWord(rawWord: any): { word: string; count: number } | null {
     const confidence = typeof rawWord?.confidence === 'number'
       ? this.clampNumber(rawWord.confidence, 0, 1)
       : 0;
@@ -845,18 +855,12 @@ export class CriminalCodeAnalyzerDO {
       return null;
     }
 
-    const baseForm = String(rawWord?.baseForm || rawWord?.word || '')
-      .normalize('NFKC')
-      .trim()
-      .toLowerCase()
-      .replace(/ё/g, 'е')
-      .replace(/[^a-zа-я0-9_-]+/gi, '');
-    const canonicalBaseForm = canonicalizeLocalProfanityBaseForm(baseForm) || baseForm;
+    const word = normalizeProfanityWord(String(rawWord?.word || rawWord?.baseForm || ''));
     const count = Math.round(this.clampNumber(Number(rawWord?.count ?? 1), 0, 100));
-    if (!canonicalBaseForm || count <= 0) {
+    if (!word || count <= 0) {
       return null;
     }
-    return { baseForm: canonicalBaseForm, count };
+    return { word, count };
   }
 
   private async runSemanticPrefilter(
@@ -1160,10 +1164,11 @@ export class CriminalCodeAnalyzerDO {
       'searchQuery должен описывать деяние простыми юридическими словами, например: угроза убийством, угроза причинением вреда здоровью, угроза сексуального насилия.',
       'Не используй английский язык, жаргон, странные слова, номера статей или фразы вроде "без указания конкретной статьи" в searchQuery.',
       'Одновременно проверь target-сообщение на русскую обсценную лексику. Это не влияет на shouldAnalyze.',
-      'В profanity.words возвращай только базовые формы мата и count по target-сообщению. Не включай грубые, но не обсценные слова.',
+      'В profanity.words возвращай только точные словоформы мата из target-сообщения и count по ним, не леммы и не базовые формы.',
+      'Не включай морально-негативные, религиозные или просто грубые слова, если они не являются русской обсценной лексикой.',
       isBatch
-        ? 'Верни строго JSON: {"items":[{"id":"same id","shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","profanity":{"hasProfanity":boolean,"words":[{"baseForm":"string","count":1,"confidence":0..1}]}}]}'
-        : 'Верни строго JSON: {"shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","profanity":{"hasProfanity":boolean,"words":[{"baseForm":"string","count":1,"confidence":0..1}]}}'
+        ? 'Верни строго JSON: {"items":[{"id":"same id","shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}]}'
+        : 'Верни строго JSON: {"shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}'
     ].join('\n');
   }
 
@@ -1221,7 +1226,7 @@ export class CriminalCodeAnalyzerDO {
             : 0.5;
           return { ...normalized, confidence };
         })
-        .filter((word: any): word is { baseForm: string; count: number; confidence: number } => Boolean(word))
+        .filter((word: any): word is { word: string; count: number; confidence: number } => Boolean(word))
       : [];
     return {
       hasProfanity: Boolean(result?.hasProfanity) && words.length > 0,

@@ -161,13 +161,14 @@ describe("Profanity Analysis Infrastructure", () => {
       expect(result.totalCount).toBe(0);
     });
 
-    it("should return cached result when available", async () => {
-      const text = "test message";
+    it("should return normalized cached result when available", async () => {
+      const text = "заебал";
       const cachedResult: ProfanityResult = {
         words: [
           {
-            original: "test",
-            baseForm: "test",
+            original: "заебал",
+            word: "заебал",
+            baseForm: "ебать",
             positions: [0],
           },
         ],
@@ -183,6 +184,73 @@ describe("Profanity Analysis Infrastructure", () => {
 
       expect(result).toEqual(cachedResult);
       expect(mockEnv.COUNTERS.get).toHaveBeenCalledWith(generateCacheKey(text));
+    });
+
+    it("should keep used word forms instead of grouping by base form", async () => {
+      const text = "ЗаЁбал, заебал и ебаный день";
+
+      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+      mockProvider.analyzeProfanity.mockResolvedValue({
+        hasProfanity: true,
+        words: [
+          { word: "ЗаЁбал", baseForm: "ебать", confidence: 0.95 },
+          { word: "ебаный", baseForm: "ебать", confidence: 0.95 },
+        ],
+      } as ProfanityAnalysisResult);
+
+      const result = await profanityAnalyzer.analyzeMessage(text, mockEnv);
+
+      expect(result).toEqual({
+        words: [
+          {
+            original: "ЗаЁбал",
+            word: "заебал",
+            baseForm: "ебать",
+            positions: [0, 1],
+          },
+          {
+            original: "ебаный",
+            word: "ебаный",
+            baseForm: "ебать",
+            positions: [0],
+          },
+        ],
+        totalCount: 3,
+      });
+    });
+
+    it("should drop short candidate fragments even when AI returns them", async () => {
+      const text = "н";
+
+      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+      mockProvider.analyzeProfanity.mockResolvedValue({
+        hasProfanity: true,
+        words: [{ word: "н", baseForm: "н", confidence: 0.9 }],
+      } as ProfanityAnalysisResult);
+
+      const result = await profanityAnalyzer.analyzeMessage(text, mockEnv);
+
+      expect(result).toEqual({
+        words: [],
+        totalCount: 0,
+      });
+    });
+
+    it("should drop AI candidates that are absent from the source text", async () => {
+      const text = "заебал";
+
+      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+      mockProvider.analyzeProfanity.mockResolvedValue({
+        hasProfanity: true,
+        words: [{ word: "грешники", baseForm: "грешники", confidence: 0.9 }],
+      } as ProfanityAnalysisResult);
+
+      const result = await profanityAnalyzer.analyzeMessage(text, mockEnv);
+
+      expect(result).toEqual({
+        words: [],
+        totalCount: 0,
+      });
     });
 
     it("should return empty result on error", async () => {

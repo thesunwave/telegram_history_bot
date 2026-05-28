@@ -1,4 +1,5 @@
 export interface LocalProfanityWord {
+  word: string;
   baseForm: string;
   count: number;
   confidence: number;
@@ -18,6 +19,8 @@ const CYRILLIC_HOMOGLYPHS: Record<string, string> = {
   x: 'х',
   y: 'у',
 };
+
+const MIN_PROFANITY_TOKEN_LENGTH = 3;
 
 const PROFANITY_PATTERNS: Array<{ baseForm: string; pattern: RegExp }> = [
   {
@@ -39,19 +42,24 @@ const PROFANITY_PATTERNS: Array<{ baseForm: string; pattern: RegExp }> = [
 ];
 
 export function detectLocalProfanity(text: string): LocalProfanityResult {
-  const counts = new Map<string, number>();
+  const counts = new Map<string, { baseForm: string; count: number }>();
 
-  for (const token of tokenize(normalizeProfanityText(text))) {
+  for (const token of tokenizeProfanityText(text)) {
     const match = PROFANITY_PATTERNS.find(({ pattern }) => pattern.test(token));
     if (!match) {
       continue;
     }
-    counts.set(match.baseForm, (counts.get(match.baseForm) || 0) + 1);
+    const current = counts.get(token);
+    counts.set(token, {
+      baseForm: match.baseForm,
+      count: (current?.count || 0) + 1,
+    });
   }
 
-  const words = Array.from(counts.entries()).map(([baseForm, count]) => ({
-    baseForm,
-    count,
+  const words = Array.from(counts.entries()).map(([word, entry]) => ({
+    word,
+    baseForm: entry.baseForm,
+    count: entry.count,
     confidence: 0.95,
   }));
 
@@ -66,7 +74,7 @@ export function canonicalizeLocalProfanityBaseForm(value: string): string | null
   return result.words[0]?.baseForm || null;
 }
 
-function normalizeProfanityText(text: string): string {
+export function normalizeProfanityText(text: string): string {
   return text
     .normalize('NFKC')
     .toLowerCase()
@@ -74,6 +82,20 @@ function normalizeProfanityText(text: string): string {
     .replace(/[aeopcxy]/g, (char) => CYRILLIC_HOMOGLYPHS[char] || char);
 }
 
-function tokenize(text: string): string[] {
-  return text.match(/[а-я]+/gu) || [];
+export function tokenizeProfanityText(text: string): string[] {
+  return (normalizeProfanityText(text).match(/[а-я]+/gu) || [])
+    .filter(token => token.length >= MIN_PROFANITY_TOKEN_LENGTH);
+}
+
+export function normalizeProfanityWord(value: string): string | null {
+  const tokens = tokenizeProfanityText(value);
+  return tokens.length === 1 ? tokens[0] : null;
+}
+
+export function countNormalizedProfanityTokens(text: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const token of tokenizeProfanityText(text)) {
+    counts.set(token, (counts.get(token) || 0) + 1);
+  }
+  return counts;
 }

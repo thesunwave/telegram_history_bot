@@ -278,7 +278,8 @@ export interface CriminalSemanticPrefilterResult {
 export interface CriminalSemanticPrefilterProfanityResult {
   hasProfanity: boolean;
   words: Array<{
-    baseForm: string;
+    word: string;
+    baseForm?: string;
     count: number;
     confidence: number;
   }>;

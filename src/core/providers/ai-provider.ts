@@ -41,7 +41,7 @@ export interface ProfanityAnalysisResult {
   hasProfanity: boolean;
   words: Array<{
     word: string;
-    baseForm: string;
+    baseForm?: string;
     confidence: number;
   }>;
 }
@@ -134,7 +134,8 @@ export interface CriminalSemanticPrefilterResult {
 export interface CriminalSemanticPrefilterProfanityResult {
   hasProfanity: boolean;
   words: Array<{
-    baseForm: string;
+    word: string;
+    baseForm?: string;
     count: number;
     confidence: number;
   }>;
@@ -147,9 +148,10 @@ const DEFAULT_PROFANITY_SYSTEM_PROMPT = `Ты эксперт по анализу
 1. Анализируй только русский текст
 2. Определяй именно матерные слова, а не просто грубые или невежливые выражения
 3. Учитывай контекст - слово может быть матерным только в определенном значении
-4. Для каждого найденного матерного слова укажи его базовую (словарную) форму
+4. Для каждого найденного матерного слова укажи точную словоформу из текста в поле word
 5. Игнорируй слова, которые только похожи на мат, но таковыми не являются
 6. Не анализируй слова на других языках
+7. Не включай морально-негативные, религиозные или просто грубые слова, если они не являются русской обсценной лексикой
 
 ФОРМАТ ОТВЕТА:
 Отвечай ТОЛЬКО валидным JSON без дополнительных комментариев, объяснений или форматирования:
@@ -157,8 +159,8 @@ const DEFAULT_PROFANITY_SYSTEM_PROMPT = `Ты эксперт по анализу
   "hasProfanity": boolean,
   "words": [
     {
-      "word": "найденное_слово_в_тексте",
-      "baseForm": "базовая_форма_слова",
+      "word": "точная_словоформа_из_текста",
+      "baseForm": "необязательная_базовая_форма_или_семейство",
       "confidence": число_от_0_до_1
     }
   ]

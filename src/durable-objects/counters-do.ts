@@ -1,6 +1,7 @@
 import type { DurableObjectState } from '@cloudflare/workers-types';
 import { Env } from '../core/env';
 import { Logger } from '../core/logger';
+import { normalizeProfanityWord } from '../features/profanity/local-detector';
 
 const STATS_PREFIX = 'stats';
 const USER_PREFIX = 'user';
@@ -41,7 +42,8 @@ export interface ProfanityIncrementPayload {
   day: string;
   count: number;
   words: Array<{
-    baseForm: string;
+    word?: string;
+    baseForm?: string;
     count: number;
   }>;
 }
@@ -143,7 +145,8 @@ export class CountersDO {
 
     let wordCountTotal = 0;
     for (const word of p.words) {
-      if (!word || typeof word.baseForm !== 'string' || word.baseForm.trim().length === 0)
+      const normalizedWord = this.normalizeProfanityCounterWord(word);
+      if (!normalizedWord)
         throw new Error('invalid profanity word');
       if (!Number.isInteger(word.count) || word.count <= 0)
         throw new Error('invalid profanity word count');
@@ -244,7 +247,8 @@ export class CountersDO {
   }
 
   private async incrementProfanityCounters(payload: ProfanityIncrementPayload) {
-    const { chatId, userId, username, day, count, words } = payload;
+    const { chatId, userId, username, day, count } = payload;
+    const words = this.aggregateProfanityCounterWords(payload.words);
 
     Logger.debug(this.env, 'Profanity counters update', {
       chatId: chatId.toString(36),
@@ -262,14 +266,39 @@ export class CountersDO {
 
     // Update word-specific counts in KV
     for (const word of words) {
-      const wordKey = `${PROFANITY_WORDS_PREFIX}:${chatId}:${word.baseForm}:${day}`;
+      const wordKey = `${PROFANITY_WORDS_PREFIX}:${chatId}:${word.word}:${day}`;
       const currentWordCount = parseInt((await this.env.COUNTERS.get(wordKey)) || '0', 10);
       await this.env.COUNTERS.put(wordKey, String(currentWordCount + word.count));
 
-      const wordUserKey = `${PROFANITY_WORD_USERS_PREFIX}:${chatId}:${word.baseForm}:${day}:${userId}`;
+      const wordUserKey = `${PROFANITY_WORD_USERS_PREFIX}:${chatId}:${word.word}:${day}:${userId}`;
       const currentWordUserCount = parseInt((await this.env.COUNTERS.get(wordUserKey)) || '0', 10);
       await this.env.COUNTERS.put(wordUserKey, String(currentWordUserCount + word.count));
     }
+  }
+
+  private aggregateProfanityCounterWords(
+    words: ProfanityIncrementPayload['words'],
+  ): Array<{ word: string; count: number }> {
+    const counts = new Map<string, number>();
+    for (const entry of words) {
+      const normalizedWord = this.normalizeProfanityCounterWord(entry);
+      if (!normalizedWord) {
+        continue;
+      }
+      counts.set(normalizedWord, (counts.get(normalizedWord) || 0) + entry.count);
+    }
+    return Array.from(counts.entries()).map(([word, count]) => ({ word, count }));
+  }
+
+  private normalizeProfanityCounterWord(
+    word: ProfanityIncrementPayload['words'][number],
+  ): string | null {
+    const rawWord = typeof word?.word === 'string' && word.word.trim()
+      ? word.word
+      : typeof word?.baseForm === 'string'
+        ? word.baseForm
+        : '';
+    return normalizeProfanityWord(rawWord);
   }
 
   private async incrementCriminalCounters(payload: CriminalIncrementPayload) {

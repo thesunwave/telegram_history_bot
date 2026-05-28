@@ -101,9 +101,9 @@ describe("Profanity Stats Optimization", () => {
       // Mock list response with keys from today and yesterday
       mockCounters.list.mockResolvedValue({
         keys: [
-          { name: `profanity_words:${chatId}:fuck:${today}` },
-          { name: `profanity_words:${chatId}:shit:${yesterday}` },
-          { name: `profanity_words:${chatId}:damn:${today}` },
+          { name: `profanity_words:${chatId}:заебал:${today}` },
+          { name: `profanity_words:${chatId}:пиздец:${yesterday}` },
+          { name: `profanity_words:${chatId}:ебаный:${today}` },
         ],
         list_complete: true,
       });
@@ -121,9 +121,9 @@ describe("Profanity Stats Optimization", () => {
       });
 
       // Verify get was called ONLY for today's keys
-      expect(mockCounters.get).toHaveBeenCalledWith(`profanity_words:${chatId}:fuck:${today}`);
-      expect(mockCounters.get).toHaveBeenCalledWith(`profanity_words:${chatId}:damn:${today}`);
-      expect(mockCounters.get).not.toHaveBeenCalledWith(`profanity_words:${chatId}:shit:${yesterday}`);
+      expect(mockCounters.get).toHaveBeenCalledWith(`profanity_words:${chatId}:заебал:${today}`);
+      expect(mockCounters.get).toHaveBeenCalledWith(`profanity_words:${chatId}:ебаный:${today}`);
+      expect(mockCounters.get).not.toHaveBeenCalledWith(`profanity_words:${chatId}:пиздец:${yesterday}`);
     });
 
     it("should include top users for each profanity word", async () => {
@@ -133,15 +133,15 @@ describe("Profanity Stats Optimization", () => {
       mockCounters.list.mockImplementation(({ prefix }: { prefix: string }) => {
         if (prefix === `profanity_words:${chatId}:`) {
           return Promise.resolve({
-            keys: [{ name: `profanity_words:${chatId}:fuck:${today}` }],
+            keys: [{ name: `profanity_words:${chatId}:заебал:${today}` }],
             list_complete: true,
           });
         }
-        if (prefix === `profanity_word_users:${chatId}:fuck:`) {
+        if (prefix === `profanity_word_users:${chatId}:заебал:`) {
           return Promise.resolve({
             keys: [
-              { name: `profanity_word_users:${chatId}:fuck:${today}:1` },
-              { name: `profanity_word_users:${chatId}:fuck:${today}:2` },
+              { name: `profanity_word_users:${chatId}:заебал:${today}:1` },
+              { name: `profanity_word_users:${chatId}:заебал:${today}:2` },
             ],
             list_complete: true,
           });
@@ -150,9 +150,9 @@ describe("Profanity Stats Optimization", () => {
       });
 
       mockCounters.get.mockImplementation((key: string) => {
-        if (key === `profanity_words:${chatId}:fuck:${today}`) return Promise.resolve("92");
-        if (key === `profanity_word_users:${chatId}:fuck:${today}:1`) return Promise.resolve("60");
-        if (key === `profanity_word_users:${chatId}:fuck:${today}:2`) return Promise.resolve("32");
+        if (key === `profanity_words:${chatId}:заебал:${today}`) return Promise.resolve("92");
+        if (key === `profanity_word_users:${chatId}:заебал:${today}:1`) return Promise.resolve("60");
+        if (key === `profanity_word_users:${chatId}:заебал:${today}:2`) return Promise.resolve("32");
         if (key === "user:1") return Promise.resolve("alice");
         if (key === "user:2") return Promise.resolve("bob");
         return Promise.resolve(null);
@@ -162,9 +162,9 @@ describe("Profanity Stats Optimization", () => {
 
       expect(result).toEqual([
         {
-          word: "fuck",
+          word: "заебал",
           count: 92,
-          censored: "f**k",
+          censored: "з****л",
           contributors: [
             { userId: 1, username: "alice", count: 60 },
             { userId: 2, username: "bob", count: 32 },

@@ -53,8 +53,8 @@ describe('Profanity Counter System', () => {
         day: '2025-01-01',
         count: 3,
         words: [
-          { baseForm: 'word1', count: 2 },
-          { baseForm: 'word2', count: 1 }
+          { word: 'ЗаЁбал', count: 2 },
+          { baseForm: 'пиздец', count: 1 }
         ]
       };
 
@@ -92,7 +92,7 @@ describe('Profanity Counter System', () => {
         username: 'testuser',
         day: '2025-01-01',
         count: -1,
-        words: [{ baseForm: 'word1', count: 1 }]
+        words: [{ baseForm: 'хуй', count: 1 }]
       };
 
       const request = new Request('https://test.com/profanity', {
@@ -112,8 +112,8 @@ describe('Profanity Counter System', () => {
         day: '2025-01-01',
         count: 4,
         words: [
-          { baseForm: 'word1', count: 2 },
-          { baseForm: 'word2', count: 1 }
+          { baseForm: 'хуй', count: 2 },
+          { baseForm: 'пиздец', count: 1 }
         ]
       };
 
@@ -134,6 +134,25 @@ describe('Profanity Counter System', () => {
         day: '2025-01-01',
         count: 1,
         words: [{ baseForm: '', count: 1 }]
+      };
+
+      const request = new Request('https://test.com/profanity', {
+        method: 'POST',
+        body: JSON.stringify(invalidPayload)
+      }) as any;
+
+      const response = await countersDO.fetch(request);
+      expect(response.status).toBe(400);
+    });
+
+    it('should reject too-short profanity word fragments', async () => {
+      const invalidPayload = {
+        chatId: 123,
+        userId: 456,
+        username: 'testuser',
+        day: '2025-01-01',
+        count: 1,
+        words: [{ word: 'н', count: 1 }]
       };
 
       const request = new Request('https://test.com/profanity', {
@@ -179,8 +198,8 @@ describe('Profanity Counter System', () => {
         day: '2025-01-01',
         count: 3,
         words: [
-          { baseForm: 'word1', count: 2 },
-          { baseForm: 'word2', count: 1 }
+          { word: 'ЗаЁбал', count: 2 },
+          { baseForm: 'пиздец', count: 1 }
         ]
       };
 
@@ -230,8 +249,8 @@ describe('Profanity Counter System', () => {
         day: '2025-01-01',
         count: 3,
         words: [
-          { baseForm: 'word1', count: 2 },
-          { baseForm: 'word2', count: 1 }
+          { word: 'ЗаЁбал', count: 2 },
+          { baseForm: 'пиздец', count: 1 }
         ]
       };
 
@@ -244,19 +263,19 @@ describe('Profanity Counter System', () => {
 
       // Check that word counters were incremented
       expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
-        'profanity_words:123:word1:2025-01-01',
+        'profanity_words:123:заебал:2025-01-01',
         '2'
       ) as any;
       expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
-        'profanity_words:123:word2:2025-01-01',
+        'profanity_words:123:пиздец:2025-01-01',
         '1'
       ) as any;
       expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
-        'profanity_word_users:123:word1:2025-01-01:456',
+        'profanity_word_users:123:заебал:2025-01-01:456',
         '2'
       ) as any;
       expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
-        'profanity_word_users:123:word2:2025-01-01:456',
+        'profanity_word_users:123:пиздец:2025-01-01:456',
         '1'
       ) as any;
     });
@@ -265,7 +284,7 @@ describe('Profanity Counter System', () => {
       // Set up existing counters
       const mockStorage = new Map([
         ['profanity:123:456:2025-01-01', '5'],
-        ['profanity_words:123:word1:2025-01-01', '3']
+        ['profanity_words:123:хуй:2025-01-01', '3']
       ]);
       
       const mockEnvLocal = {
@@ -297,8 +316,8 @@ describe('Profanity Counter System', () => {
         day: '2025-01-01',
         count: 2,
         words: [
-          { baseForm: 'word1', count: 1 },
-          { baseForm: 'word3', count: 1 }
+          { baseForm: 'хуй', count: 1 },
+          { baseForm: 'заебал', count: 1 }
         ]
       };
 
@@ -315,11 +334,11 @@ describe('Profanity Counter System', () => {
         '7' // 5 + 2
       ) as any;
       expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
-        'profanity_words:123:word1:2025-01-01',
+        'profanity_words:123:хуй:2025-01-01',
         '4' // 3 + 1
       ) as any;
       expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith(
-        'profanity_words:123:word3:2025-01-01',
+        'profanity_words:123:заебал:2025-01-01',
         '1' // new word
       ) as any;
     });
@@ -398,7 +417,7 @@ describe('Profanity Counter System', () => {
         username: 'testuser',
         day: '2025-01-01',
         count: 1,
-        words: [{ baseForm: 'word1', count: 1 }]
+        words: [{ baseForm: 'хуй', count: 1 }]
       };
 
       const request = new Request('https://test.com/profanity', {
@@ -444,15 +463,15 @@ describe('Profanity Counter System', () => {
         // Profanity counters (should be deleted)
         ['profanity:123:456:2025-01-01', '3'],
         ['profanity:123:789:2025-01-01', '2'],
-        ['profanity_words:123:word1:2025-01-01', '2'],
-        ['profanity_words:123:word2:2025-01-01', '1'],
-        ['profanity_word_users:123:word1:2025-01-01:456', '2'],
-        ['profanity_word_users:123:word2:2025-01-01:789', '1'],
+        ['profanity_words:123:хуй:2025-01-01', '2'],
+        ['profanity_words:123:пиздец:2025-01-01', '1'],
+        ['profanity_word_users:123:хуй:2025-01-01:456', '2'],
+        ['profanity_word_users:123:пиздец:2025-01-01:789', '1'],
         
         // Other chat profanity counters (should not be deleted)
         ['profanity:456:123:2025-01-01', '1'],
-        ['profanity_words:456:word1:2025-01-01', '1'],
-        ['profanity_word_users:456:word1:2025-01-01:123', '1']
+        ['profanity_words:456:хуй:2025-01-01', '1'],
+        ['profanity_word_users:456:хуй:2025-01-01:123', '1']
       ]);
 
       // Mock the list method to return keys based on prefix
@@ -483,17 +502,17 @@ describe('Profanity Counter System', () => {
       // Verify that only profanity counters for chat 123 were deleted
       expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity:123:456:2025-01-01');
       expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity:123:789:2025-01-01');
-      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_words:123:word1:2025-01-01');
-      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_words:123:word2:2025-01-01');
-      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_word_users:123:word1:2025-01-01:456');
-      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_word_users:123:word2:2025-01-01:789');
+      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_words:123:хуй:2025-01-01');
+      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_words:123:пиздец:2025-01-01');
+      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_word_users:123:хуй:2025-01-01:456');
+      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_word_users:123:пиздец:2025-01-01:789');
 
       // Verify that regular counters and other chat counters were NOT deleted
       expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('stats:123:456:2025-01-01');
       expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('activity:123:2025-01-01');
       expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity:456:123:2025-01-01');
-      expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity_words:456:word1:2025-01-01');
-      expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity_word_users:456:word1:2025-01-01:123');
+      expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity_words:456:хуй:2025-01-01');
+      expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity_word_users:456:хуй:2025-01-01:123');
 
       // Verify that list was called with correct prefixes
       expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'profanity:123:', cursor: undefined });
@@ -529,14 +548,14 @@ describe('Profanity Counter System', () => {
         // Profanity counters (should also be deleted)
         ['profanity:123:456:2025-01-01', '3'],
         ['profanity:123:789:2025-01-01', '2'],
-        ['profanity_words:123:word1:2025-01-01', '2'],
-        ['profanity_words:123:word2:2025-01-01', '1'],
-        ['profanity_word_users:123:word1:2025-01-01:456', '2'],
+        ['profanity_words:123:хуй:2025-01-01', '2'],
+        ['profanity_words:123:пиздец:2025-01-01', '1'],
+        ['profanity_word_users:123:хуй:2025-01-01:456', '2'],
         
         // Other chat counters (should not be deleted)
         ['stats:456:123:2025-01-01', '1'],
         ['profanity:456:123:2025-01-01', '1'],
-        ['profanity_word_users:456:word1:2025-01-01:123', '1']
+        ['profanity_word_users:456:хуй:2025-01-01:123', '1']
       ]);
 
       // Mock the list method to return keys based on prefix
@@ -570,14 +589,14 @@ describe('Profanity Counter System', () => {
       expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('activity:123:2025-01-01');
       expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity:123:456:2025-01-01');
       expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity:123:789:2025-01-01');
-      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_words:123:word1:2025-01-01');
-      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_words:123:word2:2025-01-01');
-      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_word_users:123:word1:2025-01-01:456');
+      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_words:123:хуй:2025-01-01');
+      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_words:123:пиздец:2025-01-01');
+      expect(mockEnv.COUNTERS.delete).toHaveBeenCalledWith('profanity_word_users:123:хуй:2025-01-01:456');
 
       // Verify that other chat counters were NOT deleted
       expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('stats:456:123:2025-01-01');
       expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity:456:123:2025-01-01');
-      expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity_word_users:456:word1:2025-01-01:123');
+      expect(mockEnv.COUNTERS.delete).not.toHaveBeenCalledWith('profanity_word_users:456:хуй:2025-01-01:123');
 
       // Verify that list was called with all the correct prefixes
       expect(mockEnv.COUNTERS.list).toHaveBeenCalledWith({ prefix: 'stats:123:', cursor: undefined });

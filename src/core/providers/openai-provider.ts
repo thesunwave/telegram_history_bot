@@ -780,8 +780,11 @@ export class OpenAIProvider implements AIProvider {
 
       // Validate each word entry
       for (const word of parsed.words) {
-        if (typeof word.word !== 'string' || typeof word.baseForm !== 'string') {
-          throw new Error('Invalid response: word entries must have string word and baseForm');
+        if (typeof word.word !== 'string') {
+          throw new Error('Invalid response: word entries must have string word');
+        }
+        if (typeof word.baseForm !== 'string' || word.baseForm.trim().length === 0) {
+          word.baseForm = word.word;
         }
         if (typeof word.confidence !== 'number' || word.confidence < 0 || word.confidence > 1) {
           throw new Error('Invalid response: confidence must be number between 0 and 1');

@@ -31,7 +31,7 @@ class ProfanityResultAIProvider implements AIProvider {
         return {
             hasProfanity: true,
             words: [
-                { word: 'badword', baseForm: 'badword', confidence: 0.9 }
+                { word: 'заебал', baseForm: 'ебать', confidence: 0.9 }
             ]
         };
     }
@@ -98,14 +98,14 @@ describe('Profanity Empty Cache Behavior', () => {
         const profanityProvider = new ProfanityResultAIProvider();
         analyzer = new ProfanityAnalyzer(profanityProvider);
 
-        const text = "This message has badword in it";
+        const text = "Сообщение где заебал повторяется";
 
         // First analysis - should be cached
         const result1 = await analyzer.analyzeMessage(text, mockEnv);
 
         expect(result1.totalCount).toBe(1);
         expect(result1.words).toHaveLength(1);
-        expect(result1.words[0].original).toBe('badword');
+        expect(result1.words[0].original).toBe('заебал');
 
         // Check that result was stored in KV
         expect(kvStorage.size).toBe(1);
@@ -135,7 +135,7 @@ describe('Profanity Empty Cache Behavior', () => {
         const profanityProvider = new ProfanityResultAIProvider();
         analyzer = new ProfanityAnalyzer(profanityProvider);
 
-        const dirtyText = "Message with badword";
+        const dirtyText = "Сообщение где заебал";
         const result2 = await analyzer.analyzeMessage(dirtyText, mockEnv);
 
         expect(result2.totalCount).toBe(1);

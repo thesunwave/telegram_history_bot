@@ -1127,7 +1127,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         username: "testuser",
         day: "2026-05-18",
         count: 1,
-        words: [{ baseForm: "хуй", count: 1 }],
+        words: [{ word: "хуй", count: 1 }],
       });
     });
 
@@ -1157,7 +1157,7 @@ describe("CriminalCodeAnalyzerDO", () => {
           searchQuery: "",
           profanity: {
             hasProfanity: true,
-            words: [{ baseForm: "ебать", count: 2, confidence: 0.91 }],
+            words: [{ word: "заебал", count: 2, confidence: 0.91 }],
           },
         }),
         usage: { input_tokens: 100, output_tokens: 30, total_tokens: 130 },
@@ -1168,7 +1168,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
         method: "POST",
         body: JSON.stringify({
-          text: "обычная достаточно длинная фраза для модельной проверки",
+          text: "заебал заебал обычная достаточно длинная фраза для модельной проверки",
           chatId: 12345,
           userId: 67890,
           messageId: 2002,
@@ -1182,10 +1182,10 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(counterFetch).toHaveBeenCalledTimes(1);
       const payload = JSON.parse((counterFetch.mock.calls[0][1] as RequestInit).body as string);
       expect(payload.count).toBe(2);
-      expect(payload.words).toEqual([{ baseForm: "ебать", count: 2 }]);
+      expect(payload.words).toEqual([{ word: "заебал", count: 2 }]);
     });
 
-    it("merges local and model profanity without double-counting the same base form", async () => {
+    it("merges local and model profanity without double-counting the same word form", async () => {
       const storage = new Map<string, any>();
       const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
       mockState.storage = {
@@ -1211,7 +1211,7 @@ describe("CriminalCodeAnalyzerDO", () => {
           searchQuery: "",
           profanity: {
             hasProfanity: true,
-            words: [{ baseForm: "пизда", count: 1, confidence: 0.9 }],
+            words: [{ word: "пиздец", count: 1, confidence: 0.9 }],
           },
         }),
         usage: { input_tokens: 100, output_tokens: 30, total_tokens: 130 },
@@ -1235,10 +1235,10 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(counterFetch).toHaveBeenCalledTimes(1);
       const payload = JSON.parse((counterFetch.mock.calls[0][1] as RequestInit).body as string);
       expect(payload.count).toBe(1);
-      expect(payload.words).toEqual([{ baseForm: "пизда", count: 1 }]);
+      expect(payload.words).toEqual([{ word: "пиздец", count: 1 }]);
     });
 
-    it("canonicalizes model profanity forms before merging with local counts", async () => {
+    it("keeps distinct model profanity word forms when updating counters", async () => {
       const storage = new Map<string, any>();
       const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
       mockState.storage = {
@@ -1265,8 +1265,8 @@ describe("CriminalCodeAnalyzerDO", () => {
           profanity: {
             hasProfanity: true,
             words: [
-              { baseForm: "заебал", count: 1, confidence: 0.9 },
-              { baseForm: "ебаный", count: 1, confidence: 0.9 },
+              { word: "заебал", count: 1, confidence: 0.9 },
+              { word: "ебаный", count: 1, confidence: 0.9 },
             ],
           },
         }),
@@ -1291,7 +1291,10 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(counterFetch).toHaveBeenCalledTimes(1);
       const payload = JSON.parse((counterFetch.mock.calls[0][1] as RequestInit).body as string);
       expect(payload.count).toBe(2);
-      expect(payload.words).toEqual([{ baseForm: "ебать", count: 2 }]);
+      expect(payload.words).toEqual([
+        { word: "заебал", count: 1 },
+        { word: "ебаный", count: 1 },
+      ]);
     });
 
     it("does not update profanity counters when the new flag is disabled", async () => {

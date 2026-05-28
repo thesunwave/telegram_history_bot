@@ -445,17 +445,17 @@ async function analyzeProfanityAsync(
         analysisTime: timings.analysis
       });
 
-      // Group words by base form and count occurrences
+      // Group by the normalized word form that appeared in the message.
       const groupingStart = Date.now();
       const wordCounts = new Map<string, number>();
       for (const word of profanityResult.words) {
-        const currentCount = wordCounts.get(word.baseForm) || 0;
-        wordCounts.set(word.baseForm, currentCount + word.positions.length);
+        const currentCount = wordCounts.get(word.word) || 0;
+        wordCounts.set(word.word, currentCount + word.positions.length);
       }
 
       // Convert to array format expected by Counters DO
-      const words = Array.from(wordCounts.entries()).map(([baseForm, count]) => ({
-        baseForm,
+      const words = Array.from(wordCounts.entries()).map(([word, count]) => ({
+        word,
         count
       }));
       timings.wordGrouping = Date.now() - groupingStart;
@@ -466,7 +466,7 @@ async function analyzeProfanityAsync(
         originalWords: profanityResult.words.length,
         groupedWords: words.length,
         totalOccurrences: profanityResult.totalCount,
-        words: words.map(w => ({ baseForm: w.baseForm.substring(0, 3) + '***', count: w.count }))
+        words: words.map(w => ({ word: w.word.substring(0, 3) + '***', count: w.count }))
       });
 
       // Update profanity counters

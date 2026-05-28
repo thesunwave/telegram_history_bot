@@ -3,11 +3,16 @@ import { Logger } from "../../core/logger";
 import { hashText } from "../../core/utils";
 import { ProfanityAnalysisResult, AIProvider } from "../../core/providers/ai-provider";
 import { ProviderFactory } from "../../core/providers/provider-factory";
+import {
+  countNormalizedProfanityTokens,
+  normalizeProfanityWord,
+} from "./local-detector";
 
 // Core interfaces for profanity detection
 export interface ProfanityWord {
   original: string;    // Найденное слово в тексте
-  baseForm: string;    // Базовая форма для группировки
+  word: string;        // Нормализованная словоформа для статистики
+  baseForm: string;    // Базовая форма/семейство, если вернул провайдер
   positions: number[]; // Позиции в тексте
 }
 
@@ -236,16 +241,24 @@ export class ProfanityAnalyzer {
       timings.cacheCheck = Date.now() - cacheCheckStart;
 
       if (cachedResult) {
+        const normalizedCachedResult = this.normalizeAnalysisResult(limitedText, {
+          hasProfanity: cachedResult.totalCount > 0,
+          words: cachedResult.words.map(word => ({
+            word: word.word || word.original,
+            baseForm: word.baseForm,
+            confidence: 1,
+          })),
+        });
         const totalDuration = Date.now() - startTime;
         Logger.debug(env, 'Profanity analysis: completed from cache', {
           totalDuration,
           cacheCheckTime: timings.cacheCheck,
-          wordsFound: cachedResult.totalCount,
-          uniqueWords: cachedResult.words.length,
+          wordsFound: normalizedCachedResult.totalCount,
+          uniqueWords: normalizedCachedResult.words.length,
           cacheEfficiency: 'cache-hit',
           performanceRating: totalDuration < 100 ? 'excellent' : totalDuration < 500 ? 'good' : 'acceptable'
         });
-        return cachedResult;
+        return normalizedCachedResult;
       }
 
       // Check circuit breaker
@@ -524,6 +537,61 @@ export class ProfanityAnalyzer {
     return await this.performSingleAIAnalysis(text, env, aiProvider);
   }
 
+  private normalizeAnalysisResult(text: string, analysisResult: ProfanityAnalysisResult): ProfanityResult {
+    const tokenCounts = countNormalizedProfanityTokens(text);
+    const wordsByForm = new Map<string, ProfanityWord>();
+
+    for (const rawWord of analysisResult.words || []) {
+      const candidate = this.extractCandidateWord(rawWord);
+      if (!candidate) {
+        continue;
+      }
+
+      const normalizedWord = normalizeProfanityWord(candidate);
+      if (!normalizedWord) {
+        continue;
+      }
+
+      const count = tokenCounts.get(normalizedWord) || 0;
+      if (count <= 0 || wordsByForm.has(normalizedWord)) {
+        continue;
+      }
+
+      const baseForm = typeof rawWord.baseForm === 'string' && rawWord.baseForm.trim()
+        ? rawWord.baseForm.trim()
+        : normalizedWord;
+
+      wordsByForm.set(normalizedWord, {
+        original: candidate,
+        word: normalizedWord,
+        baseForm,
+        positions: Array.from({ length: count }, (_, index) => index),
+      });
+    }
+
+    const words = Array.from(wordsByForm.values());
+    return {
+      words,
+      totalCount: words.reduce((sum, word) => sum + word.positions.length, 0),
+    };
+  }
+
+  private extractCandidateWord(rawWord: ProfanityAnalysisResult['words'][number] | any): string | null {
+    if (typeof rawWord === 'string') {
+      return rawWord;
+    }
+    if (!rawWord || typeof rawWord !== 'object') {
+      return null;
+    }
+    if (typeof rawWord.word === 'string' && rawWord.word.trim()) {
+      return rawWord.word;
+    }
+    if (typeof rawWord.original === 'string' && rawWord.original.trim()) {
+      return rawWord.original;
+    }
+    return null;
+  }
+
   private async performSingleAIAnalysis(text: string, env: Env, aiProvider: AIProvider): Promise<ProfanityResult> {
     const startTime = Date.now();
 
@@ -546,18 +614,7 @@ export class ProfanityAnalyzer {
       ]);
 
       const analysisResult = await analysisPromise;
-
-      // Convert ProfanityAnalysisResult to ProfanityResult format
-      const profanityWords: ProfanityWord[] = analysisResult.words.map((word: any) => ({
-        original: word.word || word.original || word,
-        baseForm: word.baseForm || word.word || word.original || word,
-        positions: word.positions || (word.position !== undefined ? [word.position] : [0])
-      }));
-
-      const finalResult: ProfanityResult = {
-        words: profanityWords,
-        totalCount: analysisResult.words.length
-      };
+      const finalResult = this.normalizeAnalysisResult(text, analysisResult);
 
       const duration = Date.now() - startTime;
       Logger.debug(env, 'Profanity AI analysis: completed via provider', {
@@ -649,17 +706,7 @@ export class ProfanityAnalyzer {
             )
           ]);
 
-          // Convert ProfanityAnalysisResult to ProfanityResult format
-          const profanityWords: ProfanityWord[] = analysisResult.words.map((word: any) => ({
-            original: word.word || word.original || word,
-            baseForm: word.baseForm || word.word || word.original || word,
-            positions: word.positions || (word.position !== undefined ? [word.position] : [0])
-          }));
-
-          results.push({
-            words: profanityWords,
-            totalCount: analysisResult.words.length
-          });
+          results.push(this.normalizeAnalysisResult(batch[i].text, analysisResult));
         } catch (error) {
           Logger.error('Batch item analysis failed', {
             itemIndex: i,

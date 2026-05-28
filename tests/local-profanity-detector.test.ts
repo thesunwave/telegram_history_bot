@@ -7,7 +7,7 @@ describe('detectLocalProfanity', () => {
 
     expect(result.hasProfanity).toBe(true);
     expect(result.words).toEqual([
-      { baseForm: 'пизда', count: 1, confidence: 0.95 },
+      { word: 'пиздец', baseForm: 'пизда', count: 1, confidence: 0.95 },
     ]);
   });
 
@@ -18,11 +18,12 @@ describe('detectLocalProfanity', () => {
     expect(result.words).toEqual([]);
   });
 
-  it('aggregates repeated base forms', () => {
+  it('aggregates repeated word forms without collapsing variants', () => {
     const result = detectLocalProfanity('заебал, ебаный день, заебал');
 
     expect(result.words).toEqual([
-      { baseForm: 'ебать', count: 3, confidence: 0.95 },
+      { word: 'заебал', baseForm: 'ебать', count: 2, confidence: 0.95 },
+      { word: 'ебаный', baseForm: 'ебать', count: 1, confidence: 0.95 },
     ]);
   });
 
