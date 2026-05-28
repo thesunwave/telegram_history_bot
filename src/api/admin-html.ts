@@ -557,6 +557,23 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </table>
         </div>
       </section>
+      <section class="wide">
+        <h2>Доля мата</h2>
+        <div class="chartPanel wide">
+          <div class="chartHead">
+            <div class="chartTitle">Мат среди всех слов, минимум 100 слов</div>
+            <div class="chartValue" id="profanityRatePeak">0%</div>
+          </div>
+          <div class="chartCanvas"><canvas id="profanityRateChart"></canvas></div>
+          <div class="chartEmpty hidden" id="profanityRateEmpty">Нет данных</div>
+        </div>
+        <div class="tableScroll">
+          <table>
+            <thead><tr><th>Пользователь</th><th>Доля</th><th>Мат</th><th>Слова</th></tr></thead>
+            <tbody id="profanityRateUsers"></tbody>
+          </table>
+        </div>
+      </section>
       <section>
         <h2>Слова</h2>
         <div class="tableScroll">
@@ -727,10 +744,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         el.classList.add('skeletonText');
       }
       renderCharts({ dailyMessages: [], dailyActiveUsers: [], hourlyAverages: [] });
+      document.getElementById('profanityRatePeak').textContent = '0%';
+      setChartEmpty('profanityRate', true);
       renderTimeBuckets([]);
       renderSkeletonRows('activityUsers', 4);
       renderSkeletonRows('activityTalkers', 4);
       renderSkeletonRows('profanityUsers', 2, 3);
+      renderSkeletonRows('profanityRateUsers', 4, 3);
       renderSkeletonRows('profanityWords', 2, 3);
       renderSkeletonRows('criminalUsers', 2, 3);
       renderNotificationSkeleton();
@@ -765,6 +785,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       renderActivityRows('activityUsers', [], 'messages');
       renderActivityRows('activityTalkers', [], 'words');
       renderRows('profanityUsers', [], 'username', 'count');
+      renderProfanityRateRows([]);
       renderRows('profanityWords', [], 'word', 'count');
       renderRows('criminalUsers', [], 'username', 'count');
       renderNotifications({ enabled: false, notifications: {} }, [], false);
@@ -877,6 +898,82 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         secondary.textContent = String(mode === 'words' ? row.count : row.words);
         rate.textContent = String(row.wordsPerMessage || 0);
         tr.append(name, primary, secondary, rate);
+        tbody.append(tr);
+      }
+    }
+
+    function formatRate(value) {
+      return (Number(value) || 0).toFixed(2).replace(/\\.?0+$/, '') + '%';
+    }
+
+    function renderProfanityRateRows(rows) {
+      const tbody = document.getElementById('profanityRateUsers');
+      tbody.innerHTML = '';
+      const peak = Math.max(...(rows || []).map(row => Number(row.rate) || 0), 0);
+      document.getElementById('profanityRatePeak').textContent = formatRate(peak);
+      setChartEmpty('profanityRate', !rows.length);
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="muted">Нет данных</td></tr>';
+        return;
+      }
+
+      makeChart('profanityRateChart', {
+        type: 'bar',
+        data: {
+          labels: rows.map(row => row.username),
+          datasets: [{
+            data: rows.map(row => Number((Number(row.rate) || 0).toFixed(2))),
+            backgroundColor: '#b75d19',
+            borderRadius: 5,
+            maxBarThickness: 34
+          }]
+        },
+        options: commonChartOptions({
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { color: '#667085', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: '#eef1f5' },
+              ticks: {
+                color: '#667085',
+                callback: value => value + '%'
+              }
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#18202a',
+              padding: 10,
+              callbacks: {
+                label: context => formatRate(context.raw)
+              }
+            }
+          }
+        })
+      });
+
+      for (const row of rows) {
+        const tr = document.createElement('tr');
+        const name = document.createElement('td');
+        const rate = document.createElement('td');
+        const profanity = document.createElement('td');
+        const words = document.createElement('td');
+        const isCurrentUser = principal?.telegramId && String(row.userId) === String(principal.telegramId);
+        if (isCurrentUser) {
+          const currentUser = document.createElement('strong');
+          currentUser.textContent = row.username;
+          name.append(currentUser);
+        } else {
+          name.textContent = row.username;
+        }
+        rate.textContent = formatRate(row.rate);
+        profanity.textContent = String(row.profanityCount || 0);
+        words.textContent = String(row.wordCount || 0);
+        tr.append(name, rate, profanity, words);
         tbody.append(tr);
       }
     }
@@ -1253,6 +1350,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         renderActivityRows('activityUsers', stats.activity.topUsers || [], 'messages');
         renderActivityRows('activityTalkers', stats.activity.topTalkers || [], 'words');
         renderRows('profanityUsers', stats.profanity.topUsers, 'username', 'count');
+        renderProfanityRateRows(stats.profanity.topRateUsers || []);
         renderRows('profanityWords', stats.profanity.topWords, 'word', 'count');
         renderRows('criminalUsers', stats.criminal.topUsers, 'username', 'count');
         renderNotifications(

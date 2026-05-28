@@ -9,7 +9,7 @@ import { formatSentenceTotalValue } from '../criminal/sentence-calculator';
 const WEEK_LENGTH_DAYS = 7;
 const MONTH_LENGTH_DAYS = 30;
 const MAX_ACTIVITY_RANGE_DAYS = 180;
-const MIN_PROFANITY_RATE_WORDS = 100;
+export const PROFANITY_RATE_MIN_WORDS = 100;
 
 export interface ActivityDateRange {
   startDate: string;
@@ -978,7 +978,7 @@ export async function getTopProfanityRateUsers(
   chatId: number,
   limit: number = 10,
   period: string = 'week',
-  minWords: number = MIN_PROFANITY_RATE_WORDS,
+  minWords: number = PROFANITY_RATE_MIN_WORDS,
 ): Promise<UserProfanityRateStat[]> {
   const [profanityTotals, wordTotals] = await Promise.all([
     aggregateProfanityUserTotals(env, chatId, period),
@@ -1279,17 +1279,17 @@ export async function profanityRateChart(
       chatId,
       limit,
       period,
-      MIN_PROFANITY_RATE_WORDS,
+      PROFANITY_RATE_MIN_WORDS,
     );
 
     if (topUsers.length === 0) {
-      const text = `Нет данных для графика доли мата ${periodText}. Минимум: ${MIN_PROFANITY_RATE_WORDS} слов на пользователя.`;
+      const text = `Нет данных для графика доли мата ${periodText}. Минимум: ${PROFANITY_RATE_MIN_WORDS} слов на пользователя.`;
       if (env.DRY_RUN) return { text };
       await sendMessage(env, chatId, text);
       return;
     }
 
-    const title = `Доля мата ${periodText} (мин. ${MIN_PROFANITY_RATE_WORDS} слов)`;
+    const title = `Доля мата ${periodText} (мин. ${PROFANITY_RATE_MIN_WORDS} слов)`;
     const lines = [title];
     for (let i = 0; i < topUsers.length; i++) {
       const user = topUsers[i];

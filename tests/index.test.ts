@@ -310,12 +310,15 @@ describe("webhook", () => {
     await env.COUNTERS.put("profanity:1:2:2026-05-24", "1");
     await env.COUNTERS.put("profanity:1:2:2026-05-25", "2");
     await env.COUNTERS.put("profanity:1:2:2026-05-26", "9");
+    await env.COUNTERS.put("profanity:1:3:2026-05-24", "10");
+    await env.COUNTERS.put("word_stats_v2:1:2026-05-24:3", "200");
     await env.COUNTERS.put("profanity_words:1:testword:2026-05-24", "1");
     await env.COUNTERS.put("profanity_words:1:testword:2026-05-25", "2");
     await env.COUNTERS.put("profanity_word_users:1:testword:2026-05-25:2", "2");
     await env.COUNTERS.put("criminal:1:2:2026-05-24", "4");
     await env.COUNTERS.put("criminal:1:2:2026-05-26", "8");
     await env.COUNTERS.put("user:2", "alice");
+    await env.COUNTERS.put("user:3", "bob");
 
     const response = await worker.fetch(
       new Request("http://localhost/admin/api/chat?chatId=1&period=custom&from=2026-05-24&to=2026-05-25", {
@@ -341,6 +344,13 @@ describe("webhook", () => {
       userId: 2,
       username: "alice",
       count: 3,
+    });
+    expect(body.profanity.topRateUsers).toContainEqual({
+      userId: 3,
+      username: "bob",
+      profanityCount: 10,
+      wordCount: 200,
+      rate: 5,
     });
     expect(body.profanity.topWords).toContainEqual({
       word: "testword",

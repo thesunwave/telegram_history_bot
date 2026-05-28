@@ -17,4 +17,20 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('localStorage.setItem(HOURLY_TIMEZONE_STORAGE_KEY');
     expect(html).toContain('Средняя активность по часам, ');
   });
+
+  it('renders profanity rate chart and table', () => {
+    const html = renderAdminHtml({
+      botUsername: 'stats_bot',
+      principal: {
+        type: 'telegram',
+        username: 'admin',
+        telegramId: 123,
+      },
+    });
+
+    expect(html).toContain('id="profanityRateChart"');
+    expect(html).toContain('id="profanityRateUsers"');
+    expect(html).toContain('Доля мата');
+    expect(html).toContain('stats.profanity.topRateUsers');
+  });
 });

@@ -2,8 +2,10 @@ import type { Env } from '../core/env';
 import {
   getTopCriminalUsers,
   getTopCriminalUsersBySentence,
+  getTopProfanityRateUsers,
   getTopProfanityUsers,
   getTopProfanityWords,
+  PROFANITY_RATE_MIN_WORDS,
 } from '../features/stats/stats';
 
 export type AdminPeriod = 'today' | 'week' | 'month' | 'custom';
@@ -54,6 +56,13 @@ export interface AdminChatStats {
   };
   profanity: {
     topUsers: Array<{ userId: number; username: string; count: number }>;
+    topRateUsers: Array<{
+      userId: number;
+      username: string;
+      profanityCount: number;
+      wordCount: number;
+      rate: number;
+    }>;
     topWords: Array<{
       word: string;
       count: number;
@@ -362,6 +371,78 @@ async function getRangeTopProfanityUsers(env: Env, chatId: number, range: AdminD
   }));
 }
 
+async function getRangeTopProfanityRateUsers(env: Env, chatId: number, range: AdminDateRange) {
+  const profanityPrefix = `profanity:${chatId}:`;
+  const wordPrefix = `word_stats_v2:${chatId}:`;
+  const profanityTotals: Record<string, number> = {};
+  const wordTotals: Record<string, number> = {};
+  let cursor: string | undefined;
+
+  do {
+    const list: any = await env.COUNTERS.list({ prefix: profanityPrefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    const keysToFetch = list.keys.filter((key: any) => {
+      const parts = key.name.split(':');
+      return parts.length === 4 && isInRange(parts[3], range);
+    });
+
+    for (let i = 0; i < keysToFetch.length; i += 10) {
+      const batch = keysToFetch.slice(i, i + 10);
+      const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
+      for (let j = 0; j < batch.length; j++) {
+        const userId = batch[j].name.split(':')[2];
+        profanityTotals[userId] = (profanityTotals[userId] || 0) + parseInt(values[j] || '0', 10);
+      }
+    }
+  } while (cursor);
+
+  cursor = undefined;
+  do {
+    const list: any = await env.COUNTERS.list({ prefix: wordPrefix, cursor });
+    cursor = !list.list_complete ? list.cursor : undefined;
+    const keysToFetch = list.keys.filter((key: any) => {
+      const parts = key.name.split(':');
+      return parts.length === 4 && isInRange(parts[2], range);
+    });
+
+    for (let i = 0; i < keysToFetch.length; i += 10) {
+      const batch = keysToFetch.slice(i, i + 10);
+      const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
+      for (let j = 0; j < batch.length; j++) {
+        const userId = batch[j].name.split(':')[3];
+        wordTotals[userId] = (wordTotals[userId] || 0) + parseInt(values[j] || '0', 10);
+      }
+    }
+  } while (cursor);
+
+  const sorted = Object.entries(profanityTotals)
+    .map(([userId, profanityCount]) => {
+      const wordCount = wordTotals[userId] || 0;
+      return {
+        userId,
+        profanityCount,
+        wordCount,
+        rate: wordCount > 0 ? (profanityCount / wordCount) * 100 : 0,
+      };
+    })
+    .filter((stat) => stat.profanityCount > 0 && stat.wordCount >= PROFANITY_RATE_MIN_WORDS)
+    .sort((a, b) =>
+      b.rate - a.rate ||
+      b.profanityCount - a.profanityCount ||
+      b.wordCount - a.wordCount,
+    )
+    .slice(0, 10);
+  const names = await Promise.all(sorted.map(({ userId }) => env.COUNTERS.get(`user:${userId}`)));
+
+  return sorted.map((stat, index) => ({
+    userId: parseInt(stat.userId, 10),
+    username: names[index] || `id${stat.userId}`,
+    profanityCount: stat.profanityCount,
+    wordCount: stat.wordCount,
+    rate: stat.rate,
+  }));
+}
+
 async function getRangeTopProfanityWordUsers(
   env: Env,
   chatId: number,
@@ -497,9 +578,19 @@ export async function getAdminChatStats(
   const profanityTopWordsPromise = range.period === 'custom'
     ? getRangeTopProfanityWords(env, chatId, range)
     : getTopProfanityWords(env, chatId, 10, range.period);
-  const [activity, profanityTopUsers, profanityTopWords, criminalTopUsers] = await Promise.all([
+  const profanityTopRateUsersPromise = range.period === 'custom'
+    ? getRangeTopProfanityRateUsers(env, chatId, range)
+    : getTopProfanityRateUsers(env, chatId, 10, range.period);
+  const [
+    activity,
+    profanityTopUsers,
+    profanityTopRateUsers,
+    profanityTopWords,
+    criminalTopUsers,
+  ] = await Promise.all([
     getActivityStats(env, chatId, range),
     profanityTopUsersPromise,
+    profanityTopRateUsersPromise,
     profanityTopWordsPromise,
     getCriminalTopUsers(env, chatId, range),
   ]);
@@ -515,6 +606,7 @@ export async function getAdminChatStats(
     activity,
     profanity: {
       topUsers: profanityTopUsers,
+      topRateUsers: profanityTopRateUsers,
       topWords: profanityTopWords,
     },
     criminal: {
