@@ -322,6 +322,37 @@ describe('Telegram Integration Tests', () => {
       expect(result).toBeNull();
     });
 
+    it('should not process forwarded text messages', () => {
+      const forwardedMessage = {
+        message: {
+          chat: { id: 12345 },
+          from: { id: 67890, username: 'testuser', is_bot: false },
+          forward_origin: { type: 'user', sender_user: { id: 111, is_bot: false } },
+          text: 'Forwarded user message',
+          date: Math.floor(Date.now() / 1000)
+        }
+      };
+
+      const result = getTextMessage(forwardedMessage);
+      expect(result).toBeNull();
+    });
+
+    it('should not record forwarded text messages when recordMessage is called directly', async () => {
+      const forwardedMessage = {
+        message_id: 123,
+        chat: { id: 12345 },
+        from: { id: 67890, username: 'testuser', is_bot: false },
+        forward_date: Math.floor(Date.now() / 1000) - 60,
+        text: 'Forwarded user message',
+        date: Math.floor(Date.now() / 1000)
+      };
+
+      await recordMessage(forwardedMessage, mockEnv);
+
+      expect(mockEnv.HISTORY.put).not.toHaveBeenCalled();
+      expect(mockEnv.COUNTERS_DO.get).not.toHaveBeenCalled();
+    });
+
     it('should process valid user messages', () => {
       const validMessage = {
         message: {

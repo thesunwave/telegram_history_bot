@@ -93,7 +93,22 @@ export function getTextMessage(update: any) {
   const msg = update.message;
   if (!msg || !msg.text) return null;
   if (msg.from?.is_bot) return null;
+  if (isForwardedMessage(msg)) return null;
   return msg;
+}
+
+/**
+ * Detects Telegram reposts/forwards so reposted text is not counted as user activity.
+ */
+export function isForwardedMessage(msg: any): boolean {
+  return Boolean(
+    msg?.forward_origin ||
+    msg?.forward_from ||
+    msg?.forward_from_chat ||
+    msg?.forward_sender_name ||
+    msg?.forward_date ||
+    msg?.is_automatic_forward
+  );
 }
 
 export function countWords(text: string | undefined): number {
@@ -109,6 +124,10 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   }
   if (msg.from?.is_bot) {
     Logger.debug(env, 'recordMessage: bot message, skipping');
+    return;
+  }
+  if (isForwardedMessage(msg)) {
+    Logger.debug(env, 'recordMessage: forwarded message, skipping');
     return;
   }
   const chatId = msg.chat.id;
