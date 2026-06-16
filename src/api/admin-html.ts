@@ -17,6 +17,17 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Telegram Stats Admin</title>
+  <script>
+    (() => {
+      try {
+        const storedTheme = localStorage.getItem('telegramStatsAdmin.theme');
+        document.documentElement.dataset.themeMode =
+          ['system', 'light', 'dark'].includes(storedTheme) ? storedTheme : 'system';
+      } catch (_error) {
+        document.documentElement.dataset.themeMode = 'system';
+      }
+    })();
+  </script>
   <style>
     :root {
       color-scheme: light;
@@ -32,6 +43,68 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       --orange: #b75d19;
       --purple: #6d5bd0;
       --danger: #b42318;
+      --input: #ffffff;
+      --surface: #fbfcfd;
+      --metric-bg: linear-gradient(180deg, #fff 0%, #f9fbfc 100%);
+      --skeleton-base: #eef1f5;
+      --skeleton-highlight: #f7f8fa;
+      --shadow: rgba(24, 32, 42, .14);
+      --chart-grid: #eef1f5;
+      --chart-tooltip-bg: #18202a;
+      --chart-tooltip-text: #ffffff;
+      --daily-fill: rgba(23, 107, 135, .14);
+    }
+    :root[data-theme-mode="dark"] {
+      color-scheme: dark;
+      --bg: #0f1419;
+      --panel: #171d24;
+      --text: #f2f5f7;
+      --muted: #a9b4c0;
+      --line: #2b3540;
+      --accent: #62b6d2;
+      --accent-strong: #8bd3e9;
+      --accent-soft: #132a34;
+      --green: #50c891;
+      --orange: #f2a15f;
+      --purple: #a99df5;
+      --danger: #ff8f86;
+      --input: #10161d;
+      --surface: #111820;
+      --metric-bg: linear-gradient(180deg, #1b232c 0%, #151d25 100%);
+      --skeleton-base: #222b35;
+      --skeleton-highlight: #303b47;
+      --shadow: rgba(0, 0, 0, .45);
+      --chart-grid: #28333e;
+      --chart-tooltip-bg: #0b1015;
+      --chart-tooltip-text: #f2f5f7;
+      --daily-fill: rgba(98, 182, 210, .18);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme-mode="light"]) {
+        color-scheme: dark;
+        --bg: #0f1419;
+        --panel: #171d24;
+        --text: #f2f5f7;
+        --muted: #a9b4c0;
+        --line: #2b3540;
+        --accent: #62b6d2;
+        --accent-strong: #8bd3e9;
+        --accent-soft: #132a34;
+        --green: #50c891;
+        --orange: #f2a15f;
+        --purple: #a99df5;
+        --danger: #ff8f86;
+        --input: #10161d;
+        --surface: #111820;
+        --metric-bg: linear-gradient(180deg, #1b232c 0%, #151d25 100%);
+        --skeleton-base: #222b35;
+        --skeleton-highlight: #303b47;
+        --shadow: rgba(0, 0, 0, .45);
+        --chart-grid: #28333e;
+        --chart-tooltip-bg: #0b1015;
+        --chart-tooltip-text: #f2f5f7;
+        --daily-fill: rgba(98, 182, 210, .18);
+      }
     }
     * { box-sizing: border-box; }
     body {
@@ -54,6 +127,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       justify-content: space-between;
       gap: 16px;
       min-height: 64px;
+    }
+    .topbarRight {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 14px;
+      flex-wrap: wrap;
     }
     h1 {
       margin: 0;
@@ -88,7 +168,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
     input, select {
       width: 100%;
-      background: #fff;
+      background: var(--input);
       color: var(--text);
       padding: 0 10px;
     }
@@ -102,7 +182,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
     button.secondary {
       border-color: var(--line);
-      background: #fff;
+      background: var(--input);
       color: var(--text);
     }
     button:disabled {
@@ -111,7 +191,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
     .loadingControl {
       background:
-        linear-gradient(90deg, #eef1f5 25%, #f7f8fa 37%, #eef1f5 63%);
+        linear-gradient(
+          90deg,
+          var(--skeleton-base) 25%,
+          var(--skeleton-highlight) 37%,
+          var(--skeleton-base) 63%
+        );
       background-size: 400% 100%;
       animation: skeletonPulse 1.35s ease-in-out infinite;
       color: transparent;
@@ -151,7 +236,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       border-radius: 6px;
       padding: 12px;
       min-width: 0;
-      background: linear-gradient(180deg, #fff 0%, #f9fbfc 100%);
+      background: var(--metric-bg);
     }
     .metricBox .metric {
       font-size: 26px;
@@ -163,7 +248,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       height: 1em;
       border-radius: 999px;
       background:
-        linear-gradient(90deg, #eef1f5 25%, #f7f8fa 37%, #eef1f5 63%);
+        linear-gradient(
+          90deg,
+          var(--skeleton-base) 25%,
+          var(--skeleton-highlight) 37%,
+          var(--skeleton-base) 63%
+        );
       background-size: 400% 100%;
       color: transparent;
       animation: skeletonPulse 1.35s ease-in-out infinite;
@@ -178,7 +268,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       height: 14px;
       border-radius: 999px;
       background:
-        linear-gradient(90deg, #eef1f5 25%, #f7f8fa 37%, #eef1f5 63%);
+        linear-gradient(
+          90deg,
+          var(--skeleton-base) 25%,
+          var(--skeleton-highlight) 37%,
+          var(--skeleton-base) 63%
+        );
       background-size: 400% 100%;
       animation: skeletonPulse 1.35s ease-in-out infinite;
     }
@@ -190,7 +285,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       height: 18px;
       border-radius: 999px;
       background:
-        linear-gradient(90deg, #eef1f5 25%, #f7f8fa 37%, #eef1f5 63%);
+        linear-gradient(
+          90deg,
+          var(--skeleton-base) 25%,
+          var(--skeleton-highlight) 37%,
+          var(--skeleton-base) 63%
+        );
       background-size: 400% 100%;
       animation: skeletonPulse 1.35s ease-in-out infinite;
     }
@@ -210,7 +310,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       padding: 14px;
       min-width: 0;
       min-height: 300px;
-      background: #fff;
+      background: var(--surface);
     }
     .chartPanel.wide { grid-column: 1 / -1; }
     .chartHead {
@@ -263,7 +363,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       height: 220px;
       border: 1px dashed var(--line);
       border-radius: 8px;
-      background: #fbfcfd;
+      background: var(--surface);
     }
     .tableScroll {
       overflow-x: auto;
@@ -281,7 +381,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       border-radius: 6px;
       padding: 10px;
       min-width: 0;
-      background: #fbfcfd;
+      background: var(--surface);
     }
     .bucket h3 {
       margin: 0 0 8px;
@@ -385,7 +485,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       border: 1px solid var(--line);
       border-radius: 6px;
       background: var(--panel);
-      box-shadow: 0 10px 24px rgba(24, 32, 42, .14);
+      box-shadow: 0 10px 24px var(--shadow);
       color: var(--text);
       font-size: 12px;
       font-weight: 500;
@@ -406,6 +506,20 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       gap: 12px;
       padding: 2px 0;
     }
+    .themeControl {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .themeControl select {
+      width: 112px;
+      min-height: 32px;
+      padding: 0 8px;
+      font-size: 12px;
+    }
     .tooltipCount {
       flex: 0 0 auto;
       font-weight: 750;
@@ -417,6 +531,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     .hidden { display: none !important; }
     @media (max-width: 720px) {
       .topbar { align-items: flex-start; flex-direction: column; padding: 14px 0; }
+      .topbarRight { width: 100%; justify-content: space-between; }
       form.controls { grid-template-columns: 1fr; }
       .grid { grid-template-columns: 1fr; }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -431,7 +546,16 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
   <header>
     <div class="wrap topbar">
       <h1>Telegram Stats Admin</h1>
-      <div class="muted" id="sessionLabel"></div>
+      <div class="topbarRight">
+        <label class="themeControl">Тема
+          <select id="themeSelect" aria-label="Тема оформления">
+            <option value="system">Система</option>
+            <option value="light">День</option>
+            <option value="dark">Ночь</option>
+          </select>
+        </label>
+        <div class="muted" id="sessionLabel"></div>
+      </div>
     </div>
   </header>
   <main class="wrap">
@@ -606,13 +730,16 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     const botUsername = ${botUsername};
     const principal = ${principal};
     const HOURLY_TIMEZONE_STORAGE_KEY = 'telegramStatsAdmin.hourlyTimezoneOffset';
+    const THEME_STORAGE_KEY = 'telegramStatsAdmin.theme';
+    const THEME_MODES = ['system', 'light', 'dark'];
     const state = {
       chatId: '',
       period: 'today',
       notificationTypes: [],
       chats: [],
       loading: false,
-      currentActivity: null
+      currentActivity: null,
+      currentProfanityRateRows: null
     };
     const chartInstances = {};
     const labels = {
@@ -623,6 +750,79 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       weekly_summary: 'Недельная сводка',
       monthly_summary: 'Месячная сводка'
     };
+
+    function readCssVar(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    function getThemeColors() {
+      return {
+        text: readCssVar('--text'),
+        muted: readCssVar('--muted'),
+        accent: readCssVar('--accent'),
+        green: readCssVar('--green'),
+        orange: readCssVar('--orange'),
+        purple: readCssVar('--purple'),
+        chartGrid: readCssVar('--chart-grid'),
+        chartTooltipBg: readCssVar('--chart-tooltip-bg'),
+        chartTooltipText: readCssVar('--chart-tooltip-text'),
+        dailyFill: readCssVar('--daily-fill')
+      };
+    }
+
+    function normalizeThemeMode(value) {
+      return THEME_MODES.includes(value) ? value : 'system';
+    }
+
+    function readThemeMode() {
+      try {
+        return normalizeThemeMode(localStorage.getItem(THEME_STORAGE_KEY));
+      } catch (_error) {
+        return 'system';
+      }
+    }
+
+    function writeThemeMode(mode) {
+      try {
+        localStorage.setItem(THEME_STORAGE_KEY, normalizeThemeMode(mode));
+      } catch (_error) {
+        // Local storage can be unavailable in restricted browser modes.
+      }
+    }
+
+    function applyThemeMode(mode) {
+      const normalized = normalizeThemeMode(mode);
+      document.documentElement.dataset.themeMode = normalized;
+      document.getElementById('themeSelect').value = normalized;
+    }
+
+    function refreshThemedCharts() {
+      if (state.currentActivity) {
+        renderCharts(state.currentActivity);
+      }
+      if (state.currentProfanityRateRows) {
+        renderProfanityRateRows(state.currentProfanityRateRows);
+      }
+    }
+
+    function setupThemeControl() {
+      applyThemeMode(readThemeMode());
+    }
+
+    function watchSystemThemeChanges() {
+      if (!window.matchMedia) return;
+      const media = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = () => {
+        if (readThemeMode() === 'system') {
+          refreshThemedCharts();
+        }
+      };
+      if (media.addEventListener) {
+        media.addEventListener('change', handler);
+      } else if (media.addListener) {
+        media.addListener(handler);
+      }
+    }
 
     function setStatus(text, isError = false) {
       const el = document.getElementById('status');
@@ -907,6 +1107,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     function renderProfanityRateRows(rows) {
+      state.currentProfanityRateRows = rows || [];
       const tbody = document.getElementById('profanityRateUsers');
       tbody.innerHTML = '';
       const peak = Math.max(...(rows || []).map(row => Number(row.rate) || 0), 0);
@@ -917,13 +1118,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         return;
       }
 
+      const colors = getThemeColors();
       makeChart('profanityRateChart', {
         type: 'bar',
         data: {
           labels: rows.map(row => row.username),
           datasets: [{
             data: rows.map(row => Number((Number(row.rate) || 0).toFixed(2))),
-            backgroundColor: '#b75d19',
+            backgroundColor: colors.orange,
             borderRadius: 5,
             maxBarThickness: 34
           }]
@@ -932,13 +1134,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           scales: {
             x: {
               grid: { display: false },
-              ticks: { color: '#667085', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }
+              ticks: { color: colors.muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }
             },
             y: {
               beginAtZero: true,
-              grid: { color: '#eef1f5' },
+              grid: { color: colors.chartGrid },
               ticks: {
-                color: '#667085',
+                color: colors.muted,
                 callback: value => value + '%'
               }
             }
@@ -946,7 +1148,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           plugins: {
             legend: { display: false },
             tooltip: {
-              backgroundColor: '#18202a',
+              backgroundColor: colors.chartTooltipBg,
+              titleColor: colors.chartTooltipText,
+              bodyColor: colors.chartTooltipText,
               padding: 10,
               callbacks: {
                 label: context => formatRate(context.raw)
@@ -1006,6 +1210,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     function commonChartOptions(extra = {}) {
+      const colors = getThemeColors();
       return {
         responsive: true,
         maintainAspectRatio: false,
@@ -1014,7 +1219,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: '#18202a',
+            backgroundColor: colors.chartTooltipBg,
+            titleColor: colors.chartTooltipText,
+            bodyColor: colors.chartTooltipText,
             padding: 10,
             titleFont: { size: 12, weight: '700' },
             bodyFont: { size: 12 }
@@ -1023,12 +1230,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         scales: {
           x: {
             grid: { display: false },
-            ticks: { color: '#667085', maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }
+            ticks: { color: colors.muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }
           },
           y: {
             beginAtZero: true,
-            grid: { color: '#eef1f5' },
-            ticks: { color: '#667085', precision: 0 }
+            grid: { color: colors.chartGrid },
+            ticks: { color: colors.muted, precision: 0 }
           }
         },
         ...extra
@@ -1105,14 +1312,16 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     function getHourColor(hour) {
-      if (hour >= 5 && hour < 12) return '#176b87';
-      if (hour >= 12 && hour < 17) return '#16825d';
-      if (hour >= 17 && hour < 22) return '#b75d19';
-      return '#6d5bd0';
+      const colors = getThemeColors();
+      if (hour >= 5 && hour < 12) return colors.accent;
+      if (hour >= 12 && hour < 17) return colors.green;
+      if (hour >= 17 && hour < 22) return colors.orange;
+      return colors.purple;
     }
 
     function renderCharts(activity) {
       state.currentActivity = activity;
+      const colors = getThemeColors();
       const dailyMessages = activity.dailyMessages || [];
       const dailyActiveUsers = activity.dailyActiveUsers || [];
       const hourlyAverages = shiftHourlyAverages(activity.hourlyAverages || []);
@@ -1137,8 +1346,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             labels: dailyMessages.map(row => compactDayLabel(row.day)),
             datasets: [{
               data: dailyMessages.map(row => Number(row.count) || 0),
-              borderColor: '#176b87',
-              backgroundColor: 'rgba(23,107,135,.14)',
+              borderColor: colors.accent,
+              backgroundColor: colors.dailyFill,
               borderWidth: 2,
               pointRadius: 3,
               pointHoverRadius: 5,
@@ -1157,7 +1366,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             labels: dailyActiveUsers.map(row => compactDayLabel(row.day)),
             datasets: [{
               data: dailyActiveUsers.map(row => Number(row.count) || 0),
-              backgroundColor: '#16825d',
+              backgroundColor: colors.green,
               borderRadius: 5,
               maxBarThickness: 28
             }]
@@ -1185,12 +1394,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             scales: {
               x: {
                 grid: { display: false },
-                ticks: { color: '#667085', maxRotation: 0, autoSkip: false }
+                ticks: { color: colors.muted, maxRotation: 0, autoSkip: false }
               },
               y: {
                 beginAtZero: true,
-                grid: { color: '#eef1f5' },
-                ticks: { color: '#667085' }
+                grid: { color: colors.chartGrid },
+                ticks: { color: colors.muted }
               }
             }
           })
@@ -1393,6 +1602,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       loadDashboard();
     });
     document.getElementById('period').addEventListener('change', syncCustomPeriodControls);
+    document.getElementById('themeSelect').addEventListener('change', event => {
+      const mode = normalizeThemeMode(event.target.value);
+      applyThemeMode(mode);
+      writeThemeMode(mode);
+      refreshThemedCharts();
+    });
     document.getElementById('hourlyTimezone').addEventListener('change', event => {
       writeTimezoneOffset(clampTimezoneOffset(event.target.value));
       if (state.currentActivity) {
@@ -1400,6 +1615,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }
     });
     document.getElementById('saveNotifications').addEventListener('click', saveNotifications);
+    setupThemeControl();
+    watchSystemThemeChanges();
     setupHourlyTimezoneControl();
     setupCustomPeriodDefaults();
     syncCustomPeriodControls();

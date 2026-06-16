@@ -6,7 +6,10 @@
       "Bash(rtk grep *)",
       "Bash(rtk git *)",
       "Bash(npm audit *)",
-      "Bash(grep -v '^$')"
+      "Bash(grep -v '^$')",
+      "Bash(rtk wc *)",
+      "Bash(grep -v \"Bearer \\\\${this.apiKey}\\\\|Authorization\")",
+      "Bash(rtk proxy *)"
     ]
   }
 }

@@ -18,6 +18,25 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('Средняя активность по часам, ');
   });
 
+  it('renders theme selector persisted in localStorage', () => {
+    const html = renderAdminHtml({
+      botUsername: 'stats_bot',
+      principal: {
+        type: 'telegram',
+        username: 'admin',
+        telegramId: 123,
+      },
+    });
+
+    expect(html).toContain('id="themeSelect"');
+    expect(html).toContain('telegramStatsAdmin.theme');
+    expect(html).toContain('document.documentElement.dataset.themeMode');
+    expect(html).toContain('localStorage.setItem(THEME_STORAGE_KEY');
+    expect(html).toContain('<option value="system">Система</option>');
+    expect(html).toContain('<option value="light">День</option>');
+    expect(html).toContain('<option value="dark">Ночь</option>');
+  });
+
   it('renders profanity rate chart and table', () => {
     const html = renderAdminHtml({
       botUsername: 'stats_bot',
