@@ -32,6 +32,10 @@ export interface IncrementPayload {
   day: string;
   hour?: number;
   wordCount?: number;
+  voiceCount?: number;
+  voiceDurationSeconds?: number;
+  videoNoteCount?: number;
+  videoNoteDurationSeconds?: number;
   ts?: number;
 }
 
@@ -135,6 +139,10 @@ export class CountersDO {
       throw new Error('invalid word count');
     if (p.ts !== undefined && (!Number.isInteger(p.ts) || p.ts < 0))
       throw new Error('invalid timestamp');
+    for (const value of [p.voiceCount, p.voiceDurationSeconds, p.videoNoteCount, p.videoNoteDurationSeconds]) {
+      if (value !== undefined && (!Number.isInteger(value) || value < 0))
+        throw new Error('invalid media metric');
+    }
   }
 
   private validateProfanity(p: ProfanityIncrementPayload) {
@@ -168,6 +176,10 @@ export class CountersDO {
     day,
     hour,
     wordCount = 0,
+    voiceCount = 0,
+    voiceDurationSeconds = 0,
+    videoNoteCount = 0,
+    videoNoteDurationSeconds = 0,
     ts,
   }: IncrementPayload): Promise<{
     userDayCount: number;
@@ -191,6 +203,9 @@ export class CountersDO {
 
     const wordStatsV2Key = `${WORD_STATS_PREFIX}_v2:${chatId}:${day}:${userId}`;
     await this.env.COUNTERS.put(wordStatsV2Key, String(userDayWordCount));
+
+    await this.incrementMediaMetric(chatId, day, userId, 'voice', voiceCount, voiceDurationSeconds);
+    await this.incrementMediaMetric(chatId, day, userId, 'video_note', videoNoteCount, videoNoteDurationSeconds);
 
     await this.env.COUNTERS.put(`${USER_PREFIX}:${userId}`, username);
 
@@ -244,6 +259,26 @@ export class CountersDO {
       userDayWordCount,
       chatDayWords,
     };
+  }
+
+  private async incrementMediaMetric(
+    chatId: number,
+    day: string,
+    userId: number,
+    type: 'voice' | 'video_note',
+    countDelta: number,
+    durationDelta: number,
+  ) {
+    if (countDelta <= 0 && durationDelta <= 0) return;
+
+    const countKey = `media_stats_v2:${chatId}:${day}:${userId}:${type}`;
+    const nextCount = parseInt((await this.env.COUNTERS.get(countKey)) || '0', 10) + countDelta;
+    await this.env.COUNTERS.put(countKey, String(nextCount));
+
+    const durationKey = `media_duration_v2:${chatId}:${day}:${userId}:${type}`;
+    const nextDuration =
+      parseInt((await this.env.COUNTERS.get(durationKey)) || '0', 10) + durationDelta;
+    await this.env.COUNTERS.put(durationKey, String(nextDuration));
   }
 
   private async incrementProfanityCounters(payload: ProfanityIncrementPayload) {

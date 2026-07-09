@@ -605,6 +605,22 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             <div class="metricLabel">Слов/сообщ.</div>
           </div>
           <div class="metricBox">
+            <div class="metric" id="activityVoiceCount">0</div>
+            <div class="metricLabel">Голосовые</div>
+          </div>
+          <div class="metricBox">
+            <div class="metric" id="activityVoiceMinutes">0</div>
+            <div class="metricLabel">Мин. голос.</div>
+          </div>
+          <div class="metricBox">
+            <div class="metric" id="activityVideoNoteCount">0</div>
+            <div class="metricLabel">Кружочки</div>
+          </div>
+          <div class="metricBox">
+            <div class="metric" id="activityVideoNoteMinutes">0</div>
+            <div class="metricLabel">Мин. круж.</div>
+          </div>
+          <div class="metricBox">
             <div class="metric" id="activityActiveUsers">0</div>
             <div class="metricLabel">Активные</div>
           </div>
@@ -669,6 +685,24 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           <table>
             <thead><tr><th>Пользователь</th><th>Слова</th><th>Сообщения</th><th>Слов/сообщ.</th></tr></thead>
             <tbody id="activityTalkers"></tbody>
+          </table>
+        </div>
+      </section>
+      <section>
+        <h2>Голосовые</h2>
+        <div class="tableScroll">
+          <table>
+            <thead><tr><th>Пользователь</th><th>Минуты</th><th>Штук</th></tr></thead>
+            <tbody id="activityVoiceUsers"></tbody>
+          </table>
+        </div>
+      </section>
+      <section>
+        <h2>Кружочки</h2>
+        <div class="tableScroll">
+          <table>
+            <thead><tr><th>Пользователь</th><th>Минуты</th><th>Штук</th></tr></thead>
+            <tbody id="activityVideoNoteUsers"></tbody>
           </table>
         </div>
       </section>
@@ -934,6 +968,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         'activityTotal',
         'activityWords',
         'activityWordsPerMessage',
+        'activityVoiceCount',
+        'activityVoiceMinutes',
+        'activityVideoNoteCount',
+        'activityVideoNoteMinutes',
         'activityActiveUsers',
         'activityAvgDaily',
         'activityAvgDailyUsers',
@@ -949,6 +987,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       renderTimeBuckets([]);
       renderSkeletonRows('activityUsers', 4);
       renderSkeletonRows('activityTalkers', 4);
+      renderSkeletonRows('activityVoiceUsers', 3);
+      renderSkeletonRows('activityVideoNoteUsers', 3);
       renderSkeletonRows('profanityUsers', 2, 3);
       renderSkeletonRows('profanityRateUsers', 4, 3);
       renderSkeletonRows('profanityWords', 2, 3);
@@ -963,6 +1003,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         'activityTotal',
         'activityWords',
         'activityWordsPerMessage',
+        'activityVoiceCount',
+        'activityVoiceMinutes',
+        'activityVideoNoteCount',
+        'activityVideoNoteMinutes',
         'activityActiveUsers',
         'activityAvgDaily',
         'activityAvgDailyUsers',
@@ -976,6 +1020,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       document.getElementById('activityTotal').textContent = '0';
       document.getElementById('activityWords').textContent = '0';
       document.getElementById('activityWordsPerMessage').textContent = '0';
+      document.getElementById('activityVoiceCount').textContent = '0';
+      document.getElementById('activityVoiceMinutes').textContent = '0';
+      document.getElementById('activityVideoNoteCount').textContent = '0';
+      document.getElementById('activityVideoNoteMinutes').textContent = '0';
       document.getElementById('activityActiveUsers').textContent = '0';
       document.getElementById('activityAvgDaily').textContent = '0';
       document.getElementById('activityAvgDailyUsers').textContent = '0';
@@ -984,6 +1032,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       renderTimeBuckets([]);
       renderActivityRows('activityUsers', [], 'messages');
       renderActivityRows('activityTalkers', [], 'words');
+      renderMediaRows('activityVoiceUsers', [], 'voice');
+      renderMediaRows('activityVideoNoteUsers', [], 'videoNote');
       renderRows('profanityUsers', [], 'username', 'count');
       renderProfanityRateRows([]);
       renderRows('profanityWords', [], 'word', 'count');
@@ -1098,6 +1148,28 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         secondary.textContent = String(mode === 'words' ? row.count : row.words);
         rate.textContent = String(row.wordsPerMessage || 0);
         tr.append(name, primary, secondary, rate);
+        tbody.append(tr);
+      }
+    }
+
+    function renderMediaRows(id, rows, type) {
+      const tbody = document.getElementById(id);
+      tbody.innerHTML = '';
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="3" class="muted">Нет данных</td></tr>';
+        return;
+      }
+      const minutesKey = type === 'voice' ? 'voiceMinutes' : 'videoNoteMinutes';
+      const countKey = type === 'voice' ? 'voiceCount' : 'videoNoteCount';
+      for (const row of rows) {
+        const tr = document.createElement('tr');
+        const name = document.createElement('td');
+        const minutes = document.createElement('td');
+        const count = document.createElement('td');
+        name.textContent = row.username;
+        minutes.textContent = String(row[minutesKey] || 0);
+        count.textContent = String(row[countKey] || 0);
+        tr.append(name, minutes, count);
         tbody.append(tr);
       }
     }
@@ -1550,6 +1622,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         document.getElementById('activityTotal').textContent = String(stats.activity.total);
         document.getElementById('activityWords').textContent = String(stats.activity.totalWords || 0);
         document.getElementById('activityWordsPerMessage').textContent = String(stats.activity.wordsPerMessage || 0);
+        document.getElementById('activityVoiceCount').textContent = String(stats.activity.totalVoiceCount || 0);
+        document.getElementById('activityVoiceMinutes').textContent = String(stats.activity.totalVoiceMinutes || 0);
+        document.getElementById('activityVideoNoteCount').textContent = String(stats.activity.totalVideoNoteCount || 0);
+        document.getElementById('activityVideoNoteMinutes').textContent = String(stats.activity.totalVideoNoteMinutes || 0);
         document.getElementById('activityActiveUsers').textContent = String(stats.activity.activeUsers || 0);
         document.getElementById('activityAvgDaily').textContent = String(stats.activity.averageDailyMessages || 0);
         document.getElementById('activityAvgDailyUsers').textContent = String(stats.activity.averageDailyActiveUsers || 0);
@@ -1558,6 +1634,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         renderTimeBuckets(stats.activity.timeBuckets || []);
         renderActivityRows('activityUsers', stats.activity.topUsers || [], 'messages');
         renderActivityRows('activityTalkers', stats.activity.topTalkers || [], 'words');
+        renderMediaRows('activityVoiceUsers', stats.activity.topVoiceUsers || [], 'voice');
+        renderMediaRows('activityVideoNoteUsers', stats.activity.topVideoNoteUsers || [], 'videoNote');
         renderRows('profanityUsers', stats.profanity.topUsers, 'username', 'count');
         renderProfanityRateRows(stats.profanity.topRateUsers || []);
         renderRows('profanityWords', stats.profanity.topWords, 'word', 'count');

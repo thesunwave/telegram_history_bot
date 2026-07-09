@@ -23,6 +23,10 @@ export interface AdminUserCount {
   count: number;
   words: number;
   wordsPerMessage: number;
+  voiceCount: number;
+  voiceMinutes: number;
+  videoNoteCount: number;
+  videoNoteMinutes: number;
   activeDays: number;
   lastMessageTs: number | null;
 }
@@ -39,12 +43,18 @@ export interface AdminChatStats {
     total: number;
     totalWords: number;
     wordsPerMessage: number;
+    totalVoiceCount: number;
+    totalVoiceMinutes: number;
+    totalVideoNoteCount: number;
+    totalVideoNoteMinutes: number;
     activeUsers: number;
     averageDailyMessages: number;
     averageDailyActiveUsers: number;
     averageHourlyMessages: number;
     topUsers: AdminUserCount[];
     topTalkers: AdminUserCount[];
+    topVoiceUsers: AdminUserCount[];
+    topVideoNoteUsers: AdminUserCount[];
     dailyMessages: Array<{ day: string; count: number }>;
     dailyActiveUsers: Array<{ day: string; count: number }>;
     hourlyAverages: Array<{ hour: string; count: number }>;
@@ -181,7 +191,17 @@ function isInRange(day: string, range: AdminDateRange): boolean {
 }
 
 async function getActivityStats(env: Env, chatId: number, range: AdminDateRange) {
-  const totals: Record<string, { messages: number; words: number }> = {};
+  const totals: Record<
+    string,
+    {
+      messages: number;
+      words: number;
+      voiceSeconds: number;
+      voiceCount: number;
+      videoNoteSeconds: number;
+      videoNoteCount: number;
+    }
+  > = {};
   const activeDaysByUser: Record<string, Set<string>> = {};
   const dayTotals: Record<string, number> = {};
   const dayActiveUsers: Record<string, number> = {};
@@ -216,10 +236,27 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
           const count = parseInt(values[j] || '0', 10);
           const words = parseInt(wordValues[j] || '0', 10);
           dayMessageTotal += count;
-          const current = totals[userId] || { messages: 0, words: 0 };
+          const current = totals[userId] || {
+            messages: 0,
+            words: 0,
+            voiceSeconds: 0,
+            voiceCount: 0,
+            videoNoteSeconds: 0,
+            videoNoteCount: 0,
+          };
+          const [voiceCount, voiceSeconds, videoNoteCount, videoNoteSeconds] = await Promise.all([
+            env.COUNTERS.get(`media_stats_v2:${chatId}:${day}:${userId}:voice`),
+            env.COUNTERS.get(`media_duration_v2:${chatId}:${day}:${userId}:voice`),
+            env.COUNTERS.get(`media_stats_v2:${chatId}:${day}:${userId}:video_note`),
+            env.COUNTERS.get(`media_duration_v2:${chatId}:${day}:${userId}:video_note`),
+          ]);
           totals[userId] = {
             messages: current.messages + count,
             words: current.words + words,
+            voiceCount: current.voiceCount + parseInt(voiceCount || '0', 10),
+            voiceSeconds: current.voiceSeconds + parseInt(voiceSeconds || '0', 10),
+            videoNoteCount: current.videoNoteCount + parseInt(videoNoteCount || '0', 10),
+            videoNoteSeconds: current.videoNoteSeconds + parseInt(videoNoteSeconds || '0', 10),
           };
           if (count > 0) {
             usersForDay.add(userId);
@@ -268,6 +305,16 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
   const sortedByWords = Object.entries(totals)
     .sort((a, b) => b[1].words - a[1].words || b[1].messages - a[1].messages)
     .slice(0, 10);
+  const sortedByVoice = Object.entries(totals)
+    .filter(([, stats]) => stats.voiceCount > 0)
+    .sort((a, b) => b[1].voiceSeconds - a[1].voiceSeconds || b[1].voiceCount - a[1].voiceCount)
+    .slice(0, 10);
+  const sortedByVideoNote = Object.entries(totals)
+    .filter(([, stats]) => stats.videoNoteCount > 0)
+    .sort((a, b) =>
+      b[1].videoNoteSeconds - a[1].videoNoteSeconds || b[1].videoNoteCount - a[1].videoNoteCount,
+    )
+    .slice(0, 10);
   const bucketSorted = TIME_BUCKETS.map(({ bucket }) =>
     Object.entries(bucketTotals[bucket])
       .sort((a, b) => b[1] - a[1])
@@ -276,6 +323,8 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
   const users = Array.from(new Set([
     ...sortedByMessages,
     ...sortedByWords,
+    ...sortedByVoice,
+    ...sortedByVideoNote,
     ...bucketSorted.flat(),
   ].map(([userId]) => userId)));
   const [usernames, lastMessages] = await Promise.all([
@@ -289,11 +338,28 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
     users.map((userId, index) => [userId, parseInt(lastMessages[index] || '0', 10) || null]),
   );
 
-  const mapEntry = ([userId, stats]: [string, { messages: number; words: number }]): AdminUserCount => ({
+  const mapEntry = ([
+    userId,
+    stats,
+  ]: [
+    string,
+    {
+      messages: number;
+      words: number;
+      voiceCount: number;
+      voiceSeconds: number;
+      videoNoteCount: number;
+      videoNoteSeconds: number;
+    },
+  ]): AdminUserCount => ({
     userId,
     username: usernameByUserId.get(userId) || `id${userId}`,
     count: stats.messages,
     words: stats.words,
+    voiceCount: stats.voiceCount,
+    voiceMinutes: Number((stats.voiceSeconds / 60).toFixed(1)),
+    videoNoteCount: stats.videoNoteCount,
+    videoNoteMinutes: Number((stats.videoNoteSeconds / 60).toFixed(1)),
     wordsPerMessage: stats.messages > 0 ? Number((stats.words / stats.messages).toFixed(1)) : 0,
     activeDays: activeDaysByUser[userId]?.size || 0,
     lastMessageTs: lastMessageByUserId.get(userId) || null,
@@ -301,6 +367,19 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
 
   const total = Object.values(totals).reduce((sum, stats) => sum + stats.messages, 0);
   const totalWords = Object.values(totals).reduce((sum, stats) => sum + stats.words, 0);
+  const totalVoiceCount = Object.values(totals).reduce((sum, stats) => sum + stats.voiceCount, 0);
+  const totalVoiceSeconds = Object.values(totals).reduce(
+    (sum, stats) => sum + stats.voiceSeconds,
+    0,
+  );
+  const totalVideoNoteCount = Object.values(totals).reduce(
+    (sum, stats) => sum + stats.videoNoteCount,
+    0,
+  );
+  const totalVideoNoteSeconds = Object.values(totals).reduce(
+    (sum, stats) => sum + stats.videoNoteSeconds,
+    0,
+  );
   const dayCount = days.length;
   const activeUsers = Object.keys(totals).length;
 
@@ -308,6 +387,10 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
     total,
     totalWords,
     wordsPerMessage: total > 0 ? Number((totalWords / total).toFixed(1)) : 0,
+    totalVoiceCount,
+    totalVoiceMinutes: Number((totalVoiceSeconds / 60).toFixed(1)),
+    totalVideoNoteCount,
+    totalVideoNoteMinutes: Number((totalVideoNoteSeconds / 60).toFixed(1)),
     activeUsers,
     averageDailyMessages: Number((total / dayCount).toFixed(1)),
     averageDailyActiveUsers: Number(
@@ -316,6 +399,8 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
     averageHourlyMessages: Number((total / (dayCount * 24)).toFixed(2)),
     topUsers: sortedByMessages.map(mapEntry),
     topTalkers: sortedByWords.map(mapEntry),
+    topVoiceUsers: sortedByVoice.map(mapEntry),
+    topVideoNoteUsers: sortedByVideoNote.map(mapEntry),
     dailyMessages: days.map((day) => ({ day, count: dayTotals[day] || 0 })),
     dailyActiveUsers: days.map((day) => ({ day, count: dayActiveUsers[day] || 0 })),
     hourlyAverages: HOURS.map((hour) => ({
@@ -330,6 +415,10 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
         {
           messages: count,
           words: totals[userId]?.words || 0,
+          voiceCount: totals[userId]?.voiceCount || 0,
+          voiceSeconds: totals[userId]?.voiceSeconds || 0,
+          videoNoteCount: totals[userId]?.videoNoteCount || 0,
+          videoNoteSeconds: totals[userId]?.videoNoteSeconds || 0,
         },
       ])),
     })),
