@@ -705,7 +705,7 @@ async function analyzeCriminalCodeAsync(
 }
 
 export async function handleUpdate(msg: any, env: Env) {
-  if (!msg) return;
+  if (!msg?.text) return;
   const chatId = msg.chat.id;
   const ts = msg.date;
   const day = new Date(ts * 1000).toISOString().slice(0, 10);

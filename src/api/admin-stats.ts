@@ -224,15 +224,24 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
       for (let i = 0; i < list.keys.length; i += 10) {
         const batch = list.keys.slice(i, i + 10);
         const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
+        const userIds = batch.map((key: any) => key.name.split(':')[3]);
         const wordValues = await Promise.all(
-          batch.map((key: any) => {
-            const [, , , userId] = key.name.split(':');
-            return env.COUNTERS.get(`word_stats_v2:${chatId}:${day}:${userId}`);
-          }),
+          userIds.map((userId: string) =>
+            env.COUNTERS.get(`word_stats_v2:${chatId}:${day}:${userId}`),
+          ),
+        );
+        const mediaValues = await Promise.all(
+          userIds.flatMap((userId: string) => [
+            env.COUNTERS.get(`media_stats_v2:${chatId}:${day}:${userId}:voice`),
+            env.COUNTERS.get(`media_duration_v2:${chatId}:${day}:${userId}:voice`),
+            env.COUNTERS.get(`media_stats_v2:${chatId}:${day}:${userId}:video_note`),
+            env.COUNTERS.get(`media_duration_v2:${chatId}:${day}:${userId}:video_note`),
+          ]),
         );
 
         for (let j = 0; j < batch.length; j++) {
-          const [, , , userId] = batch[j].name.split(':');
+          const userId = userIds[j];
+          const mediaOffset = j * 4;
           const count = parseInt(values[j] || '0', 10);
           const words = parseInt(wordValues[j] || '0', 10);
           dayMessageTotal += count;
@@ -244,19 +253,14 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
             videoNoteSeconds: 0,
             videoNoteCount: 0,
           };
-          const [voiceCount, voiceSeconds, videoNoteCount, videoNoteSeconds] = await Promise.all([
-            env.COUNTERS.get(`media_stats_v2:${chatId}:${day}:${userId}:voice`),
-            env.COUNTERS.get(`media_duration_v2:${chatId}:${day}:${userId}:voice`),
-            env.COUNTERS.get(`media_stats_v2:${chatId}:${day}:${userId}:video_note`),
-            env.COUNTERS.get(`media_duration_v2:${chatId}:${day}:${userId}:video_note`),
-          ]);
           totals[userId] = {
             messages: current.messages + count,
             words: current.words + words,
-            voiceCount: current.voiceCount + parseInt(voiceCount || '0', 10),
-            voiceSeconds: current.voiceSeconds + parseInt(voiceSeconds || '0', 10),
-            videoNoteCount: current.videoNoteCount + parseInt(videoNoteCount || '0', 10),
-            videoNoteSeconds: current.videoNoteSeconds + parseInt(videoNoteSeconds || '0', 10),
+            voiceCount: current.voiceCount + parseInt(mediaValues[mediaOffset] || '0', 10),
+            voiceSeconds: current.voiceSeconds + parseInt(mediaValues[mediaOffset + 1] || '0', 10),
+            videoNoteCount: current.videoNoteCount + parseInt(mediaValues[mediaOffset + 2] || '0', 10),
+            videoNoteSeconds:
+              current.videoNoteSeconds + parseInt(mediaValues[mediaOffset + 3] || '0', 10),
           };
           if (count > 0) {
             usersForDay.add(userId);

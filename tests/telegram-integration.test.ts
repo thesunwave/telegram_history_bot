@@ -369,6 +369,18 @@ describe('Telegram Integration Tests', () => {
   });
 
   describe('Help Command Integration', () => {
+    it('should ignore voice-only messages in command handling', async () => {
+      const mockMessage = {
+        chat: { id: 12345 },
+        from: { id: 67890, username: 'testuser' },
+        voice: { duration: 42 },
+        date: Math.floor(Date.now() / 1000)
+      };
+
+      await expect(handleUpdate(mockMessage, mockEnv)).resolves.not.toThrow();
+      expect(mockSendMessage).not.toHaveBeenCalled();
+    });
+
     it('should show chat commands and hide admin-only commands in help text', async () => {
       const mockMessage = {
         chat: { id: 12345 },
