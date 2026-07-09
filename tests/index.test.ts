@@ -57,7 +57,17 @@ beforeEach(() => {
       fetch: vi.fn(async (url: string, init?: any) => {
         if (url === "https://do/inc" && init?.method === "POST") {
           const body = JSON.parse(init.body);
-          const { chatId, userId, username, day, wordCount = 0 } = body;
+          const {
+            chatId,
+            userId,
+            username,
+            day,
+            wordCount = 0,
+            voiceCount = 0,
+            voiceDurationSeconds = 0,
+            videoNoteCount = 0,
+            videoNoteDurationSeconds = 0,
+          } = body;
 
           // Store user name
           await env.COUNTERS.put(`user:${userId}`, username);
@@ -93,6 +103,16 @@ beforeEach(() => {
 
           const wordStatsV2Key = `word_stats_v2:${chatId}:${day}:${userId}`;
           await env.COUNTERS.put(wordStatsV2Key, String(nextWords));
+
+          for (const [type, count, duration] of [
+            ["voice", voiceCount, voiceDurationSeconds],
+            ["video_note", videoNoteCount, videoNoteDurationSeconds],
+          ] as const) {
+            if (count > 0 || duration > 0) {
+              await env.COUNTERS.put(`media_stats_v2:${chatId}:${day}:${userId}:${type}`, String(count));
+              await env.COUNTERS.put(`media_duration_v2:${chatId}:${day}:${userId}:${type}`, String(duration));
+            }
+          }
 
           const activityKey = `activity:${chatId}:${day}`;
           const currentActivity = parseInt((await env.COUNTERS.get(activityKey)) || "0", 10);
@@ -235,6 +255,10 @@ describe("webhook", () => {
     await env.COUNTERS.put(`word_stats_v2:1:${day}:2`, "21");
     await env.COUNTERS.put(`activity_hour:1:${day}:13`, "3");
     await env.COUNTERS.put(`activity_time_bucket:1:${day}:noon:2`, "3");
+    await env.COUNTERS.put(`media_stats_v2:1:${day}:2:voice`, "2");
+    await env.COUNTERS.put(`media_duration_v2:1:${day}:2:voice`, "150");
+    await env.COUNTERS.put(`media_stats_v2:1:${day}:2:video_note`, "1");
+    await env.COUNTERS.put(`media_duration_v2:1:${day}:2:video_note`, "60");
     await env.COUNTERS.put("last_message:1:2", "1778158800");
     await env.COUNTERS.put("user:2", "alice");
 
@@ -253,6 +277,10 @@ describe("webhook", () => {
     expect(body.activity.total).toBe(3);
     expect(body.activity.totalWords).toBe(21);
     expect(body.activity.wordsPerMessage).toBe(7);
+    expect(body.activity.totalVoiceCount).toBe(2);
+    expect(body.activity.totalVoiceMinutes).toBe(2.5);
+    expect(body.activity.totalVideoNoteCount).toBe(1);
+    expect(body.activity.totalVideoNoteMinutes).toBe(1);
     expect(body.activity.activeUsers).toBe(1);
     expect(body.activity.averageDailyMessages).toBe(3);
     expect(body.activity.averageDailyActiveUsers).toBe(1);
@@ -267,6 +295,10 @@ describe("webhook", () => {
         count: 3,
         words: 21,
         wordsPerMessage: 7,
+        voiceCount: 2,
+        voiceMinutes: 2.5,
+        videoNoteCount: 1,
+        videoNoteMinutes: 1,
         activeDays: 1,
         lastMessageTs: 1778158800,
       }),
@@ -303,6 +335,10 @@ describe("webhook", () => {
     await env.COUNTERS.put("stats_v2:1:2026-05-26:2", "5");
     await env.COUNTERS.put("word_stats_v2:1:2026-05-24:2", "4");
     await env.COUNTERS.put("word_stats_v2:1:2026-05-25:2", "6");
+    await env.COUNTERS.put("media_stats_v2:1:2026-05-24:2:voice", "1");
+    await env.COUNTERS.put("media_duration_v2:1:2026-05-24:2:voice", "90");
+    await env.COUNTERS.put("media_stats_v2:1:2026-05-25:2:video_note", "2");
+    await env.COUNTERS.put("media_duration_v2:1:2026-05-25:2:video_note", "120");
     await env.COUNTERS.put("word_stats_v2:1:2026-05-26:2", "10");
     await env.COUNTERS.put("activity_hour:1:2026-05-24:09", "2");
     await env.COUNTERS.put("activity_hour:1:2026-05-25:09", "4");
@@ -334,6 +370,10 @@ describe("webhook", () => {
     expect(body.range).toEqual({ from: "2026-05-24", to: "2026-05-25", days: 2 });
     expect(body.activity.total).toBe(5);
     expect(body.activity.totalWords).toBe(10);
+    expect(body.activity.totalVoiceCount).toBe(1);
+    expect(body.activity.totalVoiceMinutes).toBe(1.5);
+    expect(body.activity.totalVideoNoteCount).toBe(2);
+    expect(body.activity.totalVideoNoteMinutes).toBe(2);
     expect(body.activity.averageDailyMessages).toBe(2.5);
     expect(body.activity.dailyMessages).toEqual([
       { day: "2026-05-24", count: 2 },

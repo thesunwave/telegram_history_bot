@@ -91,7 +91,7 @@ export function buildHelpText(env: Env): string {
 
 export function getTextMessage(update: any) {
   const msg = update.message;
-  if (!msg || !msg.text) return null;
+  if (!msg || (!msg.text && !msg.voice && !msg.video_note)) return null;
   if (msg.from?.is_bot) return null;
   if (isForwardedMessage(msg)) return null;
   return msg;
@@ -135,6 +135,12 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   const username = msg.from?.username || `id${userId}`;
   const ts = msg.date;
   const wordCount = countWords(msg.text);
+  const voiceCount = msg.voice ? 1 : 0;
+  const voiceDurationSeconds = Number.isInteger(msg.voice?.duration) ? msg.voice.duration : 0;
+  const videoNoteCount = msg.video_note ? 1 : 0;
+  const videoNoteDurationSeconds = Number.isInteger(msg.video_note?.duration)
+    ? msg.video_note.duration
+    : 0;
   await saveAdminChatMeta(env, msg.chat, ts);
   const stored = {
     chat: chatId,
@@ -201,6 +207,10 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
           day,
           hour: new Date(ts * 1000).getUTCHours(),
           wordCount,
+          voiceCount,
+          voiceDurationSeconds,
+          videoNoteCount,
+          videoNoteDurationSeconds,
           ts,
         }),
       });
@@ -695,7 +705,7 @@ async function analyzeCriminalCodeAsync(
 }
 
 export async function handleUpdate(msg: any, env: Env) {
-  if (!msg) return;
+  if (!msg?.text) return;
   const chatId = msg.chat.id;
   const ts = msg.date;
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
