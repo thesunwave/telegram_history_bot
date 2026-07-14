@@ -197,11 +197,12 @@ describe("webhook", () => {
     expect(html).toContain("test_bot");
   });
 
-  it("requires telegram auth for admin API routes", async () => {
+  it("requires telegram auth for admin API routes without triggering basic auth", async () => {
     const response = await worker.fetch(new Request("http://localhost/admin/api/chats"), env, ctx);
 
     expect(response.status).toBe(401);
-    expect(response.headers.get("WWW-Authenticate")).toContain("Basic");
+    expect(response.headers.get("WWW-Authenticate")).toBeNull();
+    expect(response.headers.get("Location")).toBe("/admin");
   });
 
   it("rejects basic auth for chat-scoped admin API routes", async () => {

@@ -24,8 +24,9 @@ export function unauthorizedAdminResponse(): Response {
   return new Response('Unauthorized', {
     status: 401,
     headers: {
-      'WWW-Authenticate': 'Basic realm="Telegram Stats Admin", charset="UTF-8"',
       'Cache-Control': 'no-store',
+      Location: '/admin',
+      'Set-Cookie': clearTelegramSessionCookie(),
     },
   });
 }
