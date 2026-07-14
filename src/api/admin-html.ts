@@ -528,10 +528,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
     .tooltip {
       display: none;
-      position: absolute;
-      z-index: 30;
-      left: 6px;
-      top: calc(100% - 2px);
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
       width: min(260px, calc(100vw - 48px));
       padding: 10px;
       border: 1px solid var(--line);
@@ -1421,6 +1421,35 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }
     }
 
+    function clampTooltipPosition(value, size, viewportSize) {
+      const margin = 12;
+      return Math.min(Math.max(margin, value), Math.max(margin, viewportSize - size - margin));
+    }
+
+    function positionTooltip(host) {
+      const tooltip = host.querySelector('.tooltip');
+      if (!tooltip) return;
+
+      const hostRect = host.getBoundingClientRect();
+      tooltip.style.left = '0px';
+      tooltip.style.top = '0px';
+      tooltip.style.display = 'block';
+
+      const tooltipRect = tooltip.getBoundingClientRect();
+      const left = clampTooltipPosition(hostRect.left + 6, tooltipRect.width, window.innerWidth);
+      const top = clampTooltipPosition(hostRect.bottom - 2, tooltipRect.height, window.innerHeight);
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = top + 'px';
+      tooltip.style.removeProperty('display');
+    }
+
+    function positionActiveTooltip() {
+      const activeTooltipHost = document.querySelector('.hasTooltip:hover, .hasTooltip:focus');
+      if (activeTooltipHost) {
+        positionTooltip(activeTooltipHost);
+      }
+    }
+
     function renderActivityRows(id, rows, mode) {
       const tbody = document.getElementById(id);
       tbody.innerHTML = '';
@@ -2005,6 +2034,20 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     });
     document.getElementById('saveNotifications').addEventListener('click', saveNotifications);
     document.getElementById('resetDashboardLayout').addEventListener('click', resetDashboardLayout);
+    document.addEventListener('mouseover', event => {
+      const tooltipHost = event.target.closest?.('.hasTooltip');
+      if (tooltipHost) {
+        positionTooltip(tooltipHost);
+      }
+    });
+    document.addEventListener('focusin', event => {
+      const tooltipHost = event.target.closest?.('.hasTooltip');
+      if (tooltipHost) {
+        positionTooltip(tooltipHost);
+      }
+    });
+    window.addEventListener('scroll', positionActiveTooltip, true);
+    window.addEventListener('resize', positionActiveTooltip);
     setupThemeControl();
     watchSystemThemeChanges();
     setupHourlyTimezoneControl();
