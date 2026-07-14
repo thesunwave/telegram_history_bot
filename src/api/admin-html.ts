@@ -214,6 +214,53 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       min-width: 0;
     }
     section.wide { grid-column: 1 / -1; }
+    section.dragging {
+      opacity: .58;
+      outline: 2px dashed var(--accent);
+      outline-offset: 3px;
+    }
+    section.dragOver {
+      box-shadow: 0 0 0 2px var(--accent);
+    }
+    .dashboardToolbar {
+      display: flex;
+      justify-content: flex-end;
+      margin: 0 0 12px;
+    }
+    .dashboardToolbar button {
+      min-height: 34px;
+      font-size: 12px;
+    }
+    .blockHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .blockHeader h2 {
+      margin: 0;
+    }
+    .blockActions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+    .blockActions button {
+      min-width: 34px;
+      min-height: 32px;
+      padding: 0 8px;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .dragHandle {
+      cursor: grab;
+      touch-action: none;
+    }
+    .dragHandle:active {
+      cursor: grabbing;
+    }
     h2 {
       margin: 0 0 12px;
       font-size: 16px;
@@ -588,9 +635,18 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       <button id="refreshButton" type="submit">Обновить</button>
     </form>
     <div id="status" class="status hidden"></div>
+    <div class="dashboardToolbar hidden" id="dashboardToolbar">
+      <button class="secondary" id="resetDashboardLayout" type="button">Сбросить раскладку</button>
+    </div>
     <div class="grid hidden" id="dashboard">
-      <section class="wide">
-        <h2>Активность</h2>
+      <section class="wide" data-block-id="activity">
+        <div class="blockHeader">
+          <h2>Активность</h2>
+          <div class="blockActions">
+            <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
+            <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
+          </div>
+        </div>
         <div class="metrics">
           <div class="metricBox">
             <div class="metric" id="activityTotal">0</div>
@@ -675,12 +731,24 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </table>
         </div>
       </section>
-      <section class="wide">
-        <h2>Лидеры по времени суток</h2>
+      <section class="wide" data-block-id="time-buckets">
+        <div class="blockHeader">
+          <h2>Лидеры по времени суток</h2>
+          <div class="blockActions">
+            <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
+            <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
+          </div>
+        </div>
         <div class="bucketGrid" id="timeBuckets"></div>
       </section>
-      <section>
-        <h2>Болтуны</h2>
+      <section data-block-id="talkers">
+        <div class="blockHeader">
+          <h2>Болтуны</h2>
+          <div class="blockActions">
+            <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
+            <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
+          </div>
+        </div>
         <div class="tableScroll">
           <table>
             <thead><tr><th>Пользователь</th><th>Слова</th><th>Сообщения</th><th>Слов/сообщ.</th></tr></thead>
@@ -688,8 +756,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </table>
         </div>
       </section>
-      <section>
-        <h2>Голосовые</h2>
+      <section data-block-id="voice">
+        <div class="blockHeader">
+          <h2>Голосовые</h2>
+          <div class="blockActions">
+            <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
+            <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
+          </div>
+        </div>
         <div class="tableScroll">
           <table>
             <thead><tr><th>Пользователь</th><th>Минуты</th><th>Штук</th></tr></thead>
@@ -697,8 +771,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </table>
         </div>
       </section>
-      <section>
-        <h2>Кружочки</h2>
+      <section data-block-id="video-notes">
+        <div class="blockHeader">
+          <h2>Кружочки</h2>
+          <div class="blockActions">
+            <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
+            <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
+          </div>
+        </div>
         <div class="tableScroll">
           <table>
             <thead><tr><th>Пользователь</th><th>Минуты</th><th>Штук</th></tr></thead>
@@ -706,8 +786,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </table>
         </div>
       </section>
-      <section>
-        <h2>Мат</h2>
+      <section data-block-id="profanity-users">
+        <div class="blockHeader">
+          <h2>Мат</h2>
+          <div class="blockActions">
+            <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
+            <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
+          </div>
+        </div>
         <div class="tableScroll">
           <table>
             <thead><tr><th>Пользователь</th><th>Счет</th></tr></thead>
@@ -715,8 +801,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </table>
         </div>
       </section>
-      <section class="wide">
-        <h2>Доля мата</h2>
+      <section class="wide" data-block-id="profanity-rate">
+        <div class="blockHeader">
+          <h2>Доля мата</h2>
+          <div class="blockActions">
+            <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
+            <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
+          </div>
+        </div>
         <div class="chartPanel wide">
           <div class="chartHead">
             <div class="chartTitle">Мат среди всех слов, минимум 100 слов</div>
@@ -732,8 +824,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </table>
         </div>
       </section>
-      <section>
-        <h2>Слова</h2>
+      <section data-block-id="profanity-words">
+        <div class="blockHeader">
+          <h2>Слова</h2>
+          <div class="blockActions">
+            <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
+            <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
+          </div>
+        </div>
         <div class="tableScroll">
           <table>
             <thead><tr><th>Слово</th><th>Счет</th></tr></thead>
@@ -741,8 +839,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </table>
         </div>
       </section>
-      <section>
-        <h2>УК РФ</h2>
+      <section data-block-id="criminal">
+        <div class="blockHeader">
+          <h2>УК РФ</h2>
+          <div class="blockActions">
+            <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
+            <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
+          </div>
+        </div>
         <div class="tableScroll">
           <table>
             <thead><tr><th>Пользователь</th><th>Нарушения</th></tr></thead>
@@ -750,8 +854,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </table>
         </div>
       </section>
-      <section class="wide">
-        <h2>Автоуведомления</h2>
+      <section class="wide" data-block-id="notifications">
+        <div class="blockHeader">
+          <h2>Автоуведомления</h2>
+          <div class="blockActions">
+            <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
+            <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
+          </div>
+        </div>
         <div class="notificationMeta" id="notificationMeta">Настройки еще не сохранялись</div>
         <label class="check"><input type="checkbox" id="notificationsEnabled"> Включены</label>
         <div class="toggles" id="notificationTypes"></div>
@@ -765,7 +875,20 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     const principal = ${principal};
     const HOURLY_TIMEZONE_STORAGE_KEY = 'telegramStatsAdmin.hourlyTimezoneOffset';
     const THEME_STORAGE_KEY = 'telegramStatsAdmin.theme';
+    const DASHBOARD_LAYOUT_STORAGE_KEY = 'telegramStatsAdmin.dashboardLayout.v1';
     const THEME_MODES = ['system', 'light', 'dark'];
+    const DEFAULT_DASHBOARD_BLOCKS = [
+      { id: 'activity', size: 'wide' },
+      { id: 'time-buckets', size: 'wide' },
+      { id: 'talkers', size: 'normal' },
+      { id: 'voice', size: 'normal' },
+      { id: 'video-notes', size: 'normal' },
+      { id: 'profanity-users', size: 'normal' },
+      { id: 'profanity-rate', size: 'wide' },
+      { id: 'profanity-words', size: 'normal' },
+      { id: 'criminal', size: 'normal' },
+      { id: 'notifications', size: 'wide' }
+    ];
     const state = {
       chatId: '',
       period: 'today',
@@ -822,6 +945,174 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       } catch (_error) {
         // Local storage can be unavailable in restricted browser modes.
       }
+    }
+
+    function getDefaultDashboardLayout() {
+      return {
+        order: DEFAULT_DASHBOARD_BLOCKS.map(block => block.id),
+        sizes: Object.fromEntries(DEFAULT_DASHBOARD_BLOCKS.map(block => [block.id, block.size]))
+      };
+    }
+
+    function normalizeDashboardLayout(layout) {
+      const defaults = getDefaultDashboardLayout();
+      const knownIds = new Set(defaults.order);
+      const order = [];
+      const rawOrder = Array.isArray(layout?.order) ? layout.order : [];
+      for (const id of rawOrder) {
+        if (knownIds.has(id) && !order.includes(id)) {
+          order.push(id);
+        }
+      }
+      for (const id of defaults.order) {
+        if (!order.includes(id)) {
+          order.push(id);
+        }
+      }
+
+      const sizes = {};
+      for (const id of order) {
+        const savedSize = layout?.sizes?.[id];
+        sizes[id] = savedSize === 'wide' || savedSize === 'normal' ? savedSize : defaults.sizes[id];
+      }
+
+      return { order, sizes };
+    }
+
+    function readDashboardLayout() {
+      try {
+        const stored = localStorage.getItem(DASHBOARD_LAYOUT_STORAGE_KEY);
+        return normalizeDashboardLayout(stored ? JSON.parse(stored) : null);
+      } catch (_error) {
+        return getDefaultDashboardLayout();
+      }
+    }
+
+    function writeDashboardLayout(layout) {
+      try {
+        localStorage.setItem(
+          DASHBOARD_LAYOUT_STORAGE_KEY,
+          JSON.stringify(normalizeDashboardLayout(layout)),
+        );
+      } catch (_error) {
+        // Local storage can be unavailable in restricted browser modes.
+      }
+    }
+
+    function syncDashboardSizeButtons() {
+      for (const section of document.querySelectorAll('#dashboard section[data-block-id]')) {
+        const button = section.querySelector('.sizeToggle');
+        if (!button) continue;
+        const isWide = section.classList.contains('wide');
+        button.setAttribute('aria-pressed', String(isWide));
+        button.title = isWide ? 'Сделать блок компактным' : 'Растянуть блок на всю ширину';
+      }
+    }
+
+    function applyDashboardLayout(layout) {
+      const dashboard = document.getElementById('dashboard');
+      const normalized = normalizeDashboardLayout(layout);
+      const sections = new Map(
+        Array.from(dashboard.querySelectorAll('section[data-block-id]'))
+          .map(section => [section.dataset.blockId, section])
+      );
+
+      for (const id of normalized.order) {
+        const section = sections.get(id);
+        if (!section) continue;
+        section.classList.toggle('wide', normalized.sizes[id] === 'wide');
+        dashboard.append(section);
+      }
+      syncDashboardSizeButtons();
+    }
+
+    function getCurrentDashboardLayout() {
+      const order = [];
+      const sizes = {};
+      for (const section of document.querySelectorAll('#dashboard section[data-block-id]')) {
+        const id = section.dataset.blockId;
+        order.push(id);
+        sizes[id] = section.classList.contains('wide') ? 'wide' : 'normal';
+      }
+      return normalizeDashboardLayout({ order, sizes });
+    }
+
+    function refreshDashboardCharts() {
+      for (const chart of Object.values(chartInstances)) {
+        if (chart?.resize) chart.resize();
+        if (chart?.update) chart.update('none');
+      }
+    }
+
+    function setupDashboardSizeControls() {
+      for (const button of document.querySelectorAll('#dashboard .sizeToggle')) {
+        button.addEventListener('click', () => {
+          const section = button.closest('section[data-block-id]');
+          section.classList.toggle('wide');
+          syncDashboardSizeButtons();
+          writeDashboardLayout(getCurrentDashboardLayout());
+          refreshDashboardCharts();
+        });
+      }
+      syncDashboardSizeButtons();
+    }
+
+    function setupDashboardDragAndDrop() {
+      let draggedBlockId = null;
+      for (const section of document.querySelectorAll('#dashboard section[data-block-id]')) {
+        const handle = section.querySelector('.dragHandle');
+        if (!handle) continue;
+        handle.addEventListener('pointerdown', () => {
+          section.draggable = true;
+        });
+        handle.addEventListener('pointerup', () => {
+          section.draggable = false;
+        });
+        section.addEventListener('dragstart', event => {
+          draggedBlockId = section.dataset.blockId;
+          section.classList.add('dragging');
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', draggedBlockId);
+        });
+        section.addEventListener('dragend', () => {
+          section.draggable = false;
+          section.classList.remove('dragging');
+          section.classList.remove('dragOver');
+          draggedBlockId = null;
+        });
+        section.addEventListener('dragover', event => {
+          if (!draggedBlockId || draggedBlockId === section.dataset.blockId) return;
+          event.preventDefault();
+          section.classList.add('dragOver');
+        });
+        section.addEventListener('dragleave', () => {
+          section.classList.remove('dragOver');
+        });
+        section.addEventListener('drop', event => {
+          event.preventDefault();
+          section.classList.remove('dragOver');
+          const dragged = document.querySelector(
+            '#dashboard section[data-block-id="' + draggedBlockId + '"]'
+          );
+          if (!dragged || dragged === section) return;
+
+          const rect = section.getBoundingClientRect();
+          const shouldPlaceAfter = event.clientY > rect.top + rect.height / 2;
+          section.parentElement.insertBefore(dragged, shouldPlaceAfter ? section.nextSibling : section);
+          writeDashboardLayout(getCurrentDashboardLayout());
+          refreshDashboardCharts();
+        });
+      }
+    }
+
+    function resetDashboardLayout() {
+      try {
+        localStorage.removeItem(DASHBOARD_LAYOUT_STORAGE_KEY);
+      } catch (_error) {
+        // Local storage can be unavailable in restricted browser modes.
+      }
+      applyDashboardLayout(getDefaultDashboardLayout());
+      refreshDashboardCharts();
     }
 
     function applyThemeMode(mode) {
@@ -1045,6 +1336,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       document.getElementById('loginPanel').classList.remove('hidden');
       document.getElementById('controls').classList.add('hidden');
       document.getElementById('dashboard').classList.add('hidden');
+      document.getElementById('dashboardToolbar').classList.add('hidden');
       document.getElementById('status').classList.add('hidden');
       document.getElementById('sessionLabel').textContent = 'Не авторизован';
 
@@ -1067,6 +1359,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       document.getElementById('loginPanel').classList.add('hidden');
       document.getElementById('controls').classList.remove('hidden');
       document.getElementById('dashboard').classList.remove('hidden');
+      document.getElementById('dashboardToolbar').classList.remove('hidden');
       const name = principal?.displayName || principal?.username || 'Telegram user';
       const sessionLabel = document.getElementById('sessionLabel');
       sessionLabel.textContent = 'Вошли как ';
@@ -1585,6 +1878,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         } else {
           finishDashboardLoading();
           document.getElementById('dashboard').classList.add('hidden');
+          document.getElementById('dashboardToolbar').classList.add('hidden');
           setStatus('Чаты появятся после новых сообщений или после обнаружения старых счетчиков.');
         }
       } catch (error) {
@@ -1693,9 +1987,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }
     });
     document.getElementById('saveNotifications').addEventListener('click', saveNotifications);
+    document.getElementById('resetDashboardLayout').addEventListener('click', resetDashboardLayout);
     setupThemeControl();
     watchSystemThemeChanges();
     setupHourlyTimezoneControl();
+    applyDashboardLayout(readDashboardLayout());
+    setupDashboardSizeControls();
+    setupDashboardDragAndDrop();
     setupCustomPeriodDefaults();
     syncCustomPeriodControls();
     if (principal?.type === 'telegram') {

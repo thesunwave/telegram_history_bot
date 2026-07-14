@@ -52,4 +52,27 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('Доля мата');
     expect(html).toContain('stats.profanity.topRateUsers');
   });
+
+  it('renders persisted manual dashboard layout controls', () => {
+    const html = renderAdminHtml({
+      botUsername: 'stats_bot',
+      principal: {
+        type: 'telegram',
+        username: 'admin',
+        telegramId: 123,
+      },
+    });
+
+    expect(html).toContain('telegramStatsAdmin.dashboardLayout.v1');
+    expect(html).toContain('data-block-id="activity"');
+    expect(html).toContain('data-block-id="notifications"');
+    expect(html).toContain('class="secondary dragHandle"');
+    expect(html).toContain('class="secondary sizeToggle"');
+    expect(html).toContain('Перетащить блок');
+    expect(html).toContain('Изменить ширину блока');
+    expect(html).toContain('setupDashboardDragAndDrop');
+    expect(html).toContain('setupDashboardSizeControls');
+    expect(html).toContain('applyDashboardLayout');
+    expect(html).toContain('resetDashboardLayout');
+  });
 });
