@@ -1859,6 +1859,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }
     }
 
+    function redirectToLogin() {
+      window.location.assign('/admin');
+    }
+
     async function loadChats() {
       setStatus('Загрузка чатов...');
       document.getElementById('chatSelect').classList.add('loadingControl');
@@ -1866,7 +1870,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       try {
         const res = await fetch('/admin/api/chats');
         if (res.status === 401) {
-          showLogin();
+          redirectToLogin();
           return;
         }
         if (!res.ok) throw new Error(await res.text());
@@ -1906,6 +1910,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           fetch(statsUrl),
           fetch('/admin/api/notifications?chatId=' + encodeURIComponent(chatId))
         ]);
+        if (statsRes.status === 401 || notificationsRes.status === 401) {
+          redirectToLogin();
+          return;
+        }
         if (!statsRes.ok) throw new Error(await statsRes.text());
         if (!notificationsRes.ok) throw new Error(await notificationsRes.text());
 
@@ -1962,6 +1970,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           notifications
         })
       });
+      if (res.status === 401) {
+        redirectToLogin();
+        return;
+      }
       if (!res.ok) {
         setStatus(await res.text(), true);
         return;
