@@ -519,12 +519,17 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
     .hasTooltip {
       position: relative;
+      z-index: 1;
       cursor: help;
+    }
+    .hasTooltip:hover,
+    .hasTooltip:focus {
+      z-index: 20;
     }
     .tooltip {
       display: none;
       position: absolute;
-      z-index: 5;
+      z-index: 30;
       left: 6px;
       top: calc(100% - 2px);
       width: min(260px, calc(100vw - 48px));
