@@ -541,6 +541,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       color: var(--text);
       font-size: 12px;
       font-weight: 500;
+      pointer-events: none;
       overflow-wrap: anywhere;
     }
     .hasTooltip:hover .tooltip,
@@ -1427,6 +1428,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     function positionTooltip(host) {
+      const horizontalOffset = 96;
       const tooltip = host.querySelector('.tooltip');
       if (!tooltip) return;
 
@@ -1436,7 +1438,11 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       tooltip.style.display = 'block';
 
       const tooltipRect = tooltip.getBoundingClientRect();
-      const left = clampTooltipPosition(hostRect.left + 6, tooltipRect.width, window.innerWidth);
+      const left = clampTooltipPosition(
+        hostRect.left + horizontalOffset,
+        tooltipRect.width,
+        window.innerWidth
+      );
       const top = clampTooltipPosition(hostRect.bottom - 2, tooltipRect.height, window.innerHeight);
       tooltip.style.left = left + 'px';
       tooltip.style.top = top + 'px';
