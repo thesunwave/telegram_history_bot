@@ -59,9 +59,21 @@ export interface AdminChatStats {
     dailyActiveUsers: Array<{ day: string; count: number }>;
     hourlyAverages: Array<{ hour: string; count: number }>;
     participantTimeline: {
+      timeZone: 'UTC';
+      timeBuckets: Array<{
+        bucket: 'night' | 'morning' | 'noon' | 'evening';
+        label: string;
+      }>;
       participants: Array<{
         username: string;
-        dailyLevels: Array<{ day: string; level: 'inactive' | 'active' | 'talkative' }>;
+        dailyLevels: Array<{
+          day: string;
+          level: 'inactive' | 'active' | 'talkative';
+          timeBucketLevels: Array<{
+            bucket: 'night' | 'morning' | 'noon' | 'evening';
+            level: 'inactive' | 'active' | 'talkative';
+          }>;
+        }>;
       }>;
     };
     timeBuckets: Array<{
@@ -111,6 +123,12 @@ const TIME_BUCKETS = [
   { bucket: 'noon' as const, label: 'День' },
   { bucket: 'evening' as const, label: 'Вечер' },
   { bucket: 'night' as const, label: 'Ночь' },
+];
+const PARTICIPANT_TIMELINE_BUCKETS = [
+  { bucket: 'night' as const, label: 'Ночь' },
+  { bucket: 'morning' as const, label: 'Утро' },
+  { bucket: 'noon' as const, label: 'День' },
+  { bucket: 'evening' as const, label: 'Вечер' },
 ];
 
 function formatDay(date: Date): string {
@@ -210,6 +228,7 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
   > = {};
   const activeDaysByUser: Record<string, Set<string>> = {};
   const dailyCountsByUser: Record<string, Record<string, number>> = {};
+  const dailyTimeBucketCountsByUser: Record<string, Record<string, Record<string, number>>> = {};
   const dayTotals: Record<string, number> = {};
   const dayActiveUsers: Record<string, number> = {};
   const hourlyTotals: Record<string, number> = Object.fromEntries(HOURS.map((hour) => [hour, 0]));
@@ -306,6 +325,11 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
             const userId = batch[j].name.split(':')[4];
             const count = parseInt(values[j] || '0', 10);
             bucketTotals[bucket][userId] = (bucketTotals[bucket][userId] || 0) + count;
+            if (!dailyTimeBucketCountsByUser[userId]) dailyTimeBucketCountsByUser[userId] = {};
+            if (!dailyTimeBucketCountsByUser[userId][day]) {
+              dailyTimeBucketCountsByUser[userId][day] = {};
+            }
+            dailyTimeBucketCountsByUser[userId][day][bucket] = count;
           }
         }
       } while (bucketCursor);
@@ -409,6 +433,8 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
   const dayCount = days.length;
   const activeUsers = Object.keys(totals).length;
   const participantTimeline: AdminChatStats['activity']['participantTimeline'] = {
+    timeZone: 'UTC',
+    timeBuckets: PARTICIPANT_TIMELINE_BUCKETS,
     participants: participantUserIds.map((userId, index) => {
       const totalMessages = totals[userId].messages;
       const activeDays = activeDaysByUser[userId].size;
@@ -426,6 +452,18 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
           return {
             day,
             level,
+            timeBucketLevels: PARTICIPANT_TIMELINE_BUCKETS.map(({ bucket }) => {
+              const bucketCount = dailyTimeBucketCountsByUser[userId]?.[day]?.[bucket] || 0;
+              return {
+                bucket,
+                level:
+                  bucketCount === 0
+                    ? 'inactive'
+                    : bucketCount >= talkativeThreshold
+                      ? 'talkative'
+                      : 'active',
+              };
+            }),
           };
         }),
       };
