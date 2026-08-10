@@ -415,6 +415,74 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     .tableScroll {
       overflow-x: auto;
     }
+    .activityHeatmap {
+      width: max-content;
+      min-width: max-content;
+      table-layout: auto;
+      border-collapse: separate;
+      border-spacing: 4px;
+    }
+    .activityHeatmap th,
+    .activityHeatmap td {
+      border: 0;
+      padding: 0;
+      text-align: center;
+    }
+    .activityHeatmap .heatmapName {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      min-width: 148px;
+      padding: 6px 10px;
+      background: var(--panel);
+      color: var(--text);
+      text-align: left;
+      white-space: nowrap;
+    }
+    .activityHeatmap .heatmapDay {
+      width: 26px;
+      min-width: 26px;
+      height: 26px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }
+    .heatmapCell {
+      width: 26px;
+      min-width: 26px;
+      height: 26px;
+      border-radius: 4px;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 26px;
+    }
+    .heatmap-inactive {
+      background: var(--line);
+      color: var(--muted);
+    }
+    .heatmap-active { background: var(--accent); }
+    .heatmap-talkative { background: var(--green); }
+    .heatmapLegend {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .heatmapLegendItem {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .heatmapLegendSwatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+    }
     .activityTable {
       margin-top: 16px;
     }
@@ -747,6 +815,21 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         </div>
         <div class="bucketGrid" id="timeBuckets"></div>
       </section>
+      <section class="wide" data-block-id="participant-activity">
+        <div class="blockHeader">
+          <h2>Активность участников</h2>
+          <div class="blockActions">
+            <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
+            <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
+          </div>
+        </div>
+        <div class="heatmapLegend" aria-label="Обозначения активности">
+          <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-inactive"></span>— Нет активности</span>
+          <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-active"></span>• Активен</span>
+          <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-talkative"></span>● Активно общается</span>
+        </div>
+        <div class="tableScroll" id="activityHeatmap" aria-live="polite"></div>
+      </section>
       <section data-block-id="talkers">
         <div class="blockHeader">
           <h2>Болтуны</h2>
@@ -886,6 +969,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     const DEFAULT_DASHBOARD_BLOCKS = [
       { id: 'activity', size: 'wide' },
       { id: 'time-buckets', size: 'wide' },
+      { id: 'participant-activity', size: 'wide' },
       { id: 'talkers', size: 'normal' },
       { id: 'voice', size: 'normal' },
       { id: 'video-notes', size: 'normal' },
@@ -1279,6 +1363,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         el.classList.add('skeletonText');
       }
       renderCharts({ dailyMessages: [], dailyActiveUsers: [], hourlyAverages: [] });
+      renderActivityHeatmap([]);
       document.getElementById('profanityRatePeak').textContent = '0%';
       setChartEmpty('profanityRate', true);
       renderTimeBuckets([]);
@@ -1326,6 +1411,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       document.getElementById('activityAvgDailyUsers').textContent = '0';
       document.getElementById('activityAvgHourly').textContent = '0';
       renderCharts({ dailyMessages: [], dailyActiveUsers: [], hourlyAverages: [] });
+      renderActivityHeatmap([]);
       renderTimeBuckets([]);
       renderActivityRows('activityUsers', [], 'messages');
       renderActivityRows('activityTalkers', [], 'words');
@@ -1483,6 +1569,85 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         tr.append(name, primary, secondary, rate);
         tbody.append(tr);
       }
+    }
+
+    function activityLevelLabel(level) {
+      return {
+        inactive: 'Нет активности',
+        active: 'Активен',
+        talkative: 'Активно общается'
+      }[level] || 'Нет активности';
+    }
+
+    function activityLevelMark(level) {
+      return {
+        inactive: '—',
+        active: '•',
+        talkative: '●'
+      }[level] || '—';
+    }
+
+    function renderActivityHeatmap(timeline) {
+      const container = document.getElementById('activityHeatmap');
+      container.replaceChildren();
+      const participants = (timeline?.participants || []).slice(0, 12);
+      const days = Array.from(new Set(participants.flatMap(participant =>
+        (participant.dailyLevels || []).map(level => level.day).filter(Boolean)
+      ))).sort().slice(-90);
+      if (!participants.length || !days.length) {
+        const empty = document.createElement('p');
+        empty.className = 'muted';
+        empty.textContent = 'Нет данных об активности за выбранный период';
+        container.append(empty);
+        return;
+      }
+
+      const table = document.createElement('table');
+      table.className = 'activityHeatmap';
+      table.setAttribute('aria-label', 'Активность участников по дням');
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      const nameHeader = document.createElement('th');
+      nameHeader.className = 'heatmapName';
+      nameHeader.scope = 'col';
+      nameHeader.textContent = 'Участник';
+      headerRow.append(nameHeader);
+      for (const day of days) {
+        const dayHeader = document.createElement('th');
+        dayHeader.className = 'heatmapDay';
+        dayHeader.scope = 'col';
+        dayHeader.title = day;
+        dayHeader.textContent = day.slice(5);
+        headerRow.append(dayHeader);
+      }
+      thead.append(headerRow);
+      const tbody = document.createElement('tbody');
+      for (const participant of participants) {
+        const row = document.createElement('tr');
+        const username = participant.username || 'Участник';
+        const name = document.createElement('th');
+        name.className = 'heatmapName';
+        name.scope = 'row';
+        name.textContent = username;
+        row.append(name);
+        const levelsByDay = new Map((participant.dailyLevels || []).map(level => [level.day, level.level]));
+        for (const day of days) {
+          const requestedLevel = levelsByDay.get(day);
+          const level = ['inactive', 'active', 'talkative'].includes(requestedLevel)
+            ? requestedLevel
+            : 'inactive';
+          const label = activityLevelLabel(level);
+          const cell = document.createElement('td');
+          cell.className = 'heatmapCell heatmap-' + level;
+          cell.textContent = activityLevelMark(level);
+          cell.title = username + ', ' + day + ': ' + label;
+          cell.setAttribute('aria-label', username + ', ' + day + ': ' + label);
+          row.append(cell);
+        }
+        tbody.append(row);
+      }
+      table.append(thead, tbody);
+      container.append(table);
     }
 
     function renderMediaRows(id, rows, type) {
@@ -1976,6 +2141,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         renderTimeBuckets(stats.activity.timeBuckets || []);
         renderActivityRows('activityUsers', stats.activity.topUsers || [], 'messages');
         renderActivityRows('activityTalkers', stats.activity.topTalkers || [], 'words');
+        renderActivityHeatmap(stats.activity.participantTimeline);
         renderMediaRows('activityVoiceUsers', stats.activity.topVoiceUsers || [], 'voice');
         renderMediaRows('activityVideoNoteUsers', stats.activity.topVideoNoteUsers || [], 'videoNote');
         renderRows('profanityUsers', stats.profanity.topUsers, 'username', 'count');
