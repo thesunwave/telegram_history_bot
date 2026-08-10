@@ -405,6 +405,54 @@ describe("webhook", () => {
     });
   });
 
+  it("returns a privacy-safe participant timeline to regular chat members", async () => {
+    mockTelegramMembership("member");
+    await env.COUNTERS.put("stats_v2:1:2026-04-24:2", "2");
+    await env.COUNTERS.put("stats_v2:1:2026-04-26:2", "3");
+    await env.COUNTERS.put("stats_v2:1:2026-04-24:3", "1");
+    await env.COUNTERS.put("user:2", "alice");
+    await env.COUNTERS.put("user:3", "");
+
+    const response = await worker.fetch(
+      new Request(
+        "http://localhost/admin/api/chat?chatId=1&period=custom&from=2026-04-24&to=2026-04-26",
+        { headers: await adminSessionHeaders() },
+      ),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as any;
+    expect(body.activity.participantTimeline).toEqual({
+      participants: [
+        {
+          username: "alice",
+          dailyLevels: [
+            { day: "2026-04-24", level: "active" },
+            { day: "2026-04-25", level: "inactive" },
+            { day: "2026-04-26", level: "talkative" },
+          ],
+        },
+        {
+          username: "Участник 2",
+          dailyLevels: [
+            { day: "2026-04-24", level: "active" },
+            { day: "2026-04-25", level: "inactive" },
+            { day: "2026-04-26", level: "inactive" },
+          ],
+        },
+      ],
+    });
+    const participant = body.activity.participantTimeline.participants[0];
+    expect(JSON.stringify(body.activity.participantTimeline)).not.toContain("id3");
+    expect(participant).not.toHaveProperty("userId");
+    expect(participant).not.toHaveProperty("count");
+    expect(participant).not.toHaveProperty("words");
+    expect(participant.dailyLevels[0]).not.toHaveProperty("count");
+    expect(participant.dailyLevels[0]).not.toHaveProperty("words");
+  });
+
   it("lists admin chats from stored metadata and counter fallback", async () => {
     mockTelegramMembership();
     await env.HISTORY.put(
