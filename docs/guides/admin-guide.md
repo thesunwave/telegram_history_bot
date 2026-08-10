@@ -21,9 +21,13 @@ Set `ADMIN_BASIC_USER` as a Worker variable. The password should stay in secrets
 ## Usage
 
 1. Open `https://<your-domain>/admin`.
-2. Enter the Basic Auth username and password.
-3. Select a chat from the list, then choose `today`, `week`, or `month`.
+2. Sign in with Telegram Login.
+3. Select a chat, then choose `today`, `week`, `month`, or a custom period of up to 90 days.
 4. Use the dashboard to view activity, profanity, criminal-code stats, and auto-notification settings.
+5. In **"Активность участников"**, any verified member of the selected chat can view the
+   aggregate daily activity heatmap. It uses the labels **"Нет активности"**, **"Активен"**,
+   and **"Активно общается"**; it never shows message text or raw message, word, or activity
+   counts.
 
 Only chats known to the bot are listed. The Worker filters the list with Telegram `getChatMember`,
 so the logged-in Telegram user only sees chats where Telegram reports them as a participant.
