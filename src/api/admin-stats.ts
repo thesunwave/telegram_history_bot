@@ -48,6 +48,12 @@ export interface AdminChatStats {
     dailyMessages: Array<{ day: string; count: number }>;
     dailyActiveUsers: Array<{ day: string; count: number }>;
     hourlyAverages: Array<{ hour: string; count: number }>;
+    participantTimeline: {
+      participants: Array<{
+        username: string;
+        dailyLevels: Array<{ day: string; level: 'inactive' | 'active' | 'talkative' }>;
+      }>;
+    };
     timeBuckets: Array<{
       bucket: 'morning' | 'noon' | 'evening' | 'night';
       label: string;
@@ -183,6 +189,7 @@ function isInRange(day: string, range: AdminDateRange): boolean {
 async function getActivityStats(env: Env, chatId: number, range: AdminDateRange) {
   const totals: Record<string, { messages: number; words: number }> = {};
   const activeDaysByUser: Record<string, Set<string>> = {};
+  const dailyCountsByUser: Record<string, Record<string, number>> = {};
   const dayTotals: Record<string, number> = {};
   const dayActiveUsers: Record<string, number> = {};
   const hourlyTotals: Record<string, number> = Object.fromEntries(HOURS.map((hour) => [hour, 0]));
@@ -225,6 +232,8 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
             usersForDay.add(userId);
             if (!activeDaysByUser[userId]) activeDaysByUser[userId] = new Set();
             activeDaysByUser[userId].add(day);
+            if (!dailyCountsByUser[userId]) dailyCountsByUser[userId] = {};
+            dailyCountsByUser[userId][day] = count;
           }
         }
       }
@@ -273,20 +282,33 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5),
   );
-  const users = Array.from(new Set([
+  const participantUserIds = Object.entries(totals)
+    .filter(([userId]) => (activeDaysByUser[userId]?.size || 0) > 0)
+    .sort((a, b) =>
+      (activeDaysByUser[b[0]]?.size || 0) - (activeDaysByUser[a[0]]?.size || 0) ||
+      b[1].messages - a[1].messages ||
+      a[0].localeCompare(b[0]),
+    )
+    .slice(0, 12)
+    .map(([userId]) => userId);
+  const leaderboardUserIds = Array.from(new Set([
     ...sortedByMessages,
     ...sortedByWords,
     ...bucketSorted.flat(),
   ].map(([userId]) => userId)));
+  const namedUserIds = Array.from(new Set([...leaderboardUserIds, ...participantUserIds]));
   const [usernames, lastMessages] = await Promise.all([
-    Promise.all(users.map((userId) => env.COUNTERS.get(`user:${userId}`))),
-    Promise.all(users.map((userId) => env.COUNTERS.get(`last_message:${chatId}:${userId}`))),
+    Promise.all(namedUserIds.map((userId) => env.COUNTERS.get(`user:${userId}`))),
+    Promise.all(leaderboardUserIds.map((userId) => env.COUNTERS.get(`last_message:${chatId}:${userId}`))),
   ]);
   const usernameByUserId = new Map(
-    users.map((userId, index) => [userId, usernames[index] || `id${userId}`]),
+    namedUserIds.map((userId, index) => [userId, usernames[index] || `id${userId}`]),
   );
   const lastMessageByUserId = new Map(
-    users.map((userId, index) => [userId, parseInt(lastMessages[index] || '0', 10) || null]),
+    leaderboardUserIds.map((userId, index) => [
+      userId,
+      parseInt(lastMessages[index] || '0', 10) || null,
+    ]),
   );
 
   const mapEntry = ([userId, stats]: [string, { messages: number; words: number }]): AdminUserCount => ({
@@ -303,6 +325,29 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
   const totalWords = Object.values(totals).reduce((sum, stats) => sum + stats.words, 0);
   const dayCount = days.length;
   const activeUsers = Object.keys(totals).length;
+  const participantTimeline: AdminChatStats['activity']['participantTimeline'] = {
+    participants: participantUserIds.map((userId, index) => {
+      const totalMessages = totals[userId].messages;
+      const activeDays = activeDaysByUser[userId].size;
+      const talkativeThreshold = Math.max(2, Math.ceil(totalMessages / activeDays));
+      const storedUsername = usernameByUserId.get(userId);
+
+      return {
+        username: storedUsername && storedUsername !== `id${userId}`
+          ? storedUsername
+          : `Участник ${index + 1}`,
+        dailyLevels: days.map((day) => {
+          const count = dailyCountsByUser[userId]?.[day] || 0;
+          const level: 'inactive' | 'active' | 'talkative' =
+            count === 0 ? 'inactive' : count >= talkativeThreshold ? 'talkative' : 'active';
+          return {
+            day,
+            level,
+          };
+        }),
+      };
+    }),
+  };
 
   return {
     total,
@@ -322,6 +367,7 @@ async function getActivityStats(env: Env, chatId: number, range: AdminDateRange)
       hour,
       count: Number((hourlyTotals[hour] / dayCount).toFixed(2)),
     })),
+    participantTimeline,
     timeBuckets: TIME_BUCKETS.map(({ bucket, label }, index) => ({
       bucket,
       label,
