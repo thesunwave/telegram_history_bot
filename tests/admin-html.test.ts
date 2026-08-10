@@ -76,7 +76,7 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('resetDashboardLayout');
   });
 
-  it('renders an accessible aggregate participant activity heatmap from the dashboard response', () => {
+  it('renders an accessible participant rhythm overview and daily detail heatmap', () => {
     const html = renderAdminHtml({
       botUsername: 'stats_bot',
       principal: {
@@ -86,16 +86,36 @@ describe('renderAdminHtml', () => {
       },
     });
 
-    expect(html).toContain('<h2>Активность участников</h2>');
+    expect(html).toContain('<h2>Ритм участников</h2>');
+    expect(html).toContain('id="activityRhythmOverview"');
     expect(html).toContain('id="activityHeatmap"');
+    expect(html).toContain('id="activityDetailTitle"');
+    expect(html).toContain('Обзор показывает типичный ритм по дням недели; время — UTC.');
     expect(html).toContain('Нет активности');
     expect(html).toContain('Активен');
     expect(html).toContain('Активно общается');
     expect(html).toContain('stats.activity.participantTimeline');
-    expect(html).toContain('function activityLevelMark(level)');
-    expect(html).toContain('cell.textContent = activityLevelMark(level)');
-    expect(html).toContain("cell.setAttribute('aria-label', username + ', ' + day + ': ' + label)");
-    expect(html).toContain("cell.title = username + ', ' + day + ': ' + label");
+    expect(html).toContain('timeBucketLevels');
+    expect(html).toContain("{ bucket: 'night', label: 'Ночь · 22–05' }");
+    expect(html).toContain("{ bucket: 'evening', label: 'Вечер · 17–22' }");
+    expect(html).toContain("const ACTIVITY_WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']");
+    expect(html).toContain(".filter(({ index }) => days.some(day => weekdayIndex(day) === index))");
+    expect(html).toContain('function rhythmLevel(levels)');
+    expect(html).toContain('talkativeLevels * 2 >= levels.length');
+    expect(html).toContain('activeLevels * 4 >= levels.length');
+    expect(html).toContain("if (!levels.length) return 'inactive'");
+    expect(html).toContain("select.setAttribute('aria-pressed', String(participant === selectedParticipant))");
+    expect(html).toContain("select.setAttribute('aria-controls', 'activityHeatmap')");
+    expect(html).toContain("select.addEventListener('click', () => renderActivityHeatmap(timeline, index))");
+    expect(html).toContain("dayHeader.textContent = day.slice(8) + '.' + day.slice(5, 7)");
+    expect(html).toContain("bucketName.scope = 'row'");
+    expect(html).toContain('.activityRhythmGrid');
+    expect(html).toContain('grid-template-columns: repeat(auto-fit, minmax(320px, 1fr))');
+    expect(html).toContain('-webkit-overflow-scrolling: touch');
+    expect(html).not.toContain('function activityLevelMark(level)');
+    expect(html).not.toContain('cell.textContent = activityLevelMark(level)');
+    expect(html).not.toContain('writing-mode: vertical-rl');
+    expect(html).not.toContain('• Активен');
     expect(html).toContain("const participants = (timeline?.participants || []).slice(0, 12)");
     expect(html).toContain('sort().slice(-90)');
     expect(html).not.toContain('participantSelect');

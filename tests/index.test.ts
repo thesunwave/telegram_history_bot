@@ -410,6 +410,9 @@ describe("webhook", () => {
     await env.COUNTERS.put("stats_v2:1:2026-04-24:2", "2");
     await env.COUNTERS.put("stats_v2:1:2026-04-26:2", "3");
     await env.COUNTERS.put("stats_v2:1:2026-04-24:3", "1");
+    await env.COUNTERS.put("activity_time_bucket:1:2026-04-24:morning:2", "2");
+    await env.COUNTERS.put("activity_time_bucket:1:2026-04-26:night:2", "3");
+    await env.COUNTERS.put("activity_time_bucket:1:2026-04-24:evening:3", "1");
     await env.COUNTERS.put("user:2", "alice");
     await env.COUNTERS.put("user:3", "");
 
@@ -425,21 +428,82 @@ describe("webhook", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as any;
     expect(body.activity.participantTimeline).toEqual({
+      timeZone: "UTC",
+      timeBuckets: [
+        { bucket: "night", label: "Ночь" },
+        { bucket: "morning", label: "Утро" },
+        { bucket: "noon", label: "День" },
+        { bucket: "evening", label: "Вечер" },
+      ],
       participants: [
         {
           username: "alice",
           dailyLevels: [
-            { day: "2026-04-24", level: "active" },
-            { day: "2026-04-25", level: "inactive" },
-            { day: "2026-04-26", level: "talkative" },
+            {
+              day: "2026-04-24",
+              level: "active",
+              timeBucketLevels: [
+                { bucket: "night", level: "inactive" },
+                { bucket: "morning", level: "active" },
+                { bucket: "noon", level: "inactive" },
+                { bucket: "evening", level: "inactive" },
+              ],
+            },
+            {
+              day: "2026-04-25",
+              level: "inactive",
+              timeBucketLevels: [
+                { bucket: "night", level: "inactive" },
+                { bucket: "morning", level: "inactive" },
+                { bucket: "noon", level: "inactive" },
+                { bucket: "evening", level: "inactive" },
+              ],
+            },
+            {
+              day: "2026-04-26",
+              level: "talkative",
+              timeBucketLevels: [
+                { bucket: "night", level: "talkative" },
+                { bucket: "morning", level: "inactive" },
+                { bucket: "noon", level: "inactive" },
+                { bucket: "evening", level: "inactive" },
+              ],
+            },
           ],
         },
         {
           username: "Участник 2",
           dailyLevels: [
-            { day: "2026-04-24", level: "active" },
-            { day: "2026-04-25", level: "inactive" },
-            { day: "2026-04-26", level: "inactive" },
+            {
+              day: "2026-04-24",
+              level: "active",
+              timeBucketLevels: [
+                { bucket: "night", level: "inactive" },
+                { bucket: "morning", level: "inactive" },
+                { bucket: "noon", level: "inactive" },
+                { bucket: "evening", level: "active" },
+              ],
+            },
+            {
+              day: "2026-04-25",
+              level: "inactive",
+              timeBucketLevels: [
+                { bucket: "night", level: "inactive" },
+                { bucket: "morning", level: "inactive" },
+                { bucket: "noon", level: "inactive" },
+                { bucket: "evening", level: "inactive" },
+              ],
+            },
+            {
+              day: "2026-04-26",
+              level: "inactive",
+              timeBucketLevels: [
+                { bucket: "night", level: "inactive" },
+                { bucket: "morning", level: "inactive" },
+                { bucket: "noon", level: "inactive" },
+                { bucket: "evening", level: "inactive" },
+              ],
+            },
           ],
         },
       ],
@@ -451,6 +515,8 @@ describe("webhook", () => {
     expect(participant).not.toHaveProperty("words");
     expect(participant.dailyLevels[0]).not.toHaveProperty("count");
     expect(participant.dailyLevels[0]).not.toHaveProperty("words");
+    expect(participant.dailyLevels[0].timeBucketLevels[0]).not.toHaveProperty("count");
+    expect(participant.dailyLevels[0].timeBucketLevels[0]).not.toHaveProperty("text");
   });
 
   it("lists admin chats from stored metadata and counter fallback", async () => {

@@ -414,57 +414,118 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
     .tableScroll {
       overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
     }
+    .activityRhythmGrid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .activityRhythmCard {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+    .activityRhythmCardHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .activityRhythmCard h3,
+    .activityDetailTitle {
+      margin: 0;
+      font-size: 14px;
+    }
+    .rhythmSelect {
+      min-height: 30px;
+      padding: 0 9px;
+      font-size: 12px;
+    }
+    .rhythmSelect[aria-pressed="true"] {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+    }
+    .rhythmTable,
     .activityHeatmap {
       width: max-content;
       min-width: max-content;
-      table-layout: auto;
       border-collapse: separate;
-      border-spacing: 4px;
+      border-spacing: 3px;
     }
+    .rhythmTable th,
+    .rhythmTable td,
     .activityHeatmap th,
     .activityHeatmap td {
       border: 0;
       padding: 0;
       text-align: center;
     }
-    .activityHeatmap .heatmapName {
-      position: sticky;
-      left: 0;
-      z-index: 1;
-      min-width: 148px;
-      padding: 6px 10px;
+    .rhythmTable .heatmapBucket,
+    .activityHeatmap .heatmapBucket,
+    .activityHeatmap .heatmapCorner {
+      padding: 5px 7px;
       background: var(--panel);
-      color: var(--text);
+      color: var(--muted);
       text-align: left;
       white-space: nowrap;
+      font-size: 11px;
+      font-weight: 650;
     }
-    .activityHeatmap .heatmapDay {
-      width: 26px;
-      min-width: 26px;
-      height: 26px;
+    .rhythmTable .heatmapDay {
+      width: 28px;
+      min-width: 28px;
+      height: 22px;
+      padding: 2px;
       color: var(--muted);
       font-size: 10px;
       font-weight: 700;
-      writing-mode: vertical-rl;
-      transform: rotate(180deg);
+      line-height: 1;
+    }
+    .activityHeatmap .heatmapDay {
+      width: 40px;
+      min-width: 40px;
+      height: 26px;
+      padding: 2px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .activityHeatmap .heatmapBucket,
+    .activityHeatmap .heatmapCorner {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+    }
+    .activityHeatmap .heatmapCorner {
+      z-index: 2;
+      color: var(--text);
     }
     .heatmapCell {
-      width: 26px;
-      min-width: 26px;
-      height: 26px;
+      width: 28px;
+      min-width: 28px;
+      height: 22px;
       border-radius: 4px;
-      color: var(--text);
-      font-size: 14px;
-      font-weight: 700;
-      line-height: 26px;
     }
     .heatmap-inactive {
       background: var(--line);
-      color: var(--muted);
     }
-    .heatmap-active { background: var(--accent); }
-    .heatmap-talkative { background: var(--green); }
+    .heatmap-active {
+      background: var(--accent-soft);
+    }
+    .heatmap-talkative {
+      background: var(--accent);
+    }
+    @supports (background: color-mix(in srgb, black 50%, white)) {
+      .heatmap-inactive { background: color-mix(in srgb, var(--line) 72%, var(--panel)); }
+      .heatmap-active { background: color-mix(in srgb, var(--accent) 48%, var(--panel)); }
+      .heatmap-talkative { background: color-mix(in srgb, var(--accent) 78%, var(--panel)); }
+    }
     .heatmapLegend {
       display: flex;
       gap: 14px;
@@ -482,6 +543,19 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       width: 14px;
       height: 14px;
       border-radius: 3px;
+      border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+    }
+    .heatmapContext {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .activityDetail {
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }
+    .activityDetailTitle {
+      margin: 0 0 10px;
     }
     .activityTable {
       margin-top: 16px;
@@ -660,6 +734,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       .chartPanel.wide { grid-column: auto; }
       .bucketGrid { grid-template-columns: 1fr; }
       .toggles { grid-template-columns: 1fr; }
+      .activityRhythmGrid { grid-template-columns: 1fr; }
+      .rhythmTable { width: 100%; min-width: 0; }
+      .rhythmTable .heatmapBucket { min-width: 102px; }
     }
   </style>
 </head>
@@ -817,18 +894,23 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       </section>
       <section class="wide" data-block-id="participant-activity">
         <div class="blockHeader">
-          <h2>Активность участников</h2>
+          <h2>Ритм участников</h2>
           <div class="blockActions">
             <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
             <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
           </div>
         </div>
+        <p class="heatmapContext">Обзор показывает типичный ритм по дням недели; время — UTC.</p>
         <div class="heatmapLegend" aria-label="Обозначения активности">
-          <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-inactive"></span>— Нет активности</span>
-          <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-active"></span>• Активен</span>
-          <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-talkative"></span>● Активно общается</span>
+          <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-inactive"></span>Нет активности</span>
+          <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-active"></span>Активен</span>
+          <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-talkative"></span>Активно общается</span>
         </div>
-        <div class="tableScroll" id="activityHeatmap" aria-live="polite"></div>
+        <div class="activityRhythmGrid" id="activityRhythmOverview" aria-live="polite"></div>
+        <div class="activityDetail">
+          <h3 class="activityDetailTitle" id="activityDetailTitle">Детали по дням</h3>
+          <div class="tableScroll" id="activityHeatmap" aria-live="polite"></div>
+        </div>
       </section>
       <section data-block-id="talkers">
         <div class="blockHeader">
@@ -1579,17 +1661,60 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }[level] || 'Нет активности';
     }
 
-    function activityLevelMark(level) {
-      return {
-        inactive: '—',
-        active: '•',
-        talkative: '●'
-      }[level] || '—';
+    function activityLevel(level) {
+      return ['inactive', 'active', 'talkative'].includes(level) ? level : 'inactive';
     }
 
-    function renderActivityHeatmap(timeline) {
-      const container = document.getElementById('activityHeatmap');
-      container.replaceChildren();
+    function readableHeatmapDay(day) {
+      return new Intl.DateTimeFormat('ru-RU', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        timeZone: 'UTC'
+      }).format(new Date(day + 'T00:00:00Z'));
+    }
+
+    const ACTIVITY_TIME_BUCKETS = [
+      { bucket: 'night', label: 'Ночь · 22–05' },
+      { bucket: 'morning', label: 'Утро · 05–12' },
+      { bucket: 'noon', label: 'День · 12–17' },
+      { bucket: 'evening', label: 'Вечер · 17–22' }
+    ];
+    const ACTIVITY_WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+    function weekdayIndex(day) {
+      return (new Date(day + 'T00:00:00Z').getUTCDay() + 6) % 7;
+    }
+
+    function bucketLevel(dailyLevel, bucket) {
+      return activityLevel((dailyLevel?.timeBucketLevels || [])
+        .find(level => level.bucket === bucket)?.level);
+    }
+
+    function rhythmLevel(levels) {
+      if (!levels.length) return 'inactive';
+      const activeLevels = levels.filter(level => level !== 'inactive').length;
+      const talkativeLevels = levels.filter(level => level === 'talkative').length;
+      // These proportions make a weekday rhythm stable without exposing message totals.
+      if (talkativeLevels * 2 >= levels.length) return 'talkative';
+      if (activeLevels * 4 >= levels.length) return 'active';
+      return 'inactive';
+    }
+
+    function appendHeatmapCell(row, level, description) {
+      const cell = document.createElement('td');
+      cell.className = 'heatmapCell heatmap-' + level;
+      cell.title = description;
+      cell.setAttribute('aria-label', description);
+      row.append(cell);
+    }
+
+    function renderActivityHeatmap(timeline, selectedIndex = 0) {
+      const overview = document.getElementById('activityRhythmOverview');
+      const detail = document.getElementById('activityHeatmap');
+      const detailTitle = document.getElementById('activityDetailTitle');
+      overview.replaceChildren();
+      detail.replaceChildren();
       const participants = (timeline?.participants || []).slice(0, 12);
       const days = Array.from(new Set(participants.flatMap(participant =>
         (participant.dailyLevels || []).map(level => level.day).filter(Boolean)
@@ -1598,56 +1723,129 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const empty = document.createElement('p');
         empty.className = 'muted';
         empty.textContent = 'Нет данных об активности за выбранный период';
-        container.append(empty);
+        overview.append(empty);
         return;
       }
 
-      const table = document.createElement('table');
-      table.className = 'activityHeatmap';
-      table.setAttribute('aria-label', 'Активность участников по дням');
-      const thead = document.createElement('thead');
-      const headerRow = document.createElement('tr');
-      const nameHeader = document.createElement('th');
-      nameHeader.className = 'heatmapName';
-      nameHeader.scope = 'col';
-      nameHeader.textContent = 'Участник';
-      headerRow.append(nameHeader);
+      const availableBuckets = new Set((timeline?.timeBuckets || []).map(bucket => bucket?.bucket));
+      const timeBuckets = ACTIVITY_TIME_BUCKETS.filter(timeBucket => availableBuckets.has(timeBucket.bucket));
+      if (timeBuckets.length !== ACTIVITY_TIME_BUCKETS.length) {
+        const empty = document.createElement('p');
+        empty.className = 'muted';
+        empty.textContent = 'Нет данных об активности по времени суток за выбранный период';
+        overview.append(empty);
+        return;
+      }
+
+      const selectedParticipant = participants[Math.min(selectedIndex, participants.length - 1)];
+      const weekdays = ACTIVITY_WEEKDAYS
+        .map((label, index) => ({ label, index }))
+        .filter(({ index }) => days.some(day => weekdayIndex(day) === index));
+      for (const [index, participant] of participants.entries()) {
+        const card = document.createElement('article');
+        card.className = 'activityRhythmCard';
+        const username = participant.username || 'Участник';
+        const cardHeader = document.createElement('div');
+        cardHeader.className = 'activityRhythmCardHeader';
+        const name = document.createElement('h3');
+        name.textContent = username;
+        const select = document.createElement('button');
+        select.className = 'secondary rhythmSelect';
+        select.type = 'button';
+        select.textContent = participant === selectedParticipant ? 'Показано ниже' : 'Показать детали';
+        select.setAttribute('aria-controls', 'activityHeatmap');
+        select.setAttribute('aria-pressed', String(participant === selectedParticipant));
+        select.addEventListener('click', () => renderActivityHeatmap(timeline, index));
+        cardHeader.append(name, select);
+        const table = document.createElement('table');
+        table.className = 'rhythmTable';
+        table.setAttribute('aria-label', username + ': типичный ритм по дням недели');
+        const tableHead = document.createElement('thead');
+        const header = document.createElement('tr');
+        const corner = document.createElement('th');
+        corner.scope = 'col';
+        corner.textContent = 'Время';
+        header.append(corner);
+        for (const { label } of weekdays) {
+          const dayHeader = document.createElement('th');
+          dayHeader.className = 'heatmapDay';
+          dayHeader.scope = 'col';
+          dayHeader.textContent = label;
+          header.append(dayHeader);
+        }
+        tableHead.append(header);
+        table.append(tableHead);
+        const tableBody = document.createElement('tbody');
+        const levelsByDay = new Map((participant.dailyLevels || []).map(level => [level.day, level]));
+        for (const timeBucket of timeBuckets) {
+          const row = document.createElement('tr');
+          const bucketName = document.createElement('th');
+          bucketName.className = 'heatmapBucket';
+          bucketName.scope = 'row';
+          bucketName.textContent = timeBucket.label;
+          row.append(bucketName);
+          for (const { index: weekday, label: weekdayLabel } of weekdays) {
+            const levels = days
+              .filter(day => weekdayIndex(day) === weekday)
+              .map(day => bucketLevel(levelsByDay.get(day), timeBucket.bucket));
+            const level = rhythmLevel(levels);
+            appendHeatmapCell(
+              row,
+              level,
+              username + ', ' + timeBucket.label + ', ' + weekdayLabel + ': ' + activityLevelLabel(level)
+            );
+          }
+          tableBody.append(row);
+        }
+        table.append(tableBody);
+        card.append(cardHeader, table);
+        overview.append(card);
+      }
+
+      const username = selectedParticipant.username || 'Участник';
+      detailTitle.textContent = 'Детали по дням: ' + username;
+      const detailTable = document.createElement('table');
+      detailTable.className = 'activityHeatmap';
+      detailTable.setAttribute('aria-label', username + ': активность по дням и времени суток');
+      const tableHead = document.createElement('thead');
+      const header = document.createElement('tr');
+      const corner = document.createElement('th');
+      corner.className = 'heatmapCorner';
+      corner.scope = 'col';
+      corner.textContent = 'Время';
+      header.append(corner);
       for (const day of days) {
         const dayHeader = document.createElement('th');
         dayHeader.className = 'heatmapDay';
         dayHeader.scope = 'col';
-        dayHeader.title = day;
-        dayHeader.textContent = day.slice(5);
-        headerRow.append(dayHeader);
+        dayHeader.title = readableHeatmapDay(day);
+        dayHeader.setAttribute('aria-label', readableHeatmapDay(day));
+        dayHeader.textContent = day.slice(8) + '.' + day.slice(5, 7);
+        header.append(dayHeader);
       }
-      thead.append(headerRow);
-      const tbody = document.createElement('tbody');
-      for (const participant of participants) {
+      tableHead.append(header);
+      detailTable.append(tableHead);
+      const tableBody = document.createElement('tbody');
+      const levelsByDay = new Map((selectedParticipant.dailyLevels || []).map(level => [level.day, level]));
+      for (const timeBucket of timeBuckets) {
         const row = document.createElement('tr');
-        const username = participant.username || 'Участник';
-        const name = document.createElement('th');
-        name.className = 'heatmapName';
-        name.scope = 'row';
-        name.textContent = username;
-        row.append(name);
-        const levelsByDay = new Map((participant.dailyLevels || []).map(level => [level.day, level.level]));
+        const bucketName = document.createElement('th');
+        bucketName.className = 'heatmapBucket';
+        bucketName.scope = 'row';
+        bucketName.textContent = timeBucket.label;
+        row.append(bucketName);
         for (const day of days) {
-          const requestedLevel = levelsByDay.get(day);
-          const level = ['inactive', 'active', 'talkative'].includes(requestedLevel)
-            ? requestedLevel
-            : 'inactive';
-          const label = activityLevelLabel(level);
-          const cell = document.createElement('td');
-          cell.className = 'heatmapCell heatmap-' + level;
-          cell.textContent = activityLevelMark(level);
-          cell.title = username + ', ' + day + ': ' + label;
-          cell.setAttribute('aria-label', username + ', ' + day + ': ' + label);
-          row.append(cell);
+          const level = bucketLevel(levelsByDay.get(day), timeBucket.bucket);
+          appendHeatmapCell(
+            row,
+            level,
+            username + ', ' + timeBucket.label + ', ' + readableHeatmapDay(day) + ': ' + activityLevelLabel(level)
+          );
         }
-        tbody.append(row);
+        tableBody.append(row);
       }
-      table.append(thead, tbody);
-      container.append(table);
+      detailTable.append(tableBody);
+      detail.append(detailTable);
     }
 
     function renderMediaRows(id, rows, type) {

@@ -24,10 +24,11 @@ Set `ADMIN_BASIC_USER` as a Worker variable. The password should stay in secrets
 2. Sign in with Telegram Login.
 3. Select a chat, then choose `today`, `week`, `month`, or a custom period of up to 90 days.
 4. Use the dashboard to view activity, profanity, criminal-code stats, and auto-notification settings.
-5. In **"Активность участников"**, any verified member of the selected chat can view the
-   aggregate daily activity heatmap. It uses the labels **"Нет активности"**, **"Активен"**,
-   and **"Активно общается"**; it never shows message text or raw message, word, or activity
-   counts.
+5. In **"Ритм участников"**, any verified member of the selected chat can compare each
+   participant's typical activity by weekday and by **night, morning, day, and evening** (UTC).
+   Select a participant to see the same qualitative pattern by date. The view uses only
+   **"Нет активности"**, **"Активен"**, and **"Активно общается"**; it never shows message
+   text or raw message, word, or activity counts.
 
 Only chats known to the bot are listed. The Worker filters the list with Telegram `getChatMember`,
 so the logged-in Telegram user only sees chats where Telegram reports them as a participant.
