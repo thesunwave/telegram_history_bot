@@ -52,4 +52,33 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('Доля мата');
     expect(html).toContain('stats.profanity.topRateUsers');
   });
+
+  it('renders an accessible aggregate participant activity heatmap from the dashboard response', () => {
+    const html = renderAdminHtml({
+      botUsername: 'stats_bot',
+      principal: {
+        type: 'telegram',
+        username: 'admin',
+        telegramId: 123,
+      },
+    });
+
+    expect(html).toContain('<h2>Активность участников</h2>');
+    expect(html).toContain('id="activityHeatmap"');
+    expect(html).toContain('Нет активности');
+    expect(html).toContain('Активен');
+    expect(html).toContain('Активно общается');
+    expect(html).toContain('stats.activity.participantTimeline');
+    expect(html).toContain('function activityLevelMark(level)');
+    expect(html).toContain('cell.textContent = activityLevelMark(level)');
+    expect(html).toContain("cell.setAttribute('aria-label', username + ', ' + day + ': ' + label)");
+    expect(html).toContain("cell.title = username + ', ' + day + ': ' + label");
+    expect(html).toContain("const participants = (timeline?.participants || []).slice(0, 12)");
+    expect(html).toContain('sort().slice(-90)');
+    expect(html).not.toContain('participantSelect');
+    expect(html).not.toContain('participantActivityChart');
+    expect(html).not.toContain('/admin/api/chat/user-activity');
+    expect(html).not.toContain('participantRequestId');
+    expect(html).not.toContain("participant.userId");
+  });
 });
