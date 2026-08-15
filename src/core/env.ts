@@ -1,4 +1,4 @@
-export type ProviderType = "cloudflare" | "openai" | "openai-premium" | "openrouter" | "legal-rag" | "mock";
+export type ProviderType = "cloudflare" | "openai" | "openrouter" | "legal-rag" | "mock";
 
 export interface Env {
   HISTORY: import("@cloudflare/workers-types").KVNamespace;
@@ -33,6 +33,7 @@ export interface Env {
   PROFANITY_USER_PROMPT?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
+  OPENAI_MAX_TOKENS?: string | number;
   OPENROUTER_API_KEY?: string;
   OPENROUTER_BASE_URL?: string;
   OPENROUTER_MODEL?: string;
@@ -46,8 +47,6 @@ export interface Env {
   VERY_LARGE_DATASET_BATCH_SIZE?: number;
   VERY_LARGE_DATASET_BATCH_DELAY?: number;
   ADMIN_USER_ID?: string;
-  ADMIN_BASIC_USER?: string;
-  ADMIN_BASIC_PASSWORD?: string;
   TELEGRAM_BOT_USERNAME?: string;
   DRY_RUN?: string;
 

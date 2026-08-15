@@ -1,5 +1,7 @@
 # Telegram History Bot
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/thesunwave/telegram_history_bot)
+
 Cloudflare Worker that stores Telegram chat messages (7 days in KV), generates summaries, and optionally runs profanity/criminal analysis with notifications. Supports Cloudflare AI and OpenAI providers, and includes an **optimized summary system** with parallel processing, context optimization, and automatic fallback.
 
 ## Features
@@ -43,7 +45,7 @@ To enable autocomplete, register the commands with **BotFather** via `/setcomman
 
 ### Overview
 
-The bot includes an **optimized summary system** that improves performance and quality for large message volumes:
+The bot includes an optional **optimized summary system** that improves performance and quality for large message volumes:
 
 - **Parallel Processing**: Uses Durable Objects to fetch messages concurrently
 - **Context Optimization**: High token budgets with configurable limits
@@ -52,7 +54,9 @@ The bot includes an **optimized summary system** that improves performance and q
 
 ### Configuration
 
-The optimized system is **enabled by default** and configured via environment variables:
+The public deployment template starts with summaries disabled, so a new installation makes no
+AI calls. After choosing a summary provider, the optimized system can be enabled with environment
+variables:
 
 ```bash
 # Feature flag (default: true)
@@ -95,34 +99,49 @@ Look for log messages:
 
 For detailed documentation, see `docs/README.md`.
 
-## Configuration & Deployment
+## Deploy to Cloudflare
 
-1. Install dependencies: `npm install`.
+1. Create a Telegram bot with **BotFather** and copy its token.
+2. Click the Deploy to Cloudflare button above. During deployment, enter:
+   - `TOKEN` — the BotFather token;
+   - `SECRET` — a random webhook secret, for example from `openssl rand -hex 32`.
+3. Cloudflare creates the Worker, KV namespaces, D1 database, SQLite-backed Durable Objects,
+   Workers AI binding, cron trigger, and Workers Builds integration. The deploy script also applies
+   all D1 migrations.
+4. Open the deployed Worker. Its landing page shows the exact hostname to register with
+   BotFather `/setdomain`.
+5. Sign in at `/admin` with Telegram, open the setup wizard, and connect the webhook.
+6. Add the bot to a group as an administrator, or disable BotFather Privacy Mode so it can receive
+   ordinary messages. Send a message, then verify `/top`.
 
-2. Create resources and update `wrangler.jsonc` with their IDs:
-   ```bash
-   ./setup.sh
-   ```
-   This will also run the initial D1 migrations. You can rerun them later with:
-   ```bash
-   npx wrangler d1 migrations apply summaries
-   ```
-3. Set secrets:
-   ```bash
-   wrangler secret put TOKEN
-   wrangler secret put SECRET
-   wrangler secret put OPENAI_API_KEY
-   wrangler secret put OPENAI_PREMIUM_API_KEY
-   ```
-   Providers and models are configured via `wrangler.jsonc`:
-   - `SUMMARY_PROVIDER`, `PROFANITY_PROVIDER`, `CRIMINAL_PROVIDER`
-   - `OPENAI_MODEL` / `OPENAI_PREMIUM_MODEL` / `CLOUDFLARE_MODEL`
-   - Summary prompts: `SUMMARY_SYSTEM`, `SUMMARY_PROMPT`
-   - Tuning: `*_MAX_TOKENS`, `*_TEMPERATURE`, `*_TOP_P`, `*_FREQUENCY_PENALTY`
-4. Deploy with Wrangler:
-   ```bash
-   npm run deploy
-   ```
+New installations collect statistics but keep summaries disabled. The setup wizard never asks for
+or stores credentials; it checks which Cloudflare Worker Secrets are configured and explains these
+three paths:
+
+- **Disabled** — keep `ENABLE_SUMMARY=false`; no AI calls are made.
+- **OpenAI** — add `OPENAI_API_KEY` as a Worker Secret, set `SUMMARY_PROVIDER=openai`, and set
+  `ENABLE_SUMMARY=true` under **Settings → Variables and Secrets**.
+- **Workers AI** — set `SUMMARY_PROVIDER=cloudflare` and `ENABLE_SUMMARY=true`. No API key is
+  required, but Cloudflare usage quotas and pricing apply.
+
+Secrets must be stored as Cloudflare Worker Secrets, never as plaintext `vars`, D1 rows, or KV
+values. The wizard returns only configured/not-configured status.
+
+For a manual deployment:
+
+```bash
+npm install
+npx wrangler secret put TOKEN
+npx wrangler secret put SECRET
+npm run deploy
+```
+
+The repository owner can deploy the existing account-specific configuration without replacing its
+legacy Durable Object namespaces:
+
+```bash
+npm run deploy:production
+```
 
 ## Development
 
@@ -137,11 +156,3 @@ Run `npm install` before `npm test` to ensure dev dependencies like Vitest are a
 ## Docs
 
 See `docs/README.md` for documentation structure and naming rules.
-
-## Setup Script
-
-`setup.sh` creates KV namespaces and the D1 database. Copy the printed IDs into
-`wrangler.jsonc` so the worker can bind to these resources. The cron trigger is
-configured in `wrangler.jsonc` and will be created on deployment. The Durable
-Object for counters is defined in `wrangler.jsonc` and requires no additional
-setup.

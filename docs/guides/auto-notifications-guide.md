@@ -307,10 +307,6 @@ const template = {
 npm test tests/notification-service.test.ts
 ```
 
-## Примеры кода
-
-Полные примеры использования API доступны в файле `examples/notification-usage.ts`.
-
 ## Поддержка
 
 При возникновении проблем:

@@ -84,7 +84,6 @@ export class OpenAIProvider implements AIProvider {
   private apiKey: string;
   private model: string;
   private baseUrl: string = 'https://api.openai.com/v1';
-  private providerType: 'standard' | 'premium';
   private usageCallback: UsageCallback | null = null;
   private currentFeature: FeatureType = 'summary';  // Default feature for tracking
   private readonly modelCaps: Record<string, { maxOutput: number }> = {
@@ -205,20 +204,9 @@ export class OpenAIProvider implements AIProvider {
     return payload as OpenAIResponsesRequest;
   }
 
-  constructor(env: Env, providerType: 'standard' | 'premium' = 'standard', modelOverride?: string) {
-    this.providerType = providerType;
-
-    if (providerType === 'premium') {
-      this.apiKey = (env as any).OPENAI_PREMIUM_API_KEY || (env as any).OPENAI_API_KEY;
-      this.model =
-        modelOverride?.trim() ||
-        (env as any).OPENAI_PREMIUM_MODEL ||
-        (env as any).OPENAI_MODEL ||
-        'gpt-4-turbo';
-    } else {
-      this.apiKey = (env as any).OPENAI_API_KEY;
-      this.model = modelOverride?.trim() || (env as any).OPENAI_MODEL || 'gpt-3.5-turbo';
-    }
+  constructor(env: Env, modelOverride?: string) {
+    this.apiKey = (env as any).OPENAI_API_KEY;
+    this.model = modelOverride?.trim() || (env as any).OPENAI_MODEL || 'gpt-3.5-turbo';
 
     // Initialize usage tracking with global budget tracker
     this.usageCallback = (model: string, feature: FeatureType, usage: TokenUsage) => {
@@ -613,8 +601,7 @@ export class OpenAIProvider implements AIProvider {
 
   validateConfig(): void {
     if (!this.apiKey) {
-      const keyName = this.providerType === 'premium' ? 'OPENAI_PREMIUM_API_KEY' : 'OPENAI_API_KEY';
-      throw new Error(`${keyName} is required for OpenAI ${this.providerType} provider`);
+      throw new Error('OPENAI_API_KEY is required for OpenAI provider');
     }
   }
 
@@ -629,7 +616,6 @@ export class OpenAIProvider implements AIProvider {
           provider: 'openai',
           model: this.model,
           textLength: text.length,
-          providerType: this.providerType,
           isGPT5: this.isGPT5Model(this.model)
         });
       }
@@ -717,7 +703,6 @@ export class OpenAIProvider implements AIProvider {
         Logger.error('OpenAI profanity analysis: failed', {
           provider: 'openai',
           model: this.model,
-          providerType: this.providerType,
           textLength: text.length,
           duration,
           error: error.message || String(error),
@@ -834,7 +819,6 @@ export class OpenAIProvider implements AIProvider {
           provider: 'openai',
           model: this.model,
           textLength: text.length,
-          providerType: this.providerType,
           isGPT5: this.isGPT5Model(this.model)
         });
       }
@@ -933,7 +917,6 @@ export class OpenAIProvider implements AIProvider {
         logMethod('OpenAI criminal code analysis: failed', {
           provider: 'openai',
           model: this.model,
-          providerType: this.providerType,
           textLength: text.length,
           duration,
           error: error.message || String(error),
@@ -1040,7 +1023,7 @@ export class OpenAIProvider implements AIProvider {
 
   getProviderInfo(): ProviderInfo {
     return {
-      name: this.providerType === 'premium' ? 'openai-premium' : 'openai',
+      name: 'openai',
       model: this.model
     };
   }

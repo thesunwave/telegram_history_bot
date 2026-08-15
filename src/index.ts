@@ -30,6 +30,87 @@ import type {
   ScheduledEvent,
 } from "@cloudflare/workers-types";
 
+function constantTimeEqual(left: string | null, right: string | null): boolean {
+  const safeLeft = left || "";
+  const safeRight = right || "";
+  const maxLength = Math.max(safeLeft.length, safeRight.length);
+  let difference = safeLeft.length ^ safeRight.length;
+
+  for (let index = 0; index < maxLength; index++) {
+    difference |= (safeLeft.charCodeAt(index) || 0) ^ (safeRight.charCodeAt(index) || 0);
+  }
+
+  return difference === 0;
+}
+
+function renderLandingPage(): string {
+  return `<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Telegram Stats Bot</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 720px; margin: 48px auto; padding: 0 20px; color: #18202a; }
+    section { border: 1px solid #d9dee7; border-radius: 10px; padding: 20px; }
+    code { background: #f3f5f7; padding: 3px 6px; border-radius: 4px; }
+    a { color: #176b87; }
+  </style>
+</head>
+<body>
+  <h1>Telegram Stats Bot развёрнут</h1>
+  <section>
+    <p>1. Откройте <b>BotFather</b>, выполните <code>/setdomain</code> и укажите:</p>
+    <p><code id="domain">этот домен Worker</code></p>
+    <p>2. Затем <a href="/admin">войдите через Telegram</a> и откройте мастер настройки.</p>
+  </section>
+  <script>document.getElementById("domain").textContent = location.hostname;</script>
+</body>
+</html>`;
+}
+
+async function handleTelegramWebhook(
+  req: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  requirePathToken: boolean,
+): Promise<Response> {
+  if (!env.SECRET || (requirePathToken && !env.TOKEN)) {
+    Logger.error("webhook credentials are not configured", { legacyRoute: requirePathToken });
+    return new Response("webhook is not configured", { status: 503 });
+  }
+
+  const secretMatches = constantTimeEqual(
+    req.headers.get("X-Telegram-Bot-Api-Secret-Token"),
+    env.SECRET,
+  );
+  const tokenMatches =
+    !requirePathToken ||
+    constantTimeEqual(new URL(req.url).pathname.split("/")[2], env.TOKEN);
+
+  if (!tokenMatches || !secretMatches) {
+    if (requirePathToken && env.ENVIRONMENT === "development") {
+      Logger.warn(env, "legacy webhook authentication mismatch ignored in development", {
+        tokenProvided: Boolean(new URL(req.url).pathname.split("/")[2]),
+        secretProvided: Boolean(req.headers.get("X-Telegram-Bot-Api-Secret-Token")),
+      });
+    } else {
+      Logger.warn(env, "webhook authentication failed", {
+        legacyRoute: requirePathToken,
+        tokenProvided: requirePathToken ? Boolean(new URL(req.url).pathname.split("/")[2]) : undefined,
+        secretProvided: Boolean(req.headers.get("X-Telegram-Bot-Api-Secret-Token")),
+      });
+      return new Response("forbidden", { status: 403 });
+    }
+  }
+
+  const update = await req.json();
+  const message = getTextMessage(update);
+  await recordMessage(message, env, ctx);
+  ctx.waitUntil(handleUpdate(message, env));
+  return Response.json({});
+}
+
 export default {
   async fetch(
     req: Request,
@@ -191,71 +272,21 @@ export default {
       }
     }
 
+    if (url.pathname === "/" && req.method === "GET") {
+      return new Response(renderLandingPage(), {
+        headers: { "Content-Type": "text/html; charset=UTF-8" },
+      });
+    }
     if (url.pathname === "/healthz") return new Response("ok");
+    if (url.pathname === "/telegram/webhook" && req.method === "POST") {
+      return await handleTelegramWebhook(req, env, ctx, false);
+    }
     if (
       url.pathname.startsWith("/tg/") &&
       url.pathname.endsWith("/webhook") &&
       req.method === "POST"
     ) {
-      const token = url.pathname.split("/")[2];
-      const secretHeader = req.headers.get("X-Telegram-Bot-Api-Secret-Token");
-
-      const tokenMatches = token === env.TOKEN;
-      const secretMatches = secretHeader === env.SECRET;
-
-      Logger.debug(env, "webhook auth check", {
-        tokenProvided: Boolean(token),
-        tokenMatches,
-        secretProvided: Boolean(secretHeader),
-        secretMatches,
-      });
-
-      if (!tokenMatches) {
-        if (env.ENVIRONMENT === "development") {
-          Logger.warn(env, "webhook token mismatch (IGNORED IN DEVELOPMENT)", {
-            tokenProvided: Boolean(token),
-          });
-        } else {
-          Logger.warn(env, "webhook token mismatch", {
-            tokenProvided: Boolean(token),
-          });
-          return new Response("forbidden", { status: 403 });
-        }
-      }
-
-      if (!secretMatches) {
-        console.log('DEBUG: env.ENVIRONMENT =', `"${env.ENVIRONMENT}"`);
-        console.log('DEBUG: secretMatches =', secretMatches);
-        if (env.ENVIRONMENT === "development") {
-          Logger.warn(env, "webhook secret mismatch (IGNORED IN DEVELOPMENT)", {
-            secretProvided: Boolean(secretHeader),
-          });
-        } else {
-          Logger.warn(env, "webhook secret mismatch", {
-            secretProvided: Boolean(secretHeader),
-          });
-          return new Response("forbidden", { status: 403 });
-        }
-      }
-      const update = await req.json();
-      Logger.debug(env, "webhook received", {
-        updateType: (update as any).message ? "message" : "other",
-        chatId: (update as any).message?.chat?.id,
-        messageId: (update as any).message?.message_id,
-        hasText: !!(update as any).message?.text,
-        isBot: (update as any).message?.from?.is_bot,
-      });
-
-      const msg = getTextMessage(update);
-      Logger.debug(env, "getTextMessage result", {
-        hasMessage: Boolean(msg),
-        textLength: msg?.text?.length ?? 0,
-        isCommand: msg?.text?.startsWith("/") ?? false,
-      });
-
-      await recordMessage(msg, env, ctx);
-      ctx.waitUntil(handleUpdate(msg, env));
-      return Response.json({});
+      return await handleTelegramWebhook(req, env, ctx, true);
     }
 
 

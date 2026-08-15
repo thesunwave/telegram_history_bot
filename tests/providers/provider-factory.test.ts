@@ -50,16 +50,6 @@ describe("ProviderFactory", () => {
       expect(provider.getProviderInfo().name).toBe("openai");
     });
 
-    it('should create OpenAIProvider with premium when SUMMARY_PROVIDER is "openai-premium"', () => {
-      (mockEnv as any).SUMMARY_PROVIDER = "openai-premium";
-      (mockEnv as any).OPENAI_API_KEY = "test-key";
-
-      const provider = ProviderFactory.createProvider(mockEnv);
-
-      expect(provider).toBeInstanceOf(OpenAIProvider);
-      expect(provider.getProviderInfo().name).toBe("openai-premium");
-    });
-
     it('should create OpenRouterProvider when SUMMARY_PROVIDER is "openrouter"', () => {
       (mockEnv as any).SUMMARY_PROVIDER = "openrouter";
       (mockEnv as any).OPENROUTER_API_KEY = "test-key";
@@ -120,7 +110,7 @@ describe("ProviderFactory", () => {
       (mockEnv as any).SUMMARY_PROVIDER = "unsupported-provider";
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider: unsupported-provider. Supported providers: cloudflare, openai, openai-premium, openrouter, legal-rag, mock",
+        "Unsupported provider: unsupported-provider. Supported providers: cloudflare, openai, openrouter, legal-rag, mock",
       );
     });
 
@@ -128,7 +118,7 @@ describe("ProviderFactory", () => {
       (mockEnv as any).SUMMARY_PROVIDER = "anthropic";
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider: anthropic. Supported providers: cloudflare, openai, openai-premium, openrouter, legal-rag, mock",
+        "Unsupported provider: anthropic. Supported providers: cloudflare, openai, openrouter, legal-rag, mock",
       );
     });
 
@@ -150,7 +140,6 @@ describe("ProviderFactory", () => {
       expect(supportedProviders).toEqual([
         "cloudflare",
         "openai",
-        "openai-premium",
         "openrouter",
         "legal-rag",
         "mock",
@@ -190,7 +179,7 @@ describe("ProviderFactory", () => {
 
       // Should fail because we don't trim whitespace
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider:   openai  . Supported providers: cloudflare, openai, openai-premium, openrouter, legal-rag, mock",
+        "Unsupported provider:   openai  . Supported providers: cloudflare, openai, openrouter, legal-rag, mock",
       );
     });
 
@@ -198,7 +187,7 @@ describe("ProviderFactory", () => {
       (mockEnv as any).SUMMARY_PROVIDER = 123;
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider: 123. Supported providers: cloudflare, openai, openai-premium, openrouter, legal-rag, mock",
+        "Unsupported provider: 123. Supported providers: cloudflare, openai, openrouter, legal-rag, mock",
       );
     });
 
@@ -206,7 +195,7 @@ describe("ProviderFactory", () => {
       (mockEnv as any).SUMMARY_PROVIDER = true;
 
       expect(() => ProviderFactory.createProvider(mockEnv)).toThrow(
-        "Unsupported provider: true. Supported providers: cloudflare, openai, openai-premium, openrouter, legal-rag, mock",
+        "Unsupported provider: true. Supported providers: cloudflare, openai, openrouter, legal-rag, mock",
       );
     });
 

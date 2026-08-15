@@ -261,14 +261,14 @@ describe('OpenAIProvider', () => {
       delete mockEnv.OPENAI_API_KEY;
       const providerWithoutKey = new OpenAIProvider(mockEnv);
 
-      expect(() => providerWithoutKey.validateConfig()).toThrow('OPENAI_API_KEY is required for OpenAI standard provider');
+      expect(() => providerWithoutKey.validateConfig()).toThrow('OPENAI_API_KEY is required for OpenAI provider');
     });
 
     it('should throw error when OPENAI_API_KEY is empty string', () => {
       mockEnv.OPENAI_API_KEY = '';
       const providerWithEmptyKey = new OpenAIProvider(mockEnv);
 
-      expect(() => providerWithEmptyKey.validateConfig()).toThrow('OPENAI_API_KEY is required for OpenAI standard provider');
+      expect(() => providerWithEmptyKey.validateConfig()).toThrow('OPENAI_API_KEY is required for OpenAI provider');
     });
   });
 

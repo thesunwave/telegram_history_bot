@@ -1,308 +1,74 @@
 {
-  // ========================================
-  // 🤖 TELEGRAM HISTORY BOT CONFIGURATION
-  // ========================================
-  //
-  // 🚀 СУПЕР ПРОСТАЯ НАСТРОЙКА:
-  // Просто измените значение SUMMARY_PROVIDER ниже!
-  // Все конфигурации провайдеров уже настроены и готовы к работе.
-  //
-  // ========================================
-  // 📦 ДОСТУПНЫЕ ПРОВАЙДЕРЫ:
-  // ========================================
-  //
-  // 🔵 "cloudflare" - Cloudflare AI (бесплатно, быстро)
-  // 🟢 "openai" - OpenAI GPT-4.1-mini (качественно, требует API ключ)
-  //
-  // ========================================
-  // 🎯 КАК ПЕРЕКЛЮЧИТЬ ПРОВАЙДЕРА:
-  // ========================================
-  //
-  // 1. Измените SUMMARY_PROVIDER на нужное значение
-  // 2. Для OpenAI: добавьте ваш API ключ в соответствующий блок
-  // 3. Сохраните файл - готово!
-  //
-  // Все остальные настройки подтянутся автоматически!
-  //
-  "$schema": "node_modules/wrangler/config-schema.json",
+  "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "telegram-history-bot",
   "main": "src/index.ts",
-  "compatibility_date": "2025-06-10",
+  "compatibility_date": "2026-08-16",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Deploy to Cloudflare provisions these resources for each installation.
   "kv_namespaces": [
+    { "binding": "HISTORY" },
+    { "binding": "COUNTERS" },
+  ],
+  "d1_databases": [
     {
-      "binding": "HISTORY",
-      "id": "2c2400074dd346fa9d19830f893189df",
-      "preview_id": "2c2400074dd346fa9d19830f893189df",
-    },
-    {
-      "binding": "COUNTERS",
-      "id": "eb2d8e7ad2e74a37bb123e4ca820fbb8",
-      "preview_id": "eb2d8e7ad2e74a37bb123e4ca820fbb8",
+      "binding": "DB",
+      "database_name": "telegram-history-bot-db",
+      "migrations_dir": "migrations",
     },
   ],
+  "ai": { "binding": "AI" },
+
   "durable_objects": {
     "bindings": [
-      {
-        "name": "COUNTERS_DO",
-        "class_name": "CountersDO",
-      },
-      {
-        "name": "MESSAGE_FETCHER_DO",
-        "class_name": "MessageFetcherDO",
-      },
-      {
-        "name": "MESSAGE_AGGREGATOR_DO",
-        "class_name": "MessageAggregatorDO",
-      },
-      {
-        "name": "DAY_BLOCK_MANAGER_DO",
-        "class_name": "DayBlockManager",
-      },
+      { "name": "COUNTERS_DO", "class_name": "CountersDO" },
+      { "name": "DAY_BLOCK_MANAGER_DO", "class_name": "DayBlockManager" },
       {
         "name": "CRIMINAL_CODE_ANALYZER_DO",
         "class_name": "CriminalCodeAnalyzerDO",
       },
     ],
   },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "summaries",
-      "database_id": "34682d13-30ec-409f-97e2-e751603e4dcd",
-    },
-  ],
-  "ai": {
-    "binding": "AI",
+  "exports": {
+    "CountersDO": { "type": "durable-object", "storage": "sqlite" },
+    "DayBlockManager": { "type": "durable-object", "storage": "sqlite" },
+    "CriminalCodeAnalyzerDO": { "type": "durable-object", "storage": "sqlite" },
   },
-  "vectorize": [
-    {
-      "binding": "LEGAL_RAG_INDEX",
-      "index_name": "legal-rag-uk-rf",
-    },
-  ],
+
+  "secrets": {
+    "required": ["TOKEN", "SECRET"],
+  },
   "vars": {
     "ENVIRONMENT": "production",
-    "ADMIN_BASIC_USER": "admin",
-    // Available values: "cloudflare", "openai", "openai-premium", "openrouter", "legal-rag", "mock"
-    "SUMMARY_PROVIDER": "openai",
-    "PROFANITY_PROVIDER": "openai",
-    "CRIMINAL_PROVIDER": "legal-rag",
-    // Capability-specific model overrides (optional)
+    "SUMMARY_PROVIDER": "cloudflare",
+    "CLOUDFLARE_MODEL": "@cf/meta/llama-3.2-3b-instruct",
     "OPENAI_MODEL": "gpt-4.1-nano",
-    "PROFANITY_MODEL": "gpt-4.1-nano",
-    "CRIMINAL_MODEL": "gpt-5-nano",
-    "CLOUDFLARE_MODEL": "@cf/meta/llama-3.1-70b-instruct",
-    "CLOUDFLARE_MAX_TOKENS": 500,
-    "CLOUDFLARE_TEMPERATURE": 0.1,
-    "CLOUDFLARE_TOP_P": 0.95,
-    "CLOUDFLARE_FREQUENCY_PENALTY": 0.1,
-    "CLOUDFLARE_PRESENCE_PENALTY": 0.05, // Lower value for Cloudflare models
-    "OPENAI_MAX_TOKENS": 1500,
-    "OPENAI_TEMPERATURE": 0.1,
-    "OPENAI_TOP_P": 0.9,
-    "OPENAI_FREQUENCY_PENALTY": 0.2,
-    // 🎯 GPT-5 Advanced Parameters
-    "OPENAI_PRESENCE_PENALTY": 0.1, // 0.0-2.0: Penalty for repeating topics/concepts
-    "OPENAI_VERBOSITY": "low", // low/medium/high: Response detail level (GPT-5 only)
-    "OPENAI_REASONING_EFFORT": "medium", // minimal/low/medium/high: Thinking depth (GPT-5 only)
-    // Premium OpenAI settings (for openai-premium provider)
-    "OPENAI_PREMIUM_MODEL": "gpt-5-turbo",
-    "OPENAI_PREMIUM_MAX_TOKENS": 1500,
-    "OPENAI_PREMIUM_TEMPERATURE": 0.2,
-    "OPENAI_PREMIUM_TOP_P": 0.85,
-    "OPENAI_PREMIUM_FREQUENCY_PENALTY": 0.1,
-    "OPENAI_PREMIUM_PRESENCE_PENALTY": 0.2, // Higher penalty for premium quality
-    "OPENAI_PREMIUM_VERBOSITY": "medium", // More detailed responses for premium
-    "OPENAI_PREMIUM_REASONING_EFFORT": "high", // Maximum thinking depth for premium
-    "SUMMARY_SYSTEM": "Ты — циничный, токсичный и язвительный обозреватель жёлтой прессы. Твоя задача — читать переписку в чате и превращать её в скандальную ленту новостей: с сарказмом, чёрным юмором и уместным матом.\n\nПерсона и стиль:\n1. Ты комментируешь чат как стендап-комик с чёрным юмором.\n2. Безжалостно прожариваешь участников: высмеиваешь их решения, драму, нытьё, пафос и тупёж.\n3. Интерпретируешь происходящее в худшую и самую абсурдную сторону.\n4. Используешь яркие, запоминающиеся эпитеты, но не трогаешь расу, национальность, пол, ориентацию, религию и другие защищённые признаки.\n5. Можешь использовать мат, но по делу и для усиления шутки, а не просто спамить.\n\nРабота с сообщениями и никами:\n1. Обязательно используй **реальные username'ы из чата**.\n2. Каждый пункт должен явно показывать, **кто именно что сказал или сделал**.\n3. Не пиши безлично «в чате обсуждали» — всегда привязывай действия и фразы к конкретным никам.\n4. Эпитеты и клички навешивай поверх реальных никнеймов.\n\nФормат вывода:\n1. Первая строка — общий заголовок, например:\n   \"📰 Главное из последних {limitMessages} сообщений за {period} по чату {chatTitle}:\"\n2. Далее выдай список из 5–10 самых ярких моментов.\n3. Каждый пункт начинай с символа `#` и пиши как отдельный абзац на 1–3 предложения.\n4. Не группируй по пользователям — показывай хронологическую или логическую историю происходящего: кто что вбросил, кто как отреагировал, во что это превратилось.\n\nСодержание:\n1. Игнорируй скучные и рутинные сообщения, команды бота, приветствия — выцепляй только «мясо»: споры, панику, странные высказывания, токсичный юмор, абсурд.\n2. Обязательно упоминай никнеймы, когда описываешь сцену; в одном пункте может фигурировать один или несколько участников.\n3. Каждый пункт должен опираться на реальные сообщения: ты можешь утрировать, но не выдумывай совсем новых событий.\n4. Каждый пункт должен читаться как мини-сценка или заголовок жёлтой прессы, а не сухой пересказ.\n\nСтрого:\n- Отвечай только на русском языке.\n- Не возвращай формат \"username: описание\".\n- Не пиши длинные аналитические абзацы, держи плотный, злой, новостной стиль прожарки.",
-    "SUMMARY_PROMPT": "Проанализируй последние сообщения из чата и сделай из них скандальную сводку новостей в формате жёлтой прессы. Безжалостно прожарь участников, обязательно называя их по никнеймам и явно показывая, кто что сказал или сделал. Высмей их диалоги, панику и тупые решения, но не задевай расу, национальность, пол, ориентацию или религию. Соблюдай формат с заголовком и пунктами, начинающимися с `#`.",
-    "SUMMARY_MAX_TOKENS": 5000,
+    "SUMMARY_SYSTEM": "Ты составляешь краткую и фактическую сводку переписки на русском языке. Упоминай реальные username участников и не выдумывай события.",
+    "SUMMARY_PROMPT": "Составь компактную сводку главных тем и событий из сообщений чата. Покажи, кто что сказал или сделал.",
+    "SUMMARY_MAX_TOKENS": 1000,
     "SUMMARY_TEMPERATURE": 0.1,
     "SUMMARY_TOP_P": 0.9,
-    "SUMMARY_FREQUENCY_PENALTY": 0.1,
-    "PROFANITY_SYSTEM_PROMPT": "Ты эксперт по анализу русского языка. Твоя задача — определить наличие матерной (экспрессивно-обсценной) лексики в переданном тексте. # Инструкции 1. Анализируй только текст, написанный на русском языке; 2. Выделяй именно матерные слова, а не просто грубые или невежливые выражения; 3. Обязательно учитывай контекст: слово считается матерным только в определённых значениях; 4. Для каждого найденного матерного слова укажи его базовую (словарную) форму; 5. Игнорируй слова, которые только похожи на мат, но по смыслу таковыми не являются; 6. Не анализируй слова на других языках. Начни с краткого чек-листа (3–7 пунктов) концептуальных шагов, которые будут выполнены перед анализом. # Формат ответа Возвращай строго структуру JSON без дополнительных комментариев: { “hasProfanity”: boolean, “words”: [ { “word”: “найденное_слово_в_тексте”, “baseForm”: “базовая_форма_слова”, “confidence”: число_от_0_до_1 } ] } Если матерных слов не найдено, всегда возвращай: {“hasProfanity”: false, “words”: []}",
-    "PROFANITY_USER_PROMPT": "Проанализируй следующий текст на наличие матерной лексики:\n\nТЕКСТ ДЛЯ АНАЛИЗА:",
-    "SUMMARY_SEED": 12345,
     "DEBUG_LOGS": false,
-    // ========================================
-    // 🚩 FEATURE TOGGLES
-    // ========================================
-    "ENABLE_CRIMINAL_ANALYSIS": true,
-    "ENABLE_PROFANITY_ANALYSIS": false,
-    "ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER": true,
+
+    // New installations collect statistics without making paid AI calls.
+    // The Telegram-only setup wizard explains how to enable OpenAI or Workers AI.
     "ENABLE_SUMMARY": false,
     "ENABLE_ACTIVITY_TRACKING": true,
-    // ========================================
-    // 🚀 OPTIMIZED SUMMARY SYSTEM CONFIG
-    // ========================================
-    // Feature flag to enable/disable optimized system
-    "SUMMARY_OPT_ENABLED": true,
-    // Parallel processing configuration
-    "SUMMARY_OPT_PARALLEL_ENABLED": true,
-    "SUMMARY_OPT_MIN_MESSAGES_THRESHOLD": 1000,
-    "SUMMARY_OPT_MAX_WORKERS": 5,
-    "SUMMARY_OPT_WORKER_BATCH_SIZE": 50,
-    "SUMMARY_OPT_WORKER_TIMEOUT": 60000,
-    // Context management configuration
-    "SUMMARY_OPT_MAX_TOKENS_PER_REQUEST": 120000,
-    "SUMMARY_OPT_PREPROCESSING_MAX_TOKENS": 60000,
-    "SUMMARY_OPT_FINAL_MAX_TOKENS": 120000,
-    "SUMMARY_OPT_TOKEN_ESTIMATION_FACTOR": 4,
-    // Hierarchical processing configuration
-    "SUMMARY_OPT_HIERARCHICAL_ENABLED": true,
-    "SUMMARY_OPT_CHUNK_SIZE_THRESHOLD": 80000,
-    "SUMMARY_OPT_PREPROCESSING_PROMPT": "Создай краткую сводку основных тем и событий из следующих сообщений:",
-    "SUMMARY_OPT_MAX_PREPROCESSING_CHUNKS": 10,
-    // Monitoring configuration
-    "SUMMARY_OPT_ENABLE_DETAILED_METRICS": true,
-    "SUMMARY_OPT_LOG_PERFORMANCE_INSIGHTS": true,
-    "SUMMARY_OPT_TRACK_TOKEN_USAGE": true,
-    // ========================================
-    // 🕐 CACHE TTL CONFIGURATION (in seconds)
-    // ========================================
-    "CRIMINAL_ANALYSIS_CACHE_TTL": 86400, // 24 hours
-    "PROFANITY_ANALYSIS_CACHE_TTL": 14400, // 4 hours  
-    "MESSAGE_BLOCK_CACHE_TTL": 604800, // 7 days
-    // ========================================
-    // 📝 TEXT PREVIEW CONFIGURATION
-    // ========================================
-    "CRIMINAL_STORE_TEXT_PREVIEW": false, // Do not store message text previews in D1
-    "CRIMINAL_TEXT_PREVIEW_LENGTH": 200, // Max preview length in characters
-    "CRIMINAL_QUEUE_BATCH_SIZE": 5,
-    "CRIMINAL_QUEUE_MAX_DELAY_MS": 60000,
-    "CRIMINAL_PREFILTER_DAILY_CAP": 1000,
-    "LEGAL_RAG_DAILY_QUERY_CAP": 1000,
-    "LEGAL_RAG_TOP_K": 12,
-    "LEGAL_RAG_MIN_SCORE": 0.55,
-    "LEGAL_RAG_QUERY_VARIANTS": 2,
-    "LEGAL_RAG_LAW_CODE": "uk-rf",
-    "LEGAL_RAG_EMBEDDING_MODEL": "@cf/baai/bge-m3",
-    "CRIMINAL_FINAL_JUDGE_ENABLED": true,
-    "CRIMINAL_FINAL_JUDGE_MODEL": "gpt-5-nano",
-    "CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE": 0.7,
-    "CRIMINAL_FINAL_JUDGE_MIN_RAG_SCORE": 0.58,
-    "CRIMINAL_FINAL_JUDGE_MIN_QUALITY_REFERENCES": 1,
-    "CRIMINAL_FINAL_JUDGE_CONTEXT_BEFORE": 3,
-    "CRIMINAL_FINAL_JUDGE_CONTEXT_AFTER": 2,
-    "CRIMINAL_FINAL_JUDGE_MAX_REFERENCES": 6,
-    "CRIMINAL_FINAL_JUDGE_MAX_REFERENCE_CHARS": 700,
-    "CRIMINAL_FINAL_JUDGE_MAX_TOKENS": 900,
-    "CRIMINAL_CONTEXT_BEFORE": 15,
-    "CRIMINAL_CONTEXT_AFTER": 5,
-    "CRIMINAL_AI_PREFILTER_ENABLED": true,
-    "CRIMINAL_PREFILTER_MODEL": "gpt-5-nano",
-    "CRIMINAL_PREFILTER_MIN_CONFIDENCE": 0.55,
-    "CRIMINAL_PREFILTER_MAX_TOKENS": 512,
-    "CRIMINAL_PREFILTER_CACHE_ENABLED": true,
-    "CRIMINAL_PREFILTER_CACHE_TTL": 2592000,
-    "CRIMINAL_PREFILTER_CACHE_VERSION": "v4",
-    "CRIMINAL_PREFILTER_BATCH_ENABLED": true,
-    "CRIMINAL_PREFILTER_BATCH_SIZE": 8,
-    // ========================================
-    // 💰 LLM BUDGET CONFIGURATION (ADR-001)
-    // ========================================
-    // Model role mappings (logical roles to actual model names)
-    "LLM_NANO_MODEL": "gpt-4.1-nano", // Cheap, lightweight: preprocessing, filtering
-    "LLM_MINI_MODEL": "gpt-4.1-mini", // Main workhorse: summarization, analysis
-    // Token soft limits (per month, ~5 USD budget target)
-    "NANO_TOKENS_SOFT_LIMIT": 20000000, // 20M tokens for nano models
-    "MINI_TOKENS_SOFT_LIMIT": 3000000, // 3M tokens for mini models
+    "ENABLE_PROFANITY_ANALYSIS": false,
+    "ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER": false,
+    "ENABLE_CRIMINAL_ANALYSIS": false,
+    "SUMMARY_OPT_ENABLED": false,
+    "MESSAGE_BLOCK_CACHE_TTL": 604800,
   },
+
   "triggers": {
-    "crons": [
-      "59 23 * * *"
-    ],
+    "crons": ["59 23 * * *"],
   },
-  "analytics_engine_datasets": [
-    {
-      "binding": "ANALYTICS",
-      "dataset": "telegram_history_bot_analytics",
-    },
-  ],
   "observability": {
+    "enabled": true,
     "logs": {
       "enabled": true,
+      "head_sampling_rate": 1,
     },
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_classes": [
-        "CountersDO"
-      ],
-    },
-    {
-      "tag": "v2",
-      "new_classes": [
-        "MessageFetcherDO"
-      ],
-    },
-    {
-      "tag": "v3",
-      "new_classes": [
-        "MessageAggregatorDO"
-      ],
-    },
-    {
-      "tag": "v4",
-      "new_classes": [
-        "DayBlockManager"
-      ],
-    },
-    {
-      "tag": "v5",
-      "new_classes": [
-        "CriminalCodeAnalyzerDO"
-      ],
-    },
-  ],
-  // ========================================
-  // 🌐 ПЕРЕКЛЮЧЕНИЕ ПРОВАЙДЕРОВ ПО ФУНКЦИЯМ
-  // ========================================
-  // SUMMARY_PROVIDER     - генерация саммари
-  // PROFANITY_PROVIDER   - проверка мата/обсценной лексики
-  // CRIMINAL_PROVIDER    - проверка на нарушения УК РФ
-  //
-  // Для OpenAI Standard: "openai" + OPENAI_API_KEY
-  // Для OpenAI Premium: "openai-premium" + OPENAI_PREMIUM_API_KEY
-  // (Cloudflare варианты доступны, но сейчас отключены)
-  //
-  // ========================================
-  // 🔐 БЕЗОПАСНОСТЬ API КЛЮЧЕЙ
-  // ========================================
-  //
-  // ⚠️ ВАЖНО: Никогда не коммитьте API ключи в git!
-  //
-  // 🛡️ БЕЗОПАСНЫЙ СПОСОБ:
-  // 1. Используйте Cloudflare Secrets:
-  //    wrangler secret put OPENAI_API_KEY
-  //    wrangler secret put OPENAI_PREMIUM_API_KEY
-  //
-  // 2. Или переменные окружения:
-  //    export OPENAI_API_KEY="sk-your-key"
-  //
-  // 3. В конфиге используйте:
-  //    "OPENAI_API_KEY": "$OPENAI_API_KEY"
-  //
-  // ========================================
-  // 🎛️ ДОПОЛНИТЕЛЬНЫЕ МОДЕЛИ
-  // ========================================
-  //
-  // Cloudflare AI модели (замените CLOUDFLARE_MODEL):
-  // - "@cf/meta/llama-3.1-8b-instruct-fast" (быстрая, по умолчанию)
-  // - "@cf/meta/llama-3.1-70b-instruct" (качественная)
-  // - "@cf/mistral/mistral-7b-instruct-v0.1" (сбалансированная)
-  //
-  // OpenAI модели (замените OPENAI_MODEL или OPENAI_PREMIUM_MODEL):
-  // - "gpt-4.1" (дороже)
-  // - "gpt-4.1-nano" (быстрейшая)
-  //
-  // ========================================
-  // 🔧 КАК РАБОТАЕТ ЛОГИКА ПРОВАЙДЕРОВ
-  // ========================================
-  //
-  // - SUMMARY_PROVIDER управляет генерацией саммари
-  // - PROFANITY_PROVIDER управляет проверкой мата
-  // - CRIMINAL_PROVIDER управляет проверкой УК РФ
-  // - Если специализированный провайдер не указан, используется SUMMARY_PROVIDER
 }

@@ -1,0 +1,3 @@
+# Deploy to Cloudflare asks for these values and stores them as Worker Secrets.
+TOKEN=replace-with-botfather-token
+SECRET=replace-with-a-random-webhook-secret

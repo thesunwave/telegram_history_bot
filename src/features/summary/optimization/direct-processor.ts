@@ -271,23 +271,6 @@ export class DirectProcessor implements IDirectProcessor {
         }
         break;
 
-      case 'openai-premium':
-        opts = {
-          // Premium tier can handle larger outputs
-          maxTokens: (env as any).OPENAI_PREMIUM_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 4000,
-          temperature: (env as any).OPENAI_PREMIUM_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
-          topP: (env as any).OPENAI_PREMIUM_TOP_P ?? env.SUMMARY_TOP_P ?? 0.85,
-        };
-        const premiumFreqPenalty = (env as any).OPENAI_PREMIUM_FREQUENCY_PENALTY ?? env.SUMMARY_FREQUENCY_PENALTY;
-        if (premiumFreqPenalty !== undefined) {
-          opts.frequencyPenalty = premiumFreqPenalty;
-        }
-        const premiumSeed = (env as any).OPENAI_PREMIUM_SEED ?? env.SUMMARY_SEED;
-        if (premiumSeed !== undefined) {
-          opts.seed = premiumSeed;
-        }
-        break;
-
       default:
         // Fallback to default values
         opts = {

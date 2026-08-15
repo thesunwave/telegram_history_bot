@@ -631,7 +631,6 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
     const providerCaps: Record<string, number> = {
       cloudflare: 1200,
       openai: 4000,
-      'openai-premium': 6000
     };
 
     const providerCap = providerCaps[provider] ?? compactBudget;
@@ -673,14 +672,6 @@ export class HierarchicalProcessor implements IHierarchicalProcessor {
           maxTokens: (env as any).OPENAI_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 2000,
           temperature: (env as any).OPENAI_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
           topP: (env as any).OPENAI_TOP_P ?? env.SUMMARY_TOP_P ?? 0.9,
-        };
-        break;
-
-      case 'openai-premium':
-        opts = {
-          maxTokens: (env as any).OPENAI_PREMIUM_MAX_TOKENS ?? env.SUMMARY_MAX_TOKENS ?? 4000,
-          temperature: (env as any).OPENAI_PREMIUM_TEMPERATURE ?? env.SUMMARY_TEMPERATURE ?? 0.0,
-          topP: (env as any).OPENAI_PREMIUM_TOP_P ?? env.SUMMARY_TOP_P ?? 0.85,
         };
         break;
 

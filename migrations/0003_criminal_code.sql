@@ -86,9 +86,3 @@ BEGIN
   FROM criminal_violations 
   WHERE user_id = NEW.user_id AND chat_id = NEW.chat_id;
 END;
-
--- Sample test data for development
-INSERT INTO criminal_violations (user_id, chat_id, message_id, article, quote, punishment, severity, confidence) VALUES
-(12345, -1001234567890, 1001, 'Статья 282', 'экстремистские высказывания в адрес власти', 'штраф до 500 тысяч рублей', 7, 0.85),
-(12346, -1001234567890, 1002, 'Статья 130', 'оскорбление личности публично', 'штраф до 40 тысяч рублей', 4, 0.92),
-(12345, -1001234567891, 1003, 'Статья 319', 'публичное оскорбление представителя власти', 'штраф до 40 тысяч рублей', 5, 0.78);

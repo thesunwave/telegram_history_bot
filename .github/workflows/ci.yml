@@ -8,23 +8,24 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm ci
       - run: npm test
+      - name: Validate public Cloudflare deployment template
+        run: npx wrangler deploy --dry-run
 
   race-condition-tests:
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm ci
       - name: Run Race Condition Tests
         run: npx vitest run tests/race-condition.test.ts --reporter=verbose
         timeout-minutes: 10
-

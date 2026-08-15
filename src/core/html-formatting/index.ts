@@ -20,9 +20,7 @@ export {
   messageFormatter,
   type IMessageFormatter,
   type Violation,
-  type ViolationAnalysis,
-  type UserStats,
-  type PeriodStats
+  type ViolationAnalysis
 } from '../message-formatter';
 
 // Export HTML utilities

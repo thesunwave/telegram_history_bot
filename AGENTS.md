@@ -18,7 +18,6 @@ Telegram **Stats Bot** collects messages via webhook, stores them 7 days in Clou
 │   ├── debug/
 │   └── features/
 ├── scripts/               # utilities and helpers
-│   ├── debug/
 │   └── fixes/
 ├── logs/                  # local logs (gitignored)
 ├── src/

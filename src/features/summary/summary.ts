@@ -115,42 +115,6 @@ function buildAiOptions(env: Env): SummaryOptions {
       }
       break;
 
-    case "openai-premium":
-      opts = {
-        maxTokens:
-          (env as any).OPENAI_PREMIUM_MAX_TOKENS ??
-          env.SUMMARY_MAX_TOKENS ??
-          600,
-        temperature:
-          (env as any).OPENAI_PREMIUM_TEMPERATURE ??
-          env.SUMMARY_TEMPERATURE ??
-          0.0,
-        topP: (env as any).OPENAI_PREMIUM_TOP_P ?? env.SUMMARY_TOP_P ?? 0.85,
-      };
-      const premiumFreqPenalty =
-        (env as any).OPENAI_PREMIUM_FREQUENCY_PENALTY ??
-        env.SUMMARY_FREQUENCY_PENALTY;
-      if (premiumFreqPenalty !== undefined) {
-        opts.frequencyPenalty = premiumFreqPenalty;
-      }
-      const premiumSeed = (env as any).OPENAI_PREMIUM_SEED ?? env.SUMMARY_SEED;
-      if (premiumSeed !== undefined) {
-        opts.seed = premiumSeed;
-      }
-      const premiumPresencePenalty = (env as any).OPENAI_PREMIUM_PRESENCE_PENALTY;
-      if (premiumPresencePenalty !== undefined) {
-        opts.presencePenalty = premiumPresencePenalty;
-      }
-      const premiumVerbosity = (env as any).OPENAI_PREMIUM_VERBOSITY;
-      if (premiumVerbosity !== undefined) {
-        opts.verbosity = premiumVerbosity;
-      }
-      const premiumReasoningEffort = (env as any).OPENAI_PREMIUM_REASONING_EFFORT;
-      if (premiumReasoningEffort !== undefined) {
-        opts.reasoningEffort = premiumReasoningEffort;
-      }
-      break;
-
     default:
       // Fallback to old behavior for backward compatibility
       opts = {

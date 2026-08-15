@@ -1,9 +1,14 @@
 {
-	"name": "purple-bread-9739",
+	"name": "telegram-history-bot-template",
 	"version": "0.0.0",
 	"private": true,
+	"engines": {
+		"node": ">=20.9.0"
+	},
 	"scripts": {
 		"deploy": "wrangler deploy",
+		"postdeploy": "wrangler d1 migrations apply DB --remote",
+		"deploy:production": "wrangler deploy --config wrangler.production.jsonc && wrangler d1 migrations apply DB --remote --config wrangler.production.jsonc",
 		"start": "wrangler dev",
 		"dev": "wrangler dev",
 		"cf-typegen": "wrangler types",
@@ -15,15 +20,28 @@
 		"ingest:legal-rag": "node scripts/ingest-legal-rag.mjs",
 		"backfill:criminal-punishments": "node scripts/fixes/backfill-criminal-punishments.mjs"
 	},
+	"cloudflare": {
+		"bindings": {
+			"TOKEN": {
+				"description": "Telegram bot token issued by BotFather. Store it only as a Worker Secret."
+			},
+			"SECRET": {
+				"description": "Random Telegram webhook secret. Generate one with `openssl rand -hex 32`."
+			},
+			"OPENAI_API_KEY": {
+				"description": "Optional. Add this Worker Secret later only if you enable OpenAI summaries."
+			}
+		}
+	},
 	"devDependencies": {
-		"@cloudflare/workers-types": "^4.20250810.0",
+		"@cloudflare/workers-types": "^5.20260815.1",
 		"@miniflare/core": "^2.14.4",
 		"@miniflare/d1": "^2.14.4",
 		"@miniflare/kv": "^2.14.4",
 		"@miniflare/storage-memory": "^2.14.4",
 		"typescript": "^5.0.4",
 		"vitest": "^3.2.3",
-		"wrangler": "^4.26.1"
+		"wrangler": "^4.123.0"
 	},
 	"dependencies": {
 		"dotenv": "^17.2.3"

@@ -1,7 +1,7 @@
 import type { Env } from '../core/env';
 
 export interface AdminPrincipal {
-  type: 'basic' | 'telegram';
+  type: 'telegram';
   username: string;
   telegramId?: number;
   displayName?: string;
@@ -61,7 +61,7 @@ async function sha256(value: string): Promise<ArrayBuffer> {
   return await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
 }
 
-async function hmacSha256(keyBytes: BufferSource, value: string): Promise<Uint8Array> {
+async function hmacSha256(keyBytes: ArrayBuffer, value: string): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey(
     'raw',
     keyBytes,
@@ -75,50 +75,6 @@ async function hmacSha256(keyBytes: BufferSource, value: string): Promise<Uint8A
 
 function bytesToHex(bytes: Uint8Array): string {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function decodeBasicCredentials(header: string | null): { username: string; password: string } | null {
-  if (!header?.startsWith('Basic ')) {
-    return null;
-  }
-
-  try {
-    const decoded = atob(header.slice('Basic '.length));
-    const separatorIndex = decoded.indexOf(':');
-    if (separatorIndex < 0) {
-      return null;
-    }
-
-    return {
-      username: decoded.slice(0, separatorIndex),
-      password: decoded.slice(separatorIndex + 1),
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function authenticateAdmin(req: Request, env: Env): AdminPrincipal | null {
-  const expectedUser = env.ADMIN_BASIC_USER;
-  const expectedPassword = env.ADMIN_BASIC_PASSWORD;
-
-  if (!expectedUser || !expectedPassword) {
-    return null;
-  }
-
-  const credentials = decodeBasicCredentials(req.headers.get('Authorization'));
-  if (!credentials) {
-    return null;
-  }
-
-  const userMatches = constantTimeEqual(credentials.username, expectedUser);
-  const passwordMatches = constantTimeEqual(credentials.password, expectedPassword);
-
-  if (!userMatches || !passwordMatches) {
-    return null;
-  }
-
-  return { type: 'basic', username: credentials.username };
 }
 
 export function getAdminSessionCookieName(): string {
@@ -151,7 +107,7 @@ async function signSessionPayload(env: Env, encodedPayload: string): Promise<str
     return null;
   }
 
-  const signature = await hmacSha256(new TextEncoder().encode(secret), encodedPayload);
+  const signature = await hmacSha256(new TextEncoder().encode(secret).buffer, encodedPayload);
   return base64UrlEncode(signature);
 }
 
