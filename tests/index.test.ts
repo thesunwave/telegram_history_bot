@@ -41,6 +41,11 @@ beforeEach(() => {
   tasks = [];
   env.TOKEN = "t";
   env.SECRET = "s";
+  env.SUMMARY_PROVIDER = "cloudflare";
+  env.SUMMARY_MODEL = "test-model";
+  env.CLOUDFLARE_MODEL = undefined;
+  env.OPENAI_MODEL = undefined;
+  env.OPENROUTER_MODEL = undefined;
   ctx = { waitUntil: (p: Promise<any>) => tasks.push(p) };
   vi.clearAllMocks();
   vi.restoreAllMocks();
@@ -269,6 +274,8 @@ describe("webhook", () => {
     env.TOKEN = "super-secret-token";
     env.SECRET = "super-secret-webhook-token";
     env.OPENAI_API_KEY = "super-secret-openai-key";
+    env.CLOUDFLARE_MODEL = "cloudflare-model";
+    env.OPENAI_MODEL = "wrong-provider-model";
     vi.spyOn(global, "fetch").mockImplementation(async (input: any) => {
       if (String(input).endsWith("/getMe")) {
         return Response.json({ ok: true, result: { id: 123, username: "test_bot" } });
@@ -291,12 +298,47 @@ describe("webhook", () => {
     expect(body).toMatchObject({
       ok: true,
       bot: { ok: true, result: { username: "test_bot" } },
-      summary: { enabled: true, provider: "cloudflare", model: "test-model" },
+      summary: { enabled: true, provider: "cloudflare", model: "cloudflare-model" },
       configured: { token: true, webhookSecret: true, openaiApiKey: true, workersAi: true },
     });
     expect(serialized).not.toContain(env.TOKEN);
     expect(serialized).not.toContain(env.SECRET);
     expect(serialized).not.toContain(env.OPENAI_API_KEY);
+  });
+
+  it("returns the OpenAI summary model when OpenAI is selected", async () => {
+    env.SUMMARY_PROVIDER = "openai";
+    env.OPENAI_MODEL = "openai-model";
+    env.CLOUDFLARE_MODEL = "wrong-provider-model";
+    vi.spyOn(global, "fetch").mockResolvedValue(Response.json({ ok: true, result: true }));
+
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/setup", { headers: await adminSessionHeaders() }),
+      env,
+      ctx,
+    );
+    const body = await response.json() as any;
+
+    expect(body.summary).toEqual({ enabled: true, provider: "openai", model: "openai-model" });
+  });
+
+  it("reports Cloudflare defaults when SUMMARY_PROVIDER is omitted", async () => {
+    env.SUMMARY_PROVIDER = undefined;
+    env.CLOUDFLARE_MODEL = "cloudflare-default-model";
+    vi.spyOn(global, "fetch").mockResolvedValue(Response.json({ ok: true, result: true }));
+
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/setup", { headers: await adminSessionHeaders() }),
+      env,
+      ctx,
+    );
+    const body = await response.json() as any;
+
+    expect(body.summary).toEqual({
+      enabled: true,
+      provider: "cloudflare",
+      model: "cloudflare-default-model",
+    });
   });
 
   it("registers the origin-derived canonical webhook and commands", async () => {

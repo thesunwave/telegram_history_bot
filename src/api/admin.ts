@@ -141,6 +141,21 @@ function isSummaryEnabled(env: Env): boolean {
   return env.ENABLE_SUMMARY !== false && env.ENABLE_SUMMARY !== 'false';
 }
 
+function getSummaryModel(env: Env): string | null {
+  const provider = env.SUMMARY_PROVIDER || 'cloudflare';
+
+  switch (provider) {
+    case 'cloudflare':
+      return env.CLOUDFLARE_MODEL || env.SUMMARY_MODEL || null;
+    case 'openai':
+      return env.OPENAI_MODEL || env.SUMMARY_MODEL || null;
+    case 'openrouter':
+      return env.OPENROUTER_MODEL || env.SUMMARY_MODEL || null;
+    default:
+      return env.SUMMARY_MODEL || null;
+  }
+}
+
 function renderSetupHtml(): string {
   return `<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -148,7 +163,7 @@ function renderSetupHtml(): string {
 <style>body{font:16px/1.5 system-ui,sans-serif;max-width:800px;margin:32px auto;padding:0 16px;color:#18202a}section{border:1px solid #d9dee7;border-radius:8px;padding:16px;margin:16px 0}code{background:#f3f5f7;padding:2px 4px;border-radius:4px}button{padding:9px 14px;cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f5f7;padding:12px;border-radius:6px}</style>
 </head><body><p><a href="/admin">← Админ-панель</a></p><h1>Настройка бота</h1>
 <section><h2>Webhook</h2><p>Подключите Telegram к этому Worker. Адрес webhook всегда создаётся из текущего домена и не вводится вручную.</p><button id="webhook">Подключить Telegram</button></section>
-<section><h2>Сводки</h2><p><b>Выключено:</b> задайте <code>ENABLE_SUMMARY=false</code>.</p><p><b>OpenAI:</b> сохраните <code>OPENAI_API_KEY</code> как Worker Secret и задайте <code>SUMMARY_PROVIDER=openai</code>, <code>OPENAI_MODEL</code> (или <code>SUMMARY_MODEL</code>) в Variables.</p><p><b>Workers AI:</b> задайте <code>SUMMARY_PROVIDER=cloudflare</code> и модель в <code>SUMMARY_MODEL</code>. У Workers AI есть квоты и возможная тарификация после их исчерпания.</p><p>Секреты не вводятся и не сохраняются на этой странице. В Cloudflare Dashboard: <code>Workers & Pages → ваш Worker → Settings → Variables and Secrets</code>. CLI: <code>npx wrangler secret put OPENAI_API_KEY</code>.</p></section>
+<section><h2>Сводки</h2><p><b>Выключено:</b> задайте <code>ENABLE_SUMMARY=false</code>.</p><p><b>OpenAI:</b> сохраните <code>OPENAI_API_KEY</code> как Worker Secret и задайте <code>SUMMARY_PROVIDER=openai</code>, <code>OPENAI_MODEL</code> (или <code>SUMMARY_MODEL</code>) в Variables.</p><p><b>Workers AI:</b> задайте <code>SUMMARY_PROVIDER=cloudflare</code> и модель в <code>CLOUDFLARE_MODEL</code> (или <code>SUMMARY_MODEL</code>). У Workers AI есть квоты и возможная тарификация после их исчерпания.</p><p>Секреты не вводятся и не сохраняются на этой странице. В Cloudflare Dashboard: <code>Workers & Pages → ваш Worker → Settings → Variables and Secrets</code>. CLI: <code>npx wrangler secret put OPENAI_API_KEY</code>.</p></section>
 <section><h2>Текущее состояние</h2><button id="recheck">Проверить снова</button><pre id="status">Загрузка…</pre></section>
 <script>const status=document.getElementById('status');async function recheck(){const r=await fetch('/admin/api/setup');if(r.status===401){location.assign('/admin');return}status.textContent=JSON.stringify(await r.json(),null,2)}document.getElementById('recheck').onclick=recheck;document.getElementById('webhook').onclick=async()=>{const r=await fetch('/admin/api/setup/webhook',{method:'POST'});status.textContent=JSON.stringify(await r.json(),null,2)};recheck();</script>
 </body></html>`;
@@ -166,8 +181,8 @@ async function handleSetupStatus(env: Env): Promise<Response> {
     webhook,
     summary: {
       enabled: isSummaryEnabled(env),
-      provider: env.SUMMARY_PROVIDER || null,
-      model: env.OPENAI_MODEL || env.SUMMARY_MODEL || null,
+      provider: env.SUMMARY_PROVIDER || 'cloudflare',
+      model: getSummaryModel(env),
     },
     configured: {
       token: Boolean(env.TOKEN),

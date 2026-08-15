@@ -34,6 +34,7 @@ export interface Env {
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   OPENAI_MAX_TOKENS?: string | number;
+  CLOUDFLARE_MODEL?: string;
   OPENROUTER_API_KEY?: string;
   OPENROUTER_BASE_URL?: string;
   OPENROUTER_MODEL?: string;

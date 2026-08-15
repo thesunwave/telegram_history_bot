@@ -59,8 +59,8 @@ AI calls. After choosing a summary provider, the optimized system can be enabled
 variables:
 
 ```bash
-# Feature flag (default: true)
-SUMMARY_OPT_ENABLED=true
+# Feature flag (default: false; set to true to enable)
+SUMMARY_OPT_ENABLED=false
 
 # Parallel processing (default: 5 workers, 50 batch size)
 SUMMARY_OPT_MAX_WORKERS=5
