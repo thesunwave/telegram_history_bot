@@ -2,6 +2,12 @@ import type { DurableObjectState } from '@cloudflare/workers-types';
 import { Env } from '../core/env';
 import { Logger } from '../core/logger';
 import { normalizeProfanityWord } from '../features/profanity/local-detector';
+import {
+  logD1AggregateWriteError,
+  writeActivityAggregates,
+  writeCriminalAggregates,
+  writeProfanityAggregates,
+} from '../features/stats/d1-aggregate-writer';
 
 const STATS_PREFIX = 'stats';
 const USER_PREFIX = 'user';
@@ -17,6 +23,20 @@ const PROFANITY_WORD_USERS_PREFIX = 'profanity_word_users';
 const CRIMINAL_USER_PREFIX = 'criminal';
 const CRIMINAL_ARTICLE_PREFIX = 'criminal_article';
 const CRIMINAL_SEVERITY_PREFIX = 'criminal_severity';
+
+function safeErrorClass(error: unknown): 'Error' | 'ThrownString' | 'UnknownError' {
+  if (error instanceof Error) return 'Error';
+  if (typeof error === 'string') return 'ThrownString';
+  return 'UnknownError';
+}
+
+function logCounterOperationError(operation: string, error: unknown): void {
+  console.error('counter operation error', {
+    operation,
+    errorClass: safeErrorClass(error),
+    errorCode: 'COUNTER_OPERATION_FAILED',
+  });
+}
 
 function getTimeBucket(hour: number): 'night' | 'morning' | 'noon' | 'evening' {
   if (hour >= 5 && hour < 12) return 'morning';
@@ -65,6 +85,12 @@ export interface CriminalIncrementPayload {
   totalSeverity: number;
 }
 
+interface BatchIncrementPayload {
+  activity?: IncrementPayload[];
+  profanity?: ProfanityIncrementPayload[];
+  criminal?: CriminalIncrementPayload[];
+}
+
 export class CountersDO {
   constructor(private state: DurableObjectState, private env: Env) { }
 
@@ -91,8 +117,8 @@ export class CountersDO {
         return new Response(JSON.stringify({ ok: true, ...result }), {
           headers: { 'content-type': 'application/json' },
         });
-      } catch (err: any) {
-        console.error('counter update error', err.message || err);
+      } catch (err: unknown) {
+        logCounterOperationError('increment', err);
         return new Response('error', { status: 500 });
       }
     } else if (endpoint === '/profanity') {
@@ -105,8 +131,8 @@ export class CountersDO {
       }
       try {
         await this.state.blockConcurrencyWhile(() => this.incrementProfanityCounters(payload));
-      } catch (err: any) {
-        console.error('profanity counter update error', err.message || err);
+      } catch (err: unknown) {
+        logCounterOperationError('profanity', err);
         return new Response('error', { status: 500 });
       }
       return new Response('ok');
@@ -120,8 +146,8 @@ export class CountersDO {
       }
       try {
         await this.state.blockConcurrencyWhile(() => this.incrementCriminalCounters(payload));
-      } catch (err: any) {
-        console.error('criminal counter update error', err.message || err);
+      } catch (err: unknown) {
+        logCounterOperationError('criminal', err);
         return new Response('error', { status: 500 });
       }
       return new Response('ok');
@@ -239,17 +265,26 @@ export class CountersDO {
 
     if (this.env.DB) {
       try {
-        await this.env.DB.prepare(
-          'INSERT INTO activity (chat_id, day, count) VALUES (?, ?, 1) ' +
-          'ON CONFLICT(chat_id, day) DO UPDATE SET count = count + 1',
-        )
-          .bind(chatId, day)
-          .run();
-      } catch (e: any) {
-        console.error('activity db error', {
-          chat: chatId.toString(36),
-          err: e.message || String(e),
+        // One D1 batch total for a normal base message (aggregates + legacy
+        // activity upsert share a single transaction).
+        const validHourForD1 =
+          hour !== undefined && Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : undefined;
+        await writeActivityAggregates(this.env.DB, {
+          chatId,
+          userId,
+          username,
+          day,
+          hour: validHourForD1,
+          bucket: validHourForD1 !== undefined ? getTimeBucket(validHourForD1) : undefined,
+          wordCount,
+          voiceCount,
+          voiceDurationSeconds,
+          videoNoteCount,
+          videoNoteDurationSeconds,
+          ts,
         });
+      } catch (e: unknown) {
+        logD1AggregateWriteError('activity', chatId, e);
       }
     }
 
@@ -286,8 +321,6 @@ export class CountersDO {
     const words = this.aggregateProfanityCounterWords(payload.words);
 
     Logger.debug(this.env, 'Profanity counters update', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
       totalCount: count,
       uniqueWords: words.length,
     });
@@ -308,6 +341,21 @@ export class CountersDO {
       const wordUserKey = `${PROFANITY_WORD_USERS_PREFIX}:${chatId}:${word.word}:${day}:${userId}`;
       const currentWordUserCount = parseInt((await this.env.COUNTERS.get(wordUserKey)) || '0', 10);
       await this.env.COUNTERS.put(wordUserKey, String(currentWordUserCount + word.count));
+    }
+
+    if (this.env.DB) {
+      try {
+        await writeProfanityAggregates(this.env.DB, {
+          chatId,
+          userId,
+          username,
+          day,
+          count,
+          words,
+        });
+      } catch (e: unknown) {
+        logD1AggregateWriteError('profanity', chatId, e);
+      }
     }
   }
 
@@ -340,8 +388,6 @@ export class CountersDO {
     const { chatId, userId, username, day, violations, totalSeverity } = payload;
 
     Logger.debug(this.env, 'Criminal counters update', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
       totalSeverity,
       violationCount: violations.length,
     });
@@ -363,22 +409,28 @@ export class CountersDO {
       const currentArticleCount = parseInt((await this.env.COUNTERS.get(articleKey)) || '0', 10);
       await this.env.COUNTERS.put(articleKey, String(currentArticleCount + violation.count));
     }
+
+    if (this.env.DB) {
+      try {
+        await writeCriminalAggregates(this.env.DB, {
+          chatId,
+          userId,
+          username,
+          day,
+          violationCount: violations.length,
+          totalSeverity,
+        });
+      } catch (e: unknown) {
+        logD1AggregateWriteError('criminal', chatId, e);
+      }
+    }
   }
 
   private async processBatchRequest(request: Request): Promise<Response> {
-    let batchData: {
-      activity?: IncrementPayload[];
-      profanity?: ProfanityIncrementPayload[];
-      criminal?: CriminalIncrementPayload[];
-    };
+    let batchData: BatchIncrementPayload;
 
     try {
-      const data = (await request.json()) as any;
-      batchData = data as {
-        activity?: IncrementPayload[];
-        profanity?: ProfanityIncrementPayload[];
-        criminal?: CriminalIncrementPayload[];
-      };
+      batchData = (await request.json()) as BatchIncrementPayload;
     } catch {
       return new Response('Bad request', { status: 400 });
     }
@@ -409,8 +461,8 @@ export class CountersDO {
           }
         }
       });
-    } catch (err: any) {
-      console.error('batch counter update error', err.message || err);
+    } catch (err: unknown) {
+      logCounterOperationError('batch', err);
       return new Response('error', { status: 500 });
     }
 

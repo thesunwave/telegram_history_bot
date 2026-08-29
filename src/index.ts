@@ -24,11 +24,43 @@ import { DayBlockManager } from "./durable-objects/day-block-manager";
 import { CriminalCodeAnalyzerDO } from "./durable-objects/criminal-code-analyzer-do";
 import { ProviderInitializer } from "./core/providers/provider-init";
 import { Logger } from "./core/logger";
+import {
+  BACKFILL_CRON,
+  DAILY_SUMMARY_CRON,
+  backfillErrorInfo,
+  runDailyAggregateBackfill,
+} from "./features/stats/daily-backfill";
 import { handleLegalRagIngestBatch, handleLegalRagSearch } from "./features/legal-rag/ingest";
 import type {
   ExecutionContext,
   ScheduledEvent,
 } from "@cloudflare/workers-types";
+
+const ADMIN_UNAVAILABLE_ERROR_CODE = "ADMIN_UNAVAILABLE";
+
+function describeError(error: unknown): { name: string } {
+  if (error instanceof Error) {
+    return { name: error.name || "Error" };
+  }
+  return { name: typeof error === "string" ? "Error" : "UnknownError" };
+}
+
+function adminUnavailableResponse(requestId: string): Response {
+  return Response.json(
+    {
+      ok: false,
+      error: {
+        code: ADMIN_UNAVAILABLE_ERROR_CODE,
+        message: "Admin service is temporarily unavailable.",
+        requestId,
+      },
+    },
+    {
+      status: 503,
+      headers: { "Cache-Control": "no-store" },
+    },
+  );
+}
 
 export default {
   async fetch(
@@ -52,7 +84,23 @@ export default {
     const url = new URL(req.url);
 
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
-      return await handleAdminRequest(req, env);
+      try {
+        return await handleAdminRequest(req, env);
+      } catch (error) {
+        // Containment boundary: any unexpected admin failure must return
+        // structured JSON instead of surfacing a Cloudflare 1101 page. Log only
+        // the error class name and the safe request id — never the raw error
+        // message, which could embed request payload.
+        const requestId = crypto.randomUUID();
+        const { name } = describeError(error);
+        console.error("Admin request failed with unhandled exception", {
+          requestId,
+          method: req.method,
+          pathname: url.pathname,
+          errorName: name,
+        });
+        return adminUnavailableResponse(requestId);
+      }
     }
 
     // Migration endpoints
@@ -726,10 +774,31 @@ export default {
     return new Response("Not found", { status: 404 });
   },
   async scheduled(
-    _event: ScheduledEvent,
+    event: ScheduledEvent,
     env: Env,
     _ctx: ExecutionContext,
   ): Promise<void> {
+    // Phase 3a: the distinct temporary backfill cron (`*/2 * * * *`) runs ONLY
+    // the D1 aggregate backfill and returns before provider initialization,
+    // summary, and cleanup. The exact daily cron (`59 23 * * *`) keeps its
+    // original behavior; any unknown cron no-ops safely.
+    const cron = event && typeof event.cron === "string" ? event.cron : "";
+    if (cron === BACKFILL_CRON) {
+      try {
+        const summary = await runDailyAggregateBackfill(env);
+        Logger.info(env, "Daily aggregate backfill run completed", summary);
+      } catch (e: unknown) {
+        // Privacy-safe: only the error class name and the safe closed-set
+        // BackfillError code. Never raw error message/stack/query/identity.
+        const { name, code } = backfillErrorInfo(e);
+        Logger.error("Daily aggregate backfill failed", { errName: name, errCode: code });
+      }
+      return;
+    }
+    if (cron !== DAILY_SUMMARY_CRON) {
+      return;
+    }
+
     // Initialize provider for scheduled events if not already initialized
     if (!ProviderInitializer.isProviderInitialized()) {
       try {

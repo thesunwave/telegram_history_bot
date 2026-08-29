@@ -21,6 +21,7 @@
 		"@miniflare/d1": "^2.14.4",
 		"@miniflare/kv": "^2.14.4",
 		"@miniflare/storage-memory": "^2.14.4",
+		"better-sqlite3": "^11.10.0",
 		"typescript": "^5.0.4",
 		"vitest": "^3.2.3",
 		"wrangler": "^4.26.1"

@@ -7,6 +7,8 @@ import {
   getTopProfanityWords,
   PROFANITY_RATE_MIN_WORDS,
 } from '../features/stats/stats';
+import { getReadyAdminChatStatsFromD1 } from '../features/stats/admin-stats-d1';
+import { AdminUnavailable, HistoricalStatsNotReady } from '../features/stats/admin-stats-errors';
 
 export type AdminPeriod = 'today' | 'week' | 'month' | 'custom';
 
@@ -745,6 +747,22 @@ async function getCriminalTopUsers(env: Env, chatId: number, range: AdminDateRan
 }
 
 export async function getAdminChatStats(
+  env: Env,
+  chatId: number,
+  range: AdminDateRange,
+): Promise<AdminChatStats> {
+  try {
+    const stats = await getReadyAdminChatStatsFromD1(env.DB, chatId, range);
+    if (stats) return stats;
+  } catch {
+    if (range.days.length > 3) throw new AdminUnavailable();
+    return getLegacyAdminChatStats(env, chatId, range);
+  }
+  if (range.days.length > 3) throw new HistoricalStatsNotReady();
+  return getLegacyAdminChatStats(env, chatId, range);
+}
+
+async function getLegacyAdminChatStats(
   env: Env,
   chatId: number,
   range: AdminDateRange,

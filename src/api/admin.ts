@@ -17,12 +17,26 @@ import {
   listAdminChatsForTelegramUser,
 } from './admin-chats';
 import { getAdminChatStats, parseAdminPeriod } from './admin-stats';
+import { AdminUnavailable, HistoricalStatsNotReady } from '../features/stats/admin-stats-errors';
 import { renderAdminHtml } from './admin-html';
 
 const ADMIN_PATH = '/admin';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ ok: false, error: message }, { status });
+}
+
+function statsUnavailable(error: HistoricalStatsNotReady | AdminUnavailable): Response {
+  const historical = error instanceof HistoricalStatsNotReady;
+  return Response.json({
+    ok: false,
+    error: {
+      code: historical ? 'HISTORICAL_STATS_NOT_READY' : 'ADMIN_UNAVAILABLE',
+      message: historical
+        ? 'Statistics for this range are temporarily unavailable during optimization.'
+        : 'Admin service is temporarily unavailable.',
+    },
+  }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
 }
 
 function parseChatId(url: URL): number | null {
@@ -271,12 +285,20 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     } catch (error) {
       return jsonError(error instanceof Error ? error.message : 'invalid period', 400);
     }
+
     const denied = await requireTelegramChatAccess(env, principal, chatId);
     if (denied) {
       return denied;
     }
 
-    return Response.json(await getAdminChatStats(env, chatId, period));
+    try {
+      return Response.json(await getAdminChatStats(env, chatId, period));
+    } catch (error) {
+      if (error instanceof HistoricalStatsNotReady || error instanceof AdminUnavailable) {
+        return statsUnavailable(error);
+      }
+      throw error;
+    }
   }
 
   if (url.pathname === `${ADMIN_PATH}/api/notifications`) {

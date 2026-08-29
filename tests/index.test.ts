@@ -4,6 +4,8 @@ import { KVNamespace } from "@miniflare/kv";
 import { MemoryStorage } from "@miniflare/storage-memory";
 import worker from "../src/index";
 import { createTelegramSessionCookie } from "../src/api/admin-auth";
+import * as adminChatsModule from "../src/api/admin-chats";
+import * as adminStatsModule from "../src/api/admin-stats";
 import { disableConsoleLogging } from "./test-utils";
 
 vi.mock("wrangler", () => ({
@@ -603,6 +605,132 @@ describe("webhook", () => {
     );
 
     expect(response.status).toBe(403);
+  });
+
+  it("returns stable 503 JSON for a long not-ready custom range only after valid auth", async () => {
+    mockTelegramMembership("member"); // valid access; selection happens after auth/access
+    const isInChatSpy = vi.spyOn(adminChatsModule, "isTelegramUserInChat");
+
+    // Minimal not-ready D1: every coverage/state query resolves empty so the
+    // selector reports the range as not ready (not an unavailable/DB error).
+    const notReadyDb = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({
+          all: vi.fn(async () => ({ results: [] })),
+          first: vi.fn(async () => null),
+          run: vi.fn(async () => ({ success: true })),
+        })),
+      })),
+      batch: vi.fn(async (stmts: unknown[]) =>
+        Array.from({ length: stmts.length }, () => ({ results: [] })),
+      ),
+    };
+    env.DB = notReadyDb;
+
+    const response = await worker.fetch(
+      new Request(
+        "http://localhost/admin/api/chat?chatId=1&period=custom&from=2026-05-01&to=2026-05-04",
+        { headers: await adminSessionHeaders() },
+      ),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: {
+        code: "HISTORICAL_STATS_NOT_READY",
+        message:
+          "Statistics for this range are temporarily unavailable during optimization.",
+      },
+    });
+    // Auth + access must precede historical selection (no pre-auth rejection).
+    expect(isInChatSpy).toHaveBeenCalled();
+  });
+
+  it("rejects a long not-ready custom range with 403 before stats when access is denied", async () => {
+    mockTelegramMembership("left"); // access check denies, so selection is never reached
+    const getStatsSpy = vi.spyOn(adminStatsModule, "getAdminChatStats");
+
+    const response = await worker.fetch(
+      new Request(
+        "http://localhost/admin/api/chat?chatId=1&period=custom&from=2026-05-01&to=2026-05-04",
+        { headers: await adminSessionHeaders() },
+      ),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(403);
+    expect(getStatsSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows custom ranges of exactly 3 inclusive days through to stats", async () => {
+    mockTelegramMembership("member");
+    await env.COUNTERS.put("stats_v2:1:2026-05-01:2", "1");
+    await env.COUNTERS.put("word_stats_v2:1:2026-05-01:2", "2");
+    await env.COUNTERS.put("user:2", "alice");
+
+    const response = await worker.fetch(
+      new Request(
+        "http://localhost/admin/api/chat?chatId=1&period=custom&from=2026-05-01&to=2026-05-03",
+        { headers: await adminSessionHeaders() },
+      ),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as any;
+    expect(body.period).toBe("custom");
+    expect(body.range).toEqual({ from: "2026-05-01", to: "2026-05-03", days: 3 });
+  });
+
+  it("converts unhandled admin exceptions into stable 503 JSON with a UUID requestId", async () => {
+    const listChatsSpy = vi.spyOn(adminChatsModule, "listAdminChatsForTelegramUser");
+    listChatsSpy.mockRejectedValueOnce(new Error("kv failure"));
+
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/chats", {
+        headers: await adminSessionHeaders(),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: {
+        code: "ADMIN_UNAVAILABLE",
+        message: "Admin service is temporarily unavailable.",
+        requestId: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+        ),
+      },
+    });
+  });
+
+  it("does not route non-admin exceptions through the admin error boundary", async () => {
+    const response = worker.fetch(
+      new Request("http://localhost/tg/t/webhook", {
+        method: "POST",
+        headers: {
+          "X-Telegram-Bot-Api-Secret-Token": "s",
+          "Content-Type": "application/json",
+        },
+        body: "{not-json",
+      }),
+      env,
+      ctx,
+    );
+
+    // Invalid webhook JSON still rejects uncaught (unchanged behavior), instead of
+    // being converted into the admin 503 error response.
+    await expect(response).rejects.toThrow();
   });
 
   it("stores chat metadata from webhook messages", async () => {
@@ -1312,17 +1440,137 @@ describe("webhook", () => {
 });
 
 describe("cron", () => {
-  it("runs daily summary on schedule", async () => {
+  it("runs daily summary on the exact daily cron", async () => {
     const spy = vi
       .spyOn(await import("../src/features/stats/stats"), "dailySummary")
       .mockResolvedValue(undefined);
     const event = {
       scheduledTime: Date.now(),
-      cron: "* * * * *",
+      cron: "59 23 * * *",
       noRetry: () => { },
       waitUntil: () => { },
     } as any;
     await worker.scheduled(event, env, ctx);
     expect(spy).toHaveBeenCalled();
+  });
+
+  it("no-ops safely on an unknown cron without summary or backfill", async () => {
+    const { BACKFILL_CRON } = await import("../src/features/stats/daily-backfill");
+    const backfillSpy = vi
+      .spyOn(await import("../src/features/stats/daily-backfill"), "runDailyAggregateBackfill")
+      .mockResolvedValue({
+        phase: "base",
+        done: false,
+        keysProcessed: 0,
+        keysSkipped: 0,
+        statements: 0,
+        coverageCompleted: 0,
+        coverageDeferred: 0,
+        leaseBlocked: false,
+        errorCode: null,
+      } as any);
+    const summarySpy = vi
+      .spyOn(await import("../src/features/stats/stats"), "dailySummary")
+      .mockResolvedValue(undefined);
+
+    const event = {
+      scheduledTime: Date.now(),
+      cron: "0 0 * * *",
+      noRetry: () => { },
+      waitUntil: () => { },
+    } as any;
+    await worker.scheduled(event, env, ctx);
+
+    expect(backfillSpy).not.toHaveBeenCalled();
+    expect(summarySpy).not.toHaveBeenCalled();
+  });
+
+  it("runs only the aggregate backfill on the temporary backfill cron", async () => {
+    const { BACKFILL_CRON } = await import("../src/features/stats/daily-backfill");
+    const backfillSpy = vi
+      .spyOn(await import("../src/features/stats/daily-backfill"), "runDailyAggregateBackfill")
+      .mockResolvedValue({
+        phase: "base",
+        done: false,
+        keysProcessed: 1,
+        keysSkipped: 0,
+        statements: 1,
+        coverageCompleted: 0,
+        coverageDeferred: 0,
+        leaseBlocked: false,
+        errorCode: null,
+      } as any);
+    const summarySpy = vi
+      .spyOn(await import("../src/features/stats/stats"), "dailySummary")
+      .mockResolvedValue(undefined);
+
+    const event = {
+      scheduledTime: Date.now(),
+      cron: BACKFILL_CRON,
+      noRetry: () => { },
+      waitUntil: () => { },
+    } as any;
+    await worker.scheduled(event, env, ctx);
+
+    expect(backfillSpy).toHaveBeenCalledTimes(1);
+    expect(summarySpy).not.toHaveBeenCalled();
+  });
+
+  it("logs only a safe error class/code when the backfill throws", async () => {
+    const { BACKFILL_CRON } = await import("../src/features/stats/daily-backfill");
+    const backfillSpy = vi
+      .spyOn(await import("../src/features/stats/daily-backfill"), "runDailyAggregateBackfill")
+      .mockRejectedValue(
+        new Error("SELECT * FROM activity WHERE chat_id = 42 AND day = '2026-08-27' SECRET"),
+      );
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const event = {
+      scheduledTime: Date.now(),
+      cron: BACKFILL_CRON,
+      noRetry: () => { },
+      waitUntil: () => { },
+    } as any;
+    await worker.scheduled(event, env, ctx);
+
+    expect(backfillSpy).toHaveBeenCalledTimes(1);
+    const logged = JSON.stringify(consoleErrorSpy.mock.calls);
+    // The raw error message, SQL, and identity must never reach the log.
+    expect(logged).not.toContain("SELECT * FROM activity");
+    expect(logged).not.toContain("chat_id = 42");
+    expect(logged).not.toContain("2026-08-27");
+    expect(logged).not.toContain("SECRET");
+    // Only a safe class name and message are emitted.
+    expect(logged).toContain("Daily aggregate backfill failed");
+  });
+
+  it("does not run the backfill on the regular cleanup cron", async () => {
+    const backfillSpy = vi
+      .spyOn(await import("../src/features/stats/daily-backfill"), "runDailyAggregateBackfill")
+      .mockResolvedValue({
+        phase: "done",
+        done: true,
+        keysProcessed: 0,
+        keysSkipped: 0,
+        statements: 0,
+        coverageCompleted: 0,
+        coverageDeferred: 0,
+        leaseBlocked: false,
+        errorCode: null,
+      } as any);
+    const summarySpy = vi
+      .spyOn(await import("../src/features/stats/stats"), "dailySummary")
+      .mockResolvedValue(undefined);
+
+    const event = {
+      scheduledTime: Date.now(),
+      cron: "59 23 * * *",
+      noRetry: () => { },
+      waitUntil: () => { },
+    } as any;
+    await worker.scheduled(event, env, ctx);
+
+    expect(summarySpy).toHaveBeenCalledTimes(1);
+    expect(backfillSpy).not.toHaveBeenCalled();
   });
 });
