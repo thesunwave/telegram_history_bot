@@ -2,18 +2,19 @@ import type { D1Database, D1PreparedStatement, D1Result } from '@cloudflare/work
 import type {
   AdminChatStats,
   AdminDateRange,
-  AdminPeriod,
   AdminUserCount,
 } from '../../api/admin-stats';
 import { PROFANITY_RATE_MIN_WORDS } from './stats';
-import { AdminUnavailable } from './admin-stats-errors';
+import { AdminUnavailable, HistoricalStatsNotReady } from './admin-stats-errors';
 import {
   addSentenceTotals,
   calculateSentenceFromViolationCount,
 } from '../criminal/sentence-calculator';
 import {
   createD1RangeReadinessQueryPlan,
-  isD1RangeReadyFromResults,
+  interpretRollingReadiness,
+  type D1LiveReadiness,
+  type LiveProgressSnapshot,
 } from './d1-coverage';
 
 /**
@@ -139,11 +140,11 @@ function round2(value: number): number {
   return Number(value.toFixed(2));
 }
 
-/** Mirrors the legacy preset sentence window (`criminalPeriodToDays`). */
-function criminalPeriodToDays(period: AdminPeriod): number {
-  if (period === 'week') return 7;
-  if (period === 'month') return 30;
-  return 1;
+/** UTC day string for the day following `day`. */
+function dayAfter(day: string): string {
+  const date = new Date(`${day}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
 }
 
 /**
@@ -287,16 +288,21 @@ function createAdminStatsD1QueryPlan(
 
   if (range.period !== 'custom') {
     indexes.criminalSentence = statements.length;
+    // Prefer violation_day (canonical message day) when present; fallback to created_at for old rows.
+    // Bound as strings for violation_day branch and datetime() for created_at branch.
     statements.push(
       db
         .prepare(
           `SELECT user_id, article, subarticle, article_title, punishment,
                   COUNT(*) AS count, AVG(severity) AS average_severity
            FROM criminal_violations
-           WHERE chat_id = ? AND created_at >= datetime('now', ?)
+           WHERE chat_id = ? AND (
+             (violation_day IS NOT NULL AND violation_day >= ? AND violation_day <= ?)
+             OR (violation_day IS NULL AND date(created_at) >= ? AND date(created_at) <= ?)
+           )
            GROUP BY user_id, article, subarticle, article_title, punishment`,
         )
-        .bind(chatId, `-${criminalPeriodToDays(range.period)} days`),
+        .bind(chatId, range.from, range.to, range.from, range.to),
     );
   }
 
@@ -309,7 +315,10 @@ function createReadyAdminStatsD1QueryPlan(
   chatId: number,
   range: AdminDateRange,
 ): ReadyAdminStatsD1QueryPlan {
-  const readiness = createD1RangeReadinessQueryPlan(db, chatId, range.days);
+  // The readiness plan includes one multi-day pipeline progress statement for
+  // the complete requested range (live-capable), so every `source='live'` day
+  // is proven from the same snapshot as the response aggregates.
+  const readiness = createD1RangeReadinessQueryPlan(db, chatId, range.days, range.days);
   const stats = createAdminStatsD1QueryPlan(db, chatId, range);
   const offset = readiness.statements.length;
   return {
@@ -330,6 +339,14 @@ function createReadyAdminStatsD1QueryPlan(
   };
 }
 
+/** Result of a single atomic D1 snapshot read. */
+export type AdminChatStatsD1Result =
+  | { kind: 'final'; stats: AdminChatStats; live: D1LiveReadiness }
+  | { kind: 'provisional'; stats: AdminChatStats; live: D1LiveReadiness }
+  | { kind: 'not-ready'; containsLiveCoverage: boolean }
+  | { kind: 'failed'; day: string; progress: LiveProgressSnapshot }
+  | { kind: 'unknown'; day: string };
+
 /** Bounded aggregate reader. It deliberately never reads COUNTERS. */
 export async function getAdminChatStatsFromD1(
   db: D1Database,
@@ -342,25 +359,113 @@ export async function getAdminChatStatsFromD1(
 }
 
 /**
- * Reads readiness and every response input from one D1 batch snapshot. A false
- * result means callers must use their existing not-ready handling, never data
- * from this candidate batch.
+ * Reads readiness and every response input from one D1 batch snapshot. Returns
+ * a discriminated result; callers must never mix data from this batch with any
+ * other source (no legacy fallback, no truncation-before-merge).
  */
 export async function getReadyAdminChatStatsFromD1(
   db: D1Database,
   chatId: number,
   range: AdminDateRange,
-): Promise<AdminChatStats | null> {
+  liveDay: string | null,
+): Promise<AdminChatStatsD1Result> {
   const plan = createReadyAdminStatsD1QueryPlan(db, chatId, range);
   const results = await db.batch(plan.statements);
-  if (!isD1RangeReadyFromResults(results.slice(0, plan.readinessResultCount), range.days)) {
-    return null;
+  const readiness = interpretRollingReadiness(
+    results.slice(0, plan.readinessResultCount),
+    range.days,
+    liveDay,
+  );
+  switch (readiness.kind) {
+    case 'final':
+      return {
+        kind: 'final',
+        stats: mapAdminChatStatsFromD1Results(chatId, range, results, plan.indexes, 'final'),
+        live: readiness.live,
+      };
+    case 'provisional':
+      // Provisional implies the current UTC day is live-owned and validated, so
+      // its snapshot is the one surfaced on the response.
+      return {
+        kind: 'provisional',
+        stats: mapAdminChatStatsFromD1Results(
+          chatId,
+          range,
+          results,
+          plan.indexes,
+          'provisional',
+          readiness.live.snapshots[liveDay!],
+        ),
+        live: readiness.live,
+      };
+    case 'failed':
+      return { kind: 'failed', day: readiness.day, progress: readiness.progress };
+    case 'unknown':
+      return { kind: 'unknown', day: readiness.day };
+    case 'not-ready':
+      return { kind: 'not-ready', containsLiveCoverage: readiness.containsLiveCoverage };
   }
-  return mapAdminChatStatsFromD1Results(chatId, range, results, plan.indexes);
+}
+
+/**
+ * Narrow D1 ownership probe used only after the main D1 candidate batch has
+ * thrown: it determines whether any requested day carries `source='live'`
+ * coverage, so legacy KV fallback is used only when ownership can be proven
+ * absent. A probe failure leaves ownership unknown and must reject the request
+ * (`AdminUnavailable`) instead of risking legacy data for a live-owned range.
+ */
+export async function probeD1LiveCoverage(
+  db: D1Database,
+  chatId: number,
+  days: string[],
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT day FROM stats_daily_coverage
+       WHERE chat_id = ? AND day >= ? AND day <= ? AND source = 'live'
+       LIMIT 1`,
+    )
+    .bind(chatId, days[0], days[days.length - 1])
+    .first<{ day: string }>();
+  return row !== null;
+}
+
+/**
+ * Interprets the outcome of a failed main D1 batch: a successful probe proving
+ * no `source='live'` day may fall back to legacy KV; live coverage or a probe
+ * failure rejects the request.
+ */
+export async function resolveD1BatchFailureReadiness(
+  db: D1Database,
+  chatId: number,
+  days: string[],
+): Promise<'no-live' | 'live'> {
+  let hasLive: boolean;
+  try {
+    hasLive = await probeD1LiveCoverage(db, chatId, days);
+  } catch {
+    throw new AdminUnavailable();
+  }
+  if (hasLive) throw new HistoricalStatsNotReady();
+  return 'no-live';
+}
+
+/**
+ * Guards a D1 batch result: Cloudflare may report a per-statement failure as a
+ * result-level `error` instead of throwing, and a missing result must never be
+ * mistaken for an empty one. Any such failure surfaces as `AdminUnavailable`;
+ * raw D1 error details are never exposed.
+ */
+function requireResult(results: readonly D1Result<unknown>[], index: number): D1Result<unknown> {
+  const result = results[index];
+  if (!result || result.error || (result as unknown as { success?: boolean }).success === false) {
+    throw new AdminUnavailable();
+  }
+  return result;
 }
 
 function resultRows<T>(results: readonly D1Result<unknown>[], index: number): T[] {
-  return ((results[index] as D1Result<T> | undefined)?.results ?? []);
+  return (requireResult(results, index) as D1Result<T>).results;
 }
 
 /** Maps completed D1 results. It never performs D1 I/O. */
@@ -369,6 +474,8 @@ function mapAdminChatStatsFromD1Results(
   range: AdminDateRange,
   results: readonly D1Result<unknown>[],
   indexes: AdminStatsD1ResultIndexes,
+  status: 'final' | 'provisional' = 'final',
+  progress?: LiveProgressSnapshot,
 ): AdminChatStats {
   const users = resultRows<User>(results, indexes.users);
   const dailyRows = resultRows<DayRow>(results, indexes.daily);
@@ -626,6 +733,8 @@ function mapAdminChatStatsFromD1Results(
     chatId,
     period: range.period,
     range: { from: range.from, to: range.to, days: dayCount },
+    status,
+    ...(progress ? { progress } : {}),
     activity: {
       total,
       totalWords,

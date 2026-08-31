@@ -23,6 +23,10 @@ Set `ADMIN_BASIC_USER` as a Worker variable. The password should stay in secrets
 1. Open `https://<your-domain>/admin`.
 2. Sign in with Telegram Login.
 3. Select a chat, then choose `today`, `week`, `month`, or a custom period of up to 90 days.
+   Week and month are rolling 7/30-day windows **including today**. Stats are read
+   from D1; days with no recorded activity show zero counts. If the stats storage
+   is unavailable, the UI shows an unavailable-state message and suggests trying
+   again later.
 4. Use the dashboard to view activity, profanity, criminal-code stats, and auto-notification settings.
 5. In **"Ритм участников"**, any verified member of the selected chat can compare each
    participant's typical activity by weekday and by **night, morning, day, and evening** (UTC).

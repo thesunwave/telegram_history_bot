@@ -12,7 +12,12 @@ import {
 import { getAdminChatStatsFromD1 } from '../src/features/stats/admin-stats-d1';
 import { isD1RangeReady, BACKFILL_JOB_NAME } from '../src/features/stats/d1-coverage';
 import { JOB_VERSION } from '../src/features/stats/daily-backfill';
-import { AdminUnavailable, HistoricalStatsNotReady } from '../src/features/stats/admin-stats-errors';
+import {
+  PIPELINE_PROOF_VERSION,
+  type CountersDODayProofSnapshot,
+  type CountersDOPipelineSnapshots,
+} from '../src/features/stats/pipeline-progress';
+import { AdminUnavailable } from '../src/features/stats/admin-stats-errors';
 
 /**
  * D1 reader + selector tests. Uses a real in-memory SQLite database (via
@@ -78,6 +83,10 @@ class FakeD1Database {
   failPattern: RegExp | null = null;
   batchCalls = 0;
   afterBatch: (() => void) | null = null;
+  /** Statement indexes whose batch result carries a per-result `error` (no throw). */
+  errorResultIndexes: ReadonlySet<number> = new Set();
+  /** Statement indexes whose batch result resolves `success: false` with no `error` (no throw). */
+  falseSuccessResultIndexes: ReadonlySet<number> = new Set();
 
   constructor(sqlite: Sqlite) {
     this.sqlite = sqlite;
@@ -97,8 +106,14 @@ class FakeD1Database {
     this.batchCalls += 1;
     this.sqlite.exec('BEGIN');
     try {
-      const results = statements.map((stmt) => {
+      const results = statements.map((stmt, index) => {
         this.guard(stmt.sql);
+        if (this.errorResultIndexes.has(index)) {
+          return { success: false, error: 'D1_EXEC_ERROR', results: [], meta: {} };
+        }
+        if (this.falseSuccessResultIndexes.has(index)) {
+          return { success: false, results: [], meta: {} };
+        }
         if (/^\s*SELECT/i.test(stmt.sql)) {
           return { success: true, results: this.sqlite.prepare(stmt.sql).all(...stmt.params), meta: {} };
         }
@@ -127,6 +142,7 @@ async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database
     '0009_stats_daily_aggregates.sql',
     '0010_stats_backfill_state.sql',
     '0011_stats_chat_user_profile.sql',
+    '0012_stats_daily_pipeline_progress.sql',
   ]) {
     const sql = readFileSync(join(migrationsDir, file), 'utf8');
     for (const statement of sql.split(';')) {
@@ -149,9 +165,19 @@ async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database
        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
        article_title TEXT,
-       subarticle TEXT
+       subarticle TEXT,
+       violation_day TEXT,
+       violation_ts INTEGER
      )`,
   );
+  try {
+    const mig13 = readFileSync(join(migrationsDir, '0013_criminal_violation_canonical_ts.sql'), 'utf8');
+    for (const statement of mig13.split(';')) {
+      if (statement.trim()) {
+        try { sqlite.exec(statement); } catch {}
+      }
+    }
+  } catch {}
   const harness = new FakeD1Database(sqlite);
   return { db: harness as unknown as D1Database, harness };
 }
@@ -226,19 +252,27 @@ function insertProfanityWordUser(sqlite: Sqlite, chatId: number, day: string, wo
     .run(chatId, day, word, userId, count);
 }
 
-function seedCoverage(sqlite: Sqlite, chatId: number, day: string, status: string, reason: string | null = null): void {
+function seedCoverage(
+  sqlite: Sqlite,
+  chatId: number,
+  day: string,
+  status: string,
+  reason: string | null = null,
+  source: string = 'backfill',
+): void {
   sqlite
     .prepare(
       `INSERT INTO stats_daily_coverage
          (chat_id, day, base_status, profanity_status, criminal_status, source, reason_code, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'backfill', ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(chat_id, day) DO UPDATE SET
          base_status = excluded.base_status,
          profanity_status = excluded.profanity_status,
          criminal_status = excluded.criminal_status,
+         source = excluded.source,
          reason_code = excluded.reason_code`,
     )
-    .run(chatId, day, status, status, status, reason, 1);
+    .run(chatId, day, status, status, status, source, reason, 1);
 }
 
 /** Seeds a done backfill state with the current JOB_VERSION. */
@@ -251,6 +285,38 @@ function seedBackfillDone(sqlite: Sqlite): void {
        VALUES (?, ?, 'done', 'done', '2026-08-28', NULL, 0, 1, NULL, ?, ?)`,
     )
     .run(BACKFILL_JOB_NAME, JOB_VERSION, now, now);
+}
+
+/** Seeds one category progress row for a live day. */
+function seedProgress(
+  sqlite: Sqlite,
+  chatId: number,
+  day: string,
+  category: string,
+  overrides: Partial<{
+    accepted_seq: number; completed_seq: number; pending_count: number; failed_count: number;
+  }> = {},
+): void {
+  sqlite
+    .prepare(
+      `INSERT INTO stats_daily_pipeline_progress
+         (chat_id, day, category, accepted_seq, completed_seq, pending_count, failed_count, completed_through_ts, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1)
+       ON CONFLICT(chat_id, day, category) DO UPDATE SET
+         accepted_seq = excluded.accepted_seq,
+         completed_seq = excluded.completed_seq,
+         pending_count = excluded.pending_count,
+         failed_count = excluded.failed_count`,
+    )
+    .run(
+      chatId,
+      day,
+      category,
+      overrides.accepted_seq ?? 1,
+      overrides.completed_seq ?? 1,
+      overrides.pending_count ?? 0,
+      overrides.failed_count ?? 0,
+    );
 }
 
 function insertCriminalViolation(
@@ -268,7 +334,7 @@ function insertCriminalViolation(
 /** Minimal env for the selector: real D1 + empty KV that returns nothing. */
 function makeEnv(db: D1Database): any {
   const kvMap = new Map<string, string>();
-  return {
+  const env: any = {
     DB: db,
     COUNTERS: {
       get: vi.fn(async (key: string) => kvMap.get(key) ?? null),
@@ -282,6 +348,93 @@ function makeEnv(db: D1Database): any {
     TOKEN: 'test-token',
     SECRET: 'test-secret',
   };
+  env.COUNTERS_DO = {
+    idFromName: vi.fn((name: string) => ({ name })),
+    get: vi.fn(() => ({
+      fetch: vi.fn(async () => {
+        throw new Error('no DO stub configured');
+      }),
+    })),
+  };
+  return env;
+}
+
+function categorySnapshot(
+  accepted: number,
+  overrides: Partial<{ completed: number; pending: number; failed: number; clean: boolean }> = {},
+) {
+  return {
+    accepted,
+    completed: overrides.completed ?? accepted,
+    pending: overrides.pending ?? 0,
+    failed: overrides.failed ?? 0,
+    clean: overrides.clean ?? true,
+  };
+}
+
+/** Builds one day's versioned proof snapshot; overrides per category replace defaults. */
+function dayProof(
+  day: string,
+  accepted: number,
+  overrides: {
+    base?: Partial<{ completed: number; pending: number; failed: number; clean: boolean }>;
+    profanity?: Partial<{ completed: number; pending: number; failed: number; clean: boolean }>;
+    criminal?: Partial<{ completed: number; pending: number; failed: number; clean: boolean }>;
+  } = {},
+): CountersDODayProofSnapshot {
+  return {
+    day,
+    version: PIPELINE_PROOF_VERSION,
+    initialized: true,
+    accepted,
+    categories: {
+      base: categorySnapshot(accepted, overrides.base),
+      profanity: categorySnapshot(accepted, overrides.profanity),
+      criminal: categorySnapshot(accepted, overrides.criminal),
+    },
+  };
+}
+
+/** Builds a full `/pipeline-snapshots` response for the given days in order. */
+function proofResponse(days: CountersDODayProofSnapshot[]): CountersDOPipelineSnapshots {
+  return { version: PIPELINE_PROOF_VERSION, days };
+}
+
+/** Installs a fake CountersDO stub responding to `/pipeline-snapshots`. */
+function stubCountersDOPipelineSnapshots(
+  env: any,
+  snapshots: CountersDOPipelineSnapshots | ((days: string[]) => CountersDOPipelineSnapshots),
+): void {
+  env.COUNTERS_DO = {
+    idFromName: vi.fn((name: string) => ({ name })),
+    get: vi.fn(() => ({
+      fetch: vi.fn(async (url: string, init: RequestInit) => {
+        expect(new URL(url).pathname).toBe('/pipeline-snapshots');
+        expect(init.method).toBe('POST');
+        const body = JSON.parse(String(init.body)) as { days?: string[] };
+        const snap = typeof snapshots === 'function' ? snapshots(body.days ?? []) : snapshots;
+        return new Response(JSON.stringify(snap), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }),
+    })),
+  };
+}
+
+function seedLiveDay(
+  sqlite: Sqlite,
+  day: string,
+  accepted: number,
+  completed: number,
+  pending = 0,
+  failed = 0,
+): void {
+  seedCoverage(sqlite, 1, day, 'live', null, 'live');
+  for (const category of ['base', 'profanity', 'criminal']) {
+    seedProgress(sqlite, 1, day, category, { accepted_seq: accepted, completed_seq: completed, pending_count: pending, failed_count: failed });
+  }
+  insertUser(sqlite, { day, user_id: 100, message_count: 2, word_count: 4 });
+  insertProfile(sqlite, 1, 100, 'alice', 1000);
 }
 
 describe('D1 admin stats reader', () => {
@@ -547,11 +700,36 @@ describe('D1 coverage selector', () => {
     await expect(isD1RangeReady(db, 1, days)).resolves.toBe(false);
   });
 
-  it('rejects a live coverage day (dual-write never marks complete)', async () => {
+  it('rejects a live-source coverage day (never complete, even with complete statuses)', async () => {
     const sqlite = harness.sqlite;
     const days = ['2026-08-26'];
-    seedCoverage(sqlite, 1, '2026-08-26', 'live');
+    // Writer bug scenario: a live-source row marked complete must still never
+    // qualify for the closed backfill gate; only the CountersDO proof counts.
+    seedCoverage(sqlite, 1, '2026-08-26', 'complete', null, 'live');
+    seedBackfillDone(sqlite);
     await expect(isD1RangeReady(db, 1, days)).resolves.toBe(false);
+
+    // Normal live row: statuses live, source live — also rejected by the gate.
+    seedCoverage(sqlite, 1, '2026-08-26', 'live', null, 'live');
+    await expect(isD1RangeReady(db, 1, days)).resolves.toBe(false);
+  });
+
+  it('rejects complete coverage rows that are not explicitly backfill-owned', async () => {
+    const sqlite = harness.sqlite;
+    const days = ['2026-08-26'];
+    seedBackfillDone(sqlite);
+
+    // Unknown source value: no completion guarantee, must not be ready.
+    seedCoverage(sqlite, 1, '2026-08-26', 'complete', null, 'unknown');
+    await expect(isD1RangeReady(db, 1, days)).resolves.toBe(false);
+
+    // Missing source value: same rejection.
+    seedCoverage(sqlite, 1, '2026-08-26', 'complete', null, '');
+    await expect(isD1RangeReady(db, 1, days)).resolves.toBe(false);
+
+    // Explicit backfill ownership stays ready.
+    seedCoverage(sqlite, 1, '2026-08-26', 'complete', null, 'backfill');
+    await expect(isD1RangeReady(db, 1, days)).resolves.toBe(true);
   });
 
   it('rejects complete coverage while job is running (matching version)', async () => {
@@ -643,23 +821,41 @@ describe('admin stats backend selector', () => {
     harness.sqlite.close();
   });
 
-  it('throws HistoricalStatsNotReady for a not-ready week/month/long-custom range (never legacy)', async () => {
-    // No coverage rows → not ready. >3 days must never fall back to legacy KV.
+  it('serves zero-filled stats for not-ready week/month/long-custom ranges (never legacy)', async () => {
+    // No coverage rows → aggregate query succeeds empty → zero stats served
+    // directly. >3 days must never fall back to legacy KV.
     const week = Array.from({ length: 7 }, (_, i) => dayAt(-6 + i));
-    await expect(getAdminChatStats(env, 1, range('week', week))).rejects.toThrow(HistoricalStatsNotReady);
+    const weekResult = await getAdminChatStats(env, 1, range('week', week));
+    expect(weekResult.activity.total).toBe(0);
+    expect(weekResult.activity.dailyMessages).toHaveLength(7);
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
 
     const month = Array.from({ length: 30 }, (_, i) => dayAt(-29 + i));
-    await expect(getAdminChatStats(env, 1, range('month', month))).rejects.toThrow(HistoricalStatsNotReady);
+    const monthResult = await getAdminChatStats(env, 1, range('month', month));
+    expect(monthResult.activity.total).toBe(0);
+    expect(monthResult.activity.dailyMessages).toHaveLength(30);
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
 
     const custom = Array.from({ length: 4 }, (_, i) => dayAt(-3 + i));
-    await expect(getAdminChatStats(env, 1, range('custom', custom))).rejects.toThrow(HistoricalStatsNotReady);
+    const customResult = await getAdminChatStats(env, 1, range('custom', custom));
+    expect(customResult.activity.total).toBe(0);
+    expect(customResult.activity.dailyMessages).toHaveLength(4);
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
   });
 
-  it('falls back to legacy KV only for at-most-three-day not-ready ranges', async () => {
+  it('serves zero-filled stats for an at-most-three-day not-ready range (never legacy)', async () => {
     const custom = ['2026-08-25', '2026-08-26', '2026-08-27'];
     const result = await getAdminChatStats(env, 1, range('custom', custom));
     expect(result.period).toBe('custom');
     expect(result.range.days).toBe(3);
+    expect(result.activity.total).toBe(0);
+    expect(result.activity.dailyMessages).toEqual([
+      { day: '2026-08-25', count: 0 },
+      { day: '2026-08-26', count: 0 },
+      { day: '2026-08-27', count: 0 },
+    ]);
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
   });
 
   it('raises AdminUnavailable when a ready long range fails to read D1', async () => {
@@ -670,16 +866,82 @@ describe('admin stats backend selector', () => {
     harness.failPattern = /GROUP BY u\.user_id/;
 
     await expect(getAdminChatStats(env, 1, range('month', days))).rejects.toThrow(AdminUnavailable);
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
   });
 
-  it('falls back to legacy KV when a ready short range fails to read D1', async () => {
+  it('raises AdminUnavailable when a short range fails to read D1 (no KV, no DO)', async () => {
     const sqlite = harness.sqlite;
     const days = ['2026-08-26'];
     seedCoverage(sqlite, 1, '2026-08-26', 'complete');
     harness.failPattern = /GROUP BY u\.user_id/;
 
-    const result = await getAdminChatStats(env, 1, range('today', days));
-    expect(result.period).toBe('today');
+    await expect(getAdminChatStats(env, 1, range('today', days))).rejects.toThrow(AdminUnavailable);
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+  });
+
+  it('serves zero-filled stats for a short not-ready range with live coverage (no KV fallback)', async () => {
+    const sqlite = harness.sqlite;
+    // 2-day custom range: day 2 carries source-live coverage (no progress rows).
+    // A successful aggregate read serves directly; legacy KV is never consulted.
+    const days = ['2026-08-25', '2026-08-26'];
+    seedCoverage(sqlite, 1, '2026-08-26', 'live', null, 'live');
+
+    const result = await getAdminChatStats(env, 1, range('custom', days));
+    expect(result.activity.total).toBe(0);
+    expect(result.activity.dailyMessages).toEqual([
+      { day: '2026-08-25', count: 0 },
+      { day: '2026-08-26', count: 0 },
+    ]);
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('raises AdminUnavailable when a short range with live coverage fails to read D1', async () => {
+    const sqlite = harness.sqlite;
+    const days = ['2026-08-25'];
+    seedCoverage(sqlite, 1, '2026-08-25', 'live', null, 'live');
+    harness.failPattern = /GROUP BY u\.user_id/;
+
+    await expect(getAdminChatStats(env, 1, range('custom', days))).rejects.toBeInstanceOf(
+      AdminUnavailable,
+    );
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+  });
+
+  it('raises AdminUnavailable for any D1 failure regardless of coverage state', async () => {
+    const sqlite = harness.sqlite;
+    const days = ['2026-08-25'];
+    seedCoverage(sqlite, 1, '2026-08-25', 'complete');
+    // The aggregate batch fails: ownership is never probed and legacy KV is
+    // never consulted; the structured AdminUnavailable is final.
+    harness.failPattern = /GROUP BY u\.user_id/;
+
+    await expect(getAdminChatStats(env, 1, range('custom', days))).rejects.toBeInstanceOf(
+      AdminUnavailable,
+    );
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats for a short historical live-owned range even when progress is incomplete', async () => {
+    const sqlite = harness.sqlite;
+    const yesterday = dayAt(-1);
+    seedCoverage(sqlite, 1, yesterday, 'live', null, 'live');
+    for (const category of ['base', 'profanity', 'criminal']) {
+      seedProgress(sqlite, 1, yesterday, category, { accepted_seq: 2, completed_seq: 1, pending_count: 0 });
+    }
+    seedProgress(sqlite, 1, yesterday, 'profanity', { accepted_seq: 2, completed_seq: 1, pending_count: 0, failed_count: 1 });
+    insertUser(sqlite, { day: yesterday, user_id: 100, message_count: 2, word_count: 4 });
+
+    const result = await getAdminChatStats(env, 1, range('custom', [yesterday]));
+    // A successful aggregate read is served directly regardless of progress
+    // metadata; no CountersDO proof is fetched.
+    expect(result.activity.total).toBe(2);
+    expect(result.status).toBe('final');
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
   });
 
   it('uses D1 for a fully ready range', async () => {
@@ -715,7 +977,7 @@ describe('admin stats backend selector', () => {
     expect(result.activity.total).toBe(3);
   });
 
-  it('rejects a stale state/data batch before mapping it to an admin response', async () => {
+  it('serves a stale backfill state batch directly (no readiness gate)', async () => {
     const sqlite = harness.sqlite;
     const days = ['2026-08-23', '2026-08-24', '2026-08-25', '2026-08-26'];
     for (const day of days) seedCoverage(sqlite, 1, day, 'complete');
@@ -726,19 +988,514 @@ describe('admin stats backend selector', () => {
     );
     insertUser(sqlite, { day: days[0], user_id: 100, message_count: 99, word_count: 999 });
 
-    await expect(getAdminChatStats(env, 1, range('custom', days))).rejects.toThrow(
-      HistoricalStatsNotReady,
-    );
+    const result = await getAdminChatStats(env, 1, range('custom', days));
+    // Backfill state is not consulted on a successful aggregate read.
+    expect(result.activity.total).toBe(99);
     expect(harness.batchCalls).toBe(1);
     expect(env.COUNTERS.list).not.toHaveBeenCalled();
   });
 
-  it('parseAdminPeriod still enforces the 90-day custom cap and defaults to today', () => {
+  it('parseAdminPeriod enforces the 90-day custom cap, rejects future custom, defaults to today', () => {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().slice(0, 10);
+    const daysFromToday = (offset: number): string => {
+      const day = new Date(today);
+      day.setUTCDate(today.getUTCDate() + offset);
+      return day.toISOString().slice(0, 10);
+    };
+
     expect(parseAdminPeriod('week').days).toHaveLength(7);
     expect(parseAdminPeriod('month').days).toHaveLength(30);
     expect(parseAdminPeriod('today').days).toHaveLength(1);
+    expect(parseAdminPeriod('today').from).toBe(todayStr);
+    expect(parseAdminPeriod('today').to).toBe(todayStr);
+    // Custom ending in the future is invalid (400), even within the 90-day cap.
+    expect(() => parseAdminPeriod('custom', daysFromToday(-2), daysFromToday(1))).toThrow(
+      /future/,
+    );
+    expect(() => parseAdminPeriod('custom', todayStr, daysFromToday(1))).toThrow(/future/);
+    // 90-day cap still enforced for closed past ranges.
     expect(() =>
-      parseAdminPeriod('custom', dayAt(-95), dayAt(0)),
+      parseAdminPeriod('custom', daysFromToday(-95), daysFromToday(-1)),
     ).toThrow(/90/);
+  });
+
+  it('week and month presets are rolling UTC windows including today', () => {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().slice(0, 10);
+    const daysAgo = (offset: number): string => {
+      const day = new Date(today);
+      day.setUTCDate(today.getUTCDate() - offset);
+      return day.toISOString().slice(0, 10);
+    };
+
+    const week = parseAdminPeriod('week');
+    expect(week.from).toBe(daysAgo(6));
+    expect(week.to).toBe(todayStr);
+    expect(week.days[0]).toBe(daysAgo(6));
+    expect(week.days[week.days.length - 1]).toBe(todayStr);
+    expect(week.days).toContain(todayStr);
+    expect(week.days).toHaveLength(7);
+
+    const month = parseAdminPeriod('month');
+    expect(month.from).toBe(daysAgo(29));
+    expect(month.to).toBe(todayStr);
+    expect(month.days[0]).toBe(daysAgo(29));
+    expect(month.days[month.days.length - 1]).toBe(todayStr);
+    expect(month.days).toContain(todayStr);
+    expect(month.days).toHaveLength(30);
+  });
+
+  it('serves a final dashboard for a live day with all progress rows (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 2, 2);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves a final dashboard for a live day with matching snapshots (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 2, 2);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats when the DO accepted watermark differs from D1 (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    // D1 aggregate read returns the actual totals; no CountersDO proof is
+    // ever fetched under simple D1 semantics.
+    seedLiveDay(sqlite, todayStr, 2, 2);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats when the DO reports a poisoned integrity stream (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 2, 2);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats when DO returns a null category object (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 2, 2);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats when DO clean is a truthy non-boolean (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 2, 2);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats when DO top-level accepted mismatches category accepted (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 2, 2);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats with truthful pending progress when analysis remains (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 2, 1, 1);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats on a non-OK DO snapshot response (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 2, 2);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats when the DO proof version is not current (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 2, 2);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats when the DO proof reports the day uninitialized (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 2, 2);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats when the DO proof response misses a requested day (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 2, 2);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('keeps final status for D1 permanent failed rows (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 2, 1, 0, 1);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves zero-filled stats for a current day without live coverage (final status)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    // Chat has historical rows but today carries no coverage row at all: D1
+    // aggregate returns zero for today with final status.
+    insertUser(sqlite, { day: dayAt(-1), user_id: 100, message_count: 1, word_count: 2 });
+    insertProfile(sqlite, 1, 100, 'alice', 1000);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(0);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats when the DO proof is not clean for a live day (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedLiveDay(sqlite, todayStr, 0, 0);
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    // seedLiveDay always inserts 2 messages for user 100.
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+  });
+
+  it('serves final stats for today when progress rows are missing (no DO/KV access)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    // Live-owned today (coverage source=live) with a current-day aggregate row
+    // but no progress rows → successful D1 aggregate read serves final stats.
+    seedCoverage(sqlite, 1, todayStr, 'live', null, 'live');
+    insertUser(sqlite, { day: todayStr, user_id: 100, message_count: 2, word_count: 4 });
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+  });
+
+  it('serves final stats for today when a category has a permanent failure (no DO/KV access)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    seedCoverage(sqlite, 1, todayStr, 'live', null, 'live');
+    for (const category of ['base', 'profanity', 'criminal']) {
+      seedProgress(sqlite, 1, todayStr, category, { accepted_seq: 2, completed_seq: 1, pending_count: 0 });
+    }
+    seedProgress(sqlite, 1, todayStr, 'profanity', { accepted_seq: 2, completed_seq: 1, pending_count: 0, failed_count: 1 });
+
+    const result = await getAdminChatStats(env, 1, range('today', [todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(0);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+  });
+
+  it('serves a fully ready long closed range from D1 without regression and without DO', async () => {
+    const sqlite = harness.sqlite;
+    const days = Array.from({ length: 30 }, (_, i) => dayAt(-30 + i));
+    for (const day of days) seedCoverage(sqlite, 1, day, 'complete');
+    seedBackfillDone(sqlite);
+    insertUser(sqlite, { day: days[days.length - 1], user_id: 100, message_count: 5, word_count: 10 });
+    insertProfile(sqlite, 1, 100, 'alice', 1000);
+
+    const result = await getAdminChatStats(env, 1, range('month', days));
+    expect(result.activity.total).toBe(5);
+    expect(result.range).toEqual({ from: days[0], to: days[days.length - 1], days: 30 });
+    // Pure complete backfill: no live-owned days, so the CountersDO proof is
+    // never consulted.
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves a rolling week of closed days plus live today from one D1 batch, final, no DO', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(`${todayStr}T00:00:00.000Z`);
+      d.setUTCDate(d.getUTCDate() - 6 + i);
+      return d.toISOString().slice(0, 10);
+    });
+    // days[0..5] closed backfill complete; days[6] is the live current UTC day.
+    for (let i = 0; i < 6; i++) seedCoverage(sqlite, 1, days[i], 'complete');
+    seedBackfillDone(sqlite);
+    for (const day of days) {
+      insertUser(sqlite, { day, user_id: 100, message_count: 1, word_count: 2 });
+    }
+    insertProfile(sqlite, 1, 100, 'alice', 1000);
+    seedCoverage(sqlite, 1, todayStr, 'live', null, 'live');
+    for (const category of ['base', 'profanity', 'criminal']) {
+      seedProgress(sqlite, 1, todayStr, category, { accepted_seq: 1, completed_seq: 1, pending_count: 0 });
+    }
+
+    const result = await getAdminChatStats(env, 1, range('week', days));
+    expect(result.status).toBe('final');
+    expect(result.range.days).toBe(7);
+    expect(result.activity.total).toBe(7);
+    expect(result.progress).toBeUndefined();
+    expect(harness.batchCalls).toBe(1);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves a closed-only live range as final without any DO call', async () => {
+    const sqlite = harness.sqlite;
+    const yesterday = dayAt(-1);
+    // Yesterday is live-owned but no longer the current UTC day: validated
+    // closed live-owned days are final.
+    seedCoverage(sqlite, 1, yesterday, 'live', null, 'live');
+    for (const category of ['base', 'profanity', 'criminal']) {
+      seedProgress(sqlite, 1, yesterday, category, { accepted_seq: 2, completed_seq: 2, pending_count: 0 });
+    }
+    insertUser(sqlite, { day: yesterday, user_id: 100, message_count: 2, word_count: 4 });
+    insertProfile(sqlite, 1, 100, 'alice', 1000);
+
+    const result = await getAdminChatStats(env, 1, range('custom', [yesterday]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(result.progress).toBeUndefined();
+    expect(harness.batchCalls).toBe(1);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('validates every live-owned day from one D1 batch without any DO proof call', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const yesterday = dayAt(-1, todayStr);
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(`${todayStr}T00:00:00.000Z`);
+      d.setUTCDate(d.getUTCDate() - 6 + i);
+      return d.toISOString().slice(0, 10);
+    });
+    // days[0..4] closed complete; days[5] (yesterday) and days[6] (today) live.
+    for (let i = 0; i < 5; i++) seedCoverage(sqlite, 1, days[i], 'complete');
+    seedBackfillDone(sqlite);
+    for (const day of days) {
+      insertUser(sqlite, { day, user_id: 100, message_count: 1, word_count: 2 });
+    }
+    insertProfile(sqlite, 1, 100, 'alice', 1000);
+    for (const day of [yesterday, todayStr]) {
+      seedCoverage(sqlite, 1, day, 'live', null, 'live');
+      for (const category of ['base', 'profanity', 'criminal']) {
+        seedProgress(sqlite, 1, day, category, { accepted_seq: 1, completed_seq: 1, pending_count: 0 });
+      }
+    }
+
+    const result = await getAdminChatStats(env, 1, range('week', days));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(7);
+    expect(result.progress).toBeUndefined();
+    expect(harness.batchCalls).toBe(1);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats when DO proof days are not in request order (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const yesterday = dayAt(-1);
+    for (const day of [yesterday, todayStr]) {
+      seedCoverage(sqlite, 1, day, 'live', null, 'live');
+      for (const category of ['base', 'profanity', 'criminal']) {
+        seedProgress(sqlite, 1, day, category, { accepted_seq: 1, completed_seq: 1, pending_count: 0 });
+      }
+      insertUser(sqlite, { day, user_id: 100, message_count: 1, word_count: 2 });
+    }
+    insertProfile(sqlite, 1, 100, 'alice', 1000);
+
+    const result = await getAdminChatStats(env, 1, range('custom', [yesterday, todayStr]));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats when any live day proof carries a stale version (no proof fetch)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const yesterday = dayAt(-1);
+    const days = [yesterday, todayStr];
+    for (const day of days) {
+      seedCoverage(sqlite, 1, day, 'live', null, 'live');
+      for (const category of ['base', 'profanity', 'criminal']) {
+        seedProgress(sqlite, 1, day, category, { accepted_seq: 1, completed_seq: 1, pending_count: 0 });
+      }
+      insertUser(sqlite, { day, user_id: 100, message_count: 1, word_count: 2 });
+    }
+    insertProfile(sqlite, 1, 100, 'alice', 1000);
+
+    const result = await getAdminChatStats(env, 1, range('custom', days));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(2);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('serves D1 stats for a mixed range when a closed day is not ready (no DO/KV access)', async () => {
+    const sqlite = harness.sqlite;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(`${todayStr}T00:00:00.000Z`);
+      d.setUTCDate(d.getUTCDate() - 6 + i);
+      return d.toISOString().slice(0, 10);
+    });
+    for (let i = 0; i < 6; i++) seedCoverage(sqlite, 1, days[i], i === 3 ? 'pending' : 'complete');
+    seedBackfillDone(sqlite);
+    seedCoverage(sqlite, 1, todayStr, 'live', null, 'live');
+    for (const category of ['base', 'profanity', 'criminal']) {
+      seedProgress(sqlite, 1, todayStr, category, { accepted_seq: 1, completed_seq: 1, pending_count: 0 });
+    }
+    insertUser(sqlite, { day: todayStr, user_id: 100, message_count: 1, word_count: 2 });
+    insertProfile(sqlite, 1, 100, 'alice', 1000);
+
+    const result = await getAdminChatStats(env, 1, range('week', days));
+    expect(result.status).toBe('final');
+    expect(result.activity.total).toBe(1);
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+  });
+
+  it('raises AdminUnavailable when a batch result reports an error instead of throwing', async () => {
+    const sqlite = harness.sqlite;
+    const days = ['2026-08-25', '2026-08-26'];
+    for (const day of days) seedCoverage(sqlite, 1, day, 'complete');
+    seedBackfillDone(sqlite);
+    insertUser(sqlite, { day: '2026-08-25', user_id: 100, message_count: 3, word_count: 9 });
+
+    // Cloudflare D1 can return a per-statement `error` in the batch result
+    // array rather than throwing. Statement 0 is the user aggregate: mapping it
+    // must fail closed instead of serving zero/partial stats.
+    harness.errorResultIndexes = new Set([0]);
+
+    await expect(getAdminChatStats(env, 1, range('custom', days))).rejects.toBeInstanceOf(
+      AdminUnavailable,
+    );
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+  });
+
+  it('raises AdminUnavailable when a batch result resolves success:false with no error', async () => {
+    const sqlite = harness.sqlite;
+    const days = ['2026-08-25', '2026-08-26'];
+    for (const day of days) seedCoverage(sqlite, 1, day, 'complete');
+    seedBackfillDone(sqlite);
+    insertUser(sqlite, { day: '2026-08-25', user_id: 100, message_count: 3, word_count: 9 });
+
+    // D1 may resolve a per-statement failure as `success: false` without an
+    // `error` field. Statement 0 is the user aggregate: it must fail closed
+    // instead of serving zero/partial stats.
+    harness.falseSuccessResultIndexes = new Set([0]);
+
+    await expect(getAdminChatStats(env, 1, range('custom', days))).rejects.toBeInstanceOf(
+      AdminUnavailable,
+    );
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
+  });
+
+  it('raises AdminUnavailable when a required batch result is missing entirely', async () => {
+    const days = ['2026-08-25'];
+    // Emulate a truncated/short batch response: drop the first (users aggregate)
+    // result. A missing result must never be read as an empty success.
+    const made = await createRealD1();
+    const shortDb = made.harness;
+    const originalBatch = shortDb.batch.bind(shortDb);
+    shortDb.batch = async (statements) => {
+      const all = await originalBatch(statements);
+      return all.slice(1);
+    };
+    const shortEnv = makeEnv(shortDb as unknown as D1Database);
+
+    await expect(getAdminChatStats(shortEnv, 1, range('custom', days))).rejects.toBeInstanceOf(
+      AdminUnavailable,
+    );
+    expect(shortEnv.COUNTERS.list).not.toHaveBeenCalled();
+    expect(shortEnv.COUNTERS_DO.get).not.toHaveBeenCalled();
+    made.harness.sqlite.close();
+  });
+
+  it('still serves zero-filled stats when all batch results succeed but are empty', async () => {
+    const days = ['2026-08-25', '2026-08-26'];
+    // No coverage, no rows at all: every aggregate statement succeeds empty.
+    const result = await getAdminChatStats(env, 1, range('custom', days));
+    expect(result.activity.total).toBe(0);
+    expect(result.activity.dailyMessages).toEqual([
+      { day: '2026-08-25', count: 0 },
+      { day: '2026-08-26', count: 0 },
+    ]);
+    expect(env.COUNTERS.list).not.toHaveBeenCalled();
+    expect(env.COUNTERS_DO.get).not.toHaveBeenCalled();
   });
 });

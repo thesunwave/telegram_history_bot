@@ -280,6 +280,144 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(mockEnv.HISTORY.get).toHaveBeenCalled();
     });
 
+    it("should persist caller-provided source timestamp for violations", async () => {
+      const sourceTs = 1700000000;
+      const requestBody = {
+        text: "Призываю к насилию против определенной группы людей",
+        chatId: 12345,
+        userId: 67890,
+        messageId: 111,
+        username: "testuser",
+        day: "2023-11-14",
+        ts: sourceTs,
+      };
+
+      const request = new Request("http://localhost/analyze", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await analyzer.fetch(request);
+      expect(response.status).toBe(200);
+
+      const bindSpy = mockEnv.DB.prepare.mock.results[0].value.bind;
+      // Find the INSERT INTO criminal_violations bind call (20 args) — skip
+      // earlier cache lookup/insert calls which have fewer arguments.
+      const insertCall = bindSpy.mock.calls.find((call: any[]) => call.length > 10);
+      const violation_ts = insertCall[insertCall.length - 1];
+      const violation_day = insertCall[insertCall.length - 2];
+      expect(violation_ts).toBe(sourceTs);
+      expect(violation_day).toBe("2023-11-14");
+    });
+
+    it("should derive violation day from valid ts when caller day mismatches", async () => {
+      // 1700000000 == 2023-11-14T22:13:20Z; the mismatched caller day must not win.
+      const sourceTs = 1700000000;
+      const requestBody = {
+        text: "Призываю к насилию против определенной группы людей",
+        chatId: 12345,
+        userId: 67890,
+        messageId: 111,
+        username: "testuser",
+        day: "2024-01-01",
+        ts: sourceTs,
+      };
+
+      const request = new Request("http://localhost/analyze", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await analyzer.fetch(request);
+      expect(response.status).toBe(200);
+
+      const bindSpy = mockEnv.DB.prepare.mock.results[0].value.bind;
+      const insertCall = bindSpy.mock.calls.find((call: any[]) => call.length > 10);
+      const violation_ts = insertCall[insertCall.length - 1];
+      const violation_day = insertCall[insertCall.length - 2];
+      expect(violation_ts).toBe(sourceTs);
+      expect(violation_day).toBe("2023-11-14");
+    });
+
+    it("should fall back to processing time when analyze request has no timestamp", async () => {
+      const before = Math.floor(Date.now() / 1000);
+      const requestBody = {
+        text: "Призываю к насилию против определенной группы людей",
+        chatId: 12345,
+        userId: 67890,
+        messageId: 111,
+      };
+
+      const request = new Request("http://localhost/analyze", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await analyzer.fetch(request);
+      expect(response.status).toBe(200);
+
+      const bindSpy = mockEnv.DB.prepare.mock.results[0].value.bind;
+      const insertCall = bindSpy.mock.calls.find((call: any[]) => call.length > 10);
+      const violation_ts = insertCall[insertCall.length - 1];
+      expect(violation_ts).toBeGreaterThanOrEqual(before);
+    });
+
+    it("should keep caller day when ts is missing or invalid", async () => {
+      const requestBody = {
+        text: "Призываю к насилию против определенной группы людей",
+        chatId: 12345,
+        userId: 67890,
+        messageId: 111,
+        username: "testuser",
+        day: "2024-01-01",
+      };
+
+      const request = new Request("http://localhost/analyze", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await analyzer.fetch(request);
+      expect(response.status).toBe(200);
+
+      const bindSpy = mockEnv.DB.prepare.mock.results[0].value.bind;
+      const insertCall = bindSpy.mock.calls.find((call: any[]) => call.length > 10);
+      const violation_day = insertCall[insertCall.length - 2];
+      expect(violation_day).toBe("2024-01-01");
+    });
+
+    it("should persist ts=0 as epoch zero with day 1970-01-01", async () => {
+      const requestBody = {
+        text: "Призываю к насилию против определенной группы людей",
+        chatId: 12345,
+        userId: 67890,
+        messageId: 111,
+        username: "testuser",
+        day: "2024-06-15",
+        ts: 0,
+      };
+
+      const request = new Request("http://localhost/analyze", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await analyzer.fetch(request);
+      expect(response.status).toBe(200);
+
+      const bindSpy = mockEnv.DB.prepare.mock.results[0].value.bind;
+      const insertCall = bindSpy.mock.calls.find((call: any[]) => call.length > 10);
+      const violation_ts = insertCall[insertCall.length - 1];
+      const violation_day = insertCall[insertCall.length - 2];
+      expect(violation_ts).toBe(0);
+      expect(violation_day).toBe("1970-01-01");
+    });
+
     it("should enqueue short no-signal messages for semantic prefilter", async () => {
       const request = new Request("http://localhost/enqueue", {
         method: "POST",
@@ -959,6 +1097,113 @@ describe("CriminalCodeAnalyzerDO", () => {
     });
   });
 
+  describe("batch analyze endpoint", () => {
+    it("should persist per-message source timestamps for violations", async () => {
+      const sourceTs = 1700000000;
+      const requestBody = {
+        messages: [
+          {
+            text: "Призываю к насилию против определенной группы людей",
+            chatId: 12345,
+            userId: 67890,
+            messageId: 111,
+            username: "testuser",
+            day: "2023-11-14",
+            ts: sourceTs,
+          },
+        ],
+      };
+
+      const request = new Request("http://localhost/batch-analyze", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await analyzer.fetch(request);
+      expect(response.status).toBe(200);
+
+      const bindSpy = mockEnv.DB.prepare.mock.results[0].value.bind;
+      // Find the INSERT INTO criminal_violations bind calls (20 args each) — skip
+      // earlier cache lookup/insert calls which have fewer arguments.
+      const insertCalls = bindSpy.mock.calls.filter((call: any[]) => call.length > 10);
+      const violation_ts = insertCalls[0][insertCalls[0].length - 1];
+      const violation_day = insertCalls[0][insertCalls[0].length - 2];
+      expect(violation_ts).toBe(sourceTs);
+      expect(violation_day).toBe("2023-11-14");
+    });
+
+    it("should persist per-message source timestamps for multiple messages", async () => {
+      const requestBody = {
+        messages: [
+          {
+            text: "Призываю к насилию против определенной группы людей",
+            chatId: 12345,
+            userId: 67890,
+            messageId: 111,
+            username: "testuser",
+            day: "2023-11-14",
+            ts: 1700000000,
+          },
+          {
+            text: "Призываю к насилию против определенной группы людей",
+            chatId: 12346,
+            userId: 67891,
+            messageId: 112,
+            username: "testuser2",
+            day: "2023-11-15",
+            ts: 1700086400,
+          },
+        ],
+      };
+
+      const request = new Request("http://localhost/batch-analyze", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await analyzer.fetch(request);
+      expect(response.status).toBe(200);
+
+      const bindSpy = mockEnv.DB.prepare.mock.results[0].value.bind;
+      const insertCalls = bindSpy.mock.calls.filter((call: any[]) => call.length > 10);
+      expect(insertCalls[0][insertCalls[0].length - 1]).toBe(1700000000);
+      expect(insertCalls[0][insertCalls[0].length - 2]).toBe("2023-11-14");
+      expect(insertCalls[1][insertCalls[1].length - 1]).toBe(1700086400);
+      expect(insertCalls[1][insertCalls[1].length - 2]).toBe("2023-11-15");
+    });
+
+    it("should fall back to processing time when batch message has no timestamp", async () => {
+      const requestBody = {
+        messages: [
+          {
+            text: "Призываю к насилию против определенной группы людей",
+            chatId: 12345,
+            userId: 67890,
+            messageId: 111,
+            username: "testuser",
+          },
+        ],
+      };
+
+      const before = Math.floor(Date.now() / 1000);
+      const request = new Request("http://localhost/batch-analyze", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await analyzer.fetch(request);
+      expect(response.status).toBe(200);
+
+      const bindSpy = mockEnv.DB.prepare.mock.results[0].value.bind;
+      const insertCall = bindSpy.mock.calls.find((call: any[]) => call.length > 10);
+      const violation_ts = insertCall[insertCall.length - 1];
+      expect(violation_ts).toBeGreaterThanOrEqual(before);
+    });
+  });
+
   describe("error handling", () => {
     it("should handle AI provider errors gracefully", async () => {
       // Mock ProviderFactory to return a provider that throws errors
@@ -1185,6 +1430,221 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(payload.words).toEqual([{ word: "заебал", count: 2 }]);
     });
 
+    it("acks profanity failed when the counter request fails for a sequenced task", async () => {
+      const storage = new Map<string, any>();
+      // Counter transport failure: non-OK response from CountersDO.
+      const counterFetch = vi.fn()
+        .mockResolvedValueOnce(new Response("boom", { status: 500 }))
+        .mockResolvedValue(new Response("ok", { status: 200 }));
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+      };
+      mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = true;
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        output_text: JSON.stringify({
+          shouldAnalyze: false,
+          reason: "none",
+          confidence: 0.1,
+          explanation: "no legal signal",
+          searchQuery: "",
+          profanity: {
+            hasProfanity: true,
+            words: [{ word: "заебал", count: 2, confidence: 0.91 }],
+          },
+        }),
+        usage: { input_tokens: 100, output_tokens: 30, total_tokens: 130 },
+      }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "заебал заебал обычная достаточно длинная фраза для модельной проверки",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 2010,
+          username: "testuser",
+          day: "2026-05-18",
+          sequence: 42,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      // Profanity increment failed exactly once; not re-attempted (no double ack).
+      const incrementCalls = counterFetch.mock.calls.filter((call) =>
+        (call[1] as RequestInit).method === "POST" && !(call[0] as string).includes("/ack")
+      );
+      expect(incrementCalls).toHaveLength(1);
+      const incrementPayload = JSON.parse((incrementCalls[0][1] as RequestInit).body as string);
+      expect(incrementPayload.sequence).toBe(42);
+      // Exactly one profanity ack: category profanity, sequence preserved, outcome failed.
+      const profanityAckCalls = counterFetch.mock.calls.filter((call) => {
+        const requestInit = call[1] as RequestInit;
+        if (requestInit.method !== "POST" || !(call[0] as string).includes("/ack")) {
+          return false;
+        }
+        return (JSON.parse(requestInit.body as string) as any).category === "profanity";
+      });
+      expect(profanityAckCalls).toHaveLength(1);
+      const ackPayload = JSON.parse((profanityAckCalls[0][1] as RequestInit).body as string);
+      expect(ackPayload).toMatchObject({
+        chatId: 12345,
+        day: "2026-05-18",
+        category: "profanity",
+        messageId: 2010,
+        sequence: 42,
+        outcome: "failed",
+      });
+    });
+
+    it("acks profanity failed for a sequenced task with missing user identity instead of false zero", async () => {
+      const storage = new Map<string, any>();
+      const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+      };
+      mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = true;
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        output_text: JSON.stringify({
+          shouldAnalyze: false,
+          reason: "none",
+          confidence: 0.1,
+          explanation: "no legal signal",
+          searchQuery: "",
+          profanity: {
+            hasProfanity: true,
+            words: [{ word: "заебал", count: 2, confidence: 0.91 }],
+          },
+        }),
+        usage: { input_tokens: 100, output_tokens: 30, total_tokens: 130 },
+      }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "заебал заебал обычная достаточно длинная фраза для модельной проверки",
+          chatId: 12345,
+          // userId intentionally omitted: incomplete identity must not be
+          // treated as zero profanity.
+          messageId: 2013,
+          username: "testuser",
+          day: "2026-05-18",
+          sequence: 43,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      // No profanity increment attempted for incomplete identity.
+      const incrementCalls = counterFetch.mock.calls.filter((call) =>
+        (call[1] as RequestInit).method === "POST" && (call[0] as string).includes("/profanity")
+      );
+      expect(incrementCalls).toHaveLength(0);
+      // Exactly one profanity ack: category profanity, sequence preserved, outcome failed, never zero.
+      const profanityAckCalls = counterFetch.mock.calls.filter((call) => {
+        const requestInit = call[1] as RequestInit;
+        if (requestInit.method !== "POST" || !(call[0] as string).includes("/ack")) {
+          return false;
+        }
+        return (JSON.parse(requestInit.body as string) as any).category === "profanity";
+      });
+      expect(profanityAckCalls).toHaveLength(1);
+      const ackPayload = JSON.parse((profanityAckCalls[0][1] as RequestInit).body as string);
+      expect(ackPayload).toMatchObject({
+        chatId: 12345,
+        day: "2026-05-18",
+        category: "profanity",
+        messageId: 2013,
+        sequence: 43,
+        outcome: "failed",
+      });
+      expect(ackPayload.outcome).not.toBe("zero");
+    });
+
+    it("acks profanity failed for a sequenced no-word task with missing user identity instead of false zero", async () => {
+      const storage = new Map<string, any>();
+      const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+      };
+      mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = true;
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          // Short clean text: prefilter reasons too_short, no profanity words detected.
+          text: "привет",
+          chatId: 12345,
+          // userId intentionally omitted: missing identity must not be
+          // treated as zero profanity even when no words were detected.
+          messageId: 2014,
+          username: "testuser",
+          day: "2026-05-18",
+          sequence: 44,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      // No profanity increment attempted for incomplete identity.
+      const incrementCalls = counterFetch.mock.calls.filter((call) =>
+        (call[1] as RequestInit).method === "POST" && (call[0] as string).includes("/profanity")
+      );
+      expect(incrementCalls).toHaveLength(0);
+      // Exactly one profanity ack: category profanity, sequence preserved, outcome failed, never zero.
+      const profanityAckCalls = counterFetch.mock.calls.filter((call) => {
+        const requestInit = call[1] as RequestInit;
+        if (requestInit.method !== "POST" || !(call[0] as string).includes("/ack")) {
+          return false;
+        }
+        return (JSON.parse(requestInit.body as string) as any).category === "profanity";
+      });
+      expect(profanityAckCalls).toHaveLength(1);
+      const ackPayload = JSON.parse((profanityAckCalls[0][1] as RequestInit).body as string);
+      expect(ackPayload).toMatchObject({
+        chatId: 12345,
+        day: "2026-05-18",
+        category: "profanity",
+        messageId: 2014,
+        sequence: 44,
+        outcome: "failed",
+      });
+      expect(ackPayload.outcome).not.toBe("zero");
+    });
+
     it("merges local and model profanity without double-counting the same word form", async () => {
       const storage = new Map<string, any>();
       const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
@@ -1347,6 +1807,453 @@ describe("CriminalCodeAnalyzerDO", () => {
     });
   });
 
+  describe("criminal ack outcomes from queued flush", () => {
+    it("acks criminal failed when contextual provider errors for a sequenced queued task", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
+      mockEnv.CRIMINAL_FINAL_JUDGE_ENABLED = false;
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      const errorProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "openrouter", model: "mock" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCodeWithContext: vi.fn().mockRejectedValue(new Error("AI service unavailable")),
+      };
+      ProviderFactory.createProvider = vi.fn().mockReturnValue(errorProvider);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "угрожаю причинить вред людям, это сообщение достаточно длинное для обхода локального детектора",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 2011,
+          username: "testuser",
+          day: "2026-05-18",
+          sequence: 77,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      // Exactly one criminal ack: category criminal, original sequence, outcome failed.
+      const criminalAckCalls = counterFetch.mock.calls.filter((call) => {
+        const requestInit = call[1] as RequestInit;
+        if (requestInit.method !== "POST" || !(call[0] as string).includes("/ack")) {
+          return false;
+        }
+        return (JSON.parse(requestInit.body as string) as any).category === "criminal";
+      });
+      expect(criminalAckCalls).toHaveLength(1);
+      const ackPayload = JSON.parse((criminalAckCalls[0][1] as RequestInit).body as string);
+      expect(ackPayload).toMatchObject({
+        chatId: 12345,
+        day: "2026-05-18",
+        category: "criminal",
+        messageId: 2011,
+        sequence: 77,
+        outcome: "failed",
+      });
+      expect(ackPayload.outcome).not.toBe("zero");
+    });
+
+    it("acks criminal failed when violation persistence rejects for a sequenced queued task", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
+      mockEnv.CRIMINAL_FINAL_JUDGE_ENABLED = false;
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      // Persistence failure: the DB insert rejects, which storeViolations rethrows
+      // so flushQueue's failed-ack branch runs instead of implicit completion.
+      mockEnv.DB.prepare = vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnValue({
+          run: vi.fn().mockRejectedValue(new Error("DB write failed")),
+          all: vi.fn().mockResolvedValue({ results: [] }),
+          first: vi.fn().mockResolvedValue(null),
+        }),
+      });
+      const confirmedProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "openrouter", model: "mock" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCodeWithContext: vi.fn().mockResolvedValue({
+          hasViolations: true,
+          violations: [{
+            article: "119",
+            subarticle: null,
+            articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+            quote: "я тебя убью",
+            punishment: "обязательные работы",
+            severity: 7,
+            confidence: 0.91,
+            decision: "violation",
+            evidence: {
+              subject: "author",
+              object: "victim",
+              intent: "threat",
+              contextSummary: "direct threat",
+              whyNotBenign: "literal threat"
+            }
+          }],
+          totalSeverity: 7,
+          riskLevel: "high",
+          analysisTimestamp: Date.now()
+        }),
+      };
+      ProviderFactory.createProvider = vi.fn().mockReturnValue(confirmedProvider);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "я тебя убью, это сообщение достаточно длинное для обхода локального детектора",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 2012,
+          username: "testuser",
+          day: "2026-05-18",
+          sequence: 78,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      // Persistence failed, so the criminal completed increment must NOT happen:
+      // no /criminal POST and exactly one /ack with category criminal + failed.
+      const criminalIncrementCalls = counterFetch.mock.calls.filter((call) =>
+        (call[1] as RequestInit).method === "POST" && (call[0] as string).includes("/criminal")
+      );
+      expect(criminalIncrementCalls).toHaveLength(0);
+      const criminalAckCalls = counterFetch.mock.calls.filter((call) => {
+        const requestInit = call[1] as RequestInit;
+        if (requestInit.method !== "POST" || !(call[0] as string).includes("/ack")) {
+          return false;
+        }
+        return (JSON.parse(requestInit.body as string) as any).category === "criminal";
+      });
+      expect(criminalAckCalls).toHaveLength(1);
+      const ackPayload = JSON.parse((criminalAckCalls[0][1] as RequestInit).body as string);
+      expect(ackPayload).toMatchObject({
+        chatId: 12345,
+        day: "2026-05-18",
+        category: "criminal",
+        messageId: 2012,
+        sequence: 78,
+        outcome: "failed",
+      });
+      expect(ackPayload.outcome).not.toBe("zero");
+      expect(ackPayload.outcome).not.toBe("completed");
+    });
+
+    it("acks criminal failed when the CountersDO /criminal increment rejects with a non-OK response for a sequenced queued task", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      // DB insert succeeds; the CountersDO /criminal increment then rejects
+      // with a non-OK HTTP response (simulating aggregate/progress resolution
+      // being absent). storeViolations must propagate that as an error so
+      // flushQueue's failed-ack branch runs instead of implicit completion.
+      const counterFetch = vi.fn()
+        .mockResolvedValueOnce(new Response("ok", { status: 200 })) // unused /ack or other
+        .mockImplementation(async (url: string, init?: RequestInit) => {
+          if (String(url).includes("/criminal")) {
+            return new Response("Internal Server Error", { status: 500 });
+          }
+          return new Response("ok", { status: 200 });
+        });
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
+      mockEnv.CRIMINAL_FINAL_JUDGE_ENABLED = false;
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      const confirmedProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "openrouter", model: "mock" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCodeWithContext: vi.fn().mockResolvedValue({
+          hasViolations: true,
+          violations: [{
+            article: "119",
+            subarticle: null,
+            articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+            quote: "я тебя убью",
+            punishment: "обязательные работы",
+            severity: 7,
+            confidence: 0.91,
+            decision: "violation",
+            evidence: {
+              subject: "author",
+              object: "victim",
+              intent: "threat",
+              contextSummary: "direct threat",
+              whyNotBenign: "literal threat"
+            }
+          }],
+          totalSeverity: 7,
+          riskLevel: "high",
+          analysisTimestamp: Date.now()
+        }),
+      };
+      ProviderFactory.createProvider = vi.fn().mockReturnValue(confirmedProvider);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "я тебя убью, это сообщение достаточно длинное для обхода локального детектора",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 2013,
+          username: "testuser",
+          day: "2026-05-18",
+          sequence: 79,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      // The non-OK /criminal increment was attempted once, and the failed
+      // terminal must be acked exactly once with the original sequence: never
+      // zero/completed, never implicit completion.
+      const criminalIncrementCalls = counterFetch.mock.calls.filter((call) =>
+        (call[1] as RequestInit).method === "POST" && (call[0] as string).includes("/criminal")
+      );
+      expect(criminalIncrementCalls).toHaveLength(1);
+      const criminalAckCalls = counterFetch.mock.calls.filter((call) => {
+        const requestInit = call[1] as RequestInit;
+        if (requestInit.method !== "POST" || !(call[0] as string).includes("/ack")) {
+          return false;
+        }
+        return (JSON.parse(requestInit.body as string) as any).category === "criminal";
+      });
+      expect(criminalAckCalls).toHaveLength(1);
+      const ackPayload = JSON.parse((criminalAckCalls[0][1] as RequestInit).body as string);
+      expect(ackPayload).toMatchObject({
+        chatId: 12345,
+        day: "2026-05-18",
+        category: "criminal",
+        messageId: 2013,
+        sequence: 79,
+        outcome: "failed",
+      });
+      expect(ackPayload.outcome).not.toBe("zero");
+      expect(ackPayload.outcome).not.toBe("completed");
+    });
+
+    it("detects a non-OK /ack response and logs only safe metadata for profanity ack", async () => {
+      const storage = new Map<string, any>();
+      // /ack returns 500: the helper must detect it (not silently succeed),
+      // log safe metadata only, and keep the best-effort pipeline semantics.
+      const counterFetch = vi.fn().mockResolvedValue(new Response("error", { status: 500 }));
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+      };
+      mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = true;
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        output_text: JSON.stringify({
+          shouldAnalyze: false,
+          reason: "none",
+          confidence: 0.1,
+          explanation: "no legal signal",
+          searchQuery: "",
+          profanity: {
+            hasProfanity: true,
+            words: [{ word: "заебал", count: 1, confidence: 0.9 }],
+          },
+        }),
+        usage: { input_tokens: 100, output_tokens: 30, total_tokens: 130 },
+      }), { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "заебал заебал обычная достаточно длинная фраза для модельной проверки",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 2015,
+          username: "testuser",
+          day: "2026-05-18",
+          sequence: 45,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      // Non-OK /ack was detected exactly once for profanity category.
+      const profanityAckCalls = counterFetch.mock.calls.filter((call) => {
+        const requestInit = call[1] as RequestInit;
+        if (requestInit.method !== "POST" || !(call[0] as string).includes("/ack")) {
+          return false;
+        }
+        return (JSON.parse(requestInit.body as string) as any).category === "profanity";
+      });
+      expect(profanityAckCalls.length).toBeGreaterThan(0);
+      // Pipeline kept running: criminal zero ack still issued after non-OK profanity ack.
+      const criminalAckCalls = counterFetch.mock.calls.filter((call) => {
+        const requestInit = call[1] as RequestInit;
+        if (requestInit.method !== "POST" || !(call[0] as string).includes("/ack")) {
+          return false;
+        }
+        return (JSON.parse(requestInit.body as string) as any).category === "criminal";
+      });
+      expect(criminalAckCalls.length).toBeGreaterThan(0);
+
+      // Safe metadata only: op/category/outcome/status; never response body.
+      const warnCalls = consoleWarnSpy.mock.calls.filter((call) => {
+        const data = call[1] as Record<string, unknown>;
+        return data?.op === 'ack' && data.category === 'profanity';
+      });
+      expect(warnCalls.length).toBeGreaterThan(0);
+      for (const call of warnCalls) {
+        const data = call[1] as Record<string, unknown>;
+        expect(data.op).toBe("ack");
+        expect(data.category).toBe("profanity");
+        expect(["failed", "zero", "skipped"]).toContain(data.outcome);
+        expect(data.status).toBe(500);
+        // No raw response body / payload leakage.
+        expect(JSON.stringify(call)).not.toMatch(/error|Internal Server Error/i);
+      }
+    });
+
+    it("detects a non-OK /ack response for criminal ack and still finishes the batch", async () => {
+      const storage = new Map<string, any>();
+      const counterFetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        if (String(url).includes("/criminal")) {
+          return new Response("Internal Server Error", { status: 500 });
+        }
+        // Any /ack (profanity or criminal) returns 500: both must be detected.
+        return new Response("error", { status: 500 });
+      });
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
+      mockEnv.CRIMINAL_FINAL_JUDGE_ENABLED = false;
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      const confirmedProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "openrouter", model: "mock" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCodeWithContext: vi.fn().mockResolvedValue({
+          hasViolations: true,
+          violations: [{
+            article: "119",
+            subarticle: null,
+            articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+            quote: "я тебя убью",
+            punishment: "обязательные работы",
+            severity: 7,
+            confidence: 0.91,
+            decision: "violation",
+            evidence: {
+              subject: "author",
+              object: "victim",
+              intent: "threat",
+              contextSummary: "direct threat",
+              whyNotBenign: "literal threat"
+            }
+          }],
+          totalSeverity: 7,
+          riskLevel: "high",
+          analysisTimestamp: Date.now()
+        }),
+      };
+      ProviderFactory.createProvider = vi.fn().mockReturnValue(confirmedProvider);
+      const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "я тебя убью, это сообщение достаточно длинное для обхода локального детектора",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 2016,
+          username: "testuser",
+          day: "2026-05-18",
+          sequence: 80,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      // /criminal increment failed exactly once → criminal failed ack attempted.
+      const criminalIncrementCalls = counterFetch.mock.calls.filter((call) =>
+        (call[1] as RequestInit).method === "POST" && (call[0] as string).includes("/criminal")
+      );
+      expect(criminalIncrementCalls).toHaveLength(1);
+      // Criminal ack was attempted and its non-OK response detected.
+      const criminalAckCalls = counterFetch.mock.calls.filter((call) => {
+        const requestInit = call[1] as RequestInit;
+        if (requestInit.method !== "POST" || !(call[0] as string).includes("/ack")) {
+          return false;
+        }
+        return (JSON.parse(requestInit.body as string) as any).category === "criminal";
+      });
+      expect(criminalAckCalls).toHaveLength(1);
+
+      // Safe metadata logged for the criminal ack, no raw response content.
+      const criminalWarnCalls = consoleWarnSpy.mock.calls.filter((call) =>
+        (call[1] as Record<string, unknown>)?.category === "criminal"
+      );
+      expect(criminalWarnCalls.length).toBeGreaterThan(0);
+      for (const call of criminalWarnCalls) {
+        const data = call[1] as Record<string, unknown>;
+        expect(data.op).toBe("ack");
+        expect(data.status).toBe(500);
+        expect(["completed", "zero", "skipped", "failed"]).toContain(data.outcome);
+        expect(JSON.stringify(call)).not.toMatch(/error|Internal Server Error/i);
+      }
+    });
+  });
+
   describe("database operations", () => {
     it("should store violations in database when found", async () => {
       // Mock cache miss to ensure fresh analysis
@@ -1394,6 +2301,37 @@ describe("CriminalCodeAnalyzerDO", () => {
       // Verify violations were found and database operations were called
       expect(result.hasViolations).toBe(true);
       expect(mockEnv.DB.prepare).toHaveBeenCalled();
+    });
+  });
+
+  describe("privacy-safe error logging", () => {
+    it("never logs raw error message containing simulated telegram text", async () => {
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      // Force initialization failure with an error whose message mimics user text.
+      ProviderFactory.createProvider = vi.fn().mockRejectedValue(
+        new Error("simulated telegram text: я тебя убью")
+      );
+      mockState.blockConcurrencyWhile = vi.fn((fn: () => Promise<any>) => fn());
+
+      const analyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+      await analyzer.fetch(new Request("http://localhost/analyze", {
+        method: "POST",
+        body: JSON.stringify({ text: "длинная проверяемая фраза", chatId: 1, userId: 2, messageId: 3 }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      const calls = consoleErrorSpy.mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      for (const call of calls) {
+        // No raw error object, message, or stack may reach the logger.
+        expect(call[0]).not.toContain("я тебя убью");
+        expect(JSON.stringify(call)).not.toContain("simulated telegram text");
+        // Safe metadata retained.
+        if (call[1] && typeof call[1] === "object") {
+          const data = call[1] as Record<string, unknown>;
+          expect(data.errorClass).toBe("Error");
+        }
+      }
     });
   });
 });

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { MemoryStorage } from '@miniflare/storage-memory';
 import type { D1Database } from '@cloudflare/workers-types';
 import { CountersDO } from '../src/durable-objects/counters-do';
+import { isIntegrityClean } from '../src/features/stats/pipeline-progress';
 
 /**
  * Phase 2 dual-write tests. Uses a real in-memory SQLite database (via
@@ -102,6 +103,7 @@ async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database
     '0009_stats_daily_aggregates.sql',
     '0010_stats_backfill_state.sql',
     '0011_stats_chat_user_profile.sql',
+    '0012_stats_daily_pipeline_progress.sql',
   ]) {
     const sql = readFileSync(join(migrationsDir, file), 'utf8');
     for (const statement of sql.split(';')) {
@@ -135,11 +137,20 @@ function createKv() {
   };
 }
 
-function makeState() {
-  return { blockConcurrencyWhile: vi.fn((fn: () => Promise<unknown>) => fn()) } as any;
+function makeState(storageMap?: Map<string, unknown>) {
+  const map = storageMap ?? new Map<string, unknown>();
+  return {
+    blockConcurrencyWhile: vi.fn((fn: () => Promise<unknown>) => fn()),
+    storage: {
+      get: vi.fn(async <T>(key: string): Promise<T | undefined> => map.get(key) as T | undefined),
+      put: vi.fn(async (key: string, value: unknown) => {
+        map.set(key, value);
+      }),
+    },
+  } as any;
 }
 
-function makeEnv(db: unknown) {
+function makeEnv(db: unknown, stateMap?: Map<string, unknown>) {
   const kv = createKv();
   const env = {
     COUNTERS: kv.kv,
@@ -156,7 +167,7 @@ function makeEnv(db: unknown) {
     SUMMARY_MODEL: 'test-model',
     SUMMARY_PROMPT: 'test-prompt',
   };
-  return { env: env as any, kv };
+  return { env: env as any, kv, stateMap };
 }
 
 function post(counters: CountersDO, path: string, body: unknown): Promise<Response> {
@@ -491,6 +502,172 @@ describe('CountersDO D1 aggregate dual-write', () => {
     expect(failingKv.map.get('criminal:123:456:2026-05-07')).toBe('1');
   });
 
+  it('treats a resolving D1 batch with a per-statement error as a failed write: integrity poisoned, KV kept, progress unconfirmed', async () => {
+    const stateMap = new Map<string, unknown>();
+    const resolvingD1 = {
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+      batch: vi.fn(async (statements: unknown[]) =>
+        statements.map((_, i) =>
+          i === 0
+            ? { success: false, results: [], meta: {}, error: 'constraint failed' }
+            : { success: true, results: [], meta: {} },
+        ),
+      ),
+    };
+    const { env, kv: resolvingKv } = makeEnv(resolvingD1, stateMap);
+    const resolvingCounters = new CountersDO(makeState(stateMap), env);
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const response = await post(resolvingCounters, '/inc', basePayload());
+      expect(response.status).toBe(200);
+      // The batch resolved (no rejection) and still reached the writer's guard.
+      expect(resolvingD1.batch).toHaveBeenCalledTimes(1);
+
+      // Result-level error poisons every category stream at the armed sequence;
+      // the resolving-but-failed batch never confirmed progress.
+      for (const category of ['base', 'profanity', 'criminal']) {
+        const state = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+        expect(state.poisoned).toBe(true);
+        expect(state.firstPoisonedSeq).toBe(1);
+        expect(state.reason).toBe('d1_write_failed');
+      }
+
+      // Legacy KV writes kept despite the result-level D1 failure.
+      expect(resolvingKv.map.get('stats_v2:123:2026-05-07:456')).toBe('1');
+      expect(resolvingKv.map.get('activity_hour:123:2026-05-07:13')).toBe('1');
+
+      // The failed write is never represented as confirmed progress.
+      const snapshot = await post(resolvingCounters, '/pipeline-snapshot', { day: '2026-05-07' });
+      expect(snapshot.status).toBe(200);
+      const body = await snapshot.json() as {
+        categories: { base: { clean: boolean }; profanity: { clean: boolean }; criminal: { clean: boolean } };
+      };
+      expect(body.categories.base.clean).toBe(false);
+      expect(body.categories.profanity.clean).toBe(false);
+      expect(body.categories.criminal.clean).toBe(false);
+
+      // Raw D1 error details never leave the writer's generic failure.
+      const allOutput = JSON.stringify(consoleErrorSpy.mock.calls);
+      expect(allOutput).not.toContain('constraint failed');
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it('treats a resolving D1 batch with success:false and no error as a failed write: integrity poisoned, KV kept, progress unconfirmed', async () => {
+    const stateMap = new Map<string, unknown>();
+    const resolvingD1 = {
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+      batch: vi.fn(async (statements: unknown[]) =>
+        statements.map((_, i) =>
+          i === 0
+            ? { success: false, results: [], meta: {} }
+            : { success: true, results: [], meta: {} },
+        ),
+      ),
+    };
+    const { env, kv: resolvingKv } = makeEnv(resolvingD1, stateMap);
+    const resolvingCounters = new CountersDO(makeState(stateMap), env);
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const response = await post(resolvingCounters, '/inc', basePayload());
+      expect(response.status).toBe(200);
+      // The batch resolved (no rejection) and still reached the writer's guard.
+      expect(resolvingD1.batch).toHaveBeenCalledTimes(1);
+
+      // Result-level `success: false` (no error field) poisons every category
+      // stream at the armed sequence; progress was never confirmed.
+      for (const category of ['base', 'profanity', 'criminal']) {
+        const state = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+        expect(state.poisoned).toBe(true);
+        expect(state.firstPoisonedSeq).toBe(1);
+        expect(state.reason).toBe('d1_write_failed');
+      }
+
+      // Legacy KV writes kept despite the result-level D1 failure.
+      expect(resolvingKv.map.get('stats_v2:123:2026-05-07:456')).toBe('1');
+      expect(resolvingKv.map.get('activity_hour:123:2026-05-07:13')).toBe('1');
+
+      // The failed write is never represented as confirmed progress.
+      const snapshot = await post(resolvingCounters, '/pipeline-snapshot', { day: '2026-05-07' });
+      expect(snapshot.status).toBe(200);
+      const body = await snapshot.json() as {
+        categories: { base: { clean: boolean }; profanity: { clean: boolean }; criminal: { clean: boolean } };
+      };
+      expect(body.categories.base.clean).toBe(false);
+      expect(body.categories.profanity.clean).toBe(false);
+      expect(body.categories.criminal.clean).toBe(false);
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it('treats a resolving criminal D1 batch with a per-statement error as a failed write: criminal integrity poisoned, KV kept, progress unconfirmed', async () => {
+    const stateMap = new Map<string, unknown>();
+    const resolvingD1 = {
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+      batch: vi.fn(async (statements: unknown[]) =>
+        statements.map((_, i) =>
+          i === 0
+            ? { success: false, results: [], meta: {}, error: 'constraint failed' }
+            : { success: true, results: [], meta: {} },
+        ),
+      ),
+    };
+    const { env, kv: resolvingKv } = makeEnv(resolvingD1, stateMap);
+    const resolvingCounters = new CountersDO(makeState(stateMap), env);
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const response = await post(resolvingCounters, '/criminal', {
+        chatId: 123,
+        userId: 456,
+        username: 'testuser',
+        day: '2026-05-07',
+        violations: [{ article: '282', severity: 5, count: 1 }],
+        totalSeverity: 5,
+        sequence: 1,
+        messageId: 83,
+      });
+      // A resolved per-statement failure is a failed write: the route surfaces
+      // it as non-2xx so the async caller never treats it as completion.
+      expect(response.status).toBe(500);
+      expect(await response.text()).toBe('error');
+      // The batch resolved (no rejection) and still reached the writer's guard.
+      expect(resolvingD1.batch).toHaveBeenCalledTimes(1);
+
+      // Result-level error poisons the criminal stream at the armed sequence;
+      // the resolving-but-failed batch never confirmed progress.
+      const criminal = stateMap.get('integrity:2026-05-07:criminal') as Record<string, unknown>;
+      expect(criminal.poisoned).toBe(true);
+      expect(criminal.firstPoisonedSeq).toBe(1);
+      expect(criminal.reason).toBe('d1_write_failed');
+
+      // Unrelated categories are not newly poisoned by the criminal-only failure.
+      for (const category of ['base', 'profanity']) {
+        const state = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+        expect(state).toBeUndefined();
+      }
+
+      // Legacy KV writes kept despite the result-level D1 failure.
+      expect(resolvingKv.map.get('criminal:123:456:2026-05-07')).toBe('1');
+      expect(resolvingKv.map.get('criminal_severity:123:456:2026-05-07')).toBe('5');
+
+      // The failed write is never represented as confirmed progress: sequence 1
+      // is absent (the failed write), no completedPrefix advance is saved.
+      const progress = stateMap.get('progress:2026-05-07:criminal') as Record<string, unknown>;
+      expect(progress).toBeUndefined();
+
+      // Raw D1 error details never leave the writer's generic failure.
+      const allOutput = JSON.stringify(consoleErrorSpy.mock.calls);
+      expect(allOutput).not.toContain('constraint failed');
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
   it('does not throw on arbitrary non-Error D1 failure', async () => {
     const { env, kv: failingKv } = makeEnv({
       prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
@@ -584,7 +761,7 @@ describe('CountersDO D1 aggregate dual-write', () => {
     }
   });
 
-  it('keeps existing counter return payloads unchanged', async () => {
+  it('keeps existing counter return payloads plus the allocated day/sequence', async () => {
     const response = await post(counters, '/inc', basePayload());
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -593,6 +770,699 @@ describe('CountersDO D1 aggregate dual-write', () => {
       chatDayActivity: 1,
       userDayWordCount: 4,
       chatDayWords: 4,
+      day: '2026-05-07',
+      sequence: 1,
     });
+  });
+
+  it('records base complete and async pending progress in the same D1 batch as base aggregates', async () => {
+    await post(counters, '/inc', basePayload({ messageId: 11 }));
+
+    const progress = rows(
+      harness.sqlite,
+      'SELECT category, accepted_seq, completed_seq, pending_count, failed_count FROM stats_daily_pipeline_progress WHERE chat_id = 123 AND day = ? ORDER BY category',
+      ['2026-05-07'],
+    );
+    expect(progress).toEqual([
+      { category: 'base', accepted_seq: 1, completed_seq: 1, pending_count: 0, failed_count: 0 },
+      { category: 'criminal', accepted_seq: 1, completed_seq: 0, pending_count: 1, failed_count: 0 },
+      { category: 'profanity', accepted_seq: 1, completed_seq: 0, pending_count: 1, failed_count: 0 },
+    ]);
+    // Base aggregate write and progress share one atomic batch.
+    expect(harness.batchCalls).toBe(1);
+  });
+
+  it('allocates day-local monotonic sequences and is idempotent by messageId', async () => {
+    const first = await post(counters, '/inc', basePayload({ messageId: 21 }));
+    const second = await post(counters, '/inc', basePayload({ messageId: 22 }));
+    expect((await first.json() as any).sequence).toBe(1);
+    expect((await second.json() as any).sequence).toBe(2);
+
+    // Retry of messageId 21 returns the same sequence and never double-counts.
+    const retry = await post(counters, '/inc', basePayload({ messageId: 21 }));
+    expect((await retry.json() as any).sequence).toBe(1);
+
+    const user = rows(
+      harness.sqlite,
+      'SELECT message_count FROM stats_daily_user WHERE chat_id = 123 AND day = ? AND user_id = 456',
+      ['2026-05-07'],
+    )[0];
+    expect(user.message_count).toBe(2);
+
+    const base = rows(
+      harness.sqlite,
+      'SELECT accepted_seq, completed_seq FROM stats_daily_pipeline_progress WHERE chat_id = 123 AND day = ? AND category = ?',
+      ['2026-05-07', 'base'],
+    )[0];
+    expect(base.accepted_seq).toBe(2);
+    expect(base.completed_seq).toBe(2);
+  });
+
+  it('/ack advances contiguous completion for zero and skipped outcomes', async () => {
+    await post(counters, '/inc', basePayload({ messageId: 31 }));
+    await post(counters, '/ack', {
+      chatId: 123,
+      day: '2026-05-07',
+      category: 'profanity',
+      messageId: 31,
+      sequence: 1,
+      outcome: 'zero',
+    });
+    await post(counters, '/ack', {
+      chatId: 123,
+      day: '2026-05-07',
+      category: 'criminal',
+      messageId: 31,
+      sequence: 1,
+      outcome: 'skipped',
+    });
+
+    const profanity = rows(
+      harness.sqlite,
+      'SELECT completed_seq, pending_count, failed_count FROM stats_daily_pipeline_progress WHERE chat_id = 123 AND day = ? AND category = ?',
+      ['2026-05-07', 'profanity'],
+    )[0];
+    expect(profanity).toEqual({ completed_seq: 1, pending_count: 0, failed_count: 0 });
+
+    const criminal = rows(
+      harness.sqlite,
+      'SELECT completed_seq, pending_count, failed_count FROM stats_daily_pipeline_progress WHERE chat_id = 123 AND day = ? AND category = ?',
+      ['2026-05-07', 'criminal'],
+    )[0];
+    expect(criminal).toEqual({ completed_seq: 1, pending_count: 0, failed_count: 0 });
+  });
+
+  it('/ack failed never represents a permanent failure as zero', async () => {
+    await post(counters, '/inc', basePayload({ messageId: 41 }));
+    await post(counters, '/ack', {
+      chatId: 123,
+      day: '2026-05-07',
+      category: 'profanity',
+      messageId: 41,
+      sequence: 1,
+      outcome: 'failed',
+    });
+
+    const profanity = rows(
+      harness.sqlite,
+      'SELECT completed_seq, pending_count, failed_count FROM stats_daily_pipeline_progress WHERE chat_id = 123 AND day = ? AND category = ?',
+      ['2026-05-07', 'profanity'],
+    )[0];
+    expect(profanity.failed_count).toBe(1);
+    expect(profanity.pending_count).toBe(0);
+    expect(profanity.completed_seq).toBe(0);
+  });
+
+  it('poisons all three category integrity streams when a base D1 batch fails and a later success cannot unpoison them', async () => {
+    // Sequence 1 fails the base D1 batch; sequence 2 succeeds.
+    const stateMap = new Map<string, unknown>();
+    const { env } = makeEnv(harness as unknown as D1Database, stateMap);
+    const failingCounters = new CountersDO(makeState(stateMap), env);
+    let batchCall = 0;
+    const origBatch = harness.batch.bind(harness);
+    harness.batch = vi.fn(async (statements: FakeD1Statement[]) => {
+      batchCall += 1;
+      if (batchCall === 1) {
+        throw new Error('d1 unavailable');
+      }
+      return origBatch(statements);
+    });
+
+    const first = await post(failingCounters, '/inc', basePayload({ messageId: 51 }));
+    expect(first.status).toBe(200);
+    const second = await post(failingCounters, '/inc', basePayload({ messageId: 52 }));
+    expect(second.status).toBe(200);
+    expect((await second.json() as any).sequence).toBe(2);
+    // Both the armed attempt at 1 and the successful attempt at 2 hit D1.
+    expect(batchCall).toBe(2);
+
+    for (const category of ['base', 'profanity', 'criminal']) {
+      const state = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+      expect(state.poisoned).toBe(true);
+      expect(state.firstPoisonedSeq).toBe(1);
+      expect(state.reason).toBe('d1_write_failed');
+    }
+  });
+
+  it('recovers a stale active attempt as ambiguous poison before the next base write and keeps it after success', async () => {
+    const stateMap = new Map<string, unknown>();
+    for (const category of ['base', 'profanity', 'criminal']) {
+      // Pre-existing active attempt from a prior request whose D1 outcome is unknown.
+      stateMap.set(`integrity:2026-05-07:${category}`, {
+        activeAttemptSeq: 1,
+        poisoned: false,
+        firstPoisonedSeq: null,
+        reason: null,
+      });
+    }
+    const { env } = makeEnv(harness as unknown as D1Database, stateMap);
+    const countersWithStale = new CountersDO(makeState(stateMap), env);
+
+    const response = await post(countersWithStale, '/inc', basePayload({ messageId: 61 }));
+    expect(response.status).toBe(200);
+
+    for (const category of ['base', 'profanity', 'criminal']) {
+      const state = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+      // Stale attempt recovered as ambiguous poison, then the new sequence armed;
+      // the later successful D1 batch confirms only the new attempt and can
+      // never clear the ambiguous poison.
+      expect(state.poisoned).toBe(true);
+      expect(state.firstPoisonedSeq).toBe(1);
+      expect(state.reason).toBe('ambiguous_attempt');
+      expect(state.activeAttemptSeq).toBeNull();
+    }
+  });
+
+  it('recovers a crash between integrity arm and sequence persistence as ambiguous poison; later D1 success cannot clean any category', async () => {
+    const stateMap = new Map<string, unknown>();
+    const seqKey = 'seq:2026-05-07';
+    let seqPuts = 0;
+    const crashingState = {
+      blockConcurrencyWhile: vi.fn((fn: () => Promise<unknown>) => fn()),
+      storage: {
+        get: vi.fn(async <T>(key: string): Promise<T | undefined> => stateMap.get(key) as T | undefined),
+        put: vi.fn(async (key: string, value: unknown) => {
+          // Simulate a process crash: the all-category arm was persisted before
+          // the sequence write, which fails exactly once.
+          if (key === seqKey) {
+            seqPuts += 1;
+            if (seqPuts === 1) {
+              throw new Error('durable storage fault');
+            }
+          }
+          stateMap.set(key, value);
+        }),
+      },
+    } as any;
+    const { env } = makeEnv(harness as unknown as D1Database, stateMap);
+    const crashedCounters = new CountersDO(crashingState, env);
+
+    // Crash: the fence is armed (active attempt at 1) but the sequence was
+    // never persisted, so no acceptance exists yet.
+    const first = await post(crashedCounters, '/inc', basePayload({ messageId: 111 }));
+    expect(first.status).toBe(500);
+    expect(stateMap.has(seqKey)).toBe(false);
+    for (const category of ['base', 'profanity', 'criminal']) {
+      const integrity = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+      expect(integrity).toEqual({ activeAttemptSeq: 1, poisoned: false, firstPoisonedSeq: null, reason: null });
+    }
+
+    // Next /inc: recovers the stale active attempt as sticky ambiguous poison
+    // before re-allocating the never-accepted sequence 1, and the successful D1
+    // batch confirms only the new attempt — it can never make any category clean.
+    const second = await post(crashedCounters, '/inc', basePayload({ messageId: 112 }));
+    expect(second.status).toBe(200);
+    expect((await second.json() as any).sequence).toBe(1);
+    for (const category of ['base', 'profanity', 'criminal']) {
+      const integrity = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+      expect(integrity.poisoned).toBe(true);
+      expect(integrity.firstPoisonedSeq).toBe(1);
+      expect(integrity.reason).toBe('ambiguous_attempt');
+      expect(integrity.activeAttemptSeq).toBeNull();
+      expect(isIntegrityClean(integrity as any)).toBe(false);
+    }
+
+    // The later D1 success and snapshot still report every category not clean.
+    const snapshot = await post(crashedCounters, '/pipeline-snapshot', { day: '2026-05-07' });
+    expect(snapshot.status).toBe(200);
+    const body = await snapshot.json() as {
+      accepted: number;
+      categories: { base: { clean: boolean }; profanity: { clean: boolean }; criminal: { clean: boolean } };
+    };
+    expect(body.accepted).toBe(1);
+    expect(body.categories.base.clean).toBe(false);
+    expect(body.categories.profanity.clean).toBe(false);
+    expect(body.categories.criminal.clean).toBe(false);
+  });
+
+  it('poisons only the profanity stream when its aggregate batch fails, even after a later successful profanity write', async () => {
+    const stateMap = new Map<string, unknown>();
+    const { env } = makeEnv(harness as unknown as D1Database, stateMap);
+    const failingCounters = new CountersDO(makeState(stateMap), env);
+    let batchCall = 0;
+    const origBatch = harness.batch.bind(harness);
+    harness.batch = vi.fn(async (statements: FakeD1Statement[]) => {
+      batchCall += 1;
+      // The first profanity aggregate batch (sequence 1) fails; the second (sequence 2) succeeds.
+      if (batchCall === 1) {
+        throw new Error('d1 unavailable');
+      }
+      return origBatch(statements);
+    });
+
+    const first = await post(failingCounters, '/profanity', {
+      chatId: 123,
+      userId: 456,
+      username: 'testuser',
+      day: '2026-05-07',
+      count: 1,
+      words: [{ baseForm: 'хуй', count: 1 }],
+      sequence: 1,
+      messageId: 71,
+    });
+    // Failed sequence-bearing aggregate write surfaces as non-2xx.
+    expect(first.status).toBe(500);
+    const second = await post(failingCounters, '/profanity', {
+      chatId: 123,
+      userId: 456,
+      username: 'testuser',
+      day: '2026-05-07',
+      count: 1,
+      words: [{ baseForm: 'хуй', count: 1 }],
+      sequence: 2,
+      messageId: 72,
+    });
+    expect(second.status).toBe(200);
+
+    // Only the profanity stream is poisoned at the failed sequence 1.
+    const profanity = stateMap.get('integrity:2026-05-07:profanity') as Record<string, unknown>;
+    expect(profanity.poisoned).toBe(true);
+    expect(profanity.firstPoisonedSeq).toBe(1);
+    expect(profanity.reason).toBe('d1_write_failed');
+    // Unrelated categories are not newly poisoned by the category-only failure.
+    for (const category of ['base', 'criminal']) {
+      const state = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+      expect(state).toBeUndefined();
+    }
+    // The failed D1 write never advanced saved profanity progress to completed:
+    // sequence 1 is absent (the failed write), only the later successful
+    // sequence 2 is tracked as an out-of-order gap.
+    const progress = stateMap.get('progress:2026-05-07:profanity') as Record<string, unknown>;
+    expect(progress).toEqual({ completedPrefix: 0, gaps: [2], failed: [] });
+  });
+
+  it('poisons only the criminal stream when its aggregate batch fails, even after a later successful criminal write', async () => {
+    const stateMap = new Map<string, unknown>();
+    const { env } = makeEnv(harness as unknown as D1Database, stateMap);
+    const failingCounters = new CountersDO(makeState(stateMap), env);
+    let batchCall = 0;
+    const origBatch = harness.batch.bind(harness);
+    harness.batch = vi.fn(async (statements: FakeD1Statement[]) => {
+      batchCall += 1;
+      // The first criminal aggregate batch (sequence 1) fails; the second (sequence 2) succeeds.
+      if (batchCall === 1) {
+        throw new Error('d1 unavailable');
+      }
+      return origBatch(statements);
+    });
+
+    const first = await post(failingCounters, '/criminal', {
+      chatId: 123,
+      userId: 456,
+      username: 'testuser',
+      day: '2026-05-07',
+      violations: [{ article: '282', severity: 5, count: 1 }],
+      totalSeverity: 5,
+      sequence: 1,
+      messageId: 81,
+    });
+    // Failed sequence-bearing aggregate write surfaces as non-2xx.
+    expect(first.status).toBe(500);
+    const second = await post(failingCounters, '/criminal', {
+      chatId: 123,
+      userId: 456,
+      username: 'testuser',
+      day: '2026-05-07',
+      violations: [{ article: '282', severity: 5, count: 1 }],
+      totalSeverity: 5,
+      sequence: 2,
+      messageId: 82,
+    });
+    expect(second.status).toBe(200);
+
+    const criminal = stateMap.get('integrity:2026-05-07:criminal') as Record<string, unknown>;
+    expect(criminal.poisoned).toBe(true);
+    expect(criminal.firstPoisonedSeq).toBe(1);
+    expect(criminal.reason).toBe('d1_write_failed');
+    // Unrelated categories are not newly poisoned by the category-only failure.
+    for (const category of ['base', 'profanity']) {
+      const state = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+      expect(state).toBeUndefined();
+    }
+    // The failed D1 write never advanced saved criminal progress to completed:
+    // sequence 1 is absent (the failed write), only the later successful
+    // sequence 2 is tracked as an out-of-order gap.
+    const progress = stateMap.get('progress:2026-05-07:criminal') as Record<string, unknown>;
+    expect(progress).toEqual({ completedPrefix: 0, gaps: [2], failed: [] });
+  });
+
+  it('poisons only the acked category stream when its ack-only progress batch fails, even after a later successful ack', async () => {
+    const stateMap = new Map<string, unknown>();
+    const { env } = makeEnv(harness as unknown as D1Database, stateMap);
+    const countersWithFailures = new CountersDO(makeState(stateMap), env);
+
+    // A base message allocates sequence 1 (one D1 batch).
+    await post(countersWithFailures, '/inc', basePayload({ messageId: 91 }));
+
+    let batchCall = 0;
+    const origBatch = harness.batch.bind(harness);
+    harness.batch = vi.fn(async (statements: FakeD1Statement[]) => {
+      batchCall += 1;
+      // The first ack-only progress batch (sequence 1) fails; the second (sequence 2) succeeds.
+      if (batchCall === 1) {
+        throw new Error('d1 unavailable');
+      }
+      return origBatch(statements);
+    });
+
+    const firstAck = await post(countersWithFailures, '/ack', {
+      chatId: 123,
+      day: '2026-05-07',
+      category: 'profanity',
+      messageId: 91,
+      sequence: 1,
+      outcome: 'zero',
+    });
+    // Failed ack-only progress batch surfaces as non-2xx.
+    expect(firstAck.status).toBe(500);
+    // A second base message allocates sequence 2 before its ack.
+    await post(countersWithFailures, '/inc', basePayload({ messageId: 92 }));
+    const secondAck = await post(countersWithFailures, '/ack', {
+      chatId: 123,
+      day: '2026-05-07',
+      category: 'profanity',
+      messageId: 92,
+      sequence: 2,
+      outcome: 'zero',
+    });
+    expect(secondAck.status).toBe(200);
+
+    const profanity = stateMap.get('integrity:2026-05-07:profanity') as Record<string, unknown>;
+    expect(profanity.poisoned).toBe(true);
+    expect(profanity.firstPoisonedSeq).toBe(1);
+    expect(profanity.reason).toBe('d1_write_failed');
+    // Unrelated categories are not newly poisoned by the ack-only failure: the
+    // base marker from the initial /inc was armed and confirmed cleanly.
+    for (const category of ['base', 'criminal']) {
+      const state = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+      expect(state).toEqual({ activeAttemptSeq: null, poisoned: false, firstPoisonedSeq: null, reason: null });
+    }
+    // The failed ack never advanced saved profanity progress to completed:
+    // sequence 1 is absent (the failed write), only the later successful
+    // sequence 2 is tracked as an out-of-order gap.
+    const progress = stateMap.get('progress:2026-05-07:profanity') as Record<string, unknown>;
+    expect(progress).toEqual({ completedPrefix: 0, gaps: [2], failed: [] });
+  });
+
+  it('a successful failed-terminal ack updates existing failed counters; only D1 I/O failure sets integrity poison', async () => {
+    const stateMap = new Map<string, unknown>();
+    const { env } = makeEnv(harness as unknown as D1Database, stateMap);
+    const countersWithFailures = new CountersDO(makeState(stateMap), env);
+
+    // A base message allocates sequence 1 (one D1 batch).
+    await post(countersWithFailures, '/inc', basePayload({ messageId: 101 }));
+
+    let batchCall = 0;
+    const origBatch = harness.batch.bind(harness);
+    harness.batch = vi.fn(async (statements: FakeD1Statement[]) => {
+      batchCall += 1;
+      if (batchCall === 1) {
+        throw new Error('d1 unavailable');
+      }
+      return origBatch(statements);
+    });
+
+    const failedAck = await post(countersWithFailures, '/ack', {
+      chatId: 123,
+      day: '2026-05-07',
+      category: 'profanity',
+      messageId: 101,
+      sequence: 1,
+      outcome: 'failed',
+    });
+    // Failed D1 write surfaces as non-2xx, not terminal success.
+    expect(failedAck.status).toBe(500);
+    // Failed D1 write: no local progress was persisted.
+    expect(stateMap.get('progress:2026-05-07:profanity')).toBeUndefined();
+
+    const successfulAck = await post(countersWithFailures, '/ack', {
+      chatId: 123,
+      day: '2026-05-07',
+      category: 'profanity',
+      messageId: 102,
+      sequence: 2,
+      outcome: 'failed',
+    });
+    expect(successfulAck.status).toBe(200);
+
+    // Successful failed-terminal ack: poison stays from the earlier D1 I/O
+    // failure and the failed count is recorded in local progress.
+    const profanityIntegrity = stateMap.get('integrity:2026-05-07:profanity') as Record<string, unknown>;
+    expect(profanityIntegrity.poisoned).toBe(true);
+    expect(profanityIntegrity.firstPoisonedSeq).toBe(1);
+    expect(profanityIntegrity.reason).toBe('d1_write_failed');
+    const progress = stateMap.get('progress:2026-05-07:profanity') as Record<string, unknown>;
+    expect(progress).toEqual({ completedPrefix: 0, gaps: [], failed: [2] });
+  });
+
+  it('/pipeline-snapshot reports clean all-complete state for a fully acked day', async () => {
+    await post(counters, '/inc', basePayload({ messageId: 11 }));
+    await post(counters, '/ack', {
+      chatId: 123,
+      day: '2026-05-07',
+      category: 'profanity',
+      messageId: 11,
+      sequence: 1,
+      outcome: 'zero',
+    });
+    await post(counters, '/ack', {
+      chatId: 123,
+      day: '2026-05-07',
+      category: 'criminal',
+      messageId: 11,
+      sequence: 1,
+      outcome: 'skipped',
+    });
+
+    const response = await post(counters, '/pipeline-snapshot', { day: '2026-05-07' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      day: '2026-05-07',
+      accepted: 1,
+      categories: {
+        base: { accepted: 1, completed: 1, pending: 0, failed: 0, clean: true },
+        profanity: { accepted: 1, completed: 1, pending: 0, failed: 0, clean: true },
+        criminal: { accepted: 1, completed: 1, pending: 0, failed: 0, clean: true },
+      },
+    });
+  });
+
+  it('/pipeline-snapshot reports pending analysis while async work is outstanding', async () => {
+    await post(counters, '/inc', basePayload({ messageId: 12 }));
+
+    const response = await post(counters, '/pipeline-snapshot', { day: '2026-05-07' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      day: '2026-05-07',
+      accepted: 1,
+      categories: {
+        base: { accepted: 1, completed: 1, pending: 0, failed: 0, clean: true },
+        profanity: { accepted: 1, completed: 0, pending: 1, failed: 0, clean: true },
+        criminal: { accepted: 1, completed: 0, pending: 1, failed: 0, clean: true },
+      },
+    });
+  });
+
+  it('recovers a stale active integrity attempt before snapshotting and reports not clean', async () => {
+    const stateMap = new Map<string, unknown>();
+    for (const category of ['base', 'profanity', 'criminal']) {
+      stateMap.set(`integrity:2026-05-07:${category}`, {
+        activeAttemptSeq: 1,
+        poisoned: false,
+        firstPoisonedSeq: null,
+        reason: null,
+      });
+    }
+    const { env: snapshotEnv } = makeEnv(harness as unknown as D1Database, stateMap);
+    const snapshotCounters = new CountersDO(makeState(stateMap), snapshotEnv);
+
+    const response = await post(snapshotCounters, '/pipeline-snapshot', { day: '2026-05-07' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      day: '2026-05-07',
+      accepted: 0,
+      categories: {
+        base: { accepted: 0, completed: 0, pending: 0, failed: 0, clean: false },
+        profanity: { accepted: 0, completed: 0, pending: 0, failed: 0, clean: false },
+        criminal: { accepted: 0, completed: 0, pending: 0, failed: 0, clean: false },
+      },
+    });
+
+    // Recovery was persisted: every stream is now sticky-poisoned ambiguous
+    // with no active attempt, so a later snapshot stays not clean.
+    for (const category of ['base', 'profanity', 'criminal']) {
+      const state = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+      expect(state.poisoned).toBe(true);
+      expect(state.firstPoisonedSeq).toBe(1);
+      expect(state.reason).toBe('ambiguous_attempt');
+      expect(isIntegrityClean(state as any)).toBe(false);
+    }
+  });
+
+  it('/pipeline-snapshot returns 400 for an invalid or missing day', async () => {
+    expect((await post(counters, '/pipeline-snapshot', {})).status).toBe(400);
+    expect((await post(counters, '/pipeline-snapshot', { day: 'yesterday' })).status).toBe(400);
+    expect((await post(counters, '/pipeline-snapshot', { day: 42 })).status).toBe(400);
+  });
+
+  it('persists the day proof marker before a failing base D1 batch and a later success never erases it', async () => {
+    const stateMap = new Map<string, unknown>();
+    const { env } = makeEnv(harness as unknown as D1Database, stateMap);
+    const failingCounters = new CountersDO(makeState(stateMap), env);
+    const failingD1 = {
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+      batch: vi.fn(async () => {
+        throw new Error('d1 unavailable');
+      }),
+    };
+    const { env: failingEnv, kv: failingKv } = makeEnv(failingD1, stateMap);
+    const proofCounters = new CountersDO(makeState(stateMap), failingEnv);
+
+    // Failing base D1 batch: marker must exist, integrity streams poisoned.
+    const first = await post(proofCounters, '/inc', basePayload({ messageId: 51 }));
+    expect(first.status).toBe(200);
+    expect(stateMap.get('dayproof:2026-05-07')).toEqual({ version: 1, initialized: true });
+    for (const category of ['base', 'profanity', 'criminal']) {
+      const state = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+      expect(state.poisoned).toBe(true);
+      expect(state.reason).toBe('d1_write_failed');
+    }
+    expect(failingKv.map.get('stats_v2:123:2026-05-07:456')).toBe('1');
+
+    // Later successful base write on the healthy D1: marker kept, not rewritten.
+    const second = await post(failingCounters, '/inc', basePayload({ messageId: 52 }));
+    expect(second.status).toBe(200);
+    expect(stateMap.get('dayproof:2026-05-07')).toEqual({ version: 1, initialized: true });
+  });
+
+  it('/pipeline-snapshots returns ordered deduplicated marked day snapshots', async () => {
+    const stateMap = new Map<string, unknown>();
+    const { env } = makeEnv(harness as unknown as D1Database, stateMap);
+    const proofCounters = new CountersDO(makeState(stateMap), env);
+
+    await post(proofCounters, '/inc', basePayload({ day: '2026-05-07', messageId: 11 }));
+    await post(proofCounters, '/inc', basePayload({ day: '2026-05-08', messageId: 12 }));
+
+    const response = await post(proofCounters, '/pipeline-snapshots', {
+      days: ['2026-05-08', '2026-05-07', '2026-05-08'],
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      version: number;
+      days: Array<{
+        day: string;
+        version: number;
+        initialized: boolean;
+        accepted: number;
+        categories: { base: { clean: boolean } };
+      }>;
+    };
+    expect(body.version).toBe(1);
+    // Deduplicated while preserving request order.
+    expect(body.days.map((d) => d.day)).toEqual(['2026-05-08', '2026-05-07']);
+    for (const snapshot of body.days) {
+      expect(snapshot.initialized).toBe(true);
+      expect(snapshot.version).toBe(1);
+      expect(snapshot.accepted).toBe(1);
+      expect(snapshot.categories.base.clean).toBe(true);
+    }
+  });
+
+  it('/pipeline-snapshots reports explicit initialized:false for a missing or malformed marker day', async () => {
+    const stateMap = new Map<string, unknown>();
+    const { env } = makeEnv(harness as unknown as D1Database, stateMap);
+    const proofCounters = new CountersDO(makeState(stateMap), env);
+
+    // Wrong-version stored marker: malformed, must be reported unproven.
+    stateMap.set('dayproof:2026-05-08', { version: 999, initialized: true });
+
+    const response = await post(proofCounters, '/pipeline-snapshots', {
+      days: ['2026-05-07', '2026-05-08'],
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      version: number;
+      days: Array<{
+        day: string;
+        version: number;
+        initialized: boolean;
+        accepted: number;
+        categories: { base: { accepted: number; completed: number; pending: number; failed: number; clean: boolean } };
+      }>;
+    };
+    expect(body.version).toBe(1);
+    expect(body.days).toEqual([
+      {
+        day: '2026-05-07',
+        version: 1,
+        initialized: false,
+        accepted: 0,
+        categories: {
+          base: { accepted: 0, completed: 0, pending: 0, failed: 0, clean: false },
+          profanity: { accepted: 0, completed: 0, pending: 0, failed: 0, clean: false },
+          criminal: { accepted: 0, completed: 0, pending: 0, failed: 0, clean: false },
+        },
+      },
+      {
+        day: '2026-05-08',
+        version: 1,
+        initialized: false,
+        accepted: 0,
+        categories: {
+          base: { accepted: 0, completed: 0, pending: 0, failed: 0, clean: false },
+          profanity: { accepted: 0, completed: 0, pending: 0, failed: 0, clean: false },
+          criminal: { accepted: 0, completed: 0, pending: 0, failed: 0, clean: false },
+        },
+      },
+    ]);
+  });
+
+  it('/pipeline-snapshots recovers a stale active attempt before snapshotting a marked day and reports poisoned', async () => {
+    const stateMap = new Map<string, unknown>();
+    stateMap.set('dayproof:2026-05-07', { version: 1, initialized: true });
+    for (const category of ['base', 'profanity', 'criminal']) {
+      stateMap.set(`integrity:2026-05-07:${category}`, {
+        activeAttemptSeq: 1,
+        poisoned: false,
+        firstPoisonedSeq: null,
+        reason: null,
+      });
+    }
+    const { env } = makeEnv(harness as unknown as D1Database, stateMap);
+    const proofCounters = new CountersDO(makeState(stateMap), env);
+
+    const response = await post(proofCounters, '/pipeline-snapshots', { days: ['2026-05-07'] });
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      days: Array<{
+        initialized: boolean;
+        accepted: number;
+        categories: { base: { clean: boolean } };
+      }>;
+    };
+    expect(body.days[0].initialized).toBe(true);
+    expect(body.days[0].accepted).toBe(0);
+    expect(body.days[0].categories.base.clean).toBe(false);
+
+    // Recovery persisted: every stream sticky-poisoned ambiguous, no active attempt.
+    for (const category of ['base', 'profanity', 'criminal']) {
+      const state = stateMap.get(`integrity:2026-05-07:${category}`) as Record<string, unknown>;
+      expect(state.poisoned).toBe(true);
+      expect(state.firstPoisonedSeq).toBe(1);
+      expect(state.reason).toBe('ambiguous_attempt');
+      expect(state.activeAttemptSeq).toBeNull();
+    }
+  });
+
+  it('/pipeline-snapshots returns 400 for invalid or over-30 days input', async () => {
+    const many = Array.from({ length: 31 }, (_, i) =>
+      `2026-05-${String((i % 28) + 1).padStart(2, '0')}`,
+    );
+    expect((await post(counters, '/pipeline-snapshots', {})).status).toBe(400);
+    expect((await post(counters, '/pipeline-snapshots', { days: [] })).status).toBe(400);
+    expect((await post(counters, '/pipeline-snapshots', { days: ['yesterday'] })).status).toBe(400);
+    expect((await post(counters, '/pipeline-snapshots', { days: [42] })).status).toBe(400);
+    expect((await post(counters, '/pipeline-snapshots', { days: many })).status).toBe(400);
+    expect((await post(counters, '/pipeline-snapshots', { days: ['not-a-date'] })).status).toBe(400);
   });
 });

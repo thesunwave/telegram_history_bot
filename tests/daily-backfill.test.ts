@@ -318,8 +318,8 @@ describe('daily aggregate backfill (corrected Phase 3a)', () => {
     harness.sqlite.close();
   });
 
-  it('exposes the exact temporary two-minute cron and the daily cron', () => {
-    expect(BACKFILL_CRON).toBe('*/2 * * * *');
+  it('exposes the exact temporary one-minute cron and the daily cron', () => {
+    expect(BACKFILL_CRON).toBe('* * * * *');
     expect(DAILY_SUMMARY_CRON).toBe('59 23 * * *');
   });
 
@@ -1431,6 +1431,41 @@ describe('daily aggregate backfill (corrected Phase 3a)', () => {
     expect(coverage.reason_code).toBeNull();
   });
 
+  it('clears stale backfill reason_code when a live write takes ownership', async () => {
+    const day = '2026-08-27';
+    const nowSec = Math.floor(NOW.getTime() / 1000);
+    // Backfill reasoned the day (parity mismatch) and left its provenance code.
+    harness.sqlite
+      .prepare(
+        `INSERT INTO stats_daily_coverage
+           (chat_id, day, base_status, profanity_status, criminal_status, source, reason_code, updated_at)
+         VALUES (?, ?, 'pending', 'pending', 'pending', 'backfill', 'message_count_mismatch', ?)`,
+      )
+      .run(1, day, nowSec);
+    expect(coverageRow(harness.sqlite, 1, day).reason_code).toBe('message_count_mismatch');
+
+    // Live writer takes ownership of the day.
+    await writeActivityAggregates(harness as unknown as D1Database, {
+      chatId: 1,
+      userId: 100,
+      username: 'alice',
+      day,
+      hour: 9,
+      bucket: 'morning',
+      wordCount: 1,
+      voiceCount: 0,
+      voiceDurationSeconds: 0,
+      videoNoteCount: 0,
+      videoNoteDurationSeconds: 0,
+      ts: 1234,
+    });
+
+    const coverage = coverageRow(harness.sqlite, 1, day);
+    expect(coverage.source).toBe('live');
+    expect(coverage.base_status).toBe('live');
+    expect(coverage.reason_code).toBeNull();
+  });
+
   it('writes a chat-scoped profile per chat for the same user within one page', async () => {
     kv.map.set('stats_v2:1:2026-08-27:100', '5');
     kv.map.set('stats_v2:2:2026-08-27:100', '3');
@@ -1561,17 +1596,17 @@ describe('daily aggregate backfill (corrected Phase 3a)', () => {
   });
 
   it('exports the current JOB_VERSION constant', () => {
-    expect(JOB_VERSION).toBeGreaterThanOrEqual(2);
+    expect(JOB_VERSION).toBeGreaterThanOrEqual(3);
   });
 
-  it('blocks isD1RangeReady when backfill state version is outdated (v1)', async () => {
+  it('blocks isD1RangeReady when backfill state version is outdated (v2)', async () => {
     seedStandardCounters(kv.map, harness.sqlite);
     const summary = await runToCompletion(env);
     expect(summary.done).toBe(true);
 
-    // Simulate an old v1 completed backfill: downgrade the version column.
+    // Simulate an old v2 completed backfill: downgrade the version column.
     harness.sqlite
-      .prepare('UPDATE stats_backfill_state SET version = 1 WHERE job_name = ?')
+      .prepare('UPDATE stats_backfill_state SET version = 2 WHERE job_name = ?')
       .run(JOB_NAME);
 
     const day = '2026-08-27';
@@ -1594,21 +1629,21 @@ describe('daily aggregate backfill (corrected Phase 3a)', () => {
     expect(ready).toBe(true);
   });
 
-  it('resets v1 state to v2 and invalidates backfill coverage on first backfill run', async () => {
+  it('resets v2 state to v3 and invalidates backfill coverage on first backfill run', async () => {
     seedStandardCounters(kv.map, harness.sqlite);
-    // Complete a full v1 backfill first.
-    const v1 = await runToCompletion(env);
-    expect(v1.done).toBe(true);
+    // Complete a full v2 backfill first.
+    const v2 = await runToCompletion(env);
+    expect(v2.done).toBe(true);
     expect(coverageRow(harness.sqlite, 1, '2026-08-27').base_status).toBe('complete');
 
-    // Downgrade to v1 (simulate pre-deploy state).
+    // Downgrade to v2 (simulate pre-deploy state).
     harness.sqlite
-      .prepare(`UPDATE stats_backfill_state SET version = 1, status = 'done', phase = 'done' WHERE job_name = ?`)
+      .prepare(`UPDATE stats_backfill_state SET version = 2, status = 'done', phase = 'done' WHERE job_name = ?`)
       .run(JOB_NAME);
-    expect(rows(harness.sqlite, 'SELECT version FROM stats_backfill_state WHERE job_name = ?', [JOB_NAME])[0].version).toBe(1);
+    expect(rows(harness.sqlite, 'SELECT version FROM stats_backfill_state WHERE job_name = ?', [JOB_NAME])[0].version).toBe(2);
 
     // First run after version bump must detect mismatch, atomically reset
-    // state to v2, and invalidate every backfill-owned coverage row.
+    // state to v3, and invalidate every backfill-owned coverage row.
     const firstRun = await runDailyAggregateBackfill(env, NOW);
 
     // State is now v2 and running (the run continued processing after reset).
@@ -1653,13 +1688,13 @@ describe('daily aggregate backfill (corrected Phase 3a)', () => {
 
   it('no range can be D1-ready between version mismatch and reprocessed completion', async () => {
     seedStandardCounters(kv.map, harness.sqlite);
-    // Complete a v1 backfill.
+    // Complete a v2 backfill.
     await runToCompletion(env);
     expect(coverageRow(harness.sqlite, 1, '2026-08-27').base_status).toBe('complete');
 
-    // Downgrade to v1.
+    // Downgrade to v2.
     harness.sqlite
-      .prepare('UPDATE stats_backfill_state SET version = 1 WHERE job_name = ?')
+      .prepare('UPDATE stats_backfill_state SET version = 2 WHERE job_name = ?')
       .run(JOB_NAME);
 
     // Not ready because version is stale.

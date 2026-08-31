@@ -368,6 +368,49 @@ describe('Telegram Integration Tests', () => {
     });
   });
 
+  describe('Acknowledgement non-2xx detection', () => {
+    it('ackProgress detects a non-2xx /ack response and logs safe metadata only', async () => {
+      // /inc returns a valid sequence; /ack returns 500.
+      const countersFetch = vi.fn().mockImplementation(async (url: string) => {
+        if (String(url).includes('/ack')) {
+          return new Response('error', { status: 500 });
+        }
+        return new Response(JSON.stringify({ ok: true, sequence: 7 }), { status: 200 });
+      });
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue('test-id'),
+        get: vi.fn().mockReturnValue({ fetch: countersFetch }),
+      };
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const pending: Promise<any>[] = [];
+      const ctx = { waitUntil: (p: Promise<any>) => { pending.push(p); } };
+
+      const mockMessage = {
+        message_id: 4242,
+        chat: { id: 12345 },
+        from: { id: 67890, username: 'testuser', is_bot: false },
+        text: 'plain non-command message',
+        date: Math.floor(Date.now() / 1000)
+      };
+
+      await recordMessage(mockMessage, mockEnv, ctx as any);
+      await Promise.all(pending);
+
+      // Non-2xx /ack detected: safe metadata logged, never raw response content.
+      const ackWarnCalls = consoleWarnSpy.mock.calls.filter((call) =>
+        (call[1] as Record<string, unknown>)?.op === 'ack'
+      );
+      expect(ackWarnCalls.length).toBeGreaterThan(0);
+      for (const call of ackWarnCalls) {
+        const data = call[1] as Record<string, unknown>;
+        expect(data.status).toBe(500);
+        expect(['profanity', 'criminal']).toContain(data.category);
+        expect(data.outcome).toBe('skipped');
+        expect(JSON.stringify(call)).not.toMatch(/error|Internal Server Error/i);
+      }
+    });
+  });
+
   describe('Help Command Integration', () => {
     it('should ignore voice-only messages in command handling', async () => {
       const mockMessage = {

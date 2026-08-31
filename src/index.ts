@@ -184,6 +184,7 @@ export default {
             username: typeof payload.username === "string" ? payload.username : "legal_rag_test",
             messageId: Number.isFinite(Number(payload.messageId)) ? Number(payload.messageId) : Date.now(),
             day: typeof payload.day === "string" ? payload.day : new Date().toISOString().slice(0, 10),
+            ts: typeof payload.ts === "number" && Number.isInteger(payload.ts) && Number.isFinite(payload.ts) ? payload.ts : undefined,
             forceRefresh: true,
           }),
         });
@@ -778,7 +779,7 @@ export default {
     env: Env,
     _ctx: ExecutionContext,
   ): Promise<void> {
-    // Phase 3a: the distinct temporary backfill cron (`*/2 * * * *`) runs ONLY
+    // Phase 3a: the distinct temporary backfill cron (`* * * * *`) runs ONLY
     // the D1 aggregate backfill and returns before provider initialization,
     // summary, and cleanup. The exact daily cron (`59 23 * * *`) keeps its
     // original behavior; any unknown cron no-ops safely.

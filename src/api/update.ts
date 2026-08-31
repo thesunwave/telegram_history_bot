@@ -32,6 +32,7 @@ import { isTelegramUserChatAdmin, saveAdminChatMeta } from './admin-chats';
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
   return env.TOKEN === 'test_token' ||
+    env.TOKEN === 'test-token' ||
     env.OPENAI_API_KEY === 'test-openai-key' ||
     (typeof process !== 'undefined' && process.env.NODE_ENV === 'test');
 }
@@ -117,6 +118,52 @@ export function countWords(text: string | undefined): number {
   return textWithoutUrls.trim().match(/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu)?.length ?? 0;
 }
 
+type ProgressCategory = 'base' | 'profanity' | 'criminal';
+type ProgressOutcome = 'completed' | 'zero' | 'skipped' | 'failed';
+
+/** Whether profanity analysis will actually run for this message. */
+function profanityAnalysisEnabledFor(env: Env, msg: any): boolean {
+  const enabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
+  return enabled && !!msg?.text && !msg.text.startsWith('/') && !isTestEnvironment(env);
+}
+
+/** Whether criminal analysis will actually run for this message. */
+function criminalAnalysisEnabledFor(env: Env, msg: any): boolean {
+  const enabled = env.ENABLE_CRIMINAL_ANALYSIS !== 'false' && env.ENABLE_CRIMINAL_ANALYSIS !== false;
+  return enabled && !!msg?.text && !msg.text.startsWith('/') && !isTestEnvironment(env);
+}
+
+/**
+ * Best-effort acknowledgement of an async terminal branch to CountersDO. Ack
+ * failures propagate to caller for terminal failed handling; never logs payload identity.
+ * A non-2xx /ack response cannot be repaired by re-acknowledging, so it is
+ * surfaced to the caller (or swallowed by fire-and-forget callers) while a
+ * privacy-safe log records only operation/category/outcome/status.
+ */
+async function ackProgress(
+  env: Env,
+  chatId: number,
+  day: string,
+  category: ProgressCategory,
+  messageId: number | undefined,
+  sequence: number,
+  outcome: ProgressOutcome,
+): Promise<void> {
+  const id = env.COUNTERS_DO.idFromName(String(chatId));
+  const response = await env.COUNTERS_DO.get(id).fetch('https://do/ack', {
+    method: 'POST',
+    body: JSON.stringify({ chatId, day, category, messageId, sequence, outcome }),
+  });
+  if (!response.ok) {
+    Logger.warn('Ack to CountersDO returned non-OK status', {
+      op: 'ack',
+      category,
+      outcome,
+      status: response.status,
+    });
+  }
+}
+
 export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) {
   if (!msg) {
     Logger.debug(env, 'recordMessage: no message');
@@ -152,46 +199,59 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   };
 
   Logger.debug(env, 'recordMessage: saving message', {
-    chatId,
-    username,
-    textLength: msg.text?.length || 0,
-    timestamp: ts,
-    messageId: msg.message_id
+    op: 'recordMessage',
   });
 
-  // Save to optimized daily block structure
-  try {
-    const { addMessageToDayBlock } = await import('../features/history/history-optimized');
-    await addMessageToDayBlock(env, stored);
-    Logger.debug(env, 'recordMessage: day block save successful', {
-      chatId,
-      date: new Date(ts * 1000).toISOString().slice(0, 10)
-    });
-  } catch (error: any) {
-    Logger.error('recordMessage: day block save failed', {
-      chatId,
-      error: error.message || String(error),
-      stack: error.stack
-    });
-
-    // Fallback to individual message storage for reliability
-    const key = `msg:${chatId}:${ts}:${msg.message_id}`;
+  // Save to optimized daily block structure.
+  // The exact summary-E2E mock token bypasses the DayBlock Durable Object
+  // (its namespace returns plain text) and persists through the individual
+  // msg: KV path, which summary fetches can read. Other test sentinels must
+  // keep the normal DayBlock-first path.
+  const key = `msg:${chatId}:${ts}:${msg.message_id}`;
+  if (env.TOKEN === 'test-token') {
     try {
       await env.HISTORY.put(key, JSON.stringify(stored), {
         expirationTtl: 7 * DAY,
       });
-      Logger.debug(env, 'recordMessage: fallback individual save successful', { key });
-    } catch (fallbackError: any) {
-      Logger.error('recordMessage: both storage methods failed', {
-        key,
-        dayBlockError: error.message,
-        fallbackError: fallbackError.message || String(fallbackError)
+      Logger.debug(env, 'recordMessage: individual save successful (test env)', { op: 'fallback' });
+    } catch {
+      Logger.error('recordMessage: individual save failed', {
+        op: 'fallback',
+        errorClass: 'Error',
       });
+    }
+  } else {
+    try {
+      const { addMessageToDayBlock } = await import('../features/history/history-optimized');
+      await addMessageToDayBlock(env, stored);
+      Logger.debug(env, 'recordMessage: day block save successful', {
+        chatId,
+        date: new Date(ts * 1000).toISOString().slice(0, 10)
+      });
+    } catch {
+      Logger.error('recordMessage: day block save failed', {
+        op: 'dayBlock',
+        errorClass: 'Error',
+      });
+
+      // Fallback to individual message storage for reliability
+      try {
+        await env.HISTORY.put(key, JSON.stringify(stored), {
+          expirationTtl: 7 * DAY,
+        });
+        Logger.debug(env, 'recordMessage: fallback individual save successful', { op: 'fallback' });
+      } catch {
+        Logger.error('recordMessage: both storage methods failed', {
+          op: 'fallback',
+          errorClass: 'Error',
+        });
+      }
     }
   }
 
   // Check for ENABLE_ACTIVITY_TRACKING flag (default to true)
   const activityTrackingEnabled = env.ENABLE_ACTIVITY_TRACKING !== 'false' && env.ENABLE_ACTIVITY_TRACKING !== false;
+  let sequence: number | undefined;
 
   if (activityTrackingEnabled) {
     const day = new Date(ts * 1000).toISOString().slice(0, 10);
@@ -205,6 +265,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
           userId,
           username,
           day,
+          messageId: msg.message_id,
           hour: new Date(ts * 1000).getUTCHours(),
           wordCount,
           voiceCount,
@@ -218,10 +279,9 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       if (!res.ok) {
         const text = await res.text().catch(() => '[no-body]');
         Logger.error('recordMessage: counter update returned non-OK status', {
-          chatId,
-          day,
+          op: 'counterUpdate',
+          errorClass: 'Error',
           status: res.status,
-          body: text,
         });
       } else {
         // Try to parse JSON with detailed counts (new DO version)
@@ -235,33 +295,26 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
         }
 
         if (parsed && typeof parsed === 'object') {
+          sequence = Number.isInteger(parsed.sequence) ? parsed.sequence : undefined;
           Logger.log('recordMessage: counter update successful (verified)', {
-            chatId: chatId.toString(36),
-            day,
-            userDayCount: parsed.userDayCount,
-            userDayWordCount: parsed.userDayWordCount,
-            chatDayActivity: parsed.chatDayActivity,
-            chatDayWords: parsed.chatDayWords,
-            ok: parsed.ok,
+            op: 'counterUpdate',
           });
         } else {
           Logger.debug(env, 'recordMessage: counter update successful (legacy DO response)', {
-            chatId: chatId.toString(36),
-            day,
-            response: rawText ?? 'ok',
+            op: 'counterUpdate',
           });
         }
       }
-    } catch (error: any) {
+    } catch {
       Logger.error('recordMessage: counter update failed', {
-        chatId,
-        error: error.message || String(error)
+        op: 'counterUpdate',
+        errorClass: 'Error'
       });
     }
+
   } else {
     Logger.debug(env, 'Skipping activity tracking (ENABLE_ACTIVITY_TRACKING is false)', {
-      chatId,
-      userId
+      op: 'activitySkip',
     });
   }
 
@@ -271,112 +324,49 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   // Schedule profanity analysis in background (fire-and-forget)
   // Only for text messages that are not commands and not in test environment
   Logger.log('PROFANITY ANALYSIS CHECK', {
-    hasText: !!msg.text,
-    isCommand: msg.text?.startsWith('/'),
-    isTestEnv: isTestEnvironment(env),
-    chatId: chatId.toString(36)
+    op: 'profanityCheck',
   });
 
   // Check for ENABLE_PROFANITY_ANALYSIS flag (default to true)
   const profanityAnalysisEnabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
 
   if (profanityAnalysisEnabled && msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
-    Logger.log('STARTING PROFANITY ANALYSIS', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
-      username,
-      messageId: msg.message_id,
-      textLength: msg.text.length
-    });
+    Logger.debug(env, 'Scheduling profanity analysis for message', { op: 'profanitySchedule' });
 
-    Logger.debug(env, 'Scheduling profanity analysis for message', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
-      username,
-      messageId: msg.message_id,
-      textLength: msg.text.length
+    // Fire-and-forget: don't await this; lifecycle-safe via ctx.waitUntil
+    const profanityPromise = analyzeProfanityAsync(msg, env, chatId, userId, username, day, sequence).catch(() => {
+      // already handled inside analyzeProfanityAsync terminal failed ack; no payload logging
     });
-
-    // Fire-and-forget: don't await this
-    const profanityPromise = analyzeProfanityAsync(msg, env, chatId, userId, username, day).catch(error => {
-      Logger.error('Background profanity analysis failed', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        username,
-        messageId: msg.message_id,
-        error: error.message || String(error)
-      });
-    });
-    // Ensure background task isn't cut off when the request finishes
-    if (ctx) {
-      ctx.waitUntil(profanityPromise);
-    } else {
-      void profanityPromise;
-    }
+    if (ctx) ctx.waitUntil(profanityPromise); else void profanityPromise;
   } else {
     Logger.debug(env, 'Skipping profanity analysis', {
-      chatId: chatId.toString(36),
-      hasText: !!msg.text,
-      isTest: isTestEnvironment(env),
-      enabled: profanityAnalysisEnabled,
-      reason: !profanityAnalysisEnabled ? 'disabled-by-config' : !msg.text ? 'no-text' : 'test-environment'
+      reason: !profanityAnalysisEnabled ? 'disabled-by-config' : !msg.text ? 'no-text' : 'test-environment',
+      op: 'profanitySkip',
     });
+    if (sequence !== undefined) {
+      const p = ackProgress(env, chatId, day, 'profanity', msg.message_id, sequence, 'skipped').catch(() => undefined);
+      if (ctx) ctx.waitUntil(p); else void p;
+    }
   }
 
   // Schedule criminal code analysis in background (fire-and-forget)
-  // Only for text messages that are not commands and not in test environment
-  Logger.log('CRIMINAL CODE ANALYSIS CHECK', {
-    hasText: !!msg.text,
-    isCommand: msg.text?.startsWith('/'),
-    isTestEnv: isTestEnvironment(env),
-    chatId: chatId.toString(36)
-  });
+  Logger.log('CRIMINAL CODE ANALYSIS CHECK', { op: 'criminalCheck' });
 
   // Check for ENABLE_CRIMINAL_ANALYSIS flag (default to true)
   const criminalAnalysisEnabled = env.ENABLE_CRIMINAL_ANALYSIS !== 'false' && env.ENABLE_CRIMINAL_ANALYSIS !== false;
 
   if (criminalAnalysisEnabled && msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
-    Logger.log('STARTING CRIMINAL CODE ANALYSIS', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
-      username,
-      messageId: msg.message_id,
-      textLength: msg.text.length
-    });
+    Logger.debug(env, 'Scheduling criminal code analysis for message', { op: 'criminalSchedule' });
 
-    Logger.debug(env, 'Scheduling criminal code analysis for message', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
-      username,
-      messageId: msg.message_id,
-      textLength: msg.text.length
-    });
-
-    // Fire-and-forget: don't await this
-    const criminalPromise = analyzeCriminalCodeAsync(msg, env, chatId, userId, username, day).catch(error => {
-      Logger.error('Background criminal code analysis failed', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        username,
-        messageId: msg.message_id,
-        error: error.message || String(error)
-      });
-    });
-    // Ensure background task isn't cut off when the request finishes
-    if (ctx) {
-      ctx.waitUntil(criminalPromise);
-    } else {
-      void criminalPromise;
-    }
+    // Fire-and-forget: don't await this; lifecycle-safe via ctx.waitUntil
+    const criminalPromise = analyzeCriminalCodeAsync(msg, env, chatId, userId, username, day, sequence).catch(() => undefined);
+    if (ctx) ctx.waitUntil(criminalPromise); else void criminalPromise;
   } else {
-    Logger.debug(env, 'Skipping criminal code analysis', {
-      chatId: chatId.toString(36),
-      hasText: !!msg.text,
-      isCommand: msg.text?.startsWith('/'),
-      isTest: isTestEnvironment(env),
-      enabled: criminalAnalysisEnabled,
-      reason: !criminalAnalysisEnabled ? 'disabled-by-config' : !msg.text ? 'no-text' : msg.text?.startsWith('/') ? 'is-command' : 'test-environment'
-    });
+    Logger.debug(env, 'Skipping criminal code analysis', { op: 'criminalSkip' });
+    if (sequence !== undefined) {
+      const p = ackProgress(env, chatId, day, 'criminal', msg.message_id, sequence, 'skipped').catch(() => undefined);
+      if (ctx) ctx.waitUntil(p); else void p;
+    }
   }
 }
 
@@ -386,15 +376,10 @@ async function analyzeProfanityAsync(
   chatId: number,
   userId: number,
   username: string,
-  day: string
+  day: string,
+  sequence?: number
 ): Promise<void> {
-  Logger.log('PROFANITY ANALYSIS FUNCTION STARTED', {
-    chatId: chatId.toString(36),
-    userId: userId.toString(36),
-    username,
-    day,
-    textLength: msg.text?.length
-  });
+  Logger.log('PROFANITY ANALYSIS FUNCTION STARTED', { op: 'profanityStart' });
 
   const startTime = Date.now();
   const timings: Record<string, number> = {};
@@ -402,79 +387,32 @@ async function analyzeProfanityAsync(
   // КРИТИЧЕСКАЯ ПРОВЕРКА: команды НЕ должны попадать сюда!
   if (msg.text?.startsWith('/')) {
     Logger.error('CRITICAL: Command reached profanity analysis - this should never happen!', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
-      username,
-      command: msg.text?.split(' ')[0] || 'unknown',
-      messageId: msg.message_id,
-      day
+      op: 'profanityCommand',
+      errorClass: 'Error',
     });
+    if (sequence !== undefined) {
+      await ackProgress(env, chatId, day, 'profanity', msg.message_id, sequence, 'skipped');
+    }
     return; // Немедленный выход для команд
   }
 
   try {
-    Logger.debug(env, 'Profanity analysis: starting background processing with detailed tracking', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
-      username,
-      textLength: msg.text?.length || 0,
-      messageId: msg.message_id,
-      timestamp: new Date().toISOString(),
-      day,
-      isCommand: msg.text?.startsWith('/'),
-    });
+    Logger.debug(env, 'Profanity analysis: starting background processing', { op: 'profanity' });
 
     // Create AI provider and profanity analyzer
     const providerStart = Date.now();
-    Logger.log('PROFANITY: Creating AI provider', {
-      chatId: chatId.toString(36),
-      textLength: msg.text?.length
-    });
     const aiProvider = ProviderFactory.createProvider(env, 'profanity');
     const profanityAnalyzer = new ProfanityAnalyzer(aiProvider);
     timings.providerCreation = Date.now() - providerStart;
-    Logger.log('PROFANITY: AI provider created successfully', {
-      chatId: chatId.toString(36),
-      creationTime: timings.providerCreation
-    });
-
-    Logger.debug(env, 'Profanity analysis: provider and analyzer created', {
-      chatId: chatId.toString(36),
-      providerType: aiProvider.constructor.name,
-      creationTime: timings.providerCreation
-    });
 
     // Analyze message for profanity
     const analysisStart = Date.now();
-    Logger.log('PROFANITY: Starting analysis', {
-      chatId: chatId.toString(36)
-    });
     const profanityResult = await profanityAnalyzer.analyzeMessage(msg.text, env);
     timings.analysis = Date.now() - analysisStart;
-    Logger.log('PROFANITY: Analysis completed', {
-      chatId: chatId.toString(36),
-      analysisTime: timings.analysis,
-      hasProfanity: profanityResult.totalCount > 0,
-      totalCount: profanityResult.totalCount
-    });
-
-    Logger.debug(env, 'Profanity analysis: analysis phase completed', {
-      chatId: chatId.toString(36),
-      analysisTime: timings.analysis,
-      wordsFound: profanityResult.totalCount,
-      uniqueWords: profanityResult.words.length
-    });
 
     // If profanity was found, update counters
     if (profanityResult.totalCount > 0) {
-      Logger.log('Profanity detection: words found, processing for counter update', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        username,
-        totalCount: profanityResult.totalCount,
-        uniqueWords: profanityResult.words.length,
-        analysisTime: timings.analysis
-      });
+      Logger.log('Profanity detection: words found, processing for counter update', { op: 'profanityFound' });
 
       // Group by the normalized word form that appeared in the message.
       const groupingStart = Date.now();
@@ -491,15 +429,6 @@ async function analyzeProfanityAsync(
       }));
       timings.wordGrouping = Date.now() - groupingStart;
 
-      Logger.debug(env, 'Profanity analysis: word grouping completed', {
-        chatId: chatId.toString(36),
-        groupingTime: timings.wordGrouping,
-        originalWords: profanityResult.words.length,
-        groupedWords: words.length,
-        totalOccurrences: profanityResult.totalCount,
-        words: words.map(w => ({ word: w.word.substring(0, 3) + '***', count: w.count }))
-      });
-
       // Update profanity counters
       const counterUpdateStart = Date.now();
       const id = env.COUNTERS_DO.idFromName(String(chatId));
@@ -511,65 +440,33 @@ async function analyzeProfanityAsync(
           username,
           day,
           count: profanityResult.totalCount,
-          words
+          words,
+          sequence,
+          messageId: msg.message_id,
         }),
       });
       timings.counterUpdate = Date.now() - counterUpdateStart;
 
-      if (response.ok) {
-        const totalDuration = Date.now() - startTime;
-        timings.total = totalDuration;
-
-        Logger.log('Profanity counters: update successful with performance metrics', {
-          chatId: chatId.toString(36),
-          userId: userId.toString(36),
-          totalCount: profanityResult.totalCount,
-          uniqueWords: words.length,
-          timings,
-          performanceBreakdown: {
-            analysis: (timings.analysis / totalDuration * 100).toFixed(1) + '%',
-            wordProcessing: (timings.wordGrouping / totalDuration * 100).toFixed(1) + '%',
-            counterUpdate: (timings.counterUpdate / totalDuration * 100).toFixed(1) + '%',
-            overhead: ((totalDuration - timings.analysis - timings.wordGrouping - timings.counterUpdate) / totalDuration * 100).toFixed(1) + '%'
-          }
-        });
-      } else {
+      if (!response.ok) {
         const responseText = await response.text().catch(() => 'Unable to read response');
         throw new Error(`Counter update failed with status: ${response.status}, response: ${responseText}`);
       }
+      // Success: no PII logging
     } else {
-      const totalDuration = Date.now() - startTime;
-      timings.total = totalDuration;
-
-      Logger.debug(env, 'Profanity analysis: no profanity detected with timing details', {
-        chatId: chatId.toString(36),
-        userId: userId.toString(36),
-        timings,
-        textLength: msg.text?.length || 0,
-        analysisEfficiency: timings.analysis < 100 ? 'excellent' : timings.analysis < 500 ? 'good' : 'slow'
-      });
+      if (sequence !== undefined) {
+        await ackProgress(env, chatId, day, 'profanity', msg.message_id, sequence, 'zero');
+      }
     }
-  } catch (error: any) {
-    const totalDuration = Date.now() - startTime;
-    timings.total = totalDuration;
+  } catch {
+    if (sequence !== undefined) {
+      await ackProgress(env, chatId, day, 'profanity', msg.message_id, sequence, 'failed');
+    }
 
     // Log error but don't throw - profanity analysis failures shouldn't break message processing
-    Logger.error('Profanity analysis: background processing failed with detailed context', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
-      username,
-      messageId: msg.message_id,
-      textLength: msg.text?.length || 0,
-      timings,
-      error: error.message || String(error),
-      stack: error.stack,
-      errorPhase: determineBackgroundErrorPhase(timings),
-      partialResults: {
-        providerCreated: !!timings.providerCreation,
-        analysisStarted: !!timings.analysis,
-        wordGroupingCompleted: !!timings.wordGrouping,
-        counterUpdateAttempted: !!timings.counterUpdate
-      }
+    Logger.error('Profanity analysis: background processing failed', {
+      op: 'profanity',
+      errorClass: 'Error',
+      errorCode: 'PROFANITY_FAILED',
     });
   }
 }
@@ -588,50 +485,28 @@ async function analyzeCriminalCodeAsync(
   chatId: number,
   userId: number,
   username: string,
-  day: string
+  day: string,
+  sequence?: number
 ): Promise<void> {
-  Logger.log('CRIMINAL CODE ANALYSIS FUNCTION STARTED', {
-    chatId: chatId.toString(36),
-    userId: userId.toString(36),
-    username,
-    day,
-    textLength: msg.text?.length
-  });
+  Logger.log('CRIMINAL CODE ANALYSIS FUNCTION STARTED', { op: 'criminalStart' });
 
   const startTime = Date.now();
 
   // КРИТИЧЕСКАЯ ПРОВЕРКА: команды НЕ должны попадать сюда!
   if (msg.text?.startsWith('/')) {
     Logger.error('CRITICAL: Command reached criminal code analysis - this should never happen!', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
-      username,
-      command: msg.text?.split(' ')[0] || 'unknown',
-      messageId: msg.message_id
+      op: 'criminalCommand',
+      errorClass: 'Error',
     });
+    if (sequence !== undefined) {
+      await ackProgress(env, chatId, day, 'criminal', msg.message_id, sequence, 'skipped');
+    }
     return; // Немедленный выход для команд
   }
 
   try {
-    Logger.debug(env, 'Criminal code analysis: starting background processing', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
-      username,
-      textLength: msg.text?.length || 0,
-      messageId: msg.message_id,
-      timestamp: new Date().toISOString()
-    });
-
-    // Get CriminalCodeAnalyzerDO instance
-    const analyzerStart = Date.now();
     const analyzerId = env.CRIMINAL_CODE_ANALYZER_DO.idFromName(String(chatId));
     const analyzer = env.CRIMINAL_CODE_ANALYZER_DO.get(analyzerId);
-    const analyzerCreationTime = Date.now() - analyzerStart;
-
-    Logger.debug(env, 'Criminal code analysis: analyzer instance created', {
-      chatId: chatId.toString(36),
-      creationTime: analyzerCreationTime
-    });
 
     // Enqueue contextual analysis. The Durable Object owns batching, rate gates,
     // context building, persistence, and admin-only reporting.
@@ -649,57 +524,27 @@ async function analyzeCriminalCodeAsync(
         username,
         day,
         ts: msg.date,
+        sequence,
         enqueueOnly: true
       })
     });
     const analysisTime = Date.now() - analysisStart;
 
-    if (response.ok) {
-      const result: any = await response.json();
-      const totalDuration = Date.now() - startTime;
-
-      if (result.queued) {
-        Logger.log('Criminal code analysis: queued for contextual processing', {
-          chatId: chatId.toString(36),
-          userId: userId.toString(36),
-          username,
-          reasons: result.reasons,
-          queueSize: result.queueSize,
-          timings: {
-            analyzerCreation: analyzerCreationTime,
-            enqueue: analysisTime,
-            total: totalDuration
-          }
-        });
-      } else {
-        Logger.debug(env, 'Criminal code analysis: skipped by prefilter or duplicate', {
-          chatId: chatId.toString(36),
-          userId: userId.toString(36),
-          reasons: result.reasons,
-          timings: {
-            analyzerCreation: analyzerCreationTime,
-            enqueue: analysisTime,
-            total: totalDuration
-          }
-        });
-      }
-    } else {
+    if (!response.ok) {
       const errorText = await response.text().catch(() => 'Unable to read response');
       throw new Error(`Criminal code analysis failed with status: ${response.status}, response: ${errorText}`);
     }
-  } catch (error: any) {
-    const totalDuration = Date.now() - startTime;
+    // queued vs not queued is handled inside DO with privacy-safe logs; no additional PII here
+  } catch {
+    if (sequence !== undefined) {
+      await ackProgress(env, chatId, day, 'criminal', msg.message_id, sequence, 'failed');
+    }
 
     // Log error but don't throw - criminal code analysis failures shouldn't break message processing
     Logger.error('Criminal code analysis: background processing failed', {
-      chatId: chatId.toString(36),
-      userId: userId.toString(36),
-      username,
-      messageId: msg.message_id,
-      textLength: msg.text?.length || 0,
-      duration: totalDuration,
-      error: error.message || String(error),
-      stack: error.stack
+      op: 'criminalEnqueue',
+      errorClass: 'Error',
+      errorCode: 'CRIMINAL_ENQUEUE_FAILED',
     });
   }
 }

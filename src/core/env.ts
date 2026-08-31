@@ -294,6 +294,7 @@ export interface CriminalAnalysisRequest {
   username?: string;
   day?: string;
   ts?: number;
+  sequence?: number;
   useCache?: boolean;
   forceRefresh?: boolean;
   enqueueOnly?: boolean;
@@ -314,6 +315,7 @@ export interface CriminalBatchAnalysisRequest {
     messageId?: number;
     username?: string;
     day?: string;
+    ts?: number;
   }>;
   useCache?: boolean;
   forceRefresh?: boolean;

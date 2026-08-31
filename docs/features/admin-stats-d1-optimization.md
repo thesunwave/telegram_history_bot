@@ -1,27 +1,62 @@
 # Admin Stats D1 Optimization
 
 Implementation-ready specification for removing the request-time full-chat KV scan
-behind `/admin/api/chat` custom date ranges. Phase 1 (containment + guard) and
-Phase 2 (D1 schema + live dual-write of daily aggregates) are implemented;
-Phase 3a (bounded/resumable production backfill from a temporary cron) is
-implemented below. Phase 4 (the D1 aggregate reader + whole-range coverage
-selector, `src/features/stats/admin-stats-d1.ts` and `d1-coverage.ts`) is now
-implemented. **Phase 4a (JOB_VERSION guard + profile rehydration restart) is
-implemented**: `JOB_VERSION` was bumped from 1 to 2, the D1 reader requires
-`stats_backfill_state.version === JOB_VERSION` before any range is considered
-ready, and the first scheduled backfill run after the bump atomically resets
-the state row to `version=2/running/base` and invalidates every backfill-owned
-coverage row in a single D1 batch. The remaining phases (parity re-verification,
-retention cleanup) are specified here but **not implemented**.
+behind `/admin/api/chat`. Phase 1 (containment + guard) and Phase 2 (D1 schema +
+live dual-write of daily aggregates) are implemented. Phase 3a
+(bounded/resumable production backfill) is implemented below. Phase 4 (the D1
+aggregate reader, `src/features/stats/admin-stats-d1.ts`) is implemented: D1 is
+the **sole admin stats source** — every request reads D1 aggregates directly,
+absent daily aggregate rows render as zero, and D1 failures surface the
+structured `ADMIN_UNAVAILABLE` 503. No KV read fallback and no `CountersDO`
+proof gate exist on the read path. The remaining phases (parity re-verification,
+retention cleanup) are specified here but **not implemented**; they are
+write-side only and do not gate admin reads.
 
-**Staged v2 barrier release (current):** the temporary `*/2 * * * *` backfill
-cron is removed from `wrangler.jsonc` triggers as part of the v2 barrier deploy.
-Once the worker is deployed and Cloudflare propagates the updated config, the
-drain window opens — no new v1 backfill invocations can start, and any in-flight
-invocation completes its lease window. The `src/index.ts` dispatch code remains in
-place so re-adding the cron entry immediately restores the handler. This is a
-config-only staged release; the production deploy of the v2 fenced code has not
-occurred yet.
+**v3 barrier complete (current):** the v3 backfill has reached terminal `done`
+status. The temporary `* * * * *` cron trigger has been removed from
+`wrangler.jsonc` — only the daily `59 23 * * *` remains. Backfill and
+coverage-integrity internals are write-side concerns; admin reads never consult
+them. 304 coverage rows remain incomplete (parity mismatches or missing base
+activity) and require separate explicit remediation; they are not addressed by
+cron retries. The `src/index.ts` backfill dispatch code is preserved for possible
+future explicit reruns.
+
+## Admin Read Model (implemented)
+
+`/admin/api/chat` reads all stats directly from D1 aggregates via
+`getAdminChatStatsFromD1`. There is no KV scan, no legacy read fallback, and no
+readiness/coverage gate on the read path: a day with no aggregate rows renders
+zero counts, and a D1 read failure surfaces the structured `ADMIN_UNAVAILABLE`
+503. Backfill version, coverage status, and `CountersDO` proof state are
+write-side internals and never gate admin reads.
+
+### Preset windows
+
+- **Week** = rolling 7 UTC days `[today-6, today]`, including today.
+- **Month** = rolling 30 UTC days `[today-29, today]`, including today.
+- **Today** = `[today, today]`.
+- Custom ranges keep the 90-day cap; malformed, future-ended, or over-90-day
+  ranges return JSON 400.
+
+### Missing aggregate rows
+
+- A day (or user/hour/bucket/word row) absent from the D1 aggregate tables
+  renders zero in the response. No proof of emptiness is required.
+
+### API response contract
+
+- **200** with stats; `status` is always `'final'`.
+- **503 `ADMIN_UNAVAILABLE`**: any D1 read failure; structured JSON, no KV or DO
+  fallback.
+- **400**: malformed/future/over-90-day custom range.
+- Auth and chat-access checks still run before stats selection (no pre-auth
+  rejection).
+
+### Admin UI
+
+- Non-2xx responses are parsed as JSON; `ADMIN_UNAVAILABLE` and generic failures
+  render designed Russian error states. Raw response text, thrown error messages,
+  and serialized payloads are never rendered. Controls stay usable.
 
 ## Incident
 
@@ -71,65 +106,60 @@ exception, which Cloudflare renders as 1101. Logs filtered with
 ## Target Architecture
 
 - **`CountersDO` remains the serialized writer** for all counter increments
-  (`src/durable-objects/counters-do.ts`); it gains a dual-write of daily aggregates.
-- **Existing D1 (`DB`, database `summaries`) becomes a date-indexed aggregate read
-  model.** Reads for fully covered ranges become a single D1 query set instead of a
-  KV scan.
-- **KV remains the temporary source of truth during backfill** (counters have no
-  TTL), and the legacy KV read path stays intact until retention cleanup.
-- **No request-time full-chat KV scan for long ranges** once cutover is complete.
+  (`src/durable-objects/counters-do.ts`); it writes daily aggregates (dual-write).
+- **Existing D1 (`DB`, database `summaries`) is the sole admin aggregate read
+  model.** Admin reads are a single D1 query set; no KV scan.
+- **KV remains the temporary source for the write-side backfill** (counters have
+  no TTL); KV is never consulted by admin reads.
+- **No request-time full-chat KV scan** on `/admin/api/chat`.
 
 ## Phased Rollout
 
 1. **Containment** (Phase 1 — implemented): admin exception boundary returns
-   `ADMIN_UNAVAILABLE` JSON 503; custom ranges longer than 3 inclusive days are
-   rejected with `HISTORICAL_STATS_NOT_READY` JSON 503 before any access or storage
-   work. No 1101 from this route.
+   `ADMIN_UNAVAILABLE` JSON 503; no 1101 from this route. The temporary 3-day
+   guard with `HISTORICAL_STATS_NOT_READY` (historical) was superseded by the
+   direct D1 reader: custom ranges now read D1 like presets.
 2. **D1 schema** (Phase 2 — implemented): aggregate tables + coverage table added
    by migration `0009_stats_daily_aggregates.sql` (see below). Existing `activity`
    table remains untouched.
 3. **Dual-write** (Phase 2 — implemented): `CountersDO` writes each day's aggregate
    rows alongside existing counter increments in a single D1 `batch` per event;
-   coverage for that (chat, day) records live statuses (never `complete`). The
-   D1 read path lands in Phase 4; until then admin reads still use KV.
+   coverage for that (chat, day) records live statuses (never `complete`). Admin
+   reads now use D1 directly.
 4. **Cursor/bounded backfill** (Phase 3a — implemented): backfill all available
    modern counter history older than an immutable cutoff day from existing KV
    counters in bounded, resumable, D1-checkpointed slices; each completed day
    gets its coverage row (completed only after finalize parity). See
    "Phase 3a: Backfill" below.
 5. **Parity**: compare D1 aggregate totals against KV-derived totals for the same
-   ranges per chat; mismatches block cutover for that chat.
-6. **D1 canary/cutover**: backend-selection flag serves fully covered ranges from D1;
-   short legacy fallback remains for uncovered ranges.
-7. **Phase 4 reader cutover** (implemented): selector proves whole UTC range
-   before choosing D1. Complete coverage rows serve D1 **only when the stored
-   backfill version matches the current `JOB_VERSION`**; a version mismatch
-   (e.g. state from before profile rehydration) blocks all ranges until the
-   backfill resets and reprocesses. A zero historical day is eligible only after
-   the job is `done` at the current version, before its cutoff, at/after first
-   aggregate day for chat, and with neither activity nor aggregate rows. Any
-   uncovered range uses whole legacy KV only when it is at most three days;
-   longer ranges return structured `HISTORICAL_STATS_NOT_READY`. D1 failures use
-   whole legacy fallback only for at-most-three-day ranges, otherwise return
-   `ADMIN_UNAVAILABLE`. No mixed reads. For preset periods, the D1 criminal
-   reader derives sentence attributes (`totalYears`/`lifeSentences`) from
-   `criminal_violations`; custom ranges stay count-only. A D1-ready preset with
-   aggregate criminal counts but no viable violations rows returns a safe
-   `ADMIN_UNAVAILABLE` rather than silently dropping the sentence schema.
+   ranges per chat; mismatches are tracked as coverage `reason_code`s. This is a
+   write-side integrity check and does not gate admin reads.
+6. **D1 canary/cutover** (superseded): the planned backend-selection flag and
+   legacy KV fallback were removed by the simplified reader — admin reads are
+   D1-only for every range.
+7. **D1 reader (implemented)**: admin reads serve D1 aggregates directly for every
+   range. Absent aggregate rows render zero. D1 failures return
+   `ADMIN_UNAVAILABLE` (503); no legacy KV fallback and no `CountersDO` proof
+   gate exist on the read path. The reader derives preset-period sentence
+   attributes (`totalYears`/`lifeSentences`) from `criminal_violations`; custom
+   ranges stay count-only. A preset with aggregate criminal counts but no viable
+   violations rows returns a safe `ADMIN_UNAVAILABLE` rather than silently
+   dropping the sentence schema.
 8. **Retention cleanup**: once D1 is authoritative, apply TTL to new KV counter writes
-   and remove old KV counter keys; remove the legacy long-range scan path.
+   and remove old KV counter keys; the legacy KV read path is already gone.
 
-## Phase 3a: Backfill (implemented, cron removed as part of v2 barrier deploy)
+## Phase 3a: Backfill (completed — v3 job done, cron removed)
 
-The `*/2 * * * *` cron is removed from `wrangler.jsonc` triggers as part of the
-v2 barrier deploy (see "v2 Barrier Release" below). Once the worker deploys and
-Cloudflare propagates the config, the drain window opens and no new v1 backfill
-invocations can start. The backfill cron previously ran from `BACKFILL_CRON` in
-`src/features/stats/daily-backfill.ts` via `src/index.ts` scheduled dispatch.
-The dispatch code is preserved so re-adding the cron entry to `wrangler.jsonc`
-immediately restores the backfill handler. The regular cron (`59 23 * * *`,
-`DAILY_SUMMARY_CRON`) remains unchanged and continues its exact prior behavior.
-Any unknown cron no-ops safely. **No user request path can trigger backfill.**
+The v3 backfill has reached terminal `done` status. The `* * * * *` cron trigger
+has been removed from `wrangler.jsonc`; only the daily `59 23 * * *` remains.
+The backfill ran from `BACKFILL_CRON` in `src/features/stats/daily-backfill.ts`
+via `src/index.ts` scheduled dispatch. The dispatch code is preserved for
+possible future explicit reruns. The regular cron (`59 23 * * *`,
+`DAILY_SUMMARY_CRON`) remains unchanged. **304 coverage rows remain incomplete**
+(parity mismatches or missing base activity) and require separate explicit
+remediation — they are not addressed by cron retries. Incomplete coverage is a
+write-side integrity matter and never gates admin reads: days without aggregate
+rows render zero.
 
 ### Scope: full available modern counter history
 
@@ -186,17 +216,10 @@ Any unknown cron no-ops safely. **No user request path can trigger backfill.**
 
 ### Version-gated rescan (Phase 4a: one-time profile rehydration restart)
 
-When `JOB_VERSION` is bumped (currently 2, bumped from 1 for chat-scoped
-profile rehydration), both the D1 reader and the backfill enforce the new
-version:
-
-- **D1 reader gate**: `isD1RangeReady()` in `d1-coverage.ts` reads
-  `stats_backfill_state.version` and `stats_backfill_state.status`. It returns
-  `false` for every range when the stored version does not match `JOB_VERSION`
-  **or** when `status !== 'done'`. This prevents serving old `complete` coverage
-  rows that were finalized before chat-scoped profiles were populated, and also
-  blocks serving partially-completed coverage from an in-progress backfill run.
-  The gate also blocks when the state row is absent (no backfill has ever run).
+When `JOB_VERSION` is bumped (currently 3, bumped from 2 for v3 barrier
+preparation), the backfill enforces the new version. This is a **write-side**
+consistency mechanism: admin reads never consult `JOB_VERSION`, coverage
+status, or backfill state.
 - **Backfill atomic reset**: on the first scheduled backfill run after a
   version bump, the backfill detects `state.version !== JOB_VERSION` and issues
   a single `db.batch()` containing two statements:
@@ -209,8 +232,8 @@ version:
       criminal_status = 'pending, reason_code = NULL`, only when the state
       row still exactly matches that resulting reset epoch.
   Both statements run in the same D1 atomic batch, so old `complete` coverage
-  can never be read between the version bump and the coverage reset. Live-owned
-  rows (`source = 'live'`) are untouched. The immutable `cutoff_day` is
+  can never be finalized-between the version bump and the coverage reset.
+  Live-owned rows (`source = 'live'`) are untouched. The immutable `cutoff_day` is
   preserved. After the batch, the backfill re-reads the state row and continues
   the normal lease-acquire / phase-dispatch flow from `base` with a clean
   checkpoint.
@@ -229,9 +252,8 @@ in-flight v1 invocations to finish (at least the active lease window plus
 observed request drain), then deploy/activate the fenced worker and allow its
 version reset. A v1 invocation already executing unfenced SQL cannot be
 retroactively stopped by a state reset and can otherwise write stale rows after
-the reset invalidates coverage. **The cron trigger has been removed from config;
-the drain window opens after the worker deploys and Cloudflare propagates the
-updated config.**
+the reset invalidates coverage. **The drain window is closed; v3 reached
+terminal done.**
 
 ### Phases
 
@@ -340,77 +362,58 @@ SQL. Run summaries are count-based.
 Terminal `done` job status performs only a cheap D1 state read (no writes).
 See "Phase 3b: Temporary Cron Removal" for the exact removal path.
 
-## Phase 3b: Temporary Cron Removal (in progress — cron removed, drain pending deploy)
+## Phase 3b: Temporary Cron Removal (completed)
 
-The `*/2 * * * *` cron is removed from `wrangler.jsonc` as part of the barrier
-deploy. Once the worker deploys and Cloudflare propagates the updated config,
-no new v1 backfill invocations can start; any in-flight invocation completes its
-lease window. The `src/index.ts` backfill dispatch branch remains in place.
+The `* * * * *` cron has been permanently removed from `wrangler.jsonc`. The v3
+backfill reached terminal `done` status. The `src/index.ts` backfill dispatch
+branch is preserved for possible future explicit reruns.
 
-Remaining steps to complete this phase:
-
-1. ~~Remove `"*/2 * * * *"` from `wrangler.jsonc` `triggers.crons`~~ — **done**
-   (cron removed as part of barrier deploy; drain starts after deploy + Cloudflare propagation).
+1. ~~Remove `"* * * * *"` from `wrangler.jsonc` `triggers.crons`~~ — **done**
 2. Verify the job reached terminal state: `stats_backfill_state` row for
-   `daily_aggregates_v1` has `status = 'done'` and `phase = 'done'`.
-3. Verify coverage: a sampled or full set of `stats_daily_coverage` rows have
-   all three statuses `complete` with `source = 'backfill'` and `reason_code`
-   is NULL (or only expected `missing_activity_total` /
-   `message_count_mismatch` / anomaly rows remain).
-4. Remove the backfill branch from `src/index.ts` `scheduled()` (restoring the
-   plain daily handler). This is **not done yet** — the dispatch code stays so
-   re-enabling the cron restores the handler without redeploy.
-5. Keep the `59 23 * * *` daily cron unchanged. The `stats_backfill_state`
+   `daily_aggregates_v1` has `status = 'done'` and `phase = 'done'` — **done**
+3. Verify coverage: 304 `stats_daily_coverage` rows remain incomplete (parity
+   mismatches or missing base activity); these require separate explicit
+   remediation.
+4. Keep the `59 23 * * *` daily cron unchanged. The `stats_backfill_state`
    `done` row is harmless and may be left in place (or deleted to allow a
    future re-run, which is safe because all writes are absolute).
 
-Phase 5 (parity re-verification) remains not implemented. The D1 read path
-itself is implemented by Phase 4 (reader cutover); Phase 3a alone does not
-enable it.
+Phase 5 (parity re-verification) remains not implemented. The D1 reader **is**
+implemented: admin reads serve D1 aggregates directly for every range; absent
+aggregate rows render zero and D1 failures surface `ADMIN_UNAVAILABLE`. 304
+incomplete rows need explicit remediation (write-side, does not gate reads).
 
-## v2 Barrier Release (staged — config change only)
+## v3 Barrier Release (completed)
 
-This is a **config-only staged release** that prepares a drain barrier before
-the v2 version-gated backfill code is deployed to production.
-
-### Why
-
-Phase 4a bumped `JOB_VERSION` from 1 to 2. The v2 code issues an atomic
-state+coverage reset on its first run. If a v1 backfill invocation is
-still in-flight when the reset fires, it can write stale rows after
-coverage is invalidated. The drain barrier removes the cron trigger so no
-new invocations start once the worker deploys and Cloudflare propagates the
-config; any in-flight invocation then completes its lease window.
+The v3 backfill has reached terminal `done` status. The temporary `* * * * *`
+cron trigger has been removed from `wrangler.jsonc`.
 
 ### What changed
 
-- `wrangler.jsonc` `triggers.crons`: removed `"*/2 * * * *"`, keeping only
-  `"59 23 * * *"` (daily summary cron unchanged). Drain starts only after
-  the worker is deployed and Cloudflare propagates the updated config.
-- `docs/features/admin-stats-d1-optimization.md`: updated to reflect the
-  staged state and removal path.
+- `wrangler.jsonc` `triggers.crons`: `"* * * * *"` removed; only
+  `"59 23 * * *"` (daily summary cron) remains.
+- `docs/features/admin-stats-d1-optimization.md`: updated to reflect v3
+  completion and 304 incomplete coverage rows.
 
 ### What did NOT change
 
-- `src/index.ts` dispatch — backfill branch preserved for immediate re-enable.
+- `src/index.ts` dispatch — backfill branch preserved for future explicit
+  reruns.
 - `src/features/stats/daily-backfill.ts` — handler code untouched.
 - Runtime vars, bindings, KV, D1, migrations, all other source code — untouched.
-
-### Re-enabling the backfill
-
-To run a v2 backfill: add `"*/2 * * * *"` back to `wrangler.jsonc`
-`triggers.crons`. The existing dispatch code handles the rest. No source
-changes needed.
 
 ### Rollout state
 
 | Step | Status |
 |---|---|
-| Remove v1 cron trigger from config | **Done** |
-| Deploy worker (cron removal goes live) | Pending |
-| Drain: wait for in-flight v1 lease expiry + Cloudflare propagation | Pending (after deploy) |
-| Deploy v2 fenced worker | Not yet |
-| Re-add cron for v2 backfill run | Not yet |
+| Remove v2 cron trigger from config | **Done** |
+| Deploy v3 cron-off Worker | **Done** |
+| Re-add cron for v3 backfill run | **Done** |
+| First v3 backfill run / v3 state reset | **Done** |
+| v3 backfill terminal done | **Done** |
+| Remove `* * * * *` cron permanently | **Done** |
+| D1 admin reader (all ranges) | **Active** |
+| 304 incomplete coverage rows | **Requires separate explicit remediation** |
 | Phase 5 parity re-verification | Not implemented |
 
 ## Intended Aggregate Tables & Key Fields
@@ -420,7 +423,7 @@ All primary keys are date-indexed (`(chat_id, day, ...)`). Implemented by migrat
 (Phase 3a) additionally adds the D1-authoritative `stats_backfill_state` job
 table and the nullable `reason_code` column on `stats_daily_coverage`. Names
 differ from the original plan below; these tables are authoritative. The
-Phase 4 reader consumes these tables for fully covered ranges (see Phase 4).
+reader consumes these tables for admin stats.
 
 | Table | Columns | PK |
 |---|---|---|
@@ -438,7 +441,7 @@ Phase 4 reader consumes these tables for fully covered ranges (see Phase 4).
 exist; the equivalent rows live in `stats_daily_hour`, `stats_daily_bucket_user`,
 and `stats_daily_profanity_word` / `stats_daily_profanity_word_user`.
 
-Source KV key patterns (already read by `src/api/admin-stats.ts`):
+Source KV key patterns (consumed by the backfill; not read by admin stats):
 
 - `stats_v2:{chatId}:{day}:{userId}` — per-user message count
 - `word_stats_v2:{chatId}:{day}:{userId}` — per-user word count
@@ -448,11 +451,11 @@ Source KV key patterns (already read by `src/api/admin-stats.ts`):
 - `activity:{chatId}:{day}` — legacy day totals (unused by admin stats)
 - `profanity:{chatId}:{userId}:{day}` / `profanity_words:{chatId}:{word}:{day}` / `profanity_word_users:{chatId}:{word}:{day}:{userId}`
 - `criminal:{chatId}:{userId}:{day}`
-- The Phase 4 D1 reader resolves leaderboard/profile names and last-message
+- The D1 reader resolves leaderboard/profile names and last-message
   timestamps from the chat-scoped `stats_chat_user_profile` table (migration
-  0011), so the D1 success path performs no request-time KV metadata reads.
-  `last_message:{chatId}:{userId}` and `user:{userId}` remain in KV for the
-  legacy fallback path and as the backfill source.
+  0011), so the D1 read path performs no request-time KV metadata reads.
+  `last_message:{chatId}:{userId}` and `user:{userId}` remain in KV as the
+  backfill source.
 
 ## Coverage Tracking
 
@@ -475,28 +478,29 @@ Source KV key patterns (already read by `src/api/admin-stats.ts`):
   with no base counter stay incomplete with `reason_code =
   'missing_base_counter'`; missing/mismatched legacy totals keep non-complete
   statuses with `reason_code = 'missing_activity_total'` or
-  `'message_count_mismatch'`. A day is D1-servable when backfill marked it
-  `complete` (proved whole-range by the Phase 4 selector) **and** the stored
-  `stats_backfill_state.version` equals the current `JOB_VERSION` (currently 2);
-  a version mismatch blocks all ranges until the backfill atomically resets
-  state and invalidates backfill coverage rows. Days with
-  `live`/`pending`/`none` statuses, a non-NULL `reason_code`, or no coverage row
-  at all stay ineligible for the D1 read path.
+  `'message_count_mismatch'`. Coverage statuses are write-side integrity
+  bookkeeping only: admin reads never consult them, and a day without aggregate
+  rows renders zero regardless of coverage state.
 
-## Backend-Selection Rule
+## Read Semantics
 
-- Only a **fully covered** range reads D1 aggregates.
-- **Short legacy fallback only**: uncovered ranges fall back to the current KV path
-  strictly when the range is short (≤ 3 days, i.e. what Phase 1 containment permits).
-- **Never mix partial D1/KV** for one range: either the whole range comes from D1
-  aggregates, or the whole range comes from the KV path.
+- D1 is the **sole admin stats source**: every `/admin/api/chat` request reads
+  D1 aggregates directly. No KV scan/merge, no legacy fallback, no `CountersDO`
+  proof, and no readiness/coverage gate on the read path.
+- Days with no aggregate rows render zero counts. Absent per-user, per-hour,
+  per-bucket, or per-word rows render zero in their respective rankings.
+- **Never mix sources for one range**: the whole response comes from the single
+  D1 read.
 
 ## Failure Semantics
 
-- D1 read failure on a covered range → return `ADMIN_UNAVAILABLE` JSON 503 via the
-  containment boundary. Never silently fall back to a partial/mixed source.
-- Dual-write failure → log, keep KV counters authoritative; the day's coverage stays
-  incomplete until backfill/parity confirms it.
+- Any D1 read failure → structured `ADMIN_UNAVAILABLE` JSON 503 via the
+  containment boundary; no KV or DO fallback.
+- A custom range ending in the future is invalid 400; malformed or over-90-day
+  ranges are 400.
+- Dual-write/backfill failures are write-side: the D1 aggregate row simply stays
+  absent until the write succeeds, so the affected day renders zero rather than
+  failing the read.
 
 ## Privacy
 
@@ -519,10 +523,10 @@ Source KV key patterns (already read by `src/api/admin-stats.ts`):
 
 ## Rollback
 
-- KV write path remains untouched until retention cleanup; a backend-selection flag
-  toggles D1 on/off without redeploy surgery; `wrangler rollback` reverts code.
-- D1 aggregate rows are additive and can be left in place or cleared; KV remains the
-  source of truth until retention cleanup, so no data is lost.
+- KV write path remains untouched until retention cleanup; `wrangler rollback`
+  reverts code.
+- D1 aggregate rows are additive and can be left in place or cleared; admin reads
+  always come from D1, so no read path depends on KV state.
 
 ## Data Correctness Guardrails
 
@@ -530,18 +534,14 @@ Source KV key patterns (already read by `src/api/admin-stats.ts`):
   check (after `SUM(stats_daily_user.message_count)` matches the legacy
   `activity` total per (chat, day)) or by the Phase 5 parity check; live
   dual-write only records `live` statuses, and backfill in progress records
-  `pending`, neither of which is ever treated as eligibility for D1 reads.
-  Anomalous days carry a safe `reason_code` and stay incomplete. Phase 5 parity
-  must still re-verify every backfilled day before the Phase 6 read path is
-  enabled.
-- Parity gate blocks cutover for chats with mismatches.
+  `pending`. Coverage is write-side bookkeeping and never gates admin reads.
 - Backfill is idempotent (absolute upsert by PK), bounded, and D1-checkpoint
   resumable (lease + cursor + offset).
 
 ## Cost Guardrails
 
 - Phase 1 adds **no paid service, queue, Durable Object, or Worker binding**.
-- After cutover: one range request = one D1 read set, instead of thousands of KV
+- One range request = one D1 read set, instead of thousands of KV
   subrequests. D1 free tier (5M rows read/month) is ample for per-day aggregates.
 - One D1 write set per (chat, day), serialized through the single `CountersDO`
   writer.
@@ -549,11 +549,14 @@ Source KV key patterns (already read by `src/api/admin-stats.ts`):
 ## Phase 1 Acceptance Criteria
 
 - This spec exists under `docs/features/`.
-- 4-day custom range returns the exact `HISTORICAL_STATS_NOT_READY` 503 JSON and does
-  not call Telegram access or stats computation.
-- 3-day custom range passes the guard and returns stats.
 - Uncaught admin failure returns the exact `ADMIN_UNAVAILABLE` 503 JSON with
   `Cache-Control: no-store`; no Cloudflare 1101 page from this route.
+- Admin stats read D1 aggregates directly: days with no aggregate rows render
+  zero; a D1 read failure returns `ADMIN_UNAVAILABLE` 503 with no KV/DO
+  fallback; a custom range ending in the future is 400.
+- Admin UI renders designed Russian error states and never renders raw response
+  text/JSON; week/month labels state the rolling windows including today.
+- No KV mixing on the admin read path.
 - All existing tests plus new focused tests pass.
 - `rtk npx wrangler deploy --dry-run` passes.
 - Only intended files changed; `opencode.json` untouched (user's worktree change).
@@ -577,9 +580,11 @@ non-goal.
 - Phase 1 does **not** create any D1 migration, does not implement aggregates,
   dual-write, backfill, parity, canary, or retention cleanup.
 - **Parity re-verification (Phase 5) and retention cleanup are not implemented.**
-  The Phase 4 reader cutover **is** implemented: fully covered ranges are served
-  from D1 via `/admin/api/chat`, and backfilled `complete` coverage markers are
-  consumed by the Phase 4 selector. Parity re-verification remains outstanding.
+  The D1 reader **is** implemented: admin reads serve D1 aggregates directly via
+  `/admin/api/chat` for every range; absent aggregate rows render zero and D1
+  failures surface `ADMIN_UNAVAILABLE`. 304 coverage rows remain incomplete and
+  require separate explicit remediation; they are not addressed by cron retries
+  and do not gate admin reads.
 - `MAX_CUSTOM_RANGE_DAYS` (90) is unchanged; malformed/over-90-day ranges still
   return JSON 400.
 - The 3-day guard is explicit temporary containment, not an attempt to optimize KV

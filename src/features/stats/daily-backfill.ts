@@ -83,7 +83,7 @@ import type { Env } from '../../core/env';
  */
 
 /** Distinct temporary cron that runs the backfill. Must match wrangler.jsonc triggers. */
-export const BACKFILL_CRON = '*/2 * * * *';
+export const BACKFILL_CRON = '* * * * *';
 
 /** Exact daily summary/cleanup cron. Kept unchanged from the pre-Phase-3a behavior. */
 export const DAILY_SUMMARY_CRON = '59 23 * * *';
@@ -93,12 +93,13 @@ export const JOB_NAME = 'daily_aggregates_v1';
 
 /**
  * State model version; bumping invalidates old state rows and forces a full
- * rescan with profile rehydration. Version 2 restarts the backfill from the
+ * rescan with profile rehydration. Version 3 restarts the backfill from the
  * base phase (cursor null, page_offset 0) and invalidates every
  * `source='backfill'` coverage row to pending so that all days are
- * re-processed with chat-scoped profile data.
+ * re-processed with chat-scoped profile data. Existing v2 state is
+ * unreadable; the first v3 cron run atomically resets/invalidates/rescans.
  */
-export const JOB_VERSION = 2;
+export const JOB_VERSION = 3;
 
 /** Lease duration in seconds; renewed on every state write, released on finish. */
 export const LEASE_TTL_SECONDS = 600;

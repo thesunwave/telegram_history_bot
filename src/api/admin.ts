@@ -16,8 +16,12 @@ import {
   isTelegramUserInChat,
   listAdminChatsForTelegramUser,
 } from './admin-chats';
-import { getAdminChatStats, parseAdminPeriod } from './admin-stats';
-import { AdminUnavailable, HistoricalStatsNotReady } from '../features/stats/admin-stats-errors';
+import { getAdminChatStats, parseAdminPeriod, type AdminDateRange } from './admin-stats';
+import {
+  AdminUnavailable,
+  HistoricalStatsNotReady,
+  LiveProgressUnavailable,
+} from '../features/stats/admin-stats-errors';
 import { renderAdminHtml } from './admin-html';
 
 const ADMIN_PATH = '/admin';
@@ -26,17 +30,49 @@ function jsonError(message: string, status: number): Response {
   return Response.json({ ok: false, error: message }, { status });
 }
 
-function statsUnavailable(error: HistoricalStatsNotReady | AdminUnavailable): Response {
+function statsUnavailable(
+  error: HistoricalStatsNotReady | AdminUnavailable,
+  range: AdminDateRange,
+): Response {
   const historical = error instanceof HistoricalStatsNotReady;
   return Response.json({
     ok: false,
     error: {
       code: historical ? 'HISTORICAL_STATS_NOT_READY' : 'ADMIN_UNAVAILABLE',
       message: historical
-        ? 'Statistics for this range are temporarily unavailable during optimization.'
+        ? 'Statistics for this range are not ready yet. Please try again later.'
         : 'Admin service is temporarily unavailable.',
+      // User-safe requested range so the UI can name the unavailable period;
+      // internal coverage reasons are never exposed.
+      ...(historical ? { from: range.from, to: range.to } : {}),
     },
-  }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+  }, {
+    status: 503,
+    headers: {
+      'Cache-Control': 'no-store',
+      ...(historical ? { 'Retry-After': '300' } : {}),
+    },
+  });
+}
+
+function liveProgressUnavailableResponse(error: LiveProgressUnavailable): Response {
+  return Response.json({
+    ok: false,
+    error: {
+      code: error.code,
+      message:
+        error.code === 'LIVE_ANALYSIS_FAILED'
+          ? 'Live analysis for the current UTC day failed and is not available yet.'
+          : 'Live progress for the current UTC day is not available yet.',
+      day: error.day,
+    },
+  }, {
+    status: 503,
+    headers: {
+      'Cache-Control': 'no-store',
+      'Retry-After': '300',
+    },
+  });
 }
 
 function parseChatId(url: URL): number | null {
@@ -294,8 +330,11 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     try {
       return Response.json(await getAdminChatStats(env, chatId, period));
     } catch (error) {
+      if (error instanceof LiveProgressUnavailable) {
+        return liveProgressUnavailableResponse(error);
+      }
       if (error instanceof HistoricalStatsNotReady || error instanceof AdminUnavailable) {
-        return statsUnavailable(error);
+        return statsUnavailable(error, period);
       }
       throw error;
     }

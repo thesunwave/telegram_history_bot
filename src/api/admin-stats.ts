@@ -1,14 +1,7 @@
 import type { Env } from '../core/env';
-import {
-  getTopCriminalUsers,
-  getTopCriminalUsersBySentence,
-  getTopProfanityRateUsers,
-  getTopProfanityUsers,
-  getTopProfanityWords,
-  PROFANITY_RATE_MIN_WORDS,
-} from '../features/stats/stats';
-import { getReadyAdminChatStatsFromD1 } from '../features/stats/admin-stats-d1';
-import { AdminUnavailable, HistoricalStatsNotReady } from '../features/stats/admin-stats-errors';
+import { getAdminChatStatsFromD1 } from '../features/stats/admin-stats-d1';
+import type { LiveProgressSnapshot } from '../features/stats/d1-coverage';
+import { AdminUnavailable } from '../features/stats/admin-stats-errors';
 
 export type AdminPeriod = 'today' | 'week' | 'month' | 'custom';
 
@@ -41,6 +34,10 @@ export interface AdminChatStats {
     to: string;
     days: number;
   };
+  /** 'final' for strictly closed ranges; 'provisional' when today is live. */
+  status: 'final' | 'provisional';
+  /** Truthful compact pipeline progress for a provisional live day. */
+  progress?: LiveProgressSnapshot;
   activity: {
     total: number;
     totalWords: number;
@@ -117,21 +114,8 @@ const PERIOD_DAYS: Record<AdminPeriod, number> = {
   custom: 1,
 };
 
-const HOURS = Array.from({ length: 24 }, (_, index) => index.toString().padStart(2, '0'));
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_CUSTOM_RANGE_DAYS = 90;
-const TIME_BUCKETS = [
-  { bucket: 'morning' as const, label: 'Утро' },
-  { bucket: 'noon' as const, label: 'День' },
-  { bucket: 'evening' as const, label: 'Вечер' },
-  { bucket: 'night' as const, label: 'Ночь' },
-];
-const PARTICIPANT_TIMELINE_BUCKETS = [
-  { bucket: 'night' as const, label: 'Ночь' },
-  { bucket: 'morning' as const, label: 'Утро' },
-  { bucket: 'noon' as const, label: 'День' },
-  { bucket: 'evening' as const, label: 'Вечер' },
-];
 
 function formatDay(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -150,12 +134,19 @@ function parseDay(value: string | null): Date | null {
   return date;
 }
 
+/**
+ * Builds a rolling UTC-day window for presets that includes the current live
+ * day: week = `[today-6, today]`, month = `[today-29, today]`, today =
+ * `[today, today]`. Closed days are final; today is provisional live data.
+ */
 function buildPresetRange(period: Exclude<AdminPeriod, 'custom'>): AdminDateRange {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
+  const endOffset = 0;
+  const startOffset = endOffset - (PERIOD_DAYS[period] - 1);
   const days = Array.from({ length: PERIOD_DAYS[period] }, (_, index) => {
     const day = new Date(today);
-    day.setUTCDate(today.getUTCDate() - (PERIOD_DAYS[period] - index - 1));
+    day.setUTCDate(today.getUTCDate() + startOffset + index);
     return formatDay(day);
   });
 
@@ -176,6 +167,12 @@ function buildCustomRange(fromValue: string | null, toValue: string | null): Adm
   }
   if (from.getTime() > to.getTime()) {
     throw new Error('custom period from date must be before or equal to to date');
+  }
+
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  if (to.getTime() > today.getTime()) {
+    throw new Error('custom period cannot end in the future');
   }
 
   const dayCount = Math.floor((to.getTime() - from.getTime()) / DAY_MS) + 1;
@@ -212,600 +209,23 @@ export function parseAdminPeriod(
   return buildPresetRange('today');
 }
 
-function isInRange(day: string, range: AdminDateRange): boolean {
-  return day >= range.from && day <= range.to;
-}
-
-async function getActivityStats(env: Env, chatId: number, range: AdminDateRange) {
-  const totals: Record<
-    string,
-    {
-      messages: number;
-      words: number;
-      voiceSeconds: number;
-      voiceCount: number;
-      videoNoteSeconds: number;
-      videoNoteCount: number;
-    }
-  > = {};
-  const activeDaysByUser: Record<string, Set<string>> = {};
-  const dailyCountsByUser: Record<string, Record<string, number>> = {};
-  const dailyTimeBucketCountsByUser: Record<string, Record<string, Record<string, number>>> = {};
-  const dayTotals: Record<string, number> = {};
-  const dayActiveUsers: Record<string, number> = {};
-  const hourlyTotals: Record<string, number> = Object.fromEntries(HOURS.map((hour) => [hour, 0]));
-  const bucketTotals: Record<string, Record<string, number>> = Object.fromEntries(
-    TIME_BUCKETS.map(({ bucket }) => [bucket, {}]),
-  );
-  const days = range.days;
-
-  for (const day of days) {
-    const prefix = `stats_v2:${chatId}:${day}:`;
-    let cursor: string | undefined;
-    const usersForDay = new Set<string>();
-    let dayMessageTotal = 0;
-
-    do {
-      const list: any = await env.COUNTERS.list({ prefix, cursor });
-      cursor = !list.list_complete ? list.cursor : undefined;
-
-      for (let i = 0; i < list.keys.length; i += 10) {
-        const batch = list.keys.slice(i, i + 10);
-        const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
-        const userIds = batch.map((key: any) => key.name.split(':')[3]);
-        const wordValues = await Promise.all(
-          userIds.map((userId: string) =>
-            env.COUNTERS.get(`word_stats_v2:${chatId}:${day}:${userId}`),
-          ),
-        );
-        const mediaValues = await Promise.all(
-          userIds.flatMap((userId: string) => [
-            env.COUNTERS.get(`media_stats_v2:${chatId}:${day}:${userId}:voice`),
-            env.COUNTERS.get(`media_duration_v2:${chatId}:${day}:${userId}:voice`),
-            env.COUNTERS.get(`media_stats_v2:${chatId}:${day}:${userId}:video_note`),
-            env.COUNTERS.get(`media_duration_v2:${chatId}:${day}:${userId}:video_note`),
-          ]),
-        );
-
-        for (let j = 0; j < batch.length; j++) {
-          const userId = userIds[j];
-          const mediaOffset = j * 4;
-          const count = parseInt(values[j] || '0', 10);
-          const words = parseInt(wordValues[j] || '0', 10);
-          dayMessageTotal += count;
-          const current = totals[userId] || {
-            messages: 0,
-            words: 0,
-            voiceSeconds: 0,
-            voiceCount: 0,
-            videoNoteSeconds: 0,
-            videoNoteCount: 0,
-          };
-          totals[userId] = {
-            messages: current.messages + count,
-            words: current.words + words,
-            voiceCount: current.voiceCount + parseInt(mediaValues[mediaOffset] || '0', 10),
-            voiceSeconds: current.voiceSeconds + parseInt(mediaValues[mediaOffset + 1] || '0', 10),
-            videoNoteCount: current.videoNoteCount + parseInt(mediaValues[mediaOffset + 2] || '0', 10),
-            videoNoteSeconds:
-              current.videoNoteSeconds + parseInt(mediaValues[mediaOffset + 3] || '0', 10),
-          };
-          if (count > 0) {
-            usersForDay.add(userId);
-            if (!activeDaysByUser[userId]) activeDaysByUser[userId] = new Set();
-            activeDaysByUser[userId].add(day);
-            if (!dailyCountsByUser[userId]) dailyCountsByUser[userId] = {};
-            dailyCountsByUser[userId][day] = count;
-          }
-        }
-      }
-    } while (cursor);
-
-    dayTotals[day] = dayMessageTotal;
-    dayActiveUsers[day] = usersForDay.size;
-
-    for (let i = 0; i < HOURS.length; i += 12) {
-      const batch = HOURS.slice(i, i + 12);
-      const values = await Promise.all(
-        batch.map((hour) => env.COUNTERS.get(`activity_hour:${chatId}:${day}:${hour}`)),
-      );
-      for (let j = 0; j < batch.length; j++) {
-        hourlyTotals[batch[j]] += parseInt(values[j] || '0', 10);
-      }
-    }
-
-    for (const { bucket } of TIME_BUCKETS) {
-      const bucketPrefix = `activity_time_bucket:${chatId}:${day}:${bucket}:`;
-      let bucketCursor: string | undefined;
-      do {
-        const list: any = await env.COUNTERS.list({ prefix: bucketPrefix, cursor: bucketCursor });
-        bucketCursor = !list.list_complete ? list.cursor : undefined;
-        for (let i = 0; i < list.keys.length; i += 10) {
-          const batch = list.keys.slice(i, i + 10);
-          const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
-          for (let j = 0; j < batch.length; j++) {
-            const userId = batch[j].name.split(':')[4];
-            const count = parseInt(values[j] || '0', 10);
-            bucketTotals[bucket][userId] = (bucketTotals[bucket][userId] || 0) + count;
-            if (!dailyTimeBucketCountsByUser[userId]) dailyTimeBucketCountsByUser[userId] = {};
-            if (!dailyTimeBucketCountsByUser[userId][day]) {
-              dailyTimeBucketCountsByUser[userId][day] = {};
-            }
-            dailyTimeBucketCountsByUser[userId][day][bucket] = count;
-          }
-        }
-      } while (bucketCursor);
-    }
-  }
-
-  const sortedByMessages = Object.entries(totals)
-    .sort((a, b) => b[1].messages - a[1].messages)
-    .slice(0, 10);
-  const sortedByWords = Object.entries(totals)
-    .sort((a, b) => b[1].words - a[1].words || b[1].messages - a[1].messages)
-    .slice(0, 10);
-  const sortedByVoice = Object.entries(totals)
-    .filter(([, stats]) => stats.voiceCount > 0)
-    .sort((a, b) => b[1].voiceSeconds - a[1].voiceSeconds || b[1].voiceCount - a[1].voiceCount)
-    .slice(0, 10);
-  const sortedByVideoNote = Object.entries(totals)
-    .filter(([, stats]) => stats.videoNoteCount > 0)
-    .sort((a, b) =>
-      b[1].videoNoteSeconds - a[1].videoNoteSeconds || b[1].videoNoteCount - a[1].videoNoteCount,
-    )
-    .slice(0, 10);
-  const bucketSorted = TIME_BUCKETS.map(({ bucket }) =>
-    Object.entries(bucketTotals[bucket])
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5),
-  );
-  const participantUserIds = Object.entries(totals)
-    .filter(([userId]) => (activeDaysByUser[userId]?.size || 0) > 0)
-    .sort((a, b) =>
-      (activeDaysByUser[b[0]]?.size || 0) - (activeDaysByUser[a[0]]?.size || 0) ||
-      b[1].messages - a[1].messages ||
-      a[0].localeCompare(b[0]),
-    )
-    .slice(0, 12)
-    .map(([userId]) => userId);
-  const leaderboardUserIds = Array.from(new Set([
-    ...sortedByMessages,
-    ...sortedByWords,
-    ...sortedByVoice,
-    ...sortedByVideoNote,
-    ...bucketSorted.flat(),
-  ].map(([userId]) => userId)));
-  const namedUserIds = Array.from(new Set([...leaderboardUserIds, ...participantUserIds]));
-  const [usernames, lastMessages] = await Promise.all([
-    Promise.all(namedUserIds.map((userId) => env.COUNTERS.get(`user:${userId}`))),
-    Promise.all(leaderboardUserIds.map((userId) => env.COUNTERS.get(`last_message:${chatId}:${userId}`))),
-  ]);
-  const usernameByUserId = new Map(
-    namedUserIds.map((userId, index) => [userId, usernames[index] || `id${userId}`]),
-  );
-  const lastMessageByUserId = new Map(
-    leaderboardUserIds.map((userId, index) => [
-      userId,
-      parseInt(lastMessages[index] || '0', 10) || null,
-    ]),
-  );
-
-  const mapEntry = ([
-    userId,
-    stats,
-  ]: [
-    string,
-    {
-      messages: number;
-      words: number;
-      voiceCount: number;
-      voiceSeconds: number;
-      videoNoteCount: number;
-      videoNoteSeconds: number;
-    },
-  ]): AdminUserCount => ({
-    userId,
-    username: usernameByUserId.get(userId) || `id${userId}`,
-    count: stats.messages,
-    words: stats.words,
-    voiceCount: stats.voiceCount,
-    voiceMinutes: Number((stats.voiceSeconds / 60).toFixed(1)),
-    videoNoteCount: stats.videoNoteCount,
-    videoNoteMinutes: Number((stats.videoNoteSeconds / 60).toFixed(1)),
-    wordsPerMessage: stats.messages > 0 ? Number((stats.words / stats.messages).toFixed(1)) : 0,
-    activeDays: activeDaysByUser[userId]?.size || 0,
-    lastMessageTs: lastMessageByUserId.get(userId) || null,
-  });
-
-  const total = Object.values(totals).reduce((sum, stats) => sum + stats.messages, 0);
-  const totalWords = Object.values(totals).reduce((sum, stats) => sum + stats.words, 0);
-  const totalVoiceCount = Object.values(totals).reduce((sum, stats) => sum + stats.voiceCount, 0);
-  const totalVoiceSeconds = Object.values(totals).reduce(
-    (sum, stats) => sum + stats.voiceSeconds,
-    0,
-  );
-  const totalVideoNoteCount = Object.values(totals).reduce(
-    (sum, stats) => sum + stats.videoNoteCount,
-    0,
-  );
-  const totalVideoNoteSeconds = Object.values(totals).reduce(
-    (sum, stats) => sum + stats.videoNoteSeconds,
-    0,
-  );
-  const dayCount = days.length;
-  const activeUsers = Object.keys(totals).length;
-  const participantTimeline: AdminChatStats['activity']['participantTimeline'] = {
-    timeZone: 'UTC',
-    timeBuckets: PARTICIPANT_TIMELINE_BUCKETS,
-    participants: participantUserIds.map((userId, index) => {
-      const totalMessages = totals[userId].messages;
-      const activeDays = activeDaysByUser[userId].size;
-      const talkativeThreshold = Math.max(2, Math.ceil(totalMessages / activeDays));
-      const storedUsername = usernameByUserId.get(userId);
-
-      return {
-        username: storedUsername && storedUsername !== `id${userId}`
-          ? storedUsername
-          : `Участник ${index + 1}`,
-        dailyLevels: days.map((day) => {
-          const count = dailyCountsByUser[userId]?.[day] || 0;
-          const level: 'inactive' | 'active' | 'talkative' =
-            count === 0 ? 'inactive' : count >= talkativeThreshold ? 'talkative' : 'active';
-          return {
-            day,
-            level,
-            timeBucketLevels: PARTICIPANT_TIMELINE_BUCKETS.map(({ bucket }) => {
-              const bucketCount = dailyTimeBucketCountsByUser[userId]?.[day]?.[bucket] || 0;
-              return {
-                bucket,
-                level:
-                  bucketCount === 0
-                    ? 'inactive'
-                    : bucketCount >= talkativeThreshold
-                      ? 'talkative'
-                      : 'active',
-              };
-            }),
-          };
-        }),
-      };
-    }),
-  };
-
-  return {
-    total,
-    totalWords,
-    wordsPerMessage: total > 0 ? Number((totalWords / total).toFixed(1)) : 0,
-    totalVoiceCount,
-    totalVoiceMinutes: Number((totalVoiceSeconds / 60).toFixed(1)),
-    totalVideoNoteCount,
-    totalVideoNoteMinutes: Number((totalVideoNoteSeconds / 60).toFixed(1)),
-    activeUsers,
-    averageDailyMessages: Number((total / dayCount).toFixed(1)),
-    averageDailyActiveUsers: Number(
-      (Object.values(dayActiveUsers).reduce((sum, count) => sum + count, 0) / dayCount).toFixed(1),
-    ),
-    averageHourlyMessages: Number((total / (dayCount * 24)).toFixed(2)),
-    topUsers: sortedByMessages.map(mapEntry),
-    topTalkers: sortedByWords.map(mapEntry),
-    topVoiceUsers: sortedByVoice.map(mapEntry),
-    topVideoNoteUsers: sortedByVideoNote.map(mapEntry),
-    dailyMessages: days.map((day) => ({ day, count: dayTotals[day] || 0 })),
-    dailyActiveUsers: days.map((day) => ({ day, count: dayActiveUsers[day] || 0 })),
-    hourlyAverages: HOURS.map((hour) => ({
-      hour,
-      count: Number((hourlyTotals[hour] / dayCount).toFixed(2)),
-    })),
-    participantTimeline,
-    timeBuckets: TIME_BUCKETS.map(({ bucket, label }, index) => ({
-      bucket,
-      label,
-      topUsers: bucketSorted[index].map(([userId, count]) => mapEntry([
-        userId,
-        {
-          messages: count,
-          words: totals[userId]?.words || 0,
-          voiceCount: totals[userId]?.voiceCount || 0,
-          voiceSeconds: totals[userId]?.voiceSeconds || 0,
-          videoNoteCount: totals[userId]?.videoNoteCount || 0,
-          videoNoteSeconds: totals[userId]?.videoNoteSeconds || 0,
-        },
-      ])),
-    })),
-  };
-}
-
-async function getRangeTopProfanityUsers(env: Env, chatId: number, range: AdminDateRange) {
-  const prefix = `profanity:${chatId}:`;
-  const totals: Record<string, number> = {};
-  let cursor: string | undefined;
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    const keysToFetch = list.keys.filter((key: any) => {
-      const parts = key.name.split(':');
-      return parts.length === 4 && isInRange(parts[3], range);
-    });
-
-    for (let i = 0; i < keysToFetch.length; i += 10) {
-      const batch = keysToFetch.slice(i, i + 10);
-      const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
-      for (let j = 0; j < batch.length; j++) {
-        const userId = batch[j].name.split(':')[2];
-        totals[userId] = (totals[userId] || 0) + parseInt(values[j] || '0', 10);
-      }
-    }
-  } while (cursor);
-
-  const sorted = Object.entries(totals)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
-  const names = await Promise.all(sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`)));
-
-  return sorted.map(([userId, count], index) => ({
-    userId: parseInt(userId, 10),
-    username: names[index] || `id${userId}`,
-    count,
-  }));
-}
-
-async function getRangeTopProfanityRateUsers(env: Env, chatId: number, range: AdminDateRange) {
-  const profanityPrefix = `profanity:${chatId}:`;
-  const wordPrefix = `word_stats_v2:${chatId}:`;
-  const profanityTotals: Record<string, number> = {};
-  const wordTotals: Record<string, number> = {};
-  let cursor: string | undefined;
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: profanityPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    const keysToFetch = list.keys.filter((key: any) => {
-      const parts = key.name.split(':');
-      return parts.length === 4 && isInRange(parts[3], range);
-    });
-
-    for (let i = 0; i < keysToFetch.length; i += 10) {
-      const batch = keysToFetch.slice(i, i + 10);
-      const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
-      for (let j = 0; j < batch.length; j++) {
-        const userId = batch[j].name.split(':')[2];
-        profanityTotals[userId] = (profanityTotals[userId] || 0) + parseInt(values[j] || '0', 10);
-      }
-    }
-  } while (cursor);
-
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: wordPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    const keysToFetch = list.keys.filter((key: any) => {
-      const parts = key.name.split(':');
-      return parts.length === 4 && isInRange(parts[2], range);
-    });
-
-    for (let i = 0; i < keysToFetch.length; i += 10) {
-      const batch = keysToFetch.slice(i, i + 10);
-      const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
-      for (let j = 0; j < batch.length; j++) {
-        const userId = batch[j].name.split(':')[3];
-        wordTotals[userId] = (wordTotals[userId] || 0) + parseInt(values[j] || '0', 10);
-      }
-    }
-  } while (cursor);
-
-  const sorted = Object.entries(profanityTotals)
-    .map(([userId, profanityCount]) => {
-      const wordCount = wordTotals[userId] || 0;
-      return {
-        userId,
-        profanityCount,
-        wordCount,
-        rate: wordCount > 0 ? (profanityCount / wordCount) * 100 : 0,
-      };
-    })
-    .filter((stat) => stat.profanityCount > 0 && stat.wordCount >= PROFANITY_RATE_MIN_WORDS)
-    .sort((a, b) =>
-      b.rate - a.rate ||
-      b.profanityCount - a.profanityCount ||
-      b.wordCount - a.wordCount,
-    )
-    .slice(0, 10);
-  const names = await Promise.all(sorted.map(({ userId }) => env.COUNTERS.get(`user:${userId}`)));
-
-  return sorted.map((stat, index) => ({
-    userId: parseInt(stat.userId, 10),
-    username: names[index] || `id${stat.userId}`,
-    profanityCount: stat.profanityCount,
-    wordCount: stat.wordCount,
-    rate: stat.rate,
-  }));
-}
-
-async function getRangeTopProfanityWordUsers(
-  env: Env,
-  chatId: number,
-  word: string,
-  range: AdminDateRange,
-) {
-  const prefix = `profanity_word_users:${chatId}:${word}:`;
-  const totals: Record<string, number> = {};
-  let cursor: string | undefined;
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    const keysToFetch = list.keys.filter((key: any) => {
-      const parts = key.name.split(':');
-      return parts.length === 5 && isInRange(parts[3], range);
-    });
-
-    for (let i = 0; i < keysToFetch.length; i += 10) {
-      const batch = keysToFetch.slice(i, i + 10);
-      const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
-      for (let j = 0; j < batch.length; j++) {
-        const userId = batch[j].name.split(':')[4];
-        totals[userId] = (totals[userId] || 0) + parseInt(values[j] || '0', 10);
-      }
-    }
-  } while (cursor);
-
-  const sorted = Object.entries(totals)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
-  const names = await Promise.all(sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`)));
-
-  return sorted.map(([userId, count], index) => ({
-    userId: parseInt(userId, 10),
-    username: names[index] || `id${userId}`,
-    count,
-  }));
-}
-
-async function getRangeTopProfanityWords(env: Env, chatId: number, range: AdminDateRange) {
-  const prefix = `profanity_words:${chatId}:`;
-  const totals: Record<string, number> = {};
-  let cursor: string | undefined;
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    const keysToFetch = list.keys.filter((key: any) => {
-      const parts = key.name.split(':');
-      return parts.length === 4 && isInRange(parts[3], range);
-    });
-
-    for (let i = 0; i < keysToFetch.length; i += 10) {
-      const batch = keysToFetch.slice(i, i + 10);
-      const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
-      for (let j = 0; j < batch.length; j++) {
-        const word = batch[j].name.split(':')[2];
-        totals[word] = (totals[word] || 0) + parseInt(values[j] || '0', 10);
-      }
-    }
-  } while (cursor);
-
-  const sorted = Object.entries(totals)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
-  const contributors = await Promise.all(
-    sorted.map(([word]) => getRangeTopProfanityWordUsers(env, chatId, word, range)),
-  );
-
-  return sorted.map(([word, count], index) => ({
-    word,
-    count,
-    contributors: contributors[index],
-  }));
-}
-
-async function getRangeTopCriminalUsers(env: Env, chatId: number, range: AdminDateRange) {
-  const prefix = `criminal:${chatId}:`;
-  const totals: Record<string, number> = {};
-  let cursor: string | undefined;
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    const keysToFetch = list.keys.filter((key: any) => {
-      const parts = key.name.split(':');
-      return parts.length === 4 && isInRange(parts[3], range);
-    });
-
-    for (let i = 0; i < keysToFetch.length; i += 10) {
-      const batch = keysToFetch.slice(i, i + 10);
-      const values = await Promise.all(batch.map((key: any) => env.COUNTERS.get(key.name)));
-      for (let j = 0; j < batch.length; j++) {
-        const userId = batch[j].name.split(':')[2];
-        totals[userId] = (totals[userId] || 0) + parseInt(values[j] || '0', 10);
-      }
-    }
-  } while (cursor);
-
-  const sorted = Object.entries(totals)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
-  const names = await Promise.all(sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`)));
-
-  return sorted.map(([userId, count], index) => ({
-    userId: parseInt(userId, 10),
-    username: names[index] || `id${userId}`,
-    count,
-  }));
-}
-
-async function getCriminalTopUsers(env: Env, chatId: number, range: AdminDateRange) {
-  if (range.period === 'custom') {
-    return getRangeTopCriminalUsers(env, chatId, range);
-  }
-
-  try {
-    return await getTopCriminalUsersBySentence(env, chatId, 10, range.period);
-  } catch {
-    return await getTopCriminalUsers(env, chatId, 10, range.period);
-  }
-}
-
 export async function getAdminChatStats(
   env: Env,
   chatId: number,
   range: AdminDateRange,
 ): Promise<AdminChatStats> {
   try {
-    const stats = await getReadyAdminChatStatsFromD1(env.DB, chatId, range);
-    if (stats) return stats;
-  } catch {
-    if (range.days.length > 3) throw new AdminUnavailable();
-    return getLegacyAdminChatStats(env, chatId, range);
+    // D1 aggregate success is served directly. Missing coverage/progress
+    // metadata never makes a successful read not-ready: no aggregate rows mean
+    // zero stats for the requested days (KV-equivalent behavior). No KV,
+    // CountersDO, or readiness classification is involved on this path.
+    return await getAdminChatStatsFromD1(env.DB, chatId, range);
+  } catch (error) {
+    // D1 is the only admin stats storage: any aggregate read failure surfaces
+    // the structured AdminUnavailable (503). Legacy KV is never consulted.
+    if (error instanceof AdminUnavailable) {
+      throw error;
+    }
+    throw new AdminUnavailable();
   }
-  if (range.days.length > 3) throw new HistoricalStatsNotReady();
-  return getLegacyAdminChatStats(env, chatId, range);
-}
-
-async function getLegacyAdminChatStats(
-  env: Env,
-  chatId: number,
-  range: AdminDateRange,
-): Promise<AdminChatStats> {
-  const profanityTopUsersPromise = range.period === 'custom'
-    ? getRangeTopProfanityUsers(env, chatId, range)
-    : getTopProfanityUsers(env, chatId, 10, range.period);
-  const profanityTopWordsPromise = range.period === 'custom'
-    ? getRangeTopProfanityWords(env, chatId, range)
-    : getTopProfanityWords(env, chatId, 10, range.period);
-  const profanityTopRateUsersPromise = range.period === 'custom'
-    ? getRangeTopProfanityRateUsers(env, chatId, range)
-    : getTopProfanityRateUsers(env, chatId, 10, range.period);
-  const [
-    activity,
-    profanityTopUsers,
-    profanityTopRateUsers,
-    profanityTopWords,
-    criminalTopUsers,
-  ] = await Promise.all([
-    getActivityStats(env, chatId, range),
-    profanityTopUsersPromise,
-    profanityTopRateUsersPromise,
-    profanityTopWordsPromise,
-    getCriminalTopUsers(env, chatId, range),
-  ]);
-
-  return {
-    chatId,
-    period: range.period,
-    range: {
-      from: range.from,
-      to: range.to,
-      days: range.days.length,
-    },
-    activity,
-    profanity: {
-      topUsers: profanityTopUsers,
-      topRateUsers: profanityTopRateUsers,
-      topWords: profanityTopWords,
-    },
-    criminal: {
-      topUsers: criminalTopUsers,
-    },
-  };
 }

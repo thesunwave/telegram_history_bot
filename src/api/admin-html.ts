@@ -613,6 +613,27 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       color: var(--muted);
     }
     .status.error { color: var(--danger); }
+    .statsError {
+      margin-bottom: 18px;
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    .statsError h2 {
+      margin: 0 0 8px;
+      color: var(--danger);
+    }
+    .statsError p {
+      margin: 0 0 16px;
+      color: var(--muted);
+      max-width: 640px;
+    }
+    .statsErrorActions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
     .notificationMeta {
       margin: 2px 0 12px;
       color: var(--muted);
@@ -771,9 +792,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       </label>
       <label>Период
         <select id="period" name="period">
-          <option value="today">Сегодня</option>
-          <option value="week">Неделя</option>
-          <option value="month">Месяц</option>
+          <option value="today">Сегодня · live</option>
+          <option value="week">Неделя · 7 дней, включая сегодня</option>
+          <option value="month">Месяц · 30 дней, включая сегодня</option>
           <option value="custom">Период</option>
         </select>
       </label>
@@ -786,6 +807,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       <button id="refreshButton" type="submit">Обновить</button>
     </form>
     <div id="status" class="status hidden"></div>
+    <div id="statsError" class="statsError hidden">
+      <h2 id="statsErrorTitle"></h2>
+      <p id="statsErrorMessage"></p>
+      <div class="statsErrorActions">
+        <button type="button" id="statsErrorWeek" class="secondary hidden">Показать неделю, включая сегодня</button>
+        <button type="button" id="statsErrorRetry" class="secondary hidden">Повторить</button>
+      </div>
+    </div>
     <div class="dashboardToolbar hidden" id="dashboardToolbar">
       <button class="secondary" id="resetDashboardLayout" type="button">Сбросить раскладку</button>
     </div>
@@ -1326,6 +1355,74 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       el.classList.remove('hidden');
       el.textContent = text;
       el.className = isError ? 'status error' : 'status';
+    }
+
+    const STATS_ERROR_COPY = {
+      LIVE_ANALYSIS_FAILED: {
+        title: 'Анализ текущего дня не завершён',
+        message:
+          'Анализ сообщений за текущий день (UTC) пока не завершился. ' +
+          'Данные появятся после завершения анализа.',
+        showWeek: false,
+        showRetry: true
+      },
+      LIVE_PROGRESS_UNKNOWN: {
+        title: 'Данные за сегодня пока недоступны',
+        message:
+          'Прогресс обработки текущего дня (UTC) пока неизвестен. Попробуйте позже.',
+        showWeek: false,
+        showRetry: true
+      },
+      HISTORICAL_STATS_NOT_READY: {
+        title: 'Данные пока не готовы',
+        message: 'Статистика за выбранный период пока не готова. Попробуйте позже.',
+        showWeek: false,
+        showRetry: true
+      },
+      ADMIN_UNAVAILABLE: {
+        title: 'Сервис временно недоступен',
+        message: 'Статистика временно недоступна. Попробуйте позже.',
+        showWeek: false,
+        showRetry: true
+      }
+    };
+    const STATS_ERROR_GENERIC = {
+      title: 'Не удалось загрузить статистику',
+      message: 'Произошла ошибка при загрузке статистики. Попробуйте ещё раз.',
+      showWeek: false,
+      showRetry: true
+    };
+
+    async function readErrorPayload(res) {
+      try {
+        const payload = await res.json();
+        return payload && typeof payload.error === 'object' && payload.error ? payload.error : null;
+      } catch (_error) {
+        return null;
+      }
+    }
+
+    function renderStatsError(errorPayload) {
+      const code = typeof errorPayload?.code === 'string' ? errorPayload.code : '';
+      const copy = STATS_ERROR_COPY[code] || STATS_ERROR_GENERIC;
+      let message = copy.message;
+      if (code === 'HISTORICAL_STATS_NOT_READY' && errorPayload?.from && errorPayload?.to) {
+        message = 'Статистика за период с ' + errorPayload.from + ' по ' + errorPayload.to +
+          ' пока не готова. Попробуйте позже.';
+      }
+      document.getElementById('statsErrorTitle').textContent = copy.title;
+      document.getElementById('statsErrorMessage').textContent = message;
+      document.getElementById('statsErrorWeek').classList.toggle('hidden', !copy.showWeek);
+      document.getElementById('statsErrorRetry').classList.toggle('hidden', !copy.showRetry);
+      document.getElementById('statsError').classList.remove('hidden');
+      document.getElementById('dashboard').classList.add('hidden');
+      document.getElementById('dashboardToolbar').classList.add('hidden');
+      document.getElementById('status').classList.add('hidden');
+    }
+
+    function hideStatsError() {
+      document.getElementById('statsError').classList.add('hidden');
+      document.getElementById('status').classList.remove('hidden');
     }
 
     function setControlsDisabled(disabled) {
@@ -2276,7 +2373,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           redirectToLogin();
           return;
         }
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) throw new Error('chats unavailable');
         const body = await res.json();
         renderChats(body.chats || []);
         if ((body.chats || []).length) {
@@ -2291,7 +2388,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       } catch (error) {
         finishDashboardLoading();
         renderEmptyDashboard();
-        setStatus(error.message || String(error), true);
+        setStatus('Не удалось загрузить список чатов. Попробуйте обновить страницу.', true);
       } finally {
         document.getElementById('chatSelect').classList.remove('loadingControl');
       }
@@ -2317,13 +2414,24 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           redirectToLogin();
           return;
         }
-        if (!statsRes.ok) throw new Error(await statsRes.text());
-        if (!notificationsRes.ok) throw new Error(await notificationsRes.text());
+        if (!statsRes.ok) {
+          finishDashboardLoading();
+          renderStatsError(await readErrorPayload(statsRes));
+          return;
+        }
+        const notificationsError = !notificationsRes.ok
+          ? await readErrorPayload(notificationsRes)
+          : null;
 
         const stats = await statsRes.json();
-        const notifications = await notificationsRes.json();
+        const notifications = notificationsRes.ok
+          ? await notificationsRes.json()
+          : { settings: null, availableTypes: [], canEdit: false };
 
         finishDashboardLoading();
+        hideStatsError();
+        document.getElementById('dashboard').classList.remove('hidden');
+        document.getElementById('dashboardToolbar').classList.remove('hidden');
         document.getElementById('activityTotal').textContent = String(stats.activity.total);
         document.getElementById('activityWords').textContent = String(stats.activity.totalWords || 0);
         document.getElementById('activityWordsPerMessage').textContent = String(stats.activity.wordsPerMessage || 0);
@@ -2351,11 +2459,26 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           notifications.availableTypes,
           notifications.canEdit
         );
-        setStatus('Обновлено');
+        const servedRange = stats.range && stats.range.from && stats.range.to
+          ? stats.range.from + ' – ' + stats.range.to
+          : '';
+        const provisional = stats.status === 'provisional';
+        const pendingAnalysis = stats.progress
+          ? (Number(stats.progress.pendingAnalysis) || 0)
+          : 0;
+        const liveBadge = provisional ? 'включая сегодня · live' : '';
+        const pendingBadge = provisional && pendingAnalysis > 0
+          ? ' · анализ продолжается (' + pendingAnalysis + ')'
+          : '';
+        setStatus(
+          notificationsError
+            ? 'Статистика загружена · ' + servedRange + ' · ' + liveBadge +
+                pendingBadge + '. Настройки уведомлений временно недоступны.'
+            : 'Обновлено · период ' + servedRange + ' · ' + liveBadge + pendingBadge
+        );
       } catch (error) {
         finishDashboardLoading();
-        renderEmptyDashboard();
-        setStatus(error.message || String(error), true);
+        renderStatsError(null);
       }
     }
 
@@ -2379,7 +2502,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         return;
       }
       if (!res.ok) {
-        setStatus(await res.text(), true);
+        setStatus('Не удалось сохранить настройки. Попробуйте ещё раз.', true);
         return;
       }
       await loadDashboard();
@@ -2390,6 +2513,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       loadDashboard();
     });
     document.getElementById('period').addEventListener('change', syncCustomPeriodControls);
+    document.getElementById('statsErrorWeek').addEventListener('click', () => {
+      document.getElementById('period').value = 'week';
+      syncCustomPeriodControls();
+      loadDashboard();
+    });
+    document.getElementById('statsErrorRetry').addEventListener('click', () => {
+      loadDashboard();
+    });
     document.getElementById('themeSelect').addEventListener('change', event => {
       const mode = normalizeThemeMode(event.target.value);
       applyThemeMode(mode);

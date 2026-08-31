@@ -124,4 +124,47 @@ describe('renderAdminHtml', () => {
     expect(html).not.toContain('participantRequestId');
     expect(html).not.toContain("participant.userId");
   });
+
+  it('renders designed Russian error states and never raw serialized payload text', () => {
+    const html = renderAdminHtml({
+      botUsername: 'stats_bot',
+      principal: {
+        type: 'telegram',
+        username: 'admin',
+        telegramId: 123,
+      },
+    });
+
+    expect(html).toContain('id="statsError"');
+    expect(html).toContain('id="statsErrorTitle"');
+    expect(html).toContain('id="statsErrorMessage"');
+    expect(html).toContain('id="statsErrorWeek"');
+    expect(html).toContain('id="statsErrorRetry"');
+    expect(html).toContain('LIVE_ANALYSIS_FAILED');
+    expect(html).toContain('LIVE_PROGRESS_UNKNOWN');
+    expect(html).toContain('HISTORICAL_STATS_NOT_READY');
+    expect(html).toContain('ADMIN_UNAVAILABLE');
+    expect(html).toContain('Анализ текущего дня не завершён');
+    expect(html).toContain('Данные за сегодня пока недоступны');
+    expect(html).toContain('Данные пока не готовы');
+    expect(html).toContain('Сервис временно недоступен');
+    expect(html).toContain('Не удалось загрузить статистику');
+    expect(html).toContain('Повторить');
+    // Never render raw response text/JSON or thrown error messages.
+    expect(html).not.toContain('await res.text()');
+    expect(html).not.toContain('error.message || String(error)');
+    expect(html).not.toContain('JSON.stringify(error)');
+  });
+
+  it('labels week and month presets as rolling windows including today', () => {
+    const html = renderAdminHtml({
+      botUsername: 'stats_bot',
+      principal: null,
+    });
+
+    expect(html).toContain('<option value="today">Сегодня · live</option>');
+    expect(html).toContain('Неделя · 7 дней, включая сегодня');
+    expect(html).toContain('Месяц · 30 дней, включая сегодня');
+    expect(html).toContain('включая сегодня · live');
+  });
 });

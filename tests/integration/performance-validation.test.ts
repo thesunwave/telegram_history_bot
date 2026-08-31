@@ -741,6 +741,10 @@ describe("Performance Validation and Optimization", () => {
       // Create consistent test data
       await createTestMessages(chatId, 72, threeDaysAgo, 3600);
 
+      // Warm-up run: exclude cold-start KV cost from measured samples
+      const warmUpResult = await fetchMessages(env, chatId, threeDaysAgo, now);
+      expect(warmUpResult).toHaveLength(72);
+
       const runs = 5;
       const results: PerformanceMetrics[] = [];
 

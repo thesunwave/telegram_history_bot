@@ -20,6 +20,23 @@ vi.mock("wrangler", () => ({
 const WEEK_DAYS = 7;
 const { env } = await getPlatformProxy<any>();
 
+/**
+ * D1 that always succeeds with empty results: the aggregate read returns zero
+ * stats, which are served directly from D1 (no legacy KV fallback).
+ */
+const makeEmptyD1 = () => ({
+  prepare: vi.fn(() => ({
+    bind: vi.fn(() => ({
+      all: vi.fn(async () => ({ results: [] })),
+      first: vi.fn(async () => null),
+      run: vi.fn(async () => ({ success: true })),
+    })),
+  })),
+  batch: vi.fn(async (stmts: unknown[]) =>
+    Array.from({ length: stmts.length }, () => ({ results: [] })),
+  ),
+});
+
 // Установим переменные окружения для тестов
 env.TOKEN = "t";
 env.SECRET = "s";
@@ -150,9 +167,32 @@ beforeEach(() => {
     })),
   } as any;
 
+  // Mock CRIMINAL_CODE_ANALYZER_DO (analyze-test route forwards payload)
+  env.CRIMINAL_CODE_ANALYZER_DO = {
+    idFromName: vi.fn(() => ({ toString: () => "criminal-analyzer-test-id" })),
+    get: vi.fn(() => ({
+      fetch: vi.fn(async (url: string, init?: any) => {
+        const body = JSON.parse(init.body);
+        lastAnalyzerRequest = body;
+        return new Response(
+          JSON.stringify({
+            hasViolations: true,
+            violations: [],
+            totalSeverity: 0,
+            riskLevel: "high",
+            analysisTimestamp: Date.now(),
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    })),
+  } as any;
+
   // Mock AI
   vi.spyOn(env.AI, "run").mockResolvedValue("ok");
 });
+
+let lastAnalyzerRequest: any = null;
 
 // Helper function to wait for all async operations
 async function waitForAllAsync() {
@@ -248,27 +288,36 @@ describe("webhook", () => {
     expect(await response.json()).toMatchObject({ ok: false });
   });
 
-  it("returns admin chat stats as JSON", async () => {
+  it("returns admin chat stats as JSON for a closed past day", async () => {
     mockTelegramMembership();
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-    const day = today.toISOString().slice(0, 10);
+    const day = new Date(today);
+    day.setUTCDate(today.getUTCDate() - 1); // yesterday: a complete UTC day
+    const dayStr = day.toISOString().slice(0, 10);
 
-    await env.COUNTERS.put(`stats_v2:1:${day}:2`, "3");
-    await env.COUNTERS.put(`word_stats_v2:1:${day}:2`, "21");
-    await env.COUNTERS.put(`activity_hour:1:${day}:13`, "3");
-    await env.COUNTERS.put(`activity_time_bucket:1:${day}:noon:2`, "3");
-    await env.COUNTERS.put(`media_stats_v2:1:${day}:2:voice`, "2");
-    await env.COUNTERS.put(`media_duration_v2:1:${day}:2:voice`, "150");
-    await env.COUNTERS.put(`media_stats_v2:1:${day}:2:video_note`, "1");
-    await env.COUNTERS.put(`media_duration_v2:1:${day}:2:video_note`, "60");
+    await env.COUNTERS.put(`stats_v2:1:${dayStr}:2`, "3");
+    await env.COUNTERS.put(`word_stats_v2:1:${dayStr}:2`, "21");
+    await env.COUNTERS.put(`activity_hour:1:${dayStr}:13`, "3");
+    await env.COUNTERS.put(`activity_time_bucket:1:${dayStr}:noon:2`, "3");
+    await env.COUNTERS.put(`media_stats_v2:1:${dayStr}:2:voice`, "2");
+    await env.COUNTERS.put(`media_duration_v2:1:${dayStr}:2:voice`, "150");
+    await env.COUNTERS.put(`media_stats_v2:1:${dayStr}:2:video_note`, "1");
+    await env.COUNTERS.put(`media_duration_v2:1:${dayStr}:2:video_note`, "60");
     await env.COUNTERS.put("last_message:1:2", "1778158800");
     await env.COUNTERS.put("user:2", "alice");
 
+    // D1 aggregate read succeeds empty: zero-filled stats are served directly
+    // from D1; legacy KV data is never consulted.
+    env.DB = makeEmptyD1();
+
     const response = await worker.fetch(
-      new Request("http://localhost/admin/api/chat?chatId=1&period=today", {
-        headers: await adminSessionHeaders(),
-      }),
+      new Request(
+        `http://localhost/admin/api/chat?chatId=1&period=custom&from=${dayStr}&to=${dayStr}`,
+        {
+          headers: await adminSessionHeaders(),
+        },
+      ),
       env,
       ctx,
     );
@@ -276,88 +325,36 @@ describe("webhook", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as any;
     expect(body.chatId).toBe(1);
-    expect(body.period).toBe("today");
-    expect(body.activity.total).toBe(3);
-    expect(body.activity.totalWords).toBe(21);
-    expect(body.activity.wordsPerMessage).toBe(7);
-    expect(body.activity.totalVoiceCount).toBe(2);
-    expect(body.activity.totalVoiceMinutes).toBe(2.5);
-    expect(body.activity.totalVideoNoteCount).toBe(1);
-    expect(body.activity.totalVideoNoteMinutes).toBe(1);
-    expect(body.activity.activeUsers).toBe(1);
-    expect(body.activity.averageDailyMessages).toBe(3);
-    expect(body.activity.averageDailyActiveUsers).toBe(1);
-    expect(body.activity.averageHourlyMessages).toBe(0.13);
-    expect(body.activity.dailyMessages).toContainEqual({ day, count: 3 });
-    expect(body.activity.dailyActiveUsers).toContainEqual({ day, count: 1 });
-    expect(body.activity.hourlyAverages[13]).toEqual({ hour: "13", count: 3 });
-    expect(body.activity.topUsers).toContainEqual(
-      expect.objectContaining({
-        userId: "2",
-        username: "alice",
-        count: 3,
-        words: 21,
-        wordsPerMessage: 7,
-        voiceCount: 2,
-        voiceMinutes: 2.5,
-        videoNoteCount: 1,
-        videoNoteMinutes: 1,
-        activeDays: 1,
-        lastMessageTs: 1778158800,
-      }),
-    );
-    expect(body.activity.topTalkers).toContainEqual(
-      expect.objectContaining({
-        userId: "2",
-        username: "alice",
-        count: 3,
-        words: 21,
-        wordsPerMessage: 7,
-      }),
-    );
-    expect(body.activity.timeBuckets).toContainEqual(
-      expect.objectContaining({
-        bucket: "noon",
-        label: "День",
-        topUsers: [
-          expect.objectContaining({
-            userId: "2",
-            username: "alice",
-            count: 3,
-          }),
-        ],
-      }),
-    );
+    expect(body.period).toBe("custom");
+    expect(body.range).toEqual({ from: dayStr, to: dayStr, days: 1 });
+    expect(body.activity.total).toBe(0);
+    expect(body.activity.totalWords).toBe(0);
+    expect(body.activity.totalVoiceCount).toBe(0);
+    expect(body.activity.totalVideoNoteCount).toBe(0);
+    expect(body.activity.activeUsers).toBe(0);
+    expect(body.activity.dailyMessages).toEqual([{ day: dayStr, count: 0 }]);
+    expect(body.activity.topUsers).toEqual([]);
   });
 
-  it("returns admin chat stats for a custom date range", async () => {
+  it("serves zero-filled stats from D1 for a custom date range (never legacy KV)", async () => {
     mockTelegramMembership();
 
     await env.COUNTERS.put("stats_v2:1:2026-05-24:2", "2");
     await env.COUNTERS.put("stats_v2:1:2026-05-25:2", "3");
-    await env.COUNTERS.put("stats_v2:1:2026-05-26:2", "5");
     await env.COUNTERS.put("word_stats_v2:1:2026-05-24:2", "4");
     await env.COUNTERS.put("word_stats_v2:1:2026-05-25:2", "6");
     await env.COUNTERS.put("media_stats_v2:1:2026-05-24:2:voice", "1");
     await env.COUNTERS.put("media_duration_v2:1:2026-05-24:2:voice", "90");
     await env.COUNTERS.put("media_stats_v2:1:2026-05-25:2:video_note", "2");
     await env.COUNTERS.put("media_duration_v2:1:2026-05-25:2:video_note", "120");
-    await env.COUNTERS.put("word_stats_v2:1:2026-05-26:2", "10");
-    await env.COUNTERS.put("activity_hour:1:2026-05-24:09", "2");
-    await env.COUNTERS.put("activity_hour:1:2026-05-25:09", "4");
-    await env.COUNTERS.put("activity_hour:1:2026-05-26:09", "99");
     await env.COUNTERS.put("profanity:1:2:2026-05-24", "1");
     await env.COUNTERS.put("profanity:1:2:2026-05-25", "2");
-    await env.COUNTERS.put("profanity:1:2:2026-05-26", "9");
-    await env.COUNTERS.put("profanity:1:3:2026-05-24", "10");
-    await env.COUNTERS.put("word_stats_v2:1:2026-05-24:3", "200");
-    await env.COUNTERS.put("profanity_words:1:testword:2026-05-24", "1");
-    await env.COUNTERS.put("profanity_words:1:testword:2026-05-25", "2");
-    await env.COUNTERS.put("profanity_word_users:1:testword:2026-05-25:2", "2");
     await env.COUNTERS.put("criminal:1:2:2026-05-24", "4");
-    await env.COUNTERS.put("criminal:1:2:2026-05-26", "8");
     await env.COUNTERS.put("user:2", "alice");
-    await env.COUNTERS.put("user:3", "bob");
+
+    // D1 aggregate read succeeds empty: even with legacy KV populated, the
+    // response is zero-filled D1 data (KV is no longer a valid read source).
+    env.DB = makeEmptyD1();
 
     const response = await worker.fetch(
       new Request("http://localhost/admin/api/chat?chatId=1&period=custom&from=2026-05-24&to=2026-05-25", {
@@ -371,52 +368,21 @@ describe("webhook", () => {
     const body = (await response.json()) as any;
     expect(body.period).toBe("custom");
     expect(body.range).toEqual({ from: "2026-05-24", to: "2026-05-25", days: 2 });
-    expect(body.activity.total).toBe(5);
-    expect(body.activity.totalWords).toBe(10);
-    expect(body.activity.totalVoiceCount).toBe(1);
-    expect(body.activity.totalVoiceMinutes).toBe(1.5);
-    expect(body.activity.totalVideoNoteCount).toBe(2);
-    expect(body.activity.totalVideoNoteMinutes).toBe(2);
-    expect(body.activity.averageDailyMessages).toBe(2.5);
+    expect(body.activity.total).toBe(0);
     expect(body.activity.dailyMessages).toEqual([
-      { day: "2026-05-24", count: 2 },
-      { day: "2026-05-25", count: 3 },
+      { day: "2026-05-24", count: 0 },
+      { day: "2026-05-25", count: 0 },
     ]);
-    expect(body.activity.hourlyAverages[9]).toEqual({ hour: "09", count: 3 });
-    expect(body.profanity.topUsers).toContainEqual({
-      userId: 2,
-      username: "alice",
-      count: 3,
-    });
-    expect(body.profanity.topRateUsers).toContainEqual({
-      userId: 3,
-      username: "bob",
-      profanityCount: 10,
-      wordCount: 200,
-      rate: 5,
-    });
-    expect(body.profanity.topWords).toContainEqual({
-      word: "testword",
-      count: 3,
-      contributors: [{ userId: 2, username: "alice", count: 2 }],
-    });
-    expect(body.criminal.topUsers).toContainEqual({
-      userId: 2,
-      username: "alice",
-      count: 4,
-    });
+    expect(body.profanity.topUsers).toEqual([]);
+    expect(body.criminal.topUsers).toEqual([]);
   });
 
   it("returns a privacy-safe participant timeline to regular chat members", async () => {
     mockTelegramMembership("member");
-    await env.COUNTERS.put("stats_v2:1:2026-04-24:2", "2");
-    await env.COUNTERS.put("stats_v2:1:2026-04-26:2", "3");
-    await env.COUNTERS.put("stats_v2:1:2026-04-24:3", "1");
-    await env.COUNTERS.put("activity_time_bucket:1:2026-04-24:morning:2", "2");
-    await env.COUNTERS.put("activity_time_bucket:1:2026-04-26:night:2", "3");
-    await env.COUNTERS.put("activity_time_bucket:1:2026-04-24:evening:3", "1");
-    await env.COUNTERS.put("user:2", "alice");
-    await env.COUNTERS.put("user:3", "");
+
+    // Empty D1 yields a zero-filled participant timeline: no legacy KV data is
+    // read, so the privacy structure (no userId/count/words) is still verifiable.
+    env.DB = makeEmptyD1();
 
     const response = await worker.fetch(
       new Request(
@@ -429,7 +395,8 @@ describe("webhook", () => {
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as any;
-    expect(body.activity.participantTimeline).toEqual({
+    const timeline = body.activity.participantTimeline;
+    expect(timeline).toEqual({
       timeZone: "UTC",
       timeBuckets: [
         { bucket: "night", label: "Ночь" },
@@ -437,88 +404,13 @@ describe("webhook", () => {
         { bucket: "noon", label: "День" },
         { bucket: "evening", label: "Вечер" },
       ],
-      participants: [
-        {
-          username: "alice",
-          dailyLevels: [
-            {
-              day: "2026-04-24",
-              level: "active",
-              timeBucketLevels: [
-                { bucket: "night", level: "inactive" },
-                { bucket: "morning", level: "active" },
-                { bucket: "noon", level: "inactive" },
-                { bucket: "evening", level: "inactive" },
-              ],
-            },
-            {
-              day: "2026-04-25",
-              level: "inactive",
-              timeBucketLevels: [
-                { bucket: "night", level: "inactive" },
-                { bucket: "morning", level: "inactive" },
-                { bucket: "noon", level: "inactive" },
-                { bucket: "evening", level: "inactive" },
-              ],
-            },
-            {
-              day: "2026-04-26",
-              level: "talkative",
-              timeBucketLevels: [
-                { bucket: "night", level: "talkative" },
-                { bucket: "morning", level: "inactive" },
-                { bucket: "noon", level: "inactive" },
-                { bucket: "evening", level: "inactive" },
-              ],
-            },
-          ],
-        },
-        {
-          username: "Участник 2",
-          dailyLevels: [
-            {
-              day: "2026-04-24",
-              level: "active",
-              timeBucketLevels: [
-                { bucket: "night", level: "inactive" },
-                { bucket: "morning", level: "inactive" },
-                { bucket: "noon", level: "inactive" },
-                { bucket: "evening", level: "active" },
-              ],
-            },
-            {
-              day: "2026-04-25",
-              level: "inactive",
-              timeBucketLevels: [
-                { bucket: "night", level: "inactive" },
-                { bucket: "morning", level: "inactive" },
-                { bucket: "noon", level: "inactive" },
-                { bucket: "evening", level: "inactive" },
-              ],
-            },
-            {
-              day: "2026-04-26",
-              level: "inactive",
-              timeBucketLevels: [
-                { bucket: "night", level: "inactive" },
-                { bucket: "morning", level: "inactive" },
-                { bucket: "noon", level: "inactive" },
-                { bucket: "evening", level: "inactive" },
-              ],
-            },
-          ],
-        },
-      ],
+      participants: [],
     });
-    const participant = body.activity.participantTimeline.participants[0];
-    expect(JSON.stringify(body.activity.participantTimeline)).not.toContain("id3");
-    expect(participant).not.toHaveProperty("userId");
-    expect(participant).not.toHaveProperty("count");
-    expect(participant).not.toHaveProperty("words");
-    expect(participant.dailyLevels[0]).not.toHaveProperty("count");
-    expect(participant.dailyLevels[0]).not.toHaveProperty("words");
-    expect(participant.dailyLevels[0].timeBucketLevels[0]).not.toHaveProperty("count");
-    expect(participant.dailyLevels[0].timeBucketLevels[0]).not.toHaveProperty("text");
+    // Privacy invariants: no raw user identifiers leak even with empty data.
+    expect(JSON.stringify(timeline)).not.toContain("id3");
+    expect(JSON.stringify(timeline)).not.toContain("userId");
+    expect(JSON.stringify(timeline)).not.toContain("count");
+    expect(JSON.stringify(timeline)).not.toContain("words");
   });
 
   it("lists admin chats from stored metadata and counter fallback", async () => {
@@ -607,13 +499,86 @@ describe("webhook", () => {
     expect(response.status).toBe(403);
   });
 
-  it("returns stable 503 JSON for a long not-ready custom range only after valid auth", async () => {
+  it("requires auth before reporting live-day stats", async () => {
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/chat?chatId=1&period=today"),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(401);
+  });
+
+  it("returns a structured 503 for the today preset when D1 is unavailable without any KV scan", async () => {
+    mockTelegramMembership("member");
+    const countersListSpy = vi.spyOn(env.COUNTERS, "list");
+
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/chat?chatId=1&period=today", {
+        headers: await adminSessionHeaders(),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const body = await response.json();
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe("ADMIN_UNAVAILABLE");
+    expect(countersListSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns a structured 503 for a custom range ending on the current UTC day without legacy fallback", async () => {
+    mockTelegramMembership("member");
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const dayStr = today.toISOString().slice(0, 10);
+    const yesterday = new Date(today);
+    yesterday.setUTCDate(today.getUTCDate() - 1);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+    const response = await worker.fetch(
+      new Request(
+        `http://localhost/admin/api/chat?chatId=1&period=custom&from=${yesterdayStr}&to=${dayStr}`,
+        { headers: await adminSessionHeaders() },
+      ),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ ok: false });
+  });
+
+  it("rejects a custom range ending in the future with 400 invalid period", async () => {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const dayStr = today.toISOString().slice(0, 10);
+    const tomorrow = new Date(today);
+    tomorrow.setUTCDate(today.getUTCDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+
+    const response = await worker.fetch(
+      new Request(
+        `http://localhost/admin/api/chat?chatId=1&period=custom&from=${dayStr}&to=${tomorrowStr}`,
+        { headers: await adminSessionHeaders() },
+      ),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ ok: false });
+  });
+
+  it("serves zero-filled stats for a long custom range when D1 aggregates are empty only after valid auth", async () => {
     mockTelegramMembership("member"); // valid access; selection happens after auth/access
     const isInChatSpy = vi.spyOn(adminChatsModule, "isTelegramUserInChat");
 
-    // Minimal not-ready D1: every coverage/state query resolves empty so the
-    // selector reports the range as not ready (not an unavailable/DB error).
-    const notReadyDb = {
+    // D1 aggregate success with no rows: the range is served directly as
+    // zero-filled stats (no not-ready rejection, no legacy KV fallback).
+    const emptyD1 = {
       prepare: vi.fn(() => ({
         bind: vi.fn(() => ({
           all: vi.fn(async () => ({ results: [] })),
@@ -625,7 +590,7 @@ describe("webhook", () => {
         Array.from({ length: stmts.length }, () => ({ results: [] })),
       ),
     };
-    env.DB = notReadyDb;
+    env.DB = emptyD1;
 
     const response = await worker.fetch(
       new Request(
@@ -636,16 +601,21 @@ describe("webhook", () => {
       ctx,
     );
 
-    expect(response.status).toBe(503);
-    expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(await response.json()).toEqual({
-      ok: false,
-      error: {
-        code: "HISTORICAL_STATS_NOT_READY",
-        message:
-          "Statistics for this range are temporarily unavailable during optimization.",
-      },
-    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBeNull();
+    const body = await response.json();
+    expect(body.chatId).toBe(1);
+    expect(body.period).toBe("custom");
+    expect(body.range).toEqual({ from: "2026-05-01", to: "2026-05-04", days: 4 });
+    expect(body.activity.total).toBe(0);
+    expect(body.activity.dailyMessages).toEqual([
+      { day: "2026-05-01", count: 0 },
+      { day: "2026-05-02", count: 0 },
+      { day: "2026-05-03", count: 0 },
+      { day: "2026-05-04", count: 0 },
+    ]);
+    expect(body.profanity.topUsers).toEqual([]);
+    expect(body.criminal.topUsers).toEqual([]);
     // Auth + access must precede historical selection (no pre-auth rejection).
     expect(isInChatSpy).toHaveBeenCalled();
   });
@@ -669,9 +639,9 @@ describe("webhook", () => {
 
   it("allows custom ranges of exactly 3 inclusive days through to stats", async () => {
     mockTelegramMembership("member");
-    await env.COUNTERS.put("stats_v2:1:2026-05-01:2", "1");
-    await env.COUNTERS.put("word_stats_v2:1:2026-05-01:2", "2");
-    await env.COUNTERS.put("user:2", "alice");
+
+    // Empty D1 returns zero-filled aggregate stats; KV data is no longer read.
+    env.DB = makeEmptyD1();
 
     const response = await worker.fetch(
       new Request(
@@ -686,6 +656,12 @@ describe("webhook", () => {
     const body = (await response.json()) as any;
     expect(body.period).toBe("custom");
     expect(body.range).toEqual({ from: "2026-05-01", to: "2026-05-03", days: 3 });
+    expect(body.activity.total).toBe(0);
+    expect(body.activity.dailyMessages).toEqual([
+      { day: "2026-05-01", count: 0 },
+      { day: "2026-05-02", count: 0 },
+      { day: "2026-05-03", count: 0 },
+    ]);
   });
 
   it("converts unhandled admin exceptions into stable 503 JSON with a UUID requestId", async () => {
@@ -1436,6 +1412,106 @@ describe("webhook", () => {
     expect(lastCall[0]).toContain("/sendMessage");
     const text = JSON.parse(lastCall[1]?.body as string).text;
     expect(text).toContain("/summary");
+  });
+});
+
+describe("criminal analyze-test", () => {
+  it("forwards payload source timestamp to the analyzer", async () => {
+    const payload = {
+      text: "Призываю к насилию против определенной группы людей",
+      chatId: 12345,
+      userId: 67890,
+      messageId: 111,
+      username: "testuser",
+      day: "2023-11-14",
+      ts: 1700000000,
+    };
+
+    const response = await worker.fetch(
+      new Request("http://localhost/api/criminal/analyze-test?key=s", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    expect(lastAnalyzerRequest).not.toBeNull();
+    expect(lastAnalyzerRequest.ts).toBe(1700000000);
+    expect(lastAnalyzerRequest.day).toBe("2023-11-14");
+  });
+
+  it("omits ts when payload has no source timestamp", async () => {
+    const payload = {
+      text: "Призываю к насилию против определенной группы людей",
+      chatId: 12345,
+      userId: 67890,
+      messageId: 111,
+    };
+
+    const response = await worker.fetch(
+      new Request("http://localhost/api/criminal/analyze-test?key=s", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    expect(lastAnalyzerRequest).not.toBeNull();
+    expect(lastAnalyzerRequest.ts).toBeUndefined();
+  });
+
+  it("omits ts when payload ts is a coercible boolean", async () => {
+    const payload = {
+      text: "Призываю к насилию против определенной группы людей",
+      chatId: 12345,
+      userId: 67890,
+      messageId: 111,
+      ts: true,
+    };
+
+    const response = await worker.fetch(
+      new Request("http://localhost/api/criminal/analyze-test?key=s", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    expect(lastAnalyzerRequest).not.toBeNull();
+    expect(lastAnalyzerRequest.ts).toBeUndefined();
+  });
+
+  it("omits ts when payload ts is a numeric string", async () => {
+    const payload = {
+      text: "Призываю к насилию против определенной группы людей",
+      chatId: 12345,
+      userId: 67890,
+      messageId: 111,
+      ts: "1700000000",
+    };
+
+    const response = await worker.fetch(
+      new Request("http://localhost/api/criminal/analyze-test?key=s", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    expect(lastAnalyzerRequest).not.toBeNull();
+    expect(lastAnalyzerRequest.ts).toBeUndefined();
   });
 });
 

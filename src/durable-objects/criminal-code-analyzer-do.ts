@@ -44,6 +44,7 @@ interface QueuedCriminalAnalysisTask {
   username?: string;
   day?: string;
   ts?: number;
+  sequence?: number;
   reasons: CriminalPrefilterReason[];
   enqueuedAt: number;
   localProfanity?: LocalProfanityResult;
@@ -72,6 +73,16 @@ const QUEUE_STORAGE_KEY = 'criminal_analysis_queue';
 const LAST_OPENROUTER_CALL_KEY = 'criminal_openrouter_last_call';
 const LAST_FINAL_ANALYSIS_CALL_KEY = 'criminal_final_analysis_last_call';
 
+/**
+ * Privacy-safe error classification: never include message/stack/content in
+ * logs because downstream errors may embed Telegram message text.
+ */
+function safeErrorClass(error: unknown): 'Error' | 'ThrownString' | 'UnknownError' {
+  if (error instanceof Error) return 'Error';
+  if (typeof error === 'string') return 'ThrownString';
+  return 'UnknownError';
+}
+
 export class CriminalCodeAnalyzerDO {
   private state: DurableObjectState;
   private env: Env;
@@ -99,7 +110,10 @@ export class CriminalCodeAnalyzerDO {
       this.aiProvider = await ProviderFactory.createProvider(this.env, 'criminal');
       console.log('✅ CriminalCodeAnalyzerDO initialized successfully');
     } catch (error: any) {
-      console.error('❌ Failed to initialize CriminalCodeAnalyzerDO:', error);
+      console.error('❌ Failed to initialize CriminalCodeAnalyzerDO', {
+        op: 'initialize',
+        errorClass: safeErrorClass(error),
+      });
       throw error;
     }
   }
@@ -156,10 +170,10 @@ export class CriminalCodeAnalyzerDO {
       }
 
       return new Response('Not Found', { status: 404 });
-    } catch (error: any) {
-      console.error('❌ CriminalCodeAnalyzerDO fetch error:', error);
+    } catch {
+      console.error('CriminalCodeAnalyzerDO fetch error', { op: 'doFetch', errorClass: 'Error' });
       return new Response(
-        JSON.stringify({ error: 'Internal server error', details: error.message }),
+        JSON.stringify({ error: 'Internal server error', code: 'DO_FETCH_FAILED' }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
     }
@@ -182,7 +196,7 @@ export class CriminalCodeAnalyzerDO {
       } catch (error: any) {
         return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400 });
       }
-      const { text, chatId, messageId, userId, forceRefresh = false, day } = body;
+      const { text, chatId, messageId, userId, forceRefresh = false, day, ts } = body;
 
       if (!text || text.trim().length === 0) {
         return new Response(
@@ -227,7 +241,7 @@ export class CriminalCodeAnalyzerDO {
 
       // 💾 Store violation in database if found
       if (result.hasViolations && result.violations.length > 0) {
-        await this.storeViolations(result.violations, chatId, messageId, userId, text, body.username, day);
+        await this.storeViolations(result.violations, chatId, messageId, userId, text, body.username, day, undefined, ts);
         await this.updateStatistics(result);
       }
 
@@ -235,10 +249,10 @@ export class CriminalCodeAnalyzerDO {
         JSON.stringify(result),
         { headers: { 'Content-Type': 'application/json' } }
       );
-    } catch (error: any) {
-      console.error('❌ Error in handleAnalyzeRequest:', error);
+    } catch {
+      console.error('Error in handleAnalyzeRequest', { op: 'analyze', errorClass: 'Error' });
       return new Response(
-        JSON.stringify({ error: 'Analysis failed', details: error.message }),
+        JSON.stringify({ error: 'Analysis failed', code: 'ANALYSIS_FAILED' }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
     }
@@ -253,7 +267,7 @@ export class CriminalCodeAnalyzerDO {
         return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400 });
       }
 
-      const { text, chatId, messageId, userId, username, day, ts } = body;
+      const { text, chatId, messageId, userId, username, day, ts, sequence } = body;
       if (!text || text.trim().length === 0) {
         return new Response(JSON.stringify({ error: 'Text is required' }), { status: 400 });
       }
@@ -270,21 +284,36 @@ export class CriminalCodeAnalyzerDO {
       });
 
       if (!prefilter.shouldQueue) {
-        await this.recordProfanityCountersFromAnalysis({
-          task: {
-            text,
-            chatId,
-            userId,
-            messageId,
-            username,
-            day,
-            ts,
-            reasons: prefilter.reasons,
-            enqueuedAt: Date.now(),
-            localProfanity,
-          },
-          semanticPrefilter: undefined,
-        });
+        const task: QueuedCriminalAnalysisTask = {
+          text,
+          chatId,
+          userId,
+          messageId,
+          username,
+          day,
+          ts,
+          sequence,
+          reasons: prefilter.reasons,
+          enqueuedAt: Date.now(),
+          localProfanity,
+        };
+        // Independent terminal outcomes: profanity propagation identity must not block criminal ack.
+        try {
+          const profResult = await this.recordProfanityCountersFromAnalysis({
+            task,
+            semanticPrefilter: undefined,
+            sequence,
+          });
+          if (profResult) {
+            // completed via profanity increment handled inside; ack via that path
+          } else {
+            const profanityGloballyDisabled = !this.getBooleanEnv('ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER', false);
+            await this.ackProfanityOutcome(task, profanityGloballyDisabled ? 'skipped' : 'zero');
+          }
+        } catch {
+          await this.ackProfanityOutcome(task, 'failed');
+        }
+        await this.ackCriminalOutcome(task, 'skipped');
         return new Response(
           JSON.stringify({ queued: false, reasons: prefilter.reasons }),
           { headers: { 'Content-Type': 'application/json' } }
@@ -302,6 +331,7 @@ export class CriminalCodeAnalyzerDO {
           username,
           day,
           ts,
+          sequence,
           reasons: prefilter.reasons,
           enqueuedAt: Date.now(),
           localProfanity,
@@ -320,10 +350,10 @@ export class CriminalCodeAnalyzerDO {
         JSON.stringify({ queued: !existing, reasons: prefilter.reasons, queueSize: queue.length }),
         { headers: { 'Content-Type': 'application/json' } }
       );
-    } catch (error: any) {
-      console.error('❌ Error in handleEnqueueRequest:', error);
+    } catch {
+      console.error('Error in handleEnqueueRequest', { op: 'enqueue', errorClass: 'Error' });
       return new Response(
-        JSON.stringify({ error: 'Enqueue failed', details: error.message }),
+        JSON.stringify({ error: 'Enqueue failed', code: 'ENQUEUE_FAILED' }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
     }
@@ -400,7 +430,10 @@ export class CriminalCodeAnalyzerDO {
         final,
       });
     } catch (error: any) {
-      console.error('❌ Error in handleDiagnoseRequest:', error);
+      console.error('❌ Error in handleDiagnoseRequest', {
+        op: 'diagnose',
+        errorClass: safeErrorClass(error),
+      });
       return Response.json({
         ok: false,
         error: error?.message || String(error),
@@ -543,7 +576,9 @@ export class CriminalCodeAnalyzerDO {
             message.userId,
             message.text,
             message.username,
-            message.day
+            message.day,
+            undefined,
+            message.ts
           );
           await this.updateStatistics(result);
         }
@@ -560,7 +595,10 @@ export class CriminalCodeAnalyzerDO {
         { headers: { 'Content-Type': 'application/json' } }
       );
     } catch (error: any) {
-      console.error('❌ Error in handleBatchAnalyzeRequest:', error);
+      console.error('❌ Error in handleBatchAnalyzeRequest', {
+        op: 'batchAnalyze',
+        errorClass: safeErrorClass(error),
+      });
       return new Response(
         JSON.stringify({ error: 'Batch analysis failed', details: error.message }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
@@ -597,25 +635,50 @@ export class CriminalCodeAnalyzerDO {
       const semanticPrefilter = semanticPrefilters.get(item.id) || this.buildNoSignalPrefilter(
         'missing semantic prefilter result'
       );
-      await this.recordProfanityCountersFromAnalysis({ task, semanticPrefilter });
+      // Profanity and criminal terminal outcomes must be independent: profanity
+      // success/failure must never block criminal completed/zero/skipped/failed.
+      let profanityResult: { words: Array<{ word: string; count: number }>; count: number } | null = null;
+      let profanityError: unknown = null;
+      try {
+        profanityResult = await this.recordProfanityCountersFromAnalysis({ task, semanticPrefilter, sequence: task.sequence });
+      } catch (e: unknown) {
+        profanityError = e;
+      }
+      // Always ack profanity exactly once: completed vs zero (no words) vs failed (exception)
+      // This is independent of criminal outcome below.
+      if (profanityError !== null) {
+        await this.ackProfanityOutcome(task, 'failed');
+      } else if (profanityResult) {
+        // recordProfanityCountersFromAnalysis already advanced profanity completed via /profanity increment
+        // No additional ack needed - the completed increment itself resolved progress
+      } else {
+        // No profanity found or disabled path: recordProfanityCountersFromAnalysis
+        // returned null without progress mutation; now ack zero/skipped.
+        // Incomplete identity is NOT here: it throws inside the recorder and is
+        // acked as failed above (a missing identity is not evidence of zero profanity).
+        // We distinguish: if profanity feature disabled, we still want terminal (skipped vs zero convention).
+        // For criminal prefilter path, disabled profanity is not per-message but global; treat as skipped.
+        const profanityGloballyDisabled = !this.getBooleanEnv('ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER', false);
+        if (profanityGloballyDisabled) {
+          await this.ackProfanityOutcome(task, 'skipped');
+        } else {
+          await this.ackProfanityOutcome(task, 'zero');
+        }
+      }
       if (!semanticPrefilter.shouldAnalyze) {
-        console.log('ℹ️ Criminal semantic prefilter skipped RAG/final judge', {
-          chatId: task.chatId.toString(36),
-          messageId: task.messageId,
-          reason: semanticPrefilter.reason,
-          confidence: semanticPrefilter.confidence,
-          explanation: semanticPrefilter.explanation,
+        console.log('Criminal semantic prefilter skipped RAG', {
+          op: 'prefilterSkip',
         });
+        await this.ackCriminalOutcome(task, 'zero');
         continue;
       }
 
       if (!(await this.canSpendFinalAnalysisRequest())) {
         await this.recordDailyCounter(this.getSkippedFinalAnalysisUsageKey());
-        console.warn('⚠️ Criminal final analysis skipped by daily cap', {
-          chatId: task.chatId.toString(36),
-          messageId: task.messageId,
-          provider: this.getCriminalProviderName(),
+        console.warn('Criminal final analysis skipped by daily cap', {
+          op: 'criminalSkip',
         });
+        await this.ackCriminalOutcome(task, 'skipped');
         continue;
       }
 
@@ -624,44 +687,61 @@ export class CriminalCodeAnalyzerDO {
       if (this.getCriminalProviderName() === 'openrouter') {
         await this.waitForFinalAnalysisInterval();
       }
-      const finalStarted = Date.now();
-      const result = await this.performContextualAnalysis({
-        ...contextInput,
-        semanticPrefilter,
-      });
-      console.log('📏 Criminal pipeline stage metrics', {
-        stage: 'rag_and_final',
-        chatId: task.chatId.toString(36),
-        messageId: task.messageId,
-        durationMs: Date.now() - finalStarted,
-        hasViolations: result.hasViolations,
-        referenceCount: result.legalReferences?.length || 0,
-      });
+      let result: CriminalAnalysisResult;
+      try {
+        result = await this.performContextualAnalysis({
+          ...contextInput,
+          semanticPrefilter,
+        });
+      } catch {
+        await this.ackCriminalOutcome(task, 'failed');
+        console.error('Criminal contextual analysis failed', {
+          op: 'criminalFailed',
+          errorClass: 'Error',
+        });
+        continue;
+      }
 
       if (result.hasViolations && result.violations.length > 0) {
-        await this.storeViolations(
-          result.violations,
-          task.chatId,
-          task.messageId,
-          task.userId,
-          task.text,
-          task.username,
-          task.day
-        );
+        let storeError: unknown = null;
+        try {
+          await this.storeViolations(
+            result.violations,
+            task.chatId,
+            task.messageId,
+            task.userId,
+            task.text,
+            task.username,
+            task.day,
+            task.sequence,
+            task.ts
+          );
+        } catch (e: unknown) {
+          storeError = e;
+        }
+        if (storeError !== null) {
+          await this.ackCriminalOutcome(task, 'failed');
+          console.error('Criminal storeViolations failed', { op: 'storeFailed', errorClass: 'Error' });
+          continue;
+        }
         await this.updateStatistics(result);
         try {
           await this.sendAdminViolationReport(result, task);
-        } catch (error: any) {
-          console.error('❌ Failed to send admin criminal violation report:', error);
+        } catch {
+          console.error('Failed to send admin criminal violation report', { op: 'adminReport', errorClass: 'Error' });
         }
+        // Criminal completed is implicit via storeViolations -> CountersDO increment; no separate ack needed
+        // But if storeViolations succeeded, criminal progress is already completed; we still need to ensure no double ack
+        // CountersDO completed path already handled; no additional ack.
       } else if (this.hasStrongLocalSignal(task) && result.legalReferences && result.legalReferences.length > 0) {
+        await this.ackCriminalOutcome(task, 'zero');
         try {
           await this.sendAdminLegalReferenceReport(result, task);
-        } catch (error: any) {
-          console.error('❌ Failed to send admin legal reference report:', error);
+        } catch {
+          console.error('Failed to send admin legal reference report', { op: 'adminReport', errorClass: 'Error' });
         }
       } else {
-        console.log(`✅ Criminal queue task analyzed without confirmed violation (${reason})`);
+        await this.ackCriminalOutcome(task, 'zero');
       }
     }
 
@@ -751,12 +831,92 @@ export class CriminalCodeAnalyzerDO {
     return detectLocalProfanity(text);
   }
 
+  private async ackProfanityOutcome(
+    task: QueuedCriminalAnalysisTask,
+    outcome: 'completed' | 'zero' | 'skipped' | 'failed',
+  ): Promise<void> {
+    if (task.sequence === undefined || !task.day) return;
+    try {
+      const id = this.env.COUNTERS_DO.idFromName(String(task.chatId));
+      const response = await this.env.COUNTERS_DO.get(id).fetch('https://do/ack', {
+        method: 'POST',
+        body: JSON.stringify({
+          chatId: task.chatId,
+          day: task.day,
+          category: 'profanity',
+          messageId: task.messageId,
+          sequence: task.sequence,
+          outcome,
+        }),
+      });
+      if (!response.ok) {
+        console.warn('Ack to CountersDO returned non-OK status', {
+          op: 'ack',
+          category: 'profanity',
+          outcome,
+          status: response.status,
+        });
+      }
+    } catch {
+      // Best-effort ack; never break the analysis pipeline.
+    }
+  }
+
+  /**
+   * Best-effort acknowledgement of a criminal terminal branch to CountersDO.
+   * Ack failures never break the analysis pipeline.
+   */
+  private async ackCriminalOutcome(
+    task: QueuedCriminalAnalysisTask,
+    outcome: 'completed' | 'zero' | 'skipped' | 'failed',
+  ): Promise<void> {
+    if (task.sequence === undefined || !task.day) return;
+    try {
+      const id = this.env.COUNTERS_DO.idFromName(String(task.chatId));
+      const response = await this.env.COUNTERS_DO.get(id).fetch('https://do/ack', {
+        method: 'POST',
+        body: JSON.stringify({
+          chatId: task.chatId,
+          day: task.day,
+          category: 'criminal',
+          messageId: task.messageId,
+          sequence: task.sequence,
+          outcome,
+        }),
+      });
+      if (!response.ok) {
+        console.warn('Ack to CountersDO returned non-OK status', {
+          op: 'ack',
+          category: 'criminal',
+          outcome,
+          status: response.status,
+        });
+      }
+    } catch {
+      // Best-effort ack; never break the analysis pipeline.
+    }
+  }
+
   private async recordProfanityCountersFromAnalysis(input: {
     task: QueuedCriminalAnalysisTask;
     semanticPrefilter?: CriminalSemanticPrefilterResult;
-  }): Promise<void> {
+    sequence?: number;
+  }): Promise<{ words: Array<{ word: string; count: number }>; count: number } | null> {
     if (!this.getBooleanEnv('ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER', false)) {
-      return;
+      return null;
+    }
+
+
+    if (input.task.userId === undefined || !input.task.day) {
+      console.warn('Profanity counters skipped because task identity incomplete', {
+        op: 'profanityPrefilter',
+        errorCode: 'INCOMPLETE_IDENTITY',
+      });
+      // Missing identity is validated before the empty-words check: an
+      // incomplete identity is not evidence of zero profanity even when no
+      // words were detected. Surface as a recorder failure so callers ack the
+      // profanity outcome as failed instead of mapping it to a false zero.
+      throw new Error('Profanity counter update skipped due to incomplete task identity');
     }
 
     const words = this.mergeProfanityWords(
@@ -765,16 +925,7 @@ export class CriminalCodeAnalyzerDO {
       input.semanticPrefilter?.profanity
     );
     if (words.length === 0) {
-      return;
-    }
-    if (input.task.userId === undefined || !input.task.day) {
-      console.warn('⚠️ Profanity counters skipped because task identity is incomplete', {
-        chatId: input.task.chatId.toString(36),
-        messageId: input.task.messageId,
-        hasUserId: input.task.userId !== undefined,
-        hasDay: Boolean(input.task.day),
-      });
-      return;
+      return null;
     }
 
     const count = words.reduce((sum, word) => sum + word.count, 0);
@@ -789,26 +940,23 @@ export class CriminalCodeAnalyzerDO {
           day: input.task.day,
           count,
           words,
+          sequence: input.sequence ?? input.task.sequence,
+          messageId: input.task.messageId,
         }),
       });
       if (!response.ok) {
         const responseText = await response.text().catch(() => 'Unable to read response');
         throw new Error(`Counter update failed with status: ${response.status}, response: ${responseText}`);
       }
-      console.log('✅ Profanity counters updated from criminal prefilter path', {
-        chatId: input.task.chatId.toString(36),
-        userId: input.task.userId.toString(36),
-        messageId: input.task.messageId,
-        count,
-        uniqueWords: words.length,
+      return { words, count };
+    } catch (e: unknown) {
+      console.warn('Profanity counter update from criminal prefilter failed', {
+        op: 'profanityPrefilter',
+        errorCode: 'COUNTER_UPDATE_FAILED',
       });
-    } catch (error: any) {
-      console.warn('⚠️ Profanity counter update from criminal prefilter failed', {
-        chatId: input.task.chatId.toString(36),
-        userId: input.task.userId?.toString(36),
-        messageId: input.task.messageId,
-        error: error.message || String(error),
-      });
+      // Rethrow so callers ack the profanity outcome as failed instead of
+      // treating a transport failure as a successful no-profanity null result.
+      throw e;
     }
   }
 
@@ -897,12 +1045,9 @@ export class CriminalCodeAnalyzerDO {
       const cached = await this.getCachedSemanticPrefilter(item.input);
       if (cached) {
         results.set(item.id, cached);
-        console.log('🧭 Criminal semantic prefilter cache hit', {
-          chatId: item.input.chatId.toString(36),
-          messageId: item.input.targetMessageId,
-          shouldAnalyze: cached.shouldAnalyze,
+        console.log('Criminal semantic prefilter cache hit', {
+          op: 'prefilterCacheHit',
           reason: cached.reason,
-          confidence: cached.confidence,
         });
       } else {
         misses.push(item);
@@ -930,22 +1075,16 @@ export class CriminalCodeAnalyzerDO {
         const filtered = this.applySemanticPrefilterThreshold(fetchedResult);
         await this.cacheSemanticPrefilter(item.input, filtered);
         results.set(item.id, filtered);
-        console.log('🧭 Criminal semantic prefilter result', {
-          chatId: item.input.chatId.toString(36),
-          messageId: item.input.targetMessageId,
-          shouldAnalyze: filtered.shouldAnalyze,
+        console.log('Criminal semantic prefilter result', {
+          op: 'prefilterResult',
           reason: filtered.reason,
-          confidence: filtered.confidence,
-          threshold: this.getSemanticPrefilterMinConfidence(),
-          hasSearchQuery: Boolean(filtered.searchQuery?.trim()),
-          batched: misses.length > 1,
         });
       }
       return results;
     } catch (error: any) {
-      console.warn('⚠️ Criminal semantic prefilter batch failed', {
-        itemCount: misses.length,
-        error: error.message || String(error),
+      console.warn('Criminal semantic prefilter batch failed', {
+        op: 'prefilterBatch',
+        errorClass: 'Error',
       });
 
       for (const item of misses) {
@@ -1299,10 +1438,9 @@ export class CriminalCodeAnalyzerDO {
         this.normalizeSemanticPrefilterResult(cached.result)
       );
     } catch (error: any) {
-      console.warn('⚠️ Criminal semantic prefilter cache read failed', {
-        chatId: input.chatId.toString(36),
-        messageId: input.targetMessageId,
-        error: error.message || String(error),
+      console.warn('Criminal semantic prefilter cache read failed', {
+        op: 'prefilterCacheRead',
+        errorClass: 'Error',
       });
       return null;
     }
@@ -1326,10 +1464,9 @@ export class CriminalCodeAnalyzerDO {
         { expirationTtl: this.getSemanticPrefilterCacheTTL() } as any
       );
     } catch (error: any) {
-      console.warn('⚠️ Criminal semantic prefilter cache write failed', {
-        chatId: input.chatId.toString(36),
-        messageId: input.targetMessageId,
-        error: error.message || String(error),
+      console.warn('Criminal semantic prefilter cache write failed', {
+        op: 'prefilterCacheWrite',
+        errorClass: 'Error',
       });
     }
   }
@@ -1466,7 +1603,10 @@ export class CriminalCodeAnalyzerDO {
         { headers: { 'Content-Type': 'application/json' } }
       );
     } catch (error: any) {
-      console.error('❌ Error in handleStatsRequest:', error);
+      console.error('❌ Error in handleStatsRequest', {
+        op: 'stats',
+        errorClass: safeErrorClass(error),
+      });
       return new Response(
         JSON.stringify({ error: 'Failed to get statistics', details: error.message }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
@@ -1500,7 +1640,10 @@ export class CriminalCodeAnalyzerDO {
         { headers: { 'Content-Type': 'application/json' } }
       );
     } catch (error: any) {
-      console.error('❌ Error in handleClearCacheRequest:', error);
+      console.error('❌ Error in handleClearCacheRequest', {
+        op: 'clearCache',
+        errorClass: safeErrorClass(error),
+      });
       return new Response(
         JSON.stringify({ error: 'Failed to clear cache', details: error.message }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
@@ -1530,7 +1673,10 @@ export class CriminalCodeAnalyzerDO {
       console.log(`✅ Analysis completed: ${result.hasViolations ? result.violations.length + ' violations found' : 'no violations'}`);
       return result;
     } catch (error: any) {
-      console.error('❌ AI analysis failed:', error);
+      console.error('❌ AI analysis failed', {
+        op: 'analyze',
+        errorClass: safeErrorClass(error),
+      });
       // Return safe fallback result
       return {
         hasViolations: false,
@@ -1584,24 +1730,13 @@ export class CriminalCodeAnalyzerDO {
 
       return result;
     } catch (error: any) {
-      console.error('❌ Contextual AI analysis failed:', error);
-      return {
-        hasViolations: false,
-        decision: 'no_violation',
-        evidence: {
-          subject: 'unknown',
-          object: 'unknown',
-          intent: 'analysis failed',
-          contextSummary: 'safe fallback',
-          whyNotBenign: 'not enough reliable model output to classify as violation',
-        },
-        violations: [],
-        totalSeverity: 0,
-        riskLevel: 'low',
-        analysisTimestamp: Date.now(),
-        targetMessageId: input.targetMessageId,
-        contextWindow: input.contextWindow,
-      };
+      console.error('Criminal contextual AI analysis failed', {
+        op: 'contextualAnalysis',
+        errorClass: 'Error',
+      });
+      // Rethrow so flushQueue's failed-ack branch runs instead of converting
+      // the provider exception into a fabricated no-violation / zero result.
+      throw error;
     }
   }
 
@@ -1629,13 +1764,8 @@ export class CriminalCodeAnalyzerDO {
     const qualityCount = selected.filter(reference => this.isUsefulFinalJudgeReference(reference)).length;
     const shouldRun = qualityCount >= minQualityReferences;
     if (!shouldRun) {
-      console.log('⚖️ Criminal final judge skipped by RAG quality gate', {
-        chatId: input.chatId.toString(36),
-        messageId: input.targetMessageId,
-        qualityCount,
-        minQualityReferences,
-        topScore: Math.round((selected[0]?.score || 0) * 1000) / 1000,
-        referenceCount: result.legalReferences.length,
+      console.log('Criminal final judge skipped by RAG quality gate', {
+        op: 'finalJudgeSkip',
       });
     }
     return shouldRun;
@@ -1653,23 +1783,14 @@ export class CriminalCodeAnalyzerDO {
 
       const judge = await this.callOpenAIFinalJudge(input, finalJudgeReferences);
       const judged = this.buildJudgedAnalysisResult(input, retrievalResult, judge);
-      console.log('⚖️ Criminal final judge result', {
-        chatId: input.chatId.toString(36),
-        messageId: input.targetMessageId,
-        decision: judged.decision,
-        hasViolations: judged.hasViolations,
-        violationCount: judged.violations.length,
-        judgeConfidence: judge.confidence,
-        storedConfidences: judged.violations.map(violation => violation.confidence),
-        referenceArticles: finalJudgeReferences
-          .map(reference => reference.article),
+      console.log('Criminal final judge result', {
+        op: 'finalJudge',
       });
       return judged;
     } catch (error: any) {
-      console.warn('⚠️ Criminal final judge failed, keeping legal-rag result', {
-        chatId: input.chatId.toString(36),
-        messageId: input.targetMessageId,
-        error: error.message || String(error),
+      console.warn('Criminal final judge failed', {
+        op: 'finalJudge',
+        errorClass: 'Error',
       });
       return retrievalResult;
     }
@@ -1683,18 +1804,9 @@ export class CriminalCodeAnalyzerDO {
       return;
     }
     const references = result.legalReferences || [];
-    console.log('📚 Criminal legal-rag retrieval result', {
-      chatId: input.chatId.toString(36),
-      messageId: input.targetMessageId,
+    console.log('Criminal legal-rag retrieval result', {
+      op: 'legalRag',
       referenceCount: references.length,
-      references: references.slice(0, 5).map(reference => ({
-        article: reference.article,
-        subarticle: reference.subarticle,
-        score: Math.round(reference.score * 1000) / 1000,
-      })),
-      usedSearchQuery: Boolean(input.semanticPrefilter?.searchQuery?.trim()),
-      semanticReason: input.semanticPrefilter?.reason,
-      semanticConfidence: input.semanticPrefilter?.confidence,
     });
   }
 
@@ -1915,11 +2027,9 @@ export class CriminalCodeAnalyzerDO {
     const severity = Math.round(this.clampNumber(Number(violation.severity ?? 1), 1, 10));
     const quote = this.cleanJudgeText(violation.quote, '').slice(0, 500);
     if (!this.isQuoteGroundedInTarget(quote, input.targetText)) {
-      console.warn('⚖️ Criminal final judge rejected ungrounded violation quote', {
-        chatId: input.chatId.toString(36),
-        messageId: input.targetMessageId,
-        article,
-        hasQuote: Boolean(quote),
+      console.warn('Criminal final judge rejected ungrounded violation quote', {
+        op: 'finalJudgeQuote',
+        errorCode: 'UNGROUNDED_QUOTE',
       });
       return null;
     }
@@ -2365,7 +2475,10 @@ export class CriminalCodeAnalyzerDO {
 
       return null;
     } catch (error: any) {
-      console.error('❌ Error getting cached analysis:', error);
+      console.error('❌ Error getting cached analysis', {
+        op: 'getCache',
+        errorClass: safeErrorClass(error),
+      });
       return null;
     }
   }
@@ -2395,7 +2508,10 @@ export class CriminalCodeAnalyzerDO {
       `);
       await stmt.bind(textHash, JSON.stringify(result)).run();
     } catch (error: any) {
-      console.error('❌ Error caching analysis:', error);
+      console.error('❌ Error caching analysis', {
+        op: 'cacheAnalysis',
+        errorClass: safeErrorClass(error),
+      });
       // Don't throw - caching failure shouldn't break analysis
     }
   }
@@ -2411,7 +2527,9 @@ export class CriminalCodeAnalyzerDO {
     userId?: number,
     text?: string,
     username?: string,
-    day?: string
+    day?: string,
+    sequence?: number,
+    ts?: number
   ): Promise<void> {
     try {
       const storePreviewRaw = (this.env as any).CRIMINAL_STORE_TEXT_PREVIEW;
@@ -2419,14 +2537,21 @@ export class CriminalCodeAnalyzerDO {
       const previewLenRaw = (this.env as any).CRIMINAL_TEXT_PREVIEW_LENGTH;
       const previewLength = Number.isFinite(Number(previewLenRaw)) && Number(previewLenRaw) > 0 ? Math.floor(Number(previewLenRaw)) : 200;
 
-      // Store violations in database
+      // Store violations in database with canonical message timestamp/day, not processing time.
+      // A valid source timestamp wins over the caller-provided day: both must represent
+      // the same original message instant, and the ts is the authoritative instant.
+      const hasValidTs = typeof ts === 'number' && Number.isInteger(ts) && Number.isFinite(ts) && ts >= 0;
+      const canonicalTs = hasValidTs ? (ts as number) : Math.floor(Date.now() / 1000);
+      const canonicalDay = hasValidTs
+        ? new Date(canonicalTs * 1000).toISOString().slice(0, 10)
+        : day || new Date(canonicalTs * 1000).toISOString().slice(0, 10);
       for (const violation of violations) {
         const stmt = this.env.DB.prepare(`
           INSERT INTO criminal_violations (
             chat_id, message_id, user_id, article, subarticle, article_title, quote, punishment, 
             severity, confidence, text_preview, decision, evidence_json, target_message_id,
-            context_before, context_after, context_total_messages, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            context_before, context_after, context_total_messages, created_at, violation_day, violation_ts
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime(?, 'unixepoch'), ?, ?)
         `);
         const textPreview = storePreview && text ? text.substring(0, previewLength) : null;
         const contextWindow = violation.contextWindow;
@@ -2448,7 +2573,10 @@ export class CriminalCodeAnalyzerDO {
           violation.targetMessageId || messageId || null,
           contextWindow?.before ?? null,
           contextWindow?.after ?? null,
-          contextWindow?.totalMessages ?? null
+          contextWindow?.totalMessages ?? null,
+          canonicalTs,
+          canonicalDay,
+          canonicalTs
         ).run();
       }
 
@@ -2467,7 +2595,9 @@ export class CriminalCodeAnalyzerDO {
             username: username || 'unknown',
             day: dayToUse,
             violations,
-            totalSeverity
+            totalSeverity,
+            sequence,
+            messageId,
           };
 
           const response = await counters.fetch('https://do/criminal', {
@@ -2477,15 +2607,33 @@ export class CriminalCodeAnalyzerDO {
           });
 
           if (!response.ok) {
-            console.error('❌ Failed to update criminal counters:', await response.text());
+            console.error('Criminal counters update rejected', {
+              op: 'criminalCounters',
+              status: response.status,
+            });
+            // Counters increment is the criminal completed signal; a non-OK
+            // response means aggregate/progress resolution is absent, so the
+            // failure must surface as a failed ack, never implicit completion.
+            throw new Error(`Criminal counters update rejected with status: ${response.status}`);
           }
         } catch (error: any) {
-          console.error('❌ Error updating criminal counters:', error);
+          console.error('Criminal counters update failed', {
+            op: 'criminalCounters',
+            errorClass: 'Error',
+          });
+          // Counters increment is the criminal completed signal; its failure
+          // must surface as a failed ack, never as implicit completion.
+          throw error;
         }
       }
     } catch (error: any) {
-      console.error('❌ Error storing violations:', error);
-      // Don't throw - storage failure shouldn't break analysis
+      console.error('Criminal violation persistence failed', {
+        op: 'storeViolations',
+        errorClass: 'Error',
+      });
+      // Rethrow so flushQueue's failed-ack branch runs: a persistence failure
+      // must never be acknowledged as a completed/zero criminal outcome.
+      throw error;
     }
   }
 
@@ -2495,7 +2643,10 @@ export class CriminalCodeAnalyzerDO {
       // This method can be extended for additional statistics logic
       console.log(`📊 Statistics updated for ${result.violations.length} violations`);
     } catch (error: any) {
-      console.error('❌ Error updating statistics:', error);
+      console.error('❌ Error updating statistics', {
+        op: 'updateStatistics',
+        errorClass: safeErrorClass(error),
+      });
     }
   }
 

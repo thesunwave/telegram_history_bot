@@ -1,4 +1,11 @@
 import type { D1Database, D1PreparedStatement, D1Result } from '@cloudflare/workers-types';
+import {
+  progressAcceptBaseStatement,
+  progressAcceptPendingStatement,
+  progressResolveStatement,
+  type ProgressCategory,
+  type ProgressCounts,
+} from './pipeline-progress';
 
 /**
  * Best-effort dual-write of daily D1 aggregates from serialized CountersDO
@@ -33,6 +40,17 @@ export interface ActivityAggregateWrite {
   videoNoteDurationSeconds?: number;
   /** Message timestamp (epoch seconds); absent → last_message_ts stays untouched/0. */
   ts?: number;
+  /** Day-local monotonic sequence allocated by CountersDO; present → progress rows written. */
+  sequence?: number;
+  /** Max timestamp observed for completed base work (defaults to `ts`). */
+  completedThroughTs?: number;
+}
+
+/** Authoritative resolve values computed by CountersDO for a category ack. */
+export interface ProgressResolveInput {
+  acceptedSeq: number;
+  counts: ProgressCounts;
+  completedThroughTs: number;
 }
 
 export interface ProfanityAggregateWrite {
@@ -44,6 +62,8 @@ export interface ProfanityAggregateWrite {
   count: number;
   /** Already-normalized, aggregated words with per-word counts. */
   words: Array<{ word: string; count: number }>;
+  /** Present → the write also acks the category as completed. */
+  progress?: ProgressResolveInput;
 }
 
 export interface CriminalAggregateWrite {
@@ -55,6 +75,8 @@ export interface CriminalAggregateWrite {
   violationCount: number;
   /** Total severity coming from the payload. */
   totalSeverity: number;
+  /** Present → the write also acks the category as completed. */
+  progress?: ProgressResolveInput;
 }
 
 /**
@@ -150,7 +172,9 @@ const PROFANITY_WORD_USER_UPSERT = `
  * Live coverage upsert. Statuses only ever upgrade to 'live' (never reset to
  * 'none' for a category already live-written). Source is always 'live'; no fake
  * 'complete' status is ever written, so historical days stay ineligible for the
- * Phase 3 D1 read path until backfill + parity mark them complete.
+ * Phase 3 D1 read path until backfill + parity mark them complete. Taking
+ * ownership also clears any backfill-only provenance reason_code: the reason
+ * applies solely to backfill reasoning and is stale once live owns the day.
  */
 const COVERAGE_UPSERT = `
   INSERT INTO stats_daily_coverage
@@ -161,6 +185,7 @@ const COVERAGE_UPSERT = `
     profanity_status = CASE WHEN excluded.profanity_status = 'live' THEN 'live' ELSE profanity_status END,
     criminal_status = CASE WHEN excluded.criminal_status = 'live' THEN 'live' ELSE criminal_status END,
     source = 'live',
+    reason_code = NULL,
     updated_at = excluded.updated_at
 `;
 
@@ -214,8 +239,37 @@ function coverageStatement(
   return db.prepare(COVERAGE_UPSERT).bind(chatId, day, baseStatus, profanityStatus, criminalStatus, nowSec);
 }
 
+/**
+ * D1 `db.batch()` resolves with `D1Result[]` even when a statement inside
+ * failed: per-statement failures surface as a per-result `error` field instead
+ * of a rejection (whole-batch failures still reject). Any such failure makes
+ * the aggregate batch unsafe, so the writer fails closed: it throws so the
+ * caller's existing integrity-failure handling poisons the stream instead of
+ * confirming progress. Privacy: the throw carries only a fixed generic message
+ * — never the D1 error payload, which can embed fragments of the failed SQL.
+ */
+function assertAggregateBatchSuccess(
+  statements: D1PreparedStatement[],
+  results: D1Result<unknown>[],
+): void {
+  if (results.length !== statements.length) {
+    throw new Error('d1 aggregate batch returned incomplete results');
+  }
+  for (const result of results) {
+    if (result === null || result === undefined) {
+      throw new Error('d1 aggregate batch statement failed');
+    }
+    if (
+      (result as unknown as { error?: unknown }).error !== undefined ||
+      (result as unknown as { success?: boolean }).success === false
+    ) {
+      throw new Error('d1 aggregate batch statement failed');
+    }
+  }
+}
+
 /** Base message aggregate batch: exactly one D1 batch invocation per call. */
-export function writeActivityAggregates(
+export async function writeActivityAggregates(
   db: D1Database,
   input: ActivityAggregateWrite,
 ): Promise<D1Result<unknown>[]> {
@@ -270,11 +324,25 @@ export function writeActivityAggregates(
   // performs exactly one D1 batch invocation in total.
   statements.push(db.prepare(ACTIVITY_LEGACY_UPSERT).bind(chatId, day));
 
-  return db.batch(statements);
+  // Pipeline progress in the same batch: base accepted+completed and both async
+  // categories accepted+pending. Only when the serialized allocator supplied a
+  // sequence (retries without a sequence never double-accept).
+  if (input.sequence !== undefined) {
+    const seq = input.sequence;
+    const throughTs = input.completedThroughTs ?? lastMessageTs;
+    const nowSec = unixSeconds();
+    statements.push(progressAcceptBaseStatement(db, chatId, day, seq, seq, throughTs, nowSec));
+    statements.push(progressAcceptPendingStatement(db, chatId, day, 'profanity', seq, nowSec));
+    statements.push(progressAcceptPendingStatement(db, chatId, day, 'criminal', seq, nowSec));
+  }
+
+  const results = await db.batch(statements);
+  assertAggregateBatchSuccess(statements, results);
+  return results;
 }
 
 /** Profanity aggregate batch: user total + per-word and per-word-user counts. */
-export function writeProfanityAggregates(
+export async function writeProfanityAggregates(
   db: D1Database,
   input: ProfanityAggregateWrite,
 ): Promise<D1Result<unknown>[]> {
@@ -297,11 +365,28 @@ export function writeProfanityAggregates(
     coverageStatement(db, chatId, day, COVERAGE_STATUS_NONE, COVERAGE_STATUS_LIVE, COVERAGE_STATUS_NONE, unixSeconds()),
   );
 
-  return db.batch(statements);
+  if (input.progress) {
+    statements.push(
+      progressResolveStatement(
+        db,
+        chatId,
+        day,
+        'profanity',
+        input.progress.acceptedSeq,
+        input.progress.counts,
+        input.progress.completedThroughTs,
+        unixSeconds(),
+      ),
+    );
+  }
+
+  const results = await db.batch(statements);
+  assertAggregateBatchSuccess(statements, results);
+  return results;
 }
 
 /** Criminal aggregate batch: violation count and total severity deltas. */
-export function writeCriminalAggregates(
+export async function writeCriminalAggregates(
   db: D1Database,
   input: CriminalAggregateWrite,
 ): Promise<D1Result<unknown>[]> {
@@ -316,7 +401,46 @@ export function writeCriminalAggregates(
     coverageStatement(db, chatId, day, COVERAGE_STATUS_NONE, COVERAGE_STATUS_NONE, COVERAGE_STATUS_LIVE, unixSeconds()),
   );
 
-  return db.batch(statements);
+  if (input.progress) {
+    statements.push(
+      progressResolveStatement(
+        db,
+        chatId,
+        day,
+        'criminal',
+        input.progress.acceptedSeq,
+        input.progress.counts,
+        input.progress.completedThroughTs,
+        unixSeconds(),
+      ),
+    );
+  }
+
+  const results = await db.batch(statements);
+  assertAggregateBatchSuccess(statements, results);
+  return results;
+}
+
+/**
+ * Ack-only progress write for zero/skipped/failed terminal branches: no
+ * aggregate or coverage mutation, exactly one D1 batch with the authoritative
+ * resolve values computed by CountersDO.
+ */
+export async function writeCategoryProgressResolve(
+  db: D1Database,
+  chatId: number,
+  day: string,
+  category: ProgressCategory,
+  acceptedSeq: number,
+  counts: ProgressCounts,
+  completedThroughTs: number,
+): Promise<D1Result<unknown>[]> {
+  const statements = [
+    progressResolveStatement(db, chatId, day, category, acceptedSeq, counts, completedThroughTs, unixSeconds()),
+  ];
+  const results = await db.batch(statements);
+  assertAggregateBatchSuccess(statements, results);
+  return results;
 }
 
 /**

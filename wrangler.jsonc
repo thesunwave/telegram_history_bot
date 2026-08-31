@@ -211,15 +211,6 @@
   "triggers": {
     "crons": [
       "59 23 * * *",
-      // Phase 3a backfill cron removed as part of the v2 barrier deploy. The
-      // temporary `*/2 * * * *` trigger is removed here so that, once the
-      // worker is deployed and Cloudflare propagates the new config, no new v1
-      // backfill invocations can start and the drain window opens. Re-add only
-      // when an explicit v2 backfill run is needed (see
-      // docs/features/admin-stats-d1-optimization.md,
-      // "Phase 3b: Temporary Cron Removal" and "v2 Barrier Release"). Keep
-      // `src/index.ts` BACKFILL_CRON dispatch intact so re-enabling the cron
-      // immediately restores the backfill handler without redeploy.
     ],
   },
   "analytics_engine_datasets": [
