@@ -749,8 +749,10 @@ function mapAdminChatStatsFromD1Results(
         range.days.reduce((sum, day) => sum + (dayRows.get(day)?.active ?? 0), 0) / dayCount,
       ),
       averageHourlyMessages: round2(total / (dayCount * HOURS_PER_DAY)),
-      topUsers: topUsers.map(mapUser),
-      topTalkers: topTalkers.map(mapUser),
+      // Wrap mapUser so Array.map never supplies its callback index as the
+      // count argument (previously rank indexes leaked into `count`).
+      topUsers: topUsers.map((user) => mapUser(user)),
+      topTalkers: topTalkers.map((user) => mapUser(user)),
       topVoiceUsers: topVoiceUsers.map(mapUser),
       topVideoNoteUsers: topVideoNoteUsers.map(mapUser),
       dailyMessages: range.days.map((day) => ({ day, count: dayRows.get(day)?.count ?? 0 })),

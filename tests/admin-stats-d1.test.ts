@@ -515,6 +515,10 @@ describe('D1 admin stats reader', () => {
     ]);
 
     expect(activity.topUsers.map((u) => u.userId)).toEqual(['100', '200']);
+    // Aggregated message totals, not Array.map rank indexes (user 100: 5+3=8,
+    // user 200: 1+0=1; topTalkers keeps the same order by word_count 70 vs 3).
+    expect(activity.topUsers.map((u) => u.count)).toEqual([8, 1]);
+    expect(activity.topTalkers.map((u) => u.count)).toEqual([8, 1]);
     expect(activity.topUsers[0].wordsPerMessage).toBe(8.8);
     expect(activity.topUsers[0].voiceMinutes).toBe(4);
     expect(activity.topUsers[0].activeDays).toBe(2);
