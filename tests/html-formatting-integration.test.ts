@@ -1,13 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { htmlFormatting, HTMLBuilder, getSeverityEmoji, escapeHtml } from '../src/core/html-formatting';
+import { HTMLBuilder, getSeverityEmoji, createSection, createListItem } from '../src/core/html-formatting';
 
 describe('HTML Formatting Integration', () => {
-  it('should provide all components through main export', () => {
-    expect(htmlFormatting.builder).toBeInstanceOf(HTMLBuilder);
-    expect(htmlFormatting.utils.getSeverityEmoji).toBe(getSeverityEmoji);
-    expect(htmlFormatting.utils.escapeHtml).toBe(escapeHtml);
-  });
-
   it('should create a complete violation message using all components', () => {
     const builder = new HTMLBuilder();
     
@@ -35,15 +29,13 @@ describe('HTML Formatting Integration', () => {
   });
 
   it('should create formatted statistics using utilities', () => {
-    const { utils } = htmlFormatting;
-    
     const statsItems = [
-      utils.createListItem('Всего нарушений', 15, utils.getSeverityEmoji(7)),
-      utils.createListItem('Средняя серьезность', '6.2', utils.getSeverityEmoji(6)),
-      utils.createListItem('Последнее нарушение', 'Вчера')
+      createListItem('Всего нарушений', 15, getSeverityEmoji(7)),
+      createListItem('Средняя серьезность', '6.2', getSeverityEmoji(6)),
+      createListItem('Последнее нарушение', 'Вчера')
     ];
     
-    const statsMessage = utils.createSection('Статистика пользователя', statsItems.join('\n'));
+    const statsMessage = createSection('Статистика пользователя', statsItems.join('\n'));
     
     expect(statsMessage).toContain('<b>Статистика пользователя</b>');
     expect(statsMessage).toContain('🔴 <b>Всего нарушений:</b> 15');

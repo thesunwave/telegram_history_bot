@@ -35,29 +35,3 @@ export {
   createSection,
   createListItem
 } from '../html-utils';
-
-// Import for re-export
-import { htmlBuilder } from '../html-builder';
-import { 
-  getSeverityLevel,
-  getSeverityEmoji,
-  escapeHtml,
-  createSection,
-  createListItem
-} from '../html-utils';
-
-// Import MessageFormatter for re-export
-import { messageFormatter } from '../message-formatter';
-
-// Re-export for convenience
-export const htmlFormatting = {
-  builder: htmlBuilder,
-  formatter: messageFormatter,
-  utils: {
-    getSeverityLevel,
-    getSeverityEmoji,
-    escapeHtml,
-    createSection,
-    createListItem
-  }
-};
