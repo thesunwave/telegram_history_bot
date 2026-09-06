@@ -3,8 +3,6 @@
  * Supports Telegram's HTML formatting tags: <b>, <i>, <u>, <s>, <code>, <pre>
  */
 
-import { formatArticleForDisplay } from './html-utils';
-
 export interface IHTMLBuilder {
   bold(text: string): string;
   italic(text: string): string;
@@ -14,26 +12,6 @@ export interface IHTMLBuilder {
   preformatted(text: string): string;
   escapeHtml(text: string): string;
   getSeverityEmoji(severity: number): string;
-  buildViolationMessage(data: ViolationMessageData): string;
-  buildStatsMessage(data: StatsMessageData): string;
-}
-
-export interface ViolationMessageData {
-  article: string;
-  quote: string;
-  punishment: string;
-  severity: number;
-  confidence: number;
-}
-
-export interface StatsMessageData {
-  title: string;
-  items: Array<{
-    label: string;
-    value: string | number;
-    severity?: number;
-  }>;
-  footer?: string;
 }
 
 export class HTMLBuilder implements IHTMLBuilder {
@@ -107,55 +85,6 @@ export class HTMLBuilder implements IHTMLBuilder {
     if (severity <= 3) return '🟢';
     if (severity <= 6) return '🟡';
     return '🔴';
-  }
-
-  /**
-   * Builds a formatted violation message with HTML markup
-   */
-  buildViolationMessage(data: ViolationMessageData): string {
-    const { article, quote, punishment, severity, confidence } = data;
-    
-    const severityEmoji = this.getSeverityEmoji(severity);
-    const confidenceWarning = confidence < 0.7 ? 
-      '\n⚠️ ' + this.italic('Низкий уровень доверия к анализу') : '';
-    
-    return [
-      `${severityEmoji} ${this.bold(formatArticleForDisplay(article))}`,
-      '',
-      this.bold('Цитата:'),
-      this.italic(`"${quote}"`),
-      '',
-      this.bold('Наказание:'),
-      punishment,
-      '',
-      `${this.bold('Серьезность:')} ${severity}/10`,
-      `${this.bold('Уровень доверия:')} ${Math.round(confidence * 100)}%`,
-      confidenceWarning
-    ].filter(line => line !== undefined).join('\n');
-  }
-
-  /**
-   * Builds a formatted statistics message with HTML markup
-   */
-  buildStatsMessage(data: StatsMessageData): string {
-    const { title, items, footer } = data;
-    
-    const lines = [
-      this.bold(title),
-      ''
-    ];
-    
-    items.forEach(item => {
-      const emoji = item.severity ? this.getSeverityEmoji(item.severity) : '';
-      const value = typeof item.value === 'number' ? item.value.toString() : item.value;
-      lines.push(`${emoji} ${this.bold(item.label)}: ${value}`);
-    });
-    
-    if (footer) {
-      lines.push('', footer);
-    }
-    
-    return lines.join('\n');
   }
 }
 
