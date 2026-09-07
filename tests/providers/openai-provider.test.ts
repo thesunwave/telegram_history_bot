@@ -1056,6 +1056,29 @@ describe('OpenAIProvider', () => {
       expect(truncationWarns).toHaveLength(1);
     });
 
+    it('threads content_filter finish_reason for filtered Responses API output', async () => {
+      const filteredContent = '{"hasViolations": false, "violations": []}';
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          status: 'incomplete',
+          incomplete_details: { reason: 'content_filter' },
+          output_text: filteredContent,
+          usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 }
+        })
+      });
+
+      const messages: ChatMessage[] = [{ role: 'user', content: 'analyze this' }];
+      const result = await (gpt5Provider as any).callOpenAI(
+        messages,
+        { maxTokens: 800 } as SummaryOptions,
+        false
+      );
+
+      expect(result.choices[0].message.content).toBe(filteredContent);
+      expect(result.choices[0].finish_reason).toBe('content_filter');
+    });
+
     // Non-regression — completed response: no truncation warn, finish_reason: 'stop'
     it('does not warn and threads finish_reason:stop when status is completed', async () => {
       const fullJson = '{"hasViolations": false, "violations": []}';

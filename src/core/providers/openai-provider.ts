@@ -494,7 +494,10 @@ export class OpenAIProvider implements AIProvider {
 
     if (useResponsesApi) {
       const content = this.extractResponsesContent(parsed);
-      const finishReason = parsed.status && parsed.status !== 'completed' ? 'length' : 'stop';
+      let finishReason = 'stop';
+      if (parsed.status === 'incomplete') {
+        finishReason = parsed.incomplete_details?.reason === 'content_filter' ? 'content_filter' : 'length';
+      }
       return {
         choices: [
           {
