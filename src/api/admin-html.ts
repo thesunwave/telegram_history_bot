@@ -2468,13 +2468,19 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           : 0;
         const liveBadge = provisional ? 'включая сегодня · live' : '';
         const pendingBadge = provisional && pendingAnalysis > 0
-          ? ' · анализ продолжается (' + pendingAnalysis + ')'
+          ? 'анализ продолжается (' + pendingAnalysis + ')'
           : '';
+        const statusLine = [
+          notificationsError
+            ? 'Статистика загружена · ' + servedRange
+            : 'Обновлено · период ' + servedRange,
+          liveBadge,
+          pendingBadge
+        ].filter(Boolean).join(' · ');
         setStatus(
           notificationsError
-            ? 'Статистика загружена · ' + servedRange + ' · ' + liveBadge +
-                pendingBadge + '. Настройки уведомлений временно недоступны.'
-            : 'Обновлено · период ' + servedRange + ' · ' + liveBadge + pendingBadge
+            ? statusLine + '. Настройки уведомлений временно недоступны.'
+            : statusLine
         );
       } catch (error) {
         finishDashboardLoading();
