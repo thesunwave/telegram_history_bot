@@ -147,28 +147,33 @@ export async function isTelegramUserInChat(
     return false;
   }
 
-  try {
-    const url = `https://api.telegram.org/bot${env.TOKEN}/getChatMember`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, user_id: userId }),
-    });
-    if (!response.ok) {
-      return false;
-    }
+  const url = `https://api.telegram.org/bot${env.TOKEN}/getChatMember`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, user_id: userId }),
+  });
+  if (!response.ok) {
+    throw new Error(`getChatMember HTTP ${response.status}`);
+  }
 
-    const payload = await response.json().catch(() => null) as any;
-    const status = payload?.result?.status;
-    return (
-      status === 'creator' ||
-      status === 'administrator' ||
-      status === 'member' ||
-      status === 'restricted'
-    );
-  } catch {
+  const payload = await response.json().catch(() => null) as any;
+  const status = payload?.result?.status;
+  if (payload?.ok !== true || typeof status !== 'string') {
+    throw new Error('getChatMember invalid response');
+  }
+
+  if (status === 'creator' || status === 'administrator' || status === 'member') {
+    return true;
+  }
+  if (status === 'restricted') {
+    return payload.result.is_member === true;
+  }
+  if (status === 'left' || status === 'kicked') {
     return false;
   }
+
+  throw new Error('getChatMember unknown status');
 }
 
 export async function isTelegramUserChatAdmin(
@@ -180,23 +185,30 @@ export async function isTelegramUserChatAdmin(
     return false;
   }
 
-  try {
-    const url = `https://api.telegram.org/bot${env.TOKEN}/getChatMember`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, user_id: userId }),
-    });
-    if (!response.ok) {
-      return false;
-    }
+  const url = `https://api.telegram.org/bot${env.TOKEN}/getChatMember`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, user_id: userId }),
+  });
+  if (!response.ok) {
+    throw new Error(`getChatMember HTTP ${response.status}`);
+  }
 
-    const payload = await response.json().catch(() => null) as any;
-    const status = payload?.result?.status;
-    return status === 'creator' || status === 'administrator';
-  } catch {
+  const payload = await response.json().catch(() => null) as any;
+  const status = payload?.result?.status;
+  if (payload?.ok !== true || typeof status !== 'string') {
+    throw new Error('getChatMember invalid response');
+  }
+
+  if (status === 'creator' || status === 'administrator') {
+    return true;
+  }
+  if (status === 'member' || status === 'restricted' || status === 'left' || status === 'kicked') {
     return false;
   }
+
+  throw new Error('getChatMember unknown status');
 }
 
 export async function listAdminChatsForTelegramUser(
