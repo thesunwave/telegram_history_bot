@@ -15,8 +15,10 @@
  * The fix reserves `false` for genuine membership verdicts (HTTP 200 with
  * `result.status` not in the allowed set) and throws on Telegram errors so
  * callers can distinguish "not a member" from "couldn't verify":
- *   - The listing caller keeps chats whose membership check is indeterminate;
- *     chat-scoped endpoints remain the authorization boundary and re-check access.
+ *   - The listing caller keeps metadata-backed chats whose membership check is
+ *     indeterminate, but counter-only fallback IDs still require positive
+ *     membership verification; chat-scoped endpoints remain the authorization
+ *     boundary and re-check access.
  *   - The admin access guards let the throw propagate to the admin error
  *     boundary in `src/index.ts`, which returns a 503 with a requestId.
  *   - The capability-flag caller (`handleNotificationGet`) and the webhook
@@ -361,6 +363,28 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
     const chats = await listAdminChatsForTelegramUser(env, 42);
 
     expect(chats.map((c) => c.title)).toEqual(['Member', 'Errored']);
+  });
+
+  it('omits an indeterminate counter-only fallback chat', async () => {
+    await env.COUNTERS.put('stats_v2:184486882:2026-09-01:42', '1');
+    mockGetChatMemberByChatId(() => errorResponse(429, 'Too Many Requests'));
+
+    const chats = await listAdminChatsForTelegramUser(env, 42);
+
+    expect(chats).toEqual([]);
+  });
+
+  it('keeps a counter-only fallback chat when membership is positively verified', async () => {
+    await env.COUNTERS.put('stats_v2:-1002860305983:2026-09-01:42', '1');
+    mockGetChatMemberByChatId(() => memberResponse());
+
+    const chats = await listAdminChatsForTelegramUser(env, 42);
+
+    expect(chats).toEqual([{
+      chatId: -1002860305983,
+      title: 'Chat -1002860305983',
+      lastSeenAt: 0,
+    }]);
   });
 
   it('returns an empty list when there are no stored chats', async () => {
