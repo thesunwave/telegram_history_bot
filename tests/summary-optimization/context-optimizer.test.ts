@@ -19,7 +19,8 @@ describe('ContextOptimizer', () => {
         minMessagesThreshold: 100,
         maxWorkers: 4,
         workerBatchSize: 25,
-        workerTimeout: 30000
+        workerTimeout: 30000,
+        minCoverageRatio: 0.5
       },
       contextManagement: {
         maxTokensPerRequest: 4000,

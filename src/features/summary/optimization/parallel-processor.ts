@@ -70,19 +70,44 @@ export class ParallelProcessor implements IDirectProcessor {
             });
 
             // Reduce phase: Aggregate results
-            const validResults = chunkResults.filter(r => r && r.trim().length > 0);
+            const survivorEntries = chunkResults
+                .map((result, index) => ({ result, index }))
+                .filter(entry => entry.result && entry.result.trim().length > 0);
+            const validResults = survivorEntries.map(entry => entry.result);
 
-            if (validResults.length === 0) {
+            const totalChunks = chunks.length;
+            const survivorChunks = validResults.length;
+            const coverageRatio = totalChunks > 0 ? survivorChunks / totalChunks : 0;
+            const coveredMessages = survivorEntries.reduce(
+                (sum, entry) => sum + chunks[entry.index].length,
+                0,
+            );
+
+            if (survivorChunks === 0) {
                 throw new Error('All parallel chunks failed to produce a summary');
             }
 
-            if (validResults.length === 1) {
+            const minCoverage = config.parallelProcessing.minCoverageRatio;
+            if (coverageRatio < minCoverage) {
+                throw new Error(
+                    `Parallel processor coverage collapsed: ${survivorChunks}/${totalChunks} chunks succeeded ` +
+                    `(~${coveredMessages}/${messages.length} messages); coverage ` +
+                    `${(coverageRatio * 100).toFixed(1)}% below minimum ${(minCoverage * 100).toFixed(1)}%.`
+                );
+            }
+
+            if (survivorChunks === 1) {
                 return validResults[0];
             }
 
             // Final aggregation
             const reduceStart = Date.now();
-            const finalSummary = await this.aggregateResults(validResults, env, context);
+            const finalSummary = await this.aggregateResults(validResults, env, context, {
+                survivorChunks,
+                totalChunks,
+                coveredMessages,
+                requestedMessages: messages.length,
+            });
             const reduceDuration = Date.now() - reduceStart;
 
             Logger.debug(env, 'ParallelProcessor: Reduce phase completed', {
@@ -182,7 +207,13 @@ export class ParallelProcessor implements IDirectProcessor {
     private async aggregateResults(
         summaries: string[],
         env: Env,
-        context?: SummaryContext
+        context: SummaryContext | undefined,
+        coverage: {
+            survivorChunks: number;
+            totalChunks: number;
+            coveredMessages: number;
+            requestedMessages: number;
+        },
     ): Promise<string> {
         const provider = ProviderFactory.createProvider(env, 'summary');
 
@@ -195,13 +226,26 @@ export class ParallelProcessor implements IDirectProcessor {
             ? `Чат ${context.chatId}` // simplified for log id
             : 'Чат';
 
-        const systemPrompt = `Ты главный редактор. Твоя задача — объединить несколько частичных сводок одного и того же чата (за разные временные промежутки) в одну связную, логичную и полную итоговую сводку.
-Убери повторы, объедини связанные темы и хронологию. Итоговый текст должен читаться как единый документ, а не набор разрозненных частей.`;
+        const { survivorChunks, totalChunks, coveredMessages, requestedMessages } = coverage;
+        const isPartial = survivorChunks < totalChunks;
+        const coverageLine =
+            `ℹ️ Покрытие: ${survivorChunks}/${totalChunks} частичных сводок ` +
+            `(~${coveredMessages} из ${requestedMessages} сообщений).` +
+            (isPartial
+                ? ' Покрытие неполное — часть сообщений не учтена. Обязательно начни итоговую сводку с короткой пометки о неполном покрытии.'
+                : '');
 
-        const userPrompt = `Вот частичные сводки сообщений из чата "${chatTitle}".
-Объедини их в одну структурированную итоговую сводку.
+        const systemPrompt =
+            `Ты главный редактор. Твоя задача — объединить несколько частичных сводок одного и того же чата (за разные временные промежутки) в одну связную, логичную и полную итоговую сводку.\n` +
+            `Убери повторы, объедини связанные темы и хронологию. Итоговый текст должен читаться как единый документ, а не набор разрозненных частей.` +
+            (isPartial
+                ? '\n\nВНИМАНИЕ: доступны не все частичные сводки — покрытие чата неполное. Обязательно начни итоговую сводку с короткой пометки о неполном покрытии, чтобы читатель понимал, что охвачена лишь часть переписки.'
+                : '');
 
-${combinedText}`;
+        const userPrompt =
+            `Вот частичные сводки сообщений из чата "${chatTitle}".\n` +
+            `Объедини их в одну структурированную итоговую сводку.\n\n` +
+            `${coverageLine}\n\n${combinedText}`;
 
         const request: SummaryRequest = {
             messages: [], // Content is in userPrompt
