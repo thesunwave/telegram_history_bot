@@ -15,8 +15,8 @@
  * The fix reserves `false` for genuine membership verdicts (HTTP 200 with
  * `result.status` not in the allowed set) and throws on Telegram errors so
  * callers can distinguish "not a member" from "couldn't verify":
- *   - The listing caller skips only chats whose membership check is
- *     indeterminate, so one failure cannot break the entire list.
+ *   - The listing caller keeps chats whose membership check is indeterminate;
+ *     chat-scoped endpoints remain the authorization boundary and re-check access.
  *   - The admin access guards let the throw propagate to the admin error
  *     boundary in `src/index.ts`, which returns a 503 with a requestId.
  *   - The capability-flag caller (`handleNotificationGet`) and the webhook
@@ -104,6 +104,21 @@ function errorResponse(status: number, description = 'error'): Response {
     JSON.stringify({ ok: false, description }),
     { status, headers: { 'Content-Type': 'application/json' } },
   );
+}
+
+function makeEmptyD1() {
+  return {
+    prepare: vi.fn(() => ({
+      bind: vi.fn(() => ({
+        all: vi.fn(async () => ({ results: [] })),
+        first: vi.fn(async () => null),
+        run: vi.fn(async () => ({ success: true })),
+      })),
+    })),
+    batch: vi.fn(async (statements: unknown[]) =>
+      Array.from({ length: statements.length }, () => ({ results: [] })),
+    ),
+  } as any;
 }
 
 async function saveChat(chatId: number, title: string, lastSeenAt = 10): Promise<void> {
@@ -270,7 +285,7 @@ describe('isTelegramUserChatAdmin — Telegram errors now propagate (bug fix)', 
 });
 
 describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (symptom A fix)', () => {
-  it('skips only the chat whose membership check returns 429', async () => {
+  it('keeps the chat whose membership check returns 429', async () => {
     await saveChat(-1001, 'Group One', 10);
     await saveChat(-1002, 'Group Two', 20);
     mockGetChatMemberByChatId((chatId) =>
@@ -279,10 +294,10 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
 
-    expect(chats.map((c) => c.title)).toEqual(['Group One']);
+    expect(chats.map((c) => c.title)).toEqual(['Group Two', 'Group One']);
   });
 
-  it('skips only the chat whose membership check returns 5xx', async () => {
+  it('keeps the chat whose membership check returns 5xx', async () => {
     await saveChat(-1001, 'Group One', 10);
     await saveChat(-1002, 'Group Two', 20);
     mockGetChatMemberByChatId((chatId) =>
@@ -291,10 +306,10 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
 
-    expect(chats.map((c) => c.title)).toEqual(['Group One']);
+    expect(chats.map((c) => c.title)).toEqual(['Group Two', 'Group One']);
   });
 
-  it('skips only the chat whose membership check throws a network error', async () => {
+  it('keeps the chat whose membership check throws a network error', async () => {
     await saveChat(-1001, 'Group One', 10);
     await saveChat(-1002, 'Group Two', 20);
     vi.spyOn(global, 'fetch').mockImplementation(async (input: any, init?: any) => {
@@ -308,17 +323,17 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
 
-    expect(chats.map((c) => c.title)).toEqual(['Group One']);
+    expect(chats.map((c) => c.title)).toEqual(['Group Two', 'Group One']);
   });
 
-  it('still rejects when every membership check is indeterminate', async () => {
+  it('keeps all chats when every membership check is indeterminate', async () => {
     await saveChat(-1001, 'Group One', 20);
     await saveChat(-1002, 'Group Two', 10);
     mockGetChatMemberByChatId(() => errorResponse(429, 'Too Many Requests'));
 
-    await expect(listAdminChatsForTelegramUser(env, 42)).rejects.toThrow(
-      /getChatMember HTTP 429/,
-    );
+    const chats = await listAdminChatsForTelegramUser(env, 42);
+
+    expect(chats.map((c) => c.title)).toEqual(['Group One', 'Group Two']);
   });
 
   it('still filters out chats on genuine non-membership', async () => {
@@ -333,7 +348,7 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
     expect(chats.map((c) => c.title)).toEqual(['Allowed']);
   });
 
-  it('mixed outcome keeps only confirmed members', async () => {
+  it('mixed outcome keeps confirmed and indeterminate chats but filters non-members', async () => {
     await saveChat(-1001, 'Member', 30);
     await saveChat(-1002, 'Errored', 20);
     await saveChat(-1003, 'Left', 10);
@@ -345,7 +360,7 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
 
-    expect(chats.map((c) => c.title)).toEqual(['Member']);
+    expect(chats.map((c) => c.title)).toEqual(['Member', 'Errored']);
   });
 
   it('returns an empty list when there are no stored chats', async () => {
@@ -356,7 +371,7 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
 });
 
 describe('/admin/api/chats — one Telegram failure does not break the whole list', () => {
-  it('returns 200 with verified chats so the dashboard can continue loading', async () => {
+  it('returns 200 with verified and indeterminate chats so the dashboard can continue loading', async () => {
     await saveChat(-1001, 'Working Group', 20);
     await saveChat(-1002, 'Temporarily Unverifiable', 10);
     mockGetChatMemberByChatId((chatId) =>
@@ -374,7 +389,57 @@ describe('/admin/api/chats — one Telegram failure does not break the whole lis
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as any;
-    expect(body.chats.map((chat: any) => chat.title)).toEqual(['Working Group']);
+    expect(body.chats.map((chat: any) => chat.title)).toEqual([
+      'Working Group',
+      'Temporarily Unverifiable',
+    ]);
+  });
+
+  it('allows stats loading when only the listing membership check is transiently unavailable', async () => {
+    const chatId = -1001;
+    await saveChat(chatId, 'Working Group', 20);
+
+    let getChatMemberCalls = 0;
+    vi.spyOn(global, 'fetch').mockImplementation(async (input: any) => {
+      if (String(input).includes('/getChatMember')) {
+        getChatMemberCalls += 1;
+        return getChatMemberCalls === 1
+          ? errorResponse(429, 'Too Many Requests')
+          : memberResponse();
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    const cookie = await adminSessionCookie();
+    const chatsResponse = await worker.fetch(
+      new Request('http://localhost/admin/api/chats', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+      ctx,
+    );
+
+    expect(chatsResponse.status).toBe(200);
+    const chatsBody = (await chatsResponse.json()) as any;
+    expect(chatsBody.chats.map((chat: any) => chat.title)).toEqual(['Working Group']);
+
+    env.DB = makeEmptyD1();
+    const day = new Date();
+    day.setUTCDate(day.getUTCDate() - 1);
+    const dayStr = day.toISOString().slice(0, 10);
+    const statsResponse = await worker.fetch(
+      new Request(
+        `http://localhost/admin/api/chat?chatId=${chatId}&period=custom&from=${dayStr}&to=${dayStr}`,
+        { headers: { Cookie: cookie } },
+      ),
+      env,
+      ctx,
+    );
+
+    expect(statsResponse.status).toBe(200);
+    const statsBody = (await statsResponse.json()) as any;
+    expect(statsBody.chatId).toBe(chatId);
+    expect(getChatMemberCalls).toBe(2);
   });
 });
 

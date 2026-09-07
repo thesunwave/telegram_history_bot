@@ -224,28 +224,21 @@ export async function listAdminChatsForTelegramUser(
   );
 
   const allowedChats: AdminChatMeta[] = [];
-  let firstError: unknown;
-  let hasMembershipVerdict = false;
 
   checks.forEach((check, index) => {
     if (check.status === 'rejected') {
-      firstError ??= check.reason;
       Logger.warn('Failed to verify admin chat membership while listing chats', {
         chatId: chats[index].chatId,
         error: check.reason instanceof Error ? check.reason.message : String(check.reason),
       });
+      allowedChats.push(chats[index]);
       return;
     }
 
-    hasMembershipVerdict = true;
     if (check.value.allowed) {
       allowedChats.push(check.value.chat);
     }
   });
-
-  if (!hasMembershipVerdict && firstError !== undefined) {
-    throw firstError;
-  }
 
   return allowedChats;
 }
