@@ -147,28 +147,24 @@ export async function isTelegramUserInChat(
     return false;
   }
 
-  try {
-    const url = `https://api.telegram.org/bot${env.TOKEN}/getChatMember`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, user_id: userId }),
-    });
-    if (!response.ok) {
-      return false;
-    }
-
-    const payload = await response.json().catch(() => null) as any;
-    const status = payload?.result?.status;
-    return (
-      status === 'creator' ||
-      status === 'administrator' ||
-      status === 'member' ||
-      status === 'restricted'
-    );
-  } catch {
-    return false;
+  const url = `https://api.telegram.org/bot${env.TOKEN}/getChatMember`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, user_id: userId }),
+  });
+  if (!response.ok) {
+    throw new Error(`getChatMember HTTP ${response.status}`);
   }
+
+  const payload = await response.json().catch(() => null) as any;
+  const status = payload?.result?.status;
+  return (
+    status === 'creator' ||
+    status === 'administrator' ||
+    status === 'member' ||
+    status === 'restricted'
+  );
 }
 
 export async function isTelegramUserChatAdmin(
@@ -180,23 +176,19 @@ export async function isTelegramUserChatAdmin(
     return false;
   }
 
-  try {
-    const url = `https://api.telegram.org/bot${env.TOKEN}/getChatMember`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, user_id: userId }),
-    });
-    if (!response.ok) {
-      return false;
-    }
-
-    const payload = await response.json().catch(() => null) as any;
-    const status = payload?.result?.status;
-    return status === 'creator' || status === 'administrator';
-  } catch {
-    return false;
+  const url = `https://api.telegram.org/bot${env.TOKEN}/getChatMember`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, user_id: userId }),
+  });
+  if (!response.ok) {
+    throw new Error(`getChatMember HTTP ${response.status}`);
   }
+
+  const payload = await response.json().catch(() => null) as any;
+  const status = payload?.result?.status;
+  return status === 'creator' || status === 'administrator';
 }
 
 export async function listAdminChatsForTelegramUser(
@@ -204,12 +196,14 @@ export async function listAdminChatsForTelegramUser(
   userId: number,
 ): Promise<AdminChatMeta[]> {
   const chats = await listAdminChats(env);
-  const checks = await Promise.all(
-    chats.map(async (chat) => ({
-      chat,
-      allowed: await isTelegramUserInChat(env, chat.chatId, userId),
-    })),
+  const results = await Promise.allSettled(
+    chats.map((chat) => isTelegramUserInChat(env, chat.chatId, userId)),
   );
 
-  return checks.filter(({ allowed }) => allowed).map(({ chat }) => chat);
+  return chats.filter((_, i) => {
+    const result = results[i];
+    return (
+      result.status === 'rejected' || (result.status === 'fulfilled' && result.value)
+    );
+  });
 }

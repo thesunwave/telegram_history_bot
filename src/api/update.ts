@@ -789,7 +789,11 @@ async function canEditAutoNotifications(env: Env, chatId: number, userId: string
     return false;
   }
 
-  return await isTelegramUserChatAdmin(env, chatId, numericUserId);
+  try {
+    return await isTelegramUserChatAdmin(env, chatId, numericUserId);
+  } catch {
+    return false;
+  }
 }
 
 /**
