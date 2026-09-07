@@ -3,7 +3,7 @@
  * Тестируют работу с базой данных D1
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ViolationRepository } from '../../src/core/repositories/violation-repository';
 import type { Env } from '../../src/core/env';
 import type { Violation } from '../../src/core/models/statistics';
@@ -219,6 +219,98 @@ describe('ViolationRepository Integration Tests', () => {
       expect(result.violationsByArticle).toHaveLength(0);
       expect(result.mostCommonViolation).toBeUndefined();
       expect(result.lastViolationDate).toBeUndefined();
+    });
+  });
+
+  describe('getUserStats() with period', () => {
+    const fixedNow = new Date('2026-09-07T00:00:00Z');
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(fixedNow);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('должен добавить фильтр violation_day >= ? для week и биндить startStr (today - WEEK_DAYS)', async () => {
+      mockStmt.first.mockResolvedValueOnce({
+        total_violations: 7,
+        average_severity: 5.0,
+        last_violation_date: '2026-09-01T00:00:00Z'
+      });
+      mockStmt.all.mockResolvedValueOnce({ results: [] });
+
+      const result = await repository.getUserStats('12345', '-1001234567890', 'week');
+
+      const periodQueries = mockDB.prepare.mock.calls
+        .map((c: any) => c[0] as string)
+        .filter((q: string) => q.includes('criminal_violations') && q.includes('violation_day >= ?'));
+      expect(periodQueries.length).toBe(2); // aggregate + GROUP BY
+
+      expect(mockStmt.bind).toHaveBeenCalledWith(12345, -1001234567890, '2026-09-01');
+      expect(result.totalViolations).toBe(7);
+    });
+
+    it('должен биндить today startStr = текущий день', async () => {
+      mockStmt.first.mockResolvedValueOnce({
+        total_violations: 3,
+        average_severity: 5.0,
+        last_violation_date: '2026-09-07T00:00:00Z'
+      });
+      mockStmt.all.mockResolvedValueOnce({ results: [] });
+
+      await repository.getUserStats('12345', '-1001234567890', 'today');
+
+      expect(mockStmt.bind).toHaveBeenCalledWith(12345, -1001234567890, '2026-09-07');
+    });
+
+    it('должен биндить month startStr = today - MONTH_DAYS', async () => {
+      mockStmt.first.mockResolvedValueOnce({
+        total_violations: 30,
+        average_severity: 5.0,
+        last_violation_date: '2026-08-15T00:00:00Z'
+      });
+      mockStmt.all.mockResolvedValueOnce({ results: [] });
+
+      await repository.getUserStats('12345', '-1001234567890', 'month');
+
+      expect(mockStmt.bind).toHaveBeenCalledWith(12345, -1001234567890, '2026-08-11');
+    });
+
+    it('не должен добавлять фильтр для невалидного периода (all-time)', async () => {
+      mockStmt.first.mockResolvedValueOnce({
+        total_violations: 999,
+        average_severity: 5.0,
+        last_violation_date: '2026-09-07T00:00:00Z'
+      });
+      mockStmt.all.mockResolvedValueOnce({ results: [] });
+
+      await repository.getUserStats('12345', '-1001234567890', 'foobar');
+
+      const periodQueries = mockDB.prepare.mock.calls
+        .map((c: any) => c[0] as string)
+        .filter((q: string) => q.includes('criminal_violations') && q.includes('violation_day >= ?'));
+      expect(periodQueries.length).toBe(0);
+      expect(mockStmt.bind).toHaveBeenCalledWith(12345, -1001234567890);
+    });
+
+    it('не должен добавлять фильтр без period (обратная совместимость)', async () => {
+      mockStmt.first.mockResolvedValueOnce({
+        total_violations: 999,
+        average_severity: 5.0,
+        last_violation_date: '2026-09-07T00:00:00Z'
+      });
+      mockStmt.all.mockResolvedValueOnce({ results: [] });
+
+      await repository.getUserStats('12345', '-1001234567890');
+
+      const periodQueries = mockDB.prepare.mock.calls
+        .map((c: any) => c[0] as string)
+        .filter((q: string) => q.includes('criminal_violations') && q.includes('violation_day >= ?'));
+      expect(periodQueries.length).toBe(0);
+      expect(mockStmt.bind).toHaveBeenCalledWith(12345, -1001234567890);
     });
   });
 
