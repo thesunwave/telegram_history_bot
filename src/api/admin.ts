@@ -2,6 +2,7 @@ import type { Env } from '../core/env';
 import { NotificationService } from '../core/services/notification-service';
 import { NotificationRepository } from '../core/repositories/notification-repository';
 import type { NotificationType } from '../core/models/notification-settings';
+import { NotificationValidationUtils } from '../core/models/notification-validation';
 import {
   authenticateAdmin,
   authenticateTelegramSession,
@@ -208,8 +209,8 @@ async function handleNotificationPost(
       : `admin-basic:${principal.username}`;
   const updatedByName = formatPrincipalName(principal);
   const currentSettings =
-    (await service.getChatSettings(String(chatId))) ||
-    (await service.resetChatSettings(String(chatId), updatedBy));
+    (await service.getChatSettings(String(chatId))) ??
+    NotificationValidationUtils.createDefaultChatSettings(String(chatId), updatedBy);
 
   const nextSettings = {
     ...currentSettings,
