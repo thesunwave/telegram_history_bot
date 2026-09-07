@@ -110,32 +110,44 @@ async function listCounterChatIds(env: Env): Promise<Set<number>> {
   return chatIds;
 }
 
-export async function listAdminChats(env: Env): Promise<AdminChatMeta[]> {
+interface AdminChatCandidate {
+  chat: AdminChatMeta;
+  hasStoredMeta: boolean;
+}
+
+async function listAdminChatCandidates(env: Env): Promise<AdminChatCandidate[]> {
   const storedChats = await listStoredChatMeta(env);
-  const byId = new Map<number, AdminChatMeta>();
+  const byId = new Map<number, AdminChatCandidate>();
 
   for (const chat of storedChats) {
-    byId.set(chat.chatId, chat);
+    byId.set(chat.chatId, { chat, hasStoredMeta: true });
   }
 
   const counterChatIds = await listCounterChatIds(env);
   for (const chatId of counterChatIds) {
     if (!byId.has(chatId)) {
       byId.set(chatId, {
-        chatId,
-        title: `Chat ${chatId}`,
-        lastSeenAt: 0,
+        chat: {
+          chatId,
+          title: `Chat ${chatId}`,
+          lastSeenAt: 0,
+        },
+        hasStoredMeta: false,
       });
     }
   }
 
   return [...byId.values()].sort((a, b) => {
-    if (b.lastSeenAt !== a.lastSeenAt) {
-      return b.lastSeenAt - a.lastSeenAt;
+    if (b.chat.lastSeenAt !== a.chat.lastSeenAt) {
+      return b.chat.lastSeenAt - a.chat.lastSeenAt;
     }
 
-    return a.title.localeCompare(b.title);
+    return a.chat.title.localeCompare(b.chat.title);
   });
+}
+
+export async function listAdminChats(env: Env): Promise<AdminChatMeta[]> {
+  return (await listAdminChatCandidates(env)).map(({ chat }) => chat);
 }
 
 export async function isTelegramUserInChat(
@@ -215,11 +227,11 @@ export async function listAdminChatsForTelegramUser(
   env: Env,
   userId: number,
 ): Promise<AdminChatMeta[]> {
-  const chats = await listAdminChats(env);
+  const candidates = await listAdminChatCandidates(env);
   const checks = await Promise.allSettled(
-    chats.map(async (chat) => ({
-      chat,
-      allowed: await isTelegramUserInChat(env, chat.chatId, userId),
+    candidates.map(async (candidate) => ({
+      candidate,
+      allowed: await isTelegramUserInChat(env, candidate.chat.chatId, userId),
     })),
   );
 
@@ -227,16 +239,19 @@ export async function listAdminChatsForTelegramUser(
 
   checks.forEach((check, index) => {
     if (check.status === 'rejected') {
+      const candidate = candidates[index];
       Logger.warn('Failed to verify admin chat membership while listing chats', {
-        chatId: chats[index].chatId,
+        chatId: candidate.chat.chatId,
         error: check.reason instanceof Error ? check.reason.message : String(check.reason),
       });
-      allowedChats.push(chats[index]);
+      if (candidate.hasStoredMeta) {
+        allowedChats.push(candidate.chat);
+      }
       return;
     }
 
     if (check.value.allowed) {
-      allowedChats.push(check.value.chat);
+      allowedChats.push(check.value.candidate.chat);
     }
   });
 
