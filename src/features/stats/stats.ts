@@ -1182,7 +1182,7 @@ export async function profanityTopUsers(
     return await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
   }
 
-  const limit = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
+  const limit = Number.isFinite(count) ? Math.min(Math.max(count, 1), 20) : 10; // Limit between 1 and 20
 
   try {
     const topUsers = await getTopProfanityUsers(env, chatId, limit, period);
@@ -1224,7 +1224,7 @@ export async function profanityWordsStats(
     return await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
   }
 
-  const limit = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
+  const limit = Number.isFinite(count) ? Math.min(Math.max(count, 1), 20) : 10; // Limit between 1 and 20
 
   try {
     const topWords = await getTopProfanityWords(env, chatId, limit, period);
