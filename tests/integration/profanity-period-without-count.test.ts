@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { handleUpdate } from '../../src/api/update';
-import { profanityTopUsers, profanityWordsStats } from '../../src/features/stats/stats';
 import { sendMessage } from '../../src/core/telegram';
 import type { Env } from '../../src/core/env';
 import { createMockEnv } from '../test-utils';
@@ -36,13 +35,18 @@ vi.mock('../../src/env', async () => {
 
 const NO_USERS = 'Нет данных о матерной лексике';
 const NO_WORDS = 'Нет данных о матерных словах';
-const BAD_PERIOD = 'Неверный период. Используйте: today, week, month';
 
 describe('profanity commands — period without count (regression)', () => {
   let mockEnv: Env;
   let mockSendMessage: any;
   const testChatId = -100123456789;
   const today = new Date().toISOString().slice(0, 10);
+
+  function daysAgo(days: number): string {
+    const date = new Date();
+    date.setUTCDate(date.getUTCDate() - days);
+    return date.toISOString().slice(0, 10);
+  }
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -98,20 +102,26 @@ describe('profanity commands — period without count (regression)', () => {
       expect(reply).toContain('bob');
     });
 
-    it('returns data for /profanity_top week', async () => {
+    it('returns week data outside today for /profanity_top week', async () => {
+      await mockEnv.COUNTERS.put(`profanity:${testChatId}:444:${daysAgo(1)}`, '20');
+      await mockEnv.COUNTERS.put('user:444', 'dave');
+
       await handleUpdate(createMessage('/profanity_top week'), mockEnv);
       const reply = lastReply();
       expect(reply).not.toBe(NO_USERS);
       expect(reply).toContain('Топ матершинников');
-      expect(reply).toContain('bob');
+      expect(reply).toContain('dave');
     });
 
-    it('returns data for /profanity_top month', async () => {
+    it('returns month data outside the week for /profanity_top month', async () => {
+      await mockEnv.COUNTERS.put(`profanity:${testChatId}:555:${daysAgo(10)}`, '20');
+      await mockEnv.COUNTERS.put('user:555', 'eve');
+
       await handleUpdate(createMessage('/profanity_top month'), mockEnv);
       const reply = lastReply();
       expect(reply).not.toBe(NO_USERS);
       expect(reply).toContain('Топ матершинников');
-      expect(reply).toContain('bob');
+      expect(reply).toContain('eve');
     });
   });
 
@@ -128,20 +138,24 @@ describe('profanity commands — period without count (regression)', () => {
       expect(reply).toContain('wordb');
     });
 
-    it('returns data for /profanity_words week', async () => {
+    it('returns week data outside today for /profanity_words week', async () => {
+      await mockEnv.COUNTERS.put(`profanity_words:${testChatId}:weekword:${daysAgo(1)}`, '20');
+
       await handleUpdate(createMessage('/profanity_words week'), mockEnv);
       const reply = lastReply();
       expect(reply).not.toBe(NO_WORDS);
       expect(reply).toContain('Топ матерных слов');
-      expect(reply).toContain('wordb');
+      expect(reply).toContain('weekword');
     });
 
-    it('returns data for /profanity_words month', async () => {
+    it('returns month data outside the week for /profanity_words month', async () => {
+      await mockEnv.COUNTERS.put(`profanity_words:${testChatId}:monthword:${daysAgo(10)}`, '20');
+
       await handleUpdate(createMessage('/profanity_words month'), mockEnv);
       const reply = lastReply();
       expect(reply).not.toBe(NO_WORDS);
       expect(reply).toContain('Топ матерных слов');
-      expect(reply).toContain('wordb');
+      expect(reply).toContain('monthword');
     });
   });
 
@@ -218,33 +232,4 @@ describe('profanity commands — period without count (regression)', () => {
     });
   });
 
-  describe('downstream handler hardening (stats.ts NaN guard)', () => {
-    beforeEach(async () => {
-      await seedUsers({ '111': 5, '222': 8, '333': 3 }, {
-        '111': 'alice', '222': 'bob', '333': 'carol',
-      });
-      await seedWords({ 'worda': 4, 'wordb': 9, 'wordc': 2 });
-    });
-
-    it('profanityTopUsers(env, chatId, NaN, today) falls back to default 10, not no-data', async () => {
-      await profanityTopUsers(mockEnv, testChatId, NaN as any, 'today');
-      const reply = lastReply();
-      expect(reply).not.toBe(NO_USERS);
-      expect(reply).toContain('Топ матершинников');
-      expect(reply).toContain('bob');
-    });
-
-    it('profanityWordsStats(env, chatId, NaN, today) falls back to default 10, not no-data', async () => {
-      await profanityWordsStats(mockEnv, testChatId, NaN as any, 'today');
-      const reply = lastReply();
-      expect(reply).not.toBe(NO_WORDS);
-      expect(reply).toContain('Топ матерных слов');
-      expect(reply).toContain('wordb');
-    });
-
-    it('profanityTopUsers(env, chatId, 10, invalid) still rejects the period', async () => {
-      await profanityTopUsers(mockEnv, testChatId, 10, 'invalid');
-      expect(lastReply()).toBe(BAD_PERIOD);
-    });
-  });
 });

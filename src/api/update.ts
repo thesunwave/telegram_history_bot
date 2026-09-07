@@ -581,15 +581,23 @@ export async function handleUpdate(msg: any, env: Env) {
     const hasCount = Number.isFinite(requestedCount);
     const count = hasCount ? Math.min(Math.max(requestedCount, 1), 20) : 10;
     const period = hasCount ? command.args[1] : command.args[0];
-    await profanityTopUsers(env, chatId, count,
-      ['today', 'week', 'month'].includes(period) ? period : 'today');
+    await profanityTopUsers(
+      env,
+      chatId,
+      count,
+      ['today', 'week', 'month'].includes(period) ? period : 'today',
+    );
   } else if (command.name === '/profanity_words') {
     const requestedCount = parseInt(command.args[0] || '', 10);
     const hasCount = Number.isFinite(requestedCount);
     const count = hasCount ? Math.min(Math.max(requestedCount, 1), 20) : 10;
     const period = hasCount ? command.args[1] : command.args[0];
-    await profanityWordsStats(env, chatId, count,
-      ['today', 'week', 'month'].includes(period) ? period : 'today');
+    await profanityWordsStats(
+      env,
+      chatId,
+      count,
+      ['today', 'week', 'month'].includes(period) ? period : 'today',
+    );
   } else if (command.name === '/my_profanity') {
     const parts = msg.text.split(/\s+/);
     const period = ['today', 'week', 'month'].includes(parts[1]) ? parts[1] : undefined;

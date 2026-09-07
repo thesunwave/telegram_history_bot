@@ -866,7 +866,7 @@ describe("Performance Validation and Optimization", () => {
       );
       expect(result.metrics.batchSize).toBe(batchSize);
       expect(result.metrics.totalDuration).toBeGreaterThan(0);
-      expect(result.metrics.successRate).toBeGreaterThanOrEqual(80); // Should have high success rate (5% random failure rate)
+      expect(result.metrics.successRate).toBeGreaterThan(90); // Should have high success rate
 
       console.log("\n=== processBatchesDetailed Metrics ===");
       console.log(`Total Duration: ${totalDuration.toFixed(2)}ms`);
