@@ -1,10 +1,32 @@
 export function chunkText(text: string, limit: number): string[] {
-  const chars = Array.from(text);
+  if (text === '') return [''];
   const parts: string[] = [];
-  for (let i = 0; i < chars.length; i += limit) {
-    parts.push(chars.slice(i, i + limit).join(''));
+  const lines = text.split('\n');
+  let current = '';
+  const flush = () => {
+    if (current) {
+      parts.push(current);
+      current = '';
+    }
+  };
+  for (const line of lines) {
+    const candidate = current ? current + '\n' + line : line;
+    if (Array.from(candidate).length > limit) {
+      if (current) {
+        flush();
+        current = line;
+      } else {
+        const chars = Array.from(line);
+        for (let i = 0; i < chars.length; i += limit) {
+          parts.push(chars.slice(i, i + limit).join(''));
+        }
+      }
+      continue;
+    }
+    current = candidate;
   }
-  return parts.length ? parts : [''];
+  flush();
+  return parts;
 }
 
 export function truncateText(text: string, limit: number): string {
