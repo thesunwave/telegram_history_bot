@@ -87,7 +87,7 @@ export class OpenRouterProvider implements AIProvider {
       { role: 'system', content: `${request.systemPrompt || ''}\n${request.limitNote}`.trim() },
       { role: 'user', content: `${request.userPrompt}\n${MESSAGE_SEPARATOR}\n${content}` },
     ];
-    const response = await this.callOpenRouter(messages, options, false, 'summary', env);
+    const response = await this.callOpenRouter(messages, options, options.forceJsonResponse ?? false, 'summary', env);
     return response.choices?.[0]?.message?.content?.trim() || '';
   }
 
