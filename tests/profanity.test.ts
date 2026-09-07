@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ProfanityAnalyzer, ProfanityResult } from "../src/features/profanity/profanity";
+import {
+  ProfanityAnalyzer,
+  ProfanityResult,
+  resetCircuitBreakerState,
+} from "../src/features/profanity/profanity";
 import { hashText } from "../src/core/utils";
 import { Env } from "../src/core/env";
 import {
@@ -62,6 +66,7 @@ describe("Profanity Analysis Infrastructure", () => {
     mockEnv = createMockEnv();
     mockProvider = new MockAIProvider();
     profanityAnalyzer = new ProfanityAnalyzer(mockProvider);
+    resetCircuitBreakerState();
     vi.clearAllMocks();
   });
 
@@ -393,6 +398,7 @@ describe("Circuit Breaker", () => {
   beforeEach(() => {
     mockEnv = createMockEnv();
     mockProvider = new MockAIProvider();
+    resetCircuitBreakerState();
     vi.clearAllMocks();
   });
 
@@ -407,12 +413,14 @@ describe("Circuit Breaker", () => {
     // Mock cache miss for all requests
     vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
 
-    // Trigger 5 failures to open the circuit
+    // Trigger 5 failures to reach the threshold. The breaker opens lazily on the
+    // next call, so each of these 5 calls still reaches the provider.
     for (let i = 0; i < 5; i++) {
       const result = await analyzer.analyzeMessage("test message", mockEnv);
       expect(result.words).toEqual([]);
       expect(result.totalCount).toBe(0);
     }
+    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(5);
 
     // Reset AI provider to working state
     mockProvider.analyzeProfanity.mockResolvedValue({
@@ -421,13 +429,52 @@ describe("Circuit Breaker", () => {
       explanation: "No profanity found",
     } as ProfanityAnalysisResult);
 
-    // Next request should be blocked by circuit breaker
+    // The 6th call must be short-circuited by the now-open circuit breaker, so the
+    // provider is NOT called again.
     const result = await analyzer.analyzeMessage("test message", mockEnv);
     expect(result.words).toEqual([]);
     expect(result.totalCount).toBe(0);
 
-    // Verify that AI provider was called 6 times (5 initial failures + 1 attempt after circuit opened)
-    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(6);
+    // Still only 5 provider calls: the 6th call was short-circuited.
+    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(5);
+  });
+
+  it("should accumulate failures across separate ProfanityAnalyzer instances", async () => {
+    // Production (src/api/update.ts) constructs a fresh ProfanityAnalyzer per
+    // message and discards it after one analyzeMessage call. For the circuit
+    // breaker to ever open, failures must accumulate in shared (module-level)
+    // state rather than per-instance state.
+    mockProvider.analyzeProfanity.mockRejectedValue(
+      new Error("AI service unavailable"),
+    );
+
+    // Mock cache miss for all requests
+    vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+
+    // Simulate 5 separate messages, each with its own fresh analyzer instance.
+    for (let i = 0; i < 5; i++) {
+      const analyzer = new ProfanityAnalyzer(mockProvider);
+      const result = await analyzer.analyzeMessage(`test message ${i}`, mockEnv);
+      expect(result.words).toEqual([]);
+      expect(result.totalCount).toBe(0);
+    }
+    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(5);
+
+    // Reset AI provider to working state
+    mockProvider.analyzeProfanity.mockResolvedValue({
+      words: [],
+      hasProfanity: false,
+      explanation: "No profanity found",
+    } as ProfanityAnalysisResult);
+
+    // A 6th fresh instance must be short-circuited by the shared open breaker.
+    const analyzer = new ProfanityAnalyzer(mockProvider);
+    const result = await analyzer.analyzeMessage("test message 5", mockEnv);
+    expect(result.words).toEqual([]);
+    expect(result.totalCount).toBe(0);
+
+    // Provider still only called 5 times: the 6th fresh instance was short-circuited.
+    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(5);
   });
 
   it("should close circuit after timeout period", async () => {
@@ -441,10 +488,17 @@ describe("Circuit Breaker", () => {
     // Mock cache miss for all requests
     vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
 
-    // Trigger failures to open circuit
+    // Trigger failures to reach the threshold (5 provider calls).
     for (let i = 0; i < 5; i++) {
       await analyzer.analyzeMessage("test message", mockEnv);
     }
+    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(5);
+
+    // The breaker opens lazily on the next call: this call is short-circuited and
+    // transitions the breaker into the open state (isOpen becomes true) without
+    // invoking the provider.
+    await analyzer.analyzeMessage("test message", mockEnv);
+    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(5);
 
     // Mock time passage (circuit breaker timeout is 60 seconds)
     const originalNow = Date.now;
@@ -457,13 +511,14 @@ describe("Circuit Breaker", () => {
       explanation: "No profanity found",
     } as ProfanityAnalysisResult);
 
-    // Circuit should be closed now and allow requests
+    // After the timeout the breaker enters half-open state and allows this request
+    // through to the provider, which succeeds and closes the circuit.
     const result = await analyzer.analyzeMessage("test message", mockEnv);
     expect(result.words).toEqual([]);
     expect(result.totalCount).toBe(0);
 
-    // Verify that AI provider was called again (circuit is now closed)
-    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(6); // 5 initial failures + 1 success after circuit closed
+    // 5 initial failures + 1 half-open success = 6 provider calls.
+    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(6);
 
     // Restore original Date.now
     Date.now = originalNow;
@@ -522,6 +577,12 @@ describe("Circuit Breaker", () => {
     expect(result.words).toEqual([]);
     expect(result.totalCount).toBe(0);
 
+    // All 10 calls reached the provider (3 failures + 2 successes + 4 failures
+    // + 1 success), proving the circuit never short-circuited: the reset dropped
+    // the failure count back to 0, so the later 4 failures never reached the
+    // threshold of 5.
+    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(10);
+
     // Restore original Date.now
     Date.now = originalNow;
   });
@@ -546,6 +607,7 @@ describe("Circuit Breaker", () => {
       expect(result.words).toEqual([]);
       expect(result.totalCount).toBe(0);
     }
+    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(5);
 
     // Reset AI provider to working state
     mockProvider.analyzeProfanity.mockResolvedValue({
@@ -554,12 +616,13 @@ describe("Circuit Breaker", () => {
       explanation: "No profanity found",
     } as ProfanityAnalysisResult);
 
-    // Next request should be blocked by circuit breaker
+    // The 6th call must be short-circuited by the open circuit breaker.
     const result = await analyzer.analyzeMessage("test message", mockEnv);
     expect(result.words).toEqual([]);
     expect(result.totalCount).toBe(0);
 
-    // Verify timeouts were treated as failures (5 timeouts + 1 success after circuit reset)
-    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(6);
+    // Timeouts are treated as failures: 5 timeouts opened the circuit, so the 6th
+    // call is short-circuited and the provider is still only called 5 times.
+    expect(mockProvider.analyzeProfanity).toHaveBeenCalledTimes(5);
   });
 });
