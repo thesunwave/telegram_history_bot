@@ -21,7 +21,6 @@ import type { ViolationCount } from '../src/core/models/statistics';
 
 const TELEGRAM_LIMIT = 4096;
 const env = { TOKEN: 'test-token' } as Env;
-const FORMATTING_TAGS = ['b', 'i', 'u', 's', 'code', 'pre'];
 // Plaintext "<script>" -> convertToHtml -> escaped entity "<script>".
 const ENTITY_SCRIPT = '&' + 'lt;script' + '&' + 'gt;';
 
@@ -39,24 +38,39 @@ function getBodies(): string[] {
  * is split by the chunk boundary.
  */
 function isValidTelegramHtml(text: string): boolean {
-  for (const tag of FORMATTING_TAGS) {
-    const open = (text.match(new RegExp(`<${tag}>`, 'g')) || []).length;
-    const close = (text.match(new RegExp(`</${tag}>`, 'g')) || []).length;
-    if (open !== close) return false;
-  }
+  const stack: string[] = [];
   let i = 0;
-  while ((i = text.indexOf('&', i)) !== -1) {
-    const semi = text.indexOf(';', i);
-    if (semi === -1) return false;
-    i = semi + 1;
+
+  while (i < text.length) {
+    if (text[i] === '&') {
+      const semi = text.indexOf(';', i);
+      if (semi === -1) return false;
+      i = semi + 1;
+      continue;
+    }
+
+    if (text[i] === '<') {
+      const gt = text.indexOf('>', i);
+      if (gt === -1) return false;
+
+      const tag = text.slice(i, gt + 1);
+      const match = tag.match(/^<(\/?)(b|i|u|s|code|pre)>$/);
+      if (!match) return false;
+
+      const [, closing, name] = match;
+      if (closing) {
+        if (stack.pop() !== name) return false;
+      } else {
+        stack.push(name);
+      }
+      i = gt + 1;
+      continue;
+    }
+
+    i += 1;
   }
-  i = 0;
-  while ((i = text.indexOf('<', i)) !== -1) {
-    const gt = text.indexOf('>', i);
-    if (gt === -1) return false;
-    i = gt + 1;
-  }
-  return true;
+
+  return stack.length === 0;
 }
 
 function validatingFetch() {
@@ -64,6 +78,20 @@ function validatingFetch() {
     const body = JSON.parse(init?.body as string);
     return new Response(null, { status: isValidTelegramHtml(body.text) ? 200 : 400 });
   });
+}
+
+function hasLoneSurrogate(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const codeUnit = text.charCodeAt(i);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const next = text.charCodeAt(i + 1);
+      if (next < 0xdc00 || next > 0xdfff) return true;
+      i += 1;
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
 }
 
 describe('sendMessage HTML-aware chunking', () => {
@@ -127,8 +155,7 @@ describe('sendMessage HTML-aware chunking', () => {
   });
 
   it('keeps nested formatting tags balanced across the boundary', async () => {
-    // <b><i>...</i></b> with the inner content engineered to cross 4096.
-    const input = 'a'.repeat(4080) + '**' + 'b'.repeat(100) + '**';
+    const input = 'a'.repeat(4080) + '<b><i>' + 'b'.repeat(100) + '</i></b>';
     await sendMessage(env, 123, input);
 
     const bodies = getBodies();
@@ -136,6 +163,18 @@ describe('sendMessage HTML-aware chunking', () => {
     for (const body of bodies) {
       expect(body.length).toBeLessThanOrEqual(TELEGRAM_LIMIT);
       expect(isValidTelegramHtml(body)).toBe(true);
+    }
+  });
+
+  it('does not split an emoji surrogate pair across chunks', async () => {
+    const input = 'x'.repeat(4095) + '😀tail';
+    await sendMessage(env, 123, input);
+
+    const bodies = getBodies();
+    expect(bodies.length).toBeGreaterThanOrEqual(2);
+    for (const body of bodies) {
+      expect(body.length).toBeLessThanOrEqual(TELEGRAM_LIMIT);
+      expect(hasLoneSurrogate(body)).toBe(false);
     }
   });
 

@@ -73,6 +73,12 @@ function nextUnitEnd(html: string, i: number): number {
     const semi = html.indexOf(';', i);
     return semi !== -1 && semi - i <= 12 ? semi + 1 : i + 1;
   }
+
+  const codeUnit = html.charCodeAt(i);
+  if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && i + 1 < html.length) {
+    const nextCodeUnit = html.charCodeAt(i + 1);
+    if (nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) return i + 2;
+  }
   return i + 1;
 }
 
@@ -157,7 +163,7 @@ function chunkHtml(html: string, limit: number): string[] {
     if (end === -1) end = nextUnitEnd(html, start);
 
     const openAtEnd = openTagsBetween(reopened, html, start, end);
-    const closeSuffix = openAtEnd.map(t => `</${t}>`).join('');
+    const closeSuffix = [...openAtEnd].reverse().map(t => `</${t}>`).join('');
     parts.push(reopenPrefix + html.substring(start, end) + closeSuffix);
 
     start = end;
