@@ -488,7 +488,7 @@ export class CountersDO {
   }
 
   private validate(p: IncrementPayload) {
-    if (p.chatId == null || p.userId == null || !p.day)
+    if (p.chatId == null || p.chatId === 0 || p.userId == null || !p.day)
       throw new Error('invalid payload');
     if (p.wordCount !== undefined && (!Number.isInteger(p.wordCount) || p.wordCount < 0))
       throw new Error('invalid word count');
