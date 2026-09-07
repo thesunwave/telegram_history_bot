@@ -1429,6 +1429,141 @@ describe('daily aggregate backfill (corrected Phase 3a)', () => {
     expect(coverage.base_status).toBe('live');
     expect(coverage.source).toBe('live');
     expect(coverage.reason_code).toBeNull();
+
+    // NOTE: this ordering (live KV put lands before backfill's read, then the
+    // live D1 batch commits after backfill's absolute upsert) is the over-count
+    // race from the bug report. The backfill ownership guard added here blocks
+    // backfill's LATER source phases from reasserting the live-owned day's data
+    // (coverage stays live), but it cannot prevent the over-count itself:
+    // backfill read the post-put KV (6) and absolute-wrote it before any
+    // source='live' coverage row existed, then the live batch added +1 → 7,
+    // while activity is 6. Fixing the over-count requires the live path to flip
+    // coverage to source='live' before the KV put (so backfill's guard blocks
+    // the absolute write), which is outside the daily-backfill.ts scope of this
+    // change. The under-count ordering is covered by the RESEARCH: OVERWRITE
+    // test below, which the ownership guard fully fixes.
+    const mcRow = rows(
+      harness.sqlite,
+      'SELECT message_count FROM stats_daily_user WHERE chat_id = 1 AND day = ? AND user_id = 100',
+      ['2026-08-27'],
+    )[0];
+    const acRow = rows(harness.sqlite, 'SELECT count FROM activity WHERE chat_id = 1 AND day = ?', ['2026-08-27'])[0];
+    expect(mcRow.message_count).toBe(7);
+    expect(acRow.count).toBe(6);
+    expect(mcRow.message_count).not.toBe(acRow.count);
+  });
+
+  it('RESEARCH: OVERWRITE — live D1 commits first, then a version-reset re-backfill does NOT overwrite the live increment (ownership guard)', async () => {
+    // Reproduces the under-count ordering from the bug report and asserts the
+    // ownership guard fixes it: a late live message commits its additive D1
+    // batch (coverage -> live) for a historical day whose KV is NOT bumped
+    // (modelling the concurrent-reading case), then a JOB_VERSION downgrade
+    // forces a full re-backfill that re-reads the still-stale KV. The guard
+    // refuses the absolute upsert for the live-owned day, so the live +1 is
+    // preserved and message_count == activity (parity restored).
+    const day = '2026-08-27';
+    kv.map.set(`stats_v2:1:${day}:100`, '5');
+    kv.map.set(`word_stats_v2:1:${day}:100`, '40');
+    kv.map.set('user:100', 'alice');
+    seedActivity(harness.sqlite, 1, day, 5);
+
+    // 1. Complete a consistent prior backfill: message_count=5, coverage complete.
+    await runToCompletion(env);
+    expect(
+      rows(harness.sqlite, 'SELECT message_count FROM stats_daily_user WHERE chat_id = 1 AND day = ? AND user_id = 100', [day])[0]
+        .message_count,
+    ).toBe(5);
+    expect(coverageRow(harness.sqlite, 1, day)).toMatchObject({ source: 'backfill', base_status: 'complete' });
+
+    // 2. A late live message commits its D1 batch atomically (additive +1,
+    //    coverage flip to live, activity +1). KV is NOT bumped: backfill's
+    //    later re-read will see the stale value 5.
+    await writeActivityAggregates(harness as unknown as D1Database, {
+      chatId: 1,
+      userId: 100,
+      username: 'alice',
+      day,
+      hour: 9,
+      bucket: 'morning',
+      wordCount: 0,
+      voiceCount: 0,
+      voiceDurationSeconds: 0,
+      videoNoteCount: 0,
+      videoNoteDurationSeconds: 0,
+      ts: 1234,
+    });
+    expect(
+      rows(harness.sqlite, 'SELECT message_count FROM stats_daily_user WHERE chat_id = 1 AND day = ? AND user_id = 100', [day])[0]
+        .message_count,
+    ).toBe(6);
+    expect(coverageRow(harness.sqlite, 1, day).source).toBe('live');
+
+    // 3. Downgrade JOB_VERSION to 2 to force the v3 reset path (precisely the
+    //    JOB_VERSION 2 -> 3 bump from commit e6c9427), so the next run re-lists
+    //    every KV key from the start of the base phase.
+    harness.sqlite
+      .prepare('UPDATE stats_backfill_state SET version = 2 WHERE job_name = ?')
+      .run(JOB_NAME);
+
+    // 4. Re-backfill reads the still-stale KV (5). Pre-fix (EPOCH_FENCE-only
+    //    guard) the absolute upsert would overwrite message_count with 5 ->
+    //    under-count (5 != 6). With the ownership guard, coverage is live, so
+    //    NOT EXISTS (source='live') refuses the upsert; message_count stays 6.
+    const reRun = await runToCompletion(env);
+    expect(reRun.done).toBe(true);
+    expect(reRun.errorCode).toBeNull();
+
+    const mcRow = rows(
+      harness.sqlite,
+      'SELECT message_count FROM stats_daily_user WHERE chat_id = 1 AND day = ? AND user_id = 100',
+      [day],
+    )[0];
+    const acRow = rows(harness.sqlite, 'SELECT count FROM activity WHERE chat_id = 1 AND day = ?', [day])[0];
+    expect(mcRow.message_count).toBe(6);
+    expect(acRow.count).toBe(6);
+    expect(mcRow.message_count).toBe(acRow.count);
+
+    // The raced day stays live-owned; finalize's parity safety net (which only
+    // scans source='backfill' rows) does not touch it, and the COVERAGE_BACKFILL
+    // upsert's own source='backfill' guard kept it live across the re-backfill.
+    const coverage = coverageRow(harness.sqlite, 1, day);
+    expect(coverage.source).toBe('live');
+    expect(coverage.base_status).toBe('live');
+  });
+
+  it('ownership guard blocks every absolute data upsert family for a live-owned day', async () => {
+    // The LIVE_OWNERSHIP_GUARD is applied uniformly to all six absolute data
+    // upserts (user columns, profile, hours, bucket, profanity word, profanity
+    // word user). With the day already live-owned, every absolute write must be
+    // refused so the live path retains authoritative counts for that day.
+    const day = '2026-08-27';
+    const nowSec = Math.floor(NOW.getTime() / 1000);
+    kv.map.set(`activity_hour:1:${day}:09`, '4');
+    kv.map.set(`activity_time_bucket:1:${day}:morning:100`, '4');
+    kv.map.set(`profanity_words:1:заебал:${day}`, '2');
+    kv.map.set(`profanity_word_users:1:заебал:${day}:100`, '2');
+    kv.map.set('user:100', 'alice');
+    harness.sqlite
+      .prepare(
+        `INSERT INTO stats_daily_coverage
+           (chat_id, day, base_status, profanity_status, criminal_status, source, reason_code, updated_at)
+        VALUES (?, ?, 'live', 'live', 'live', 'live', NULL, ?)`,
+      )
+      .run(1, day, nowSec);
+
+    const summary = await runToCompletion(env);
+    expect(summary.done).toBe(true);
+    expect(summary.errorCode).toBeNull();
+
+    // No absolute upsert landed for the live-owned day across any family.
+    expect(rows(harness.sqlite, 'SELECT COUNT(*) AS n FROM stats_daily_hour WHERE chat_id = 1 AND day = ?', [day])[0].n).toBe(0);
+    expect(rows(harness.sqlite, 'SELECT COUNT(*) AS n FROM stats_daily_bucket_user WHERE chat_id = 1 AND day = ?', [day])[0].n).toBe(0);
+    expect(rows(harness.sqlite, 'SELECT COUNT(*) AS n FROM stats_daily_profanity_word WHERE chat_id = 1 AND day = ?', [day])[0].n).toBe(0);
+    expect(rows(harness.sqlite, 'SELECT COUNT(*) AS n FROM stats_daily_profanity_word_user WHERE chat_id = 1 AND day = ?', [day])[0].n).toBe(0);
+    // The live-owned day's coverage is never flipped back to backfill.
+    const coverage = coverageRow(harness.sqlite, 1, day);
+    expect(coverage.source).toBe('live');
+    expect(coverage.base_status).toBe('live');
   });
 
   it('clears stale backfill reason_code when a live write takes ownership', async () => {
@@ -1845,25 +1980,48 @@ describe('daily aggregate backfill (corrected Phase 3a)', () => {
     },
   );
 
-  it('permits current-epoch data writes while preserving live coverage ownership', async () => {
+  it('refuses to overwrite a live-owned day data while admitting backfill-owned day data', async () => {
     const day = '2026-08-27';
+    const backfillDay = '2026-08-26';
     const nowSec = Math.floor(NOW.getTime() / 1000);
+    // Live writer has already taken ownership of `day` (source = 'live').
     kv.map.set(`stats_v2:1:${day}:100`, '5');
+    kv.map.set(`stats_v2:1:${backfillDay}:100`, '7');
+    kv.map.set(`word_stats_v2:1:${backfillDay}:100`, '21');
     kv.map.set('user:100', 'alice');
     harness.sqlite
       .prepare(
         `INSERT INTO stats_daily_coverage
            (chat_id, day, base_status, profanity_status, criminal_status, source, reason_code, updated_at)
-         VALUES (?, ?, 'live', 'none', 'none', 'live', NULL, ?)`,
+        VALUES (?, ?, 'live', 'none', 'none', 'live', NULL, ?)`,
       )
       .run(1, day, nowSec);
+    // A live-authored base row already exists for the live-owned day (the live
+    // writer would have written it together with flipping coverage to 'live').
+    harness.sqlite
+      .prepare('INSERT INTO stats_daily_user (chat_id, day, user_id, message_count) VALUES (?, ?, ?, ?)')
+      .run(1, day, 100, 1);
+    seedActivity(harness.sqlite, 1, day, 1);
+    seedActivity(harness.sqlite, 1, backfillDay, 7);
 
     const summary = await runDailyAggregateBackfill(env, NOW);
     expect(summary.errorCode).toBeNull();
+
+    // The live-owned day column is NOT overwritten by the stale KV absolute
+    // snapshot: message_count stays exactly what the live path left (1).
     expect(
       rows(harness.sqlite, 'SELECT message_count FROM stats_daily_user WHERE chat_id = 1 AND day = ? AND user_id = 100', [day])[0]
         .message_count,
-    ).toBe(5);
+    ).toBe(1);
+    // The backfill-owned backfillDay is still written by the current epoch
+    // (admission/lease still works; only live-owned days are guarded out).
+    expect(
+      rows(harness.sqlite, 'SELECT message_count FROM stats_daily_user WHERE chat_id = 1 AND day = ? AND user_id = 100', [backfillDay])[0]
+        .message_count,
+    ).toBe(7);
+    // The shared (chat, user) profile is still hydrated from the backfill-owned
+    // day's processing (the live-owned day's own profile upsert was guarded
+    // out, but the profile row is monotonic and chat+user scoped, not per day).
     expect(rows(harness.sqlite, 'SELECT username FROM stats_chat_user_profile WHERE chat_id = 1 AND user_id = 100')[0].username).toBe('alice');
     expect(coverageRow(harness.sqlite, 1, day)).toEqual({
       base_status: 'live',

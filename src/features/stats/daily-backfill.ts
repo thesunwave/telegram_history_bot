@@ -284,11 +284,38 @@ const EPOCH_FENCE = `
 `;
 
 /**
+ * Ownership guard appended after every `${EPOCH_FENCE}` inside the backfill
+ * absolute data upserts. Refuses both the initial INSERT and the conflict UPDATE
+ * when the same (chat_id, day) is owned by the live path (`source = 'live'`).
+ * This mirrors the coverage upsert's `source = 'backfill'` ownership guard.
+ *
+ * This fully prevents the under-count ordering of the live/backfill race: when a
+ * late/redelivered live message whose `day < cutoff_day` commits its additive D1
+ * batch first (coverage → `source = 'live'`), a backfill that afterwards
+ * re-reads a stale KV value (e.g. a `JOB_VERSION` reset re-listing every key)
+ * cannot overwrite the live increment with an absolute value. It also keeps
+ * backfill's later source phases from reasserting a live-owned day's data.
+ *
+ * The over-count ordering — where the live KV put lands before backfill's read
+ * and the live D1 batch commits after backfill's absolute upsert — is NOT
+ * prevented here, because at backfill-commit time no `source = 'live'` coverage
+ * row exists yet; closing that window requires the live path to flip coverage
+ * before its KV put, which lives outside this file. Binds two trailing values:
+ * `chat_id` and `day`.
+ */
+const LIVE_OWNERSHIP_GUARD = `
+  AND NOT EXISTS (SELECT 1 FROM stats_daily_coverage c
+                  WHERE c.chat_id = ? AND c.day = ? AND c.source = 'live')
+`;
+
+/**
  * Column-specific user upserts: each statement INSERTs only its own column so
  * source-family arrival order cannot zero or overwrite another family's value.
  * `stats_daily_user.last_message_ts` is never touched by backfill (the live
  * writer owns it); profile-bearing source phases instead fill chat-scoped
  * `last_message_ts` from `last_message:{chat}:{user}`.
+ * Ownership-guarded: refuses to write when the day is live-owned so a racing
+ * live increment committed before the backfill cannot be overwritten.
  */
 type UserColumn =
   | 'message_count'
@@ -304,52 +331,54 @@ type UserColumn =
 function userColumnUpsertSql(column: UserColumn): string {
   return `
     INSERT INTO stats_daily_user (chat_id, day, user_id, ${column})
-    SELECT ?, ?, ?, ? WHERE ${EPOCH_FENCE}
+    SELECT ?, ?, ?, ? WHERE ${EPOCH_FENCE}${LIVE_OWNERSHIP_GUARD}
     ON CONFLICT(chat_id, day, user_id) DO UPDATE SET ${column} = excluded.${column}
-    WHERE ${EPOCH_FENCE}
+    WHERE ${EPOCH_FENCE}${LIVE_OWNERSHIP_GUARD}
   `;
 }
 
-/** Profile fill: username from user:{id}; last_message_ts from `last_message:{chat}:{user}` never regresses. */
+/** Profile fill: username from user:{id}; last_message_ts from `last_message:{chat}:{user}` never regresses.
+ *  Ownership-guarded by the day being processed so a live-owned day's profile is not
+ *  overwritten by a stale backfill snapshot. */
 const PROFILE_UPSERT = `
   INSERT INTO stats_chat_user_profile (chat_id, user_id, username, last_message_ts)
-  SELECT ?, ?, ?, ? WHERE ${EPOCH_FENCE}
+  SELECT ?, ?, ?, ? WHERE ${EPOCH_FENCE}${LIVE_OWNERSHIP_GUARD}
   ON CONFLICT(chat_id, user_id) DO UPDATE SET
     username = excluded.username,
     last_message_ts = MAX(COALESCE(last_message_ts, 0), COALESCE(excluded.last_message_ts, 0))
-  WHERE ${EPOCH_FENCE}
+  WHERE ${EPOCH_FENCE}${LIVE_OWNERSHIP_GUARD}
 `;
 
 const HOUR_ABSOLUTE_UPSERT = `
   INSERT INTO stats_daily_hour (chat_id, day, hour, message_count)
-  SELECT ?, ?, ?, ? WHERE ${EPOCH_FENCE}
+  SELECT ?, ?, ?, ? WHERE ${EPOCH_FENCE}${LIVE_OWNERSHIP_GUARD}
   ON CONFLICT(chat_id, day, hour) DO UPDATE SET
     message_count = excluded.message_count
-  WHERE ${EPOCH_FENCE}
+  WHERE ${EPOCH_FENCE}${LIVE_OWNERSHIP_GUARD}
 `;
 
 const BUCKET_ABSOLUTE_UPSERT = `
   INSERT INTO stats_daily_bucket_user (chat_id, day, bucket, user_id, message_count)
-  SELECT ?, ?, ?, ?, ? WHERE ${EPOCH_FENCE}
+  SELECT ?, ?, ?, ?, ? WHERE ${EPOCH_FENCE}${LIVE_OWNERSHIP_GUARD}
   ON CONFLICT(chat_id, day, bucket, user_id) DO UPDATE SET
     message_count = excluded.message_count
-  WHERE ${EPOCH_FENCE}
+  WHERE ${EPOCH_FENCE}${LIVE_OWNERSHIP_GUARD}
 `;
 
 const PROFANITY_WORD_ABSOLUTE_UPSERT = `
   INSERT INTO stats_daily_profanity_word (chat_id, day, word, count)
-  SELECT ?, ?, ?, ? WHERE ${EPOCH_FENCE}
+  SELECT ?, ?, ?, ? WHERE ${EPOCH_FENCE}${LIVE_OWNERSHIP_GUARD}
   ON CONFLICT(chat_id, day, word) DO UPDATE SET
     count = excluded.count
-  WHERE ${EPOCH_FENCE}
+  WHERE ${EPOCH_FENCE}${LIVE_OWNERSHIP_GUARD}
 `;
 
 const PROFANITY_WORD_USER_ABSOLUTE_UPSERT = `
   INSERT INTO stats_daily_profanity_word_user (chat_id, day, word, user_id, count)
-  SELECT ?, ?, ?, ?, ? WHERE ${EPOCH_FENCE}
+  SELECT ?, ?, ?, ?, ? WHERE ${EPOCH_FENCE}${LIVE_OWNERSHIP_GUARD}
   ON CONFLICT(chat_id, day, word, user_id) DO UPDATE SET
     count = excluded.count
-  WHERE ${EPOCH_FENCE}
+  WHERE ${EPOCH_FENCE}${LIVE_OWNERSHIP_GUARD}
 `;
 
 /**
@@ -587,16 +616,24 @@ function epochBinds(epoch: BackfillEpoch): [string, number, number, string] {
   return [epoch.jobName, epoch.version, epoch.revision, epoch.leaseOwner];
 }
 
-/** Binds every fence occurrence in an already-fenced data upsert. */
+/**
+ * Binds every fence occurrence in an already-fenced upsert, optionally followed
+ * by ownership binds (e.g. `[chat_id, day]` for the `LIVE_OWNERSHIP_GUARD`)
+ * appended after each fence's epoch binds. With no `ownershipBinds`, the bind
+ * layout is identical to the pre-ownership-guard behavior, so the covered state
+ * and finalize statements are unaffected.
+ */
 function prepareFencedStatement(
   db: D1Database,
   sql: string,
   values: D1BindValue[],
   epoch: BackfillEpoch,
   fenceCount: 1 | 2 = 2,
+  ownershipBinds: D1BindValue[] = [],
 ): D1PreparedStatement {
-  const params = [...values, ...epochBinds(epoch)];
-  if (fenceCount === 2) params.push(...epochBinds(epoch));
+  const fenceBinds = [...epochBinds(epoch), ...ownershipBinds];
+  const params = [...values, ...fenceBinds];
+  if (fenceCount === 2) params.push(...fenceBinds);
   return db.prepare(sql).bind(...params);
 }
 
@@ -876,6 +913,7 @@ function appendBackfillProfileUpsert(
   epoch: BackfillEpoch,
   chatId: number,
   userId: number,
+  day: string,
   profile: BackfillProfile,
 ): void {
   if (profile.written) return;
@@ -886,6 +924,8 @@ function appendBackfillProfileUpsert(
       PROFILE_UPSERT,
       [chatId, userId, profile.username, profile.lastMessageTs],
       epoch,
+      2,
+      [chatId, day],
     ),
   );
 }
@@ -914,11 +954,13 @@ function makeBaseBuilder(env: Env, profileCache: Map<string, BackfillProfile>): 
         userColumnUpsertSql('message_count'),
         [entry.chatId, entry.day, userId, messages],
         epoch,
+        2,
+        [entry.chatId, entry.day],
       ),
     ];
     const profile = await readBackfillProfile(env, budget, profileCache, entry.chatId, userId);
     if (profile === 'deferred') return 'deferred';
-    appendBackfillProfileUpsert(env, statements, epoch, entry.chatId, userId, profile);
+    appendBackfillProfileUpsert(env, statements, epoch, entry.chatId, userId, entry.day, profile);
     return { statements, reason: null };
   };
 }
@@ -954,9 +996,12 @@ function makeProfiledUserCountBuilder(
 
     const { sql, binds } = makeUpsert(entry);
     const statements: D1PreparedStatement[] = [
-      prepareFencedStatement(env.DB, sql, [entry.chatId, entry.day, ...binds, count], epoch),
+      prepareFencedStatement(env.DB, sql, [entry.chatId, entry.day, ...binds, count], epoch, 2, [
+        entry.chatId,
+        entry.day,
+      ]),
     ];
-    appendBackfillProfileUpsert(env, statements, epoch, entry.chatId, userId, profile);
+    appendBackfillProfileUpsert(env, statements, epoch, entry.chatId, userId, entry.day, profile);
     return { statements, reason: null };
   };
 }
@@ -981,7 +1026,12 @@ function makeCountBuilder(
     }
     const { sql, binds } = makeUpsert(entry);
     return {
-      statements: [prepareFencedStatement(env.DB, sql, [entry.chatId, entry.day, ...binds, count], epoch)],
+      statements: [
+        prepareFencedStatement(env.DB, sql, [entry.chatId, entry.day, ...binds, count], epoch, 2, [
+          entry.chatId,
+          entry.day,
+        ]),
+      ],
       reason: null,
     };
   };
