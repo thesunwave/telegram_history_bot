@@ -110,10 +110,14 @@ async function handleNotificationGet(
   const service = new NotificationService(env, repository);
   const availableTypes = service.getAvailableNotificationTypes();
   const settings = await service.getChatSettings(String(chatId));
-  const canEdit =
-    principal.type === 'telegram' &&
-    Boolean(principal.telegramId) &&
-    await isTelegramUserChatAdmin(env, chatId, principal.telegramId!);
+  let canEdit = false;
+  if (principal.type === 'telegram' && Boolean(principal.telegramId)) {
+    try {
+      canEdit = await isTelegramUserChatAdmin(env, chatId, principal.telegramId!);
+    } catch {
+      canEdit = false;
+    }
+  }
 
   return Response.json({
     ok: true,

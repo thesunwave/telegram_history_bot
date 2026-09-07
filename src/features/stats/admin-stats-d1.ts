@@ -753,8 +753,8 @@ function mapAdminChatStatsFromD1Results(
       // count argument (previously rank indexes leaked into `count`).
       topUsers: topUsers.map((user) => mapUser(user)),
       topTalkers: topTalkers.map((user) => mapUser(user)),
-      topVoiceUsers: topVoiceUsers.map(mapUser),
-      topVideoNoteUsers: topVideoNoteUsers.map(mapUser),
+      topVoiceUsers: topVoiceUsers.map((user) => mapUser(user)),
+      topVideoNoteUsers: topVideoNoteUsers.map((user) => mapUser(user)),
       dailyMessages: range.days.map((day) => ({ day, count: dayRows.get(day)?.count ?? 0 })),
       dailyActiveUsers: range.days.map((day) => ({ day, count: dayRows.get(day)?.active ?? 0 })),
       hourlyAverages: Array.from({ length: HOURS_PER_DAY }, (_, hour) => ({
