@@ -299,6 +299,66 @@ describe("legal-RAG ingest end-to-end (real D1 + real worker.fetch)", () => {
     expect(v1Chunks.c).toBe(3);
   });
 
+  it("E (multi-batch): preserves v1 when the final replacement batch fails", async () => {
+    const env = await buildEnv({ aiBehavior: "good" });
+    seedCorpus(
+      harness.sqlite,
+      { id: 1, lawCode: "uk-rf", title: "УК РФ", versionDate: "2026-01-01", checksum: "doc-v1" },
+      [
+        { vectorId: "uk-rf:105:main:0:v1a", article: "105", articleTitle: "Убийство", chunkText: "Убийство...", checksum: "chk-v1-0" },
+        { vectorId: "uk-rf:119:main:0:v1b", article: "119", articleTitle: "Угроза", chunkText: "Угроза...", checksum: "chk-v1-1" },
+        { vectorId: "uk-rf:282:main:0:v1c", article: "282", articleTitle: "Экстремизм", chunkText: "Экстремизм...", checksum: "chk-v1-2" },
+      ],
+    );
+
+    const firstBatch = await testWorker.fetch(
+      makeIngestRequest(
+        ingestBody({
+          versionDate: "2026-02-02",
+          checksum: "doc-v2",
+          vectorIdPrefix: "uk-rf-new-first",
+          chunkChecksumSuffix: "v2-first",
+          chunkCount: 1,
+          replaceExisting: false,
+        }),
+      ),
+      env,
+      makeCtx(),
+    );
+    expect(firstBatch.status).toBe(200);
+
+    (env.AI as any).run = vi.fn().mockRejectedValue(new Error("Workers AI rate limit"));
+    const finalBatch = await testWorker.fetch(
+      makeIngestRequest(
+        ingestBody({
+          versionDate: "2026-02-02",
+          checksum: "doc-v2",
+          vectorIdPrefix: "uk-rf-new-final",
+          chunkChecksumSuffix: "v2-final",
+          chunkCount: 1,
+          replaceExisting: true,
+        }),
+      ),
+      env,
+      makeCtx(),
+    );
+
+    expect(finalBatch.status).toBe(400);
+    expect(env.LEGAL_RAG_INDEX.deleteByIds).not.toHaveBeenCalled();
+
+    const v1Chunks = rows(
+      harness.sqlite,
+      "SELECT COUNT(*) AS c FROM legal_chunks WHERE document_id = 1",
+    )[0];
+    expect(v1Chunks.c).toBe(3);
+
+    const docs = rows(
+      harness.sqlite,
+      "SELECT checksum FROM legal_documents WHERE law_code='uk-rf' ORDER BY id",
+    );
+    expect(docs.map((row) => row.checksum)).toEqual(["doc-v1", "doc-v2"]);
+  });
+
   it("E (no_embeddings variant): preserves the corpus when Workers AI returns a non-throwing error payload", async () => {
     const env = await buildEnv({ aiBehavior: "throw" });
     // Override AI to return a non-throwing error-shaped payload.
