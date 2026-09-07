@@ -64,7 +64,7 @@ export class ProviderFactory {
    */
   private static getProviderType(env: Env, capability: ProviderCapability): string {
     const providerKey = this.PROVIDER_ENV_BY_CAPABILITY[capability];
-    const envProvider = (env as any)[providerKey] ?? (env as any).SUMMARY_PROVIDER;
+    const envProvider = (env as any)[providerKey] || (env as any).SUMMARY_PROVIDER;
 
     if (!envProvider) {
       return this.DEFAULT_PROVIDER;
