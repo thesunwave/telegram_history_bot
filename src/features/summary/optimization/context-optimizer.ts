@@ -416,7 +416,9 @@ export class ContextOptimizer {
       const groupChunks = chunks.slice(i, i + chunksPerGroup);
       const mergedChunk = groupChunks.flat();
       
-      // If merged chunk is too large, split it but limit the number of sub-chunks
+      // If the merged group is too large, re-split it. Note:
+      // createSequentialChunks reuses the same per-chunk budget as the original
+      // chunker, so this does not reduce the sub-chunk count below the original.
       if (this.estimateTokens(mergedChunk) > maxTokens) {
         const subChunks = this.createSequentialChunks(mergedChunk, maxTokens);
         balancedChunks.push(...subChunks);
@@ -425,11 +427,21 @@ export class ContextOptimizer {
       }
     }
     
-    // If we still have too many chunks, take only the first maxChunks
+    // The merge step cannot reduce the chunk count below the cap whenever the
+    // total raw tokens exceed maxChunks * effectiveMaxTokens, because
+    // createSequentialChunks re-splits merged groups using the same per-chunk
+    // budget as the original chunker. Truncating would silently drop the
+    // trailing (chronologically newest) chunks/messages, so preserve every chunk
+    // and warn that the cap was exceeded at the cost of extra Stage-1 calls.
     if (balancedChunks.length > maxChunks) {
-      return balancedChunks.slice(0, maxChunks);
+      Logger.warn(
+        'ContextOptimizer.balanceChunks: chunk count exceeds maxPreprocessingChunks; '
+          + 'preserving all messages at the cost of additional preprocessing calls',
+        { produced: balancedChunks.length, cap: maxChunks, inputChunks: chunks.length },
+      );
+      return balancedChunks;
     }
-    
+
     return balancedChunks;
   }
 
