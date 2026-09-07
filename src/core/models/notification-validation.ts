@@ -490,10 +490,28 @@ export const NotificationValidationUtils = {
 
   /**
    * Создает настройки уведомлений по умолчанию для чата
+   *
+   * Возвращает глубокую копию структуры `notifications` (включая вложенные
+   * объекты `time`), чтобы возвращаемые настройки не разделяли ссылки с
+   * module-level константой `DEFAULT_NOTIFICATION_SETTINGS`. Иначе мутации,
+   * выполняемые сервисом (enable/disable) и санитизатором на каждом чтении
+   * сохранённых настроек чата, записывались бы через общую ссылку в глобальный
+   * дефолт и загрязняли настройки последующих чатов в том же isolate.
    */
   createDefaultChatSettings(chatId: string, updatedBy: string): ChatNotificationSettings {
+    const base = DEFAULT_NOTIFICATION_SETTINGS;
+    const notifications = {} as ChatNotificationSettings['notifications'];
+    for (const key of Object.keys(base.notifications) as NotificationType[]) {
+      const source = base.notifications[key];
+      const copy: NotificationTypeSettings = { ...source };
+      if (source.time) {
+        copy.time = { ...source.time };
+      }
+      notifications[key] = copy;
+    }
     return {
-      ...DEFAULT_NOTIFICATION_SETTINGS,
+      ...base,
+      notifications,
       chatId,
       createdAt: new Date(),
       updatedAt: new Date(),
