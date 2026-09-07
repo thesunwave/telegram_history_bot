@@ -129,7 +129,9 @@ export class ViolationHandler implements IViolationHandler {
     try {
       // Валидация и санитизация входных параметров
       const sanitizedChatId = ValidationUtils.sanitizeString(chatId);
-      const sanitizedDays = Math.max(1, Math.min(365, Math.floor(days ?? 7)));
+      const sanitizedDays = days === 0
+        ? 1
+        : Math.max(1, Math.min(365, Math.floor(days || 7)));
 
       this.validatePeriodStatsParams(sanitizedChatId, sanitizedDays);
 
@@ -157,7 +159,9 @@ export class ViolationHandler implements IViolationHandler {
       try {
         const endDate = new Date();
         const startDate = new Date();
-        const sanitizedDays = Math.max(1, Math.min(365, Math.floor(days ?? 7)));
+        const sanitizedDays = days === 0
+          ? 1
+          : Math.max(1, Math.min(365, Math.floor(days || 7)));
         startDate.setDate(endDate.getDate() - sanitizedDays);
 
         const fallbackStats = DataSanitizer.createEmptyPeriodStats(

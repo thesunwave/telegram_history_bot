@@ -3,8 +3,8 @@
  *
  * Баг: `days || 7` заменял явный 0 на 7 до Clamp(1..365), поэтому 0
  * молчаливо расширял окно до 7 дней вместо клампинга к 1.
- * Фикс: `days ?? 7` (nullish coalescing) — 0 сохраняется для клампинга,
- * а null/undefined по-прежнему дефолтят к 7. См. братский метод
+ * Фикс: явный 0 клампится к 1 до legacy-fallback, поэтому null/undefined/NaN
+ * по-прежнему дефолтят к 7. См. братский метод
  * ViolationRepository.getTopUsersBySentenceStats (`|| 1` -> 0 клампится к 1)
  * и комментарий "Санitизируется к 1 дню" в edge-cases.test.ts.
  */
@@ -93,17 +93,19 @@ describe('ViolationHandler.getPeriodStats — санитизация days', () =
     expect(dayDiff).toBe(1);
   });
 
-  it('null и undefined форвардят дефолт 7 (контракт ?? сохранён)', async () => {
+  it('null, undefined и NaN сохраняют legacy-дефолт 7', async () => {
     const spy = vi.spyOn(statisticsService, 'getPeriodStats').mockResolvedValue(emptyPeriodStats);
     const origError = console.error;
     console.error = vi.fn();
     try {
       await violationHandler.getPeriodStats('-100123456789', undefined as any);
       await violationHandler.getPeriodStats('-100123456789', null as any);
+      await violationHandler.getPeriodStats('-100123456789', Number.NaN);
     } finally {
       console.error = origError;
     }
     expect(spy.mock.calls[0][1]).toBe(7);
     expect(spy.mock.calls[1][1]).toBe(7);
+    expect(spy.mock.calls[2][1]).toBe(7);
   });
 });
