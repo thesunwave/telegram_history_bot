@@ -17,6 +17,13 @@ describe('local profanity detector — себе / Себастьян false posit
       expect(result.words).toEqual([]);
     });
 
+    it('does not flag "себестоимость" from the same себе prefix collision', () => {
+      const result = detectLocalProfanity('снижение себестоимости проекта');
+
+      expect(result.hasProfanity).toBe(false);
+      expect(result.words).toEqual([]);
+    });
+
     it('does not flag "к себе" (local-only short-message branch)', () => {
       const result = detectLocalProfanity('к себе');
 
