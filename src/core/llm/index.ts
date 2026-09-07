@@ -17,8 +17,6 @@ export { ModelPolicy, getModelPolicy, resetModelPolicy } from './model-policy';
 export type {
     FeatureType,
     TokenUsage,
-    ModelUsageRecord,
-    FeatureUsageRecord,
     MonthlyUsageData,
     ILLMBudgetTracker,
 } from './budget-tracker';
