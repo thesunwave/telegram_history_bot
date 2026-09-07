@@ -307,6 +307,9 @@ export class NotificationRepository implements INotificationRepository {
 
             validateScheduledNotification(parsed);
             notifications.push(parsed);
+          } else {
+            // Запись истекла по TTL или была удалена — убираем id из списка
+            await this.removeNotificationFromList(id);
           }
         } catch (error) {
           Logger.error('Failed to parse scheduled notification', { id, error: error.message });
