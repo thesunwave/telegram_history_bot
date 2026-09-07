@@ -159,12 +159,21 @@ export async function isTelegramUserInChat(
 
   const payload = await response.json().catch(() => null) as any;
   const status = payload?.result?.status;
-  return (
-    status === 'creator' ||
-    status === 'administrator' ||
-    status === 'member' ||
-    status === 'restricted'
-  );
+  if (payload?.ok !== true || typeof status !== 'string') {
+    throw new Error('getChatMember invalid response');
+  }
+
+  if (status === 'creator' || status === 'administrator' || status === 'member') {
+    return true;
+  }
+  if (status === 'restricted') {
+    return payload.result.is_member === true;
+  }
+  if (status === 'left' || status === 'kicked') {
+    return false;
+  }
+
+  throw new Error('getChatMember unknown status');
 }
 
 export async function isTelegramUserChatAdmin(
@@ -188,7 +197,18 @@ export async function isTelegramUserChatAdmin(
 
   const payload = await response.json().catch(() => null) as any;
   const status = payload?.result?.status;
-  return status === 'creator' || status === 'administrator';
+  if (payload?.ok !== true || typeof status !== 'string') {
+    throw new Error('getChatMember invalid response');
+  }
+
+  if (status === 'creator' || status === 'administrator') {
+    return true;
+  }
+  if (status === 'member' || status === 'restricted' || status === 'left' || status === 'kicked') {
+    return false;
+  }
+
+  throw new Error('getChatMember unknown status');
 }
 
 export async function listAdminChatsForTelegramUser(
@@ -196,14 +216,12 @@ export async function listAdminChatsForTelegramUser(
   userId: number,
 ): Promise<AdminChatMeta[]> {
   const chats = await listAdminChats(env);
-  const results = await Promise.allSettled(
-    chats.map((chat) => isTelegramUserInChat(env, chat.chatId, userId)),
+  const checks = await Promise.all(
+    chats.map(async (chat) => ({
+      chat,
+      allowed: await isTelegramUserInChat(env, chat.chatId, userId),
+    })),
   );
 
-  return chats.filter((_, i) => {
-    const result = results[i];
-    return (
-      result.status === 'rejected' || (result.status === 'fulfilled' && result.value)
-    );
-  });
+  return checks.filter(({ allowed }) => allowed).map(({ chat }) => chat);
 }
