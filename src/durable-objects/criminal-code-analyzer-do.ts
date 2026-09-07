@@ -725,14 +725,20 @@ export class CriminalCodeAnalyzerDO {
           continue;
         }
         await this.updateStatistics(result);
+        // Exactly-one terminal ack per criminal branch. storeViolations only
+        // emits the implicit completed signal via POST /criminal when
+        // task.userId is truthy (it gates per-user/per-article aggregates).
+        // For anonymous authors (userId === 0, e.g. Telegram's anonymous group
+        // admins) that increment is skipped, which would leave the sequence
+        // pending forever. Always ack explicitly; CountersDO's
+        // isSequenceAlreadyResolved makes this a no-op when /criminal already
+        // resolved progress, so the known-user path is unchanged.
+        await this.ackCriminalOutcome(task, 'completed');
         try {
           await this.sendAdminViolationReport(result, task);
         } catch {
           console.error('Failed to send admin criminal violation report', { op: 'adminReport', errorClass: 'Error' });
         }
-        // Criminal completed is implicit via storeViolations -> CountersDO increment; no separate ack needed
-        // But if storeViolations succeeded, criminal progress is already completed; we still need to ensure no double ack
-        // CountersDO completed path already handled; no additional ack.
       } else if (this.hasStrongLocalSignal(task) && result.legalReferences && result.legalReferences.length > 0) {
         await this.ackCriminalOutcome(task, 'zero');
         try {
