@@ -516,10 +516,61 @@ describe('/admin/api/criminal-violations', () => {
     },
   );
 
-  it('returns bounded violation details only after Telegram chat membership is verified', async () => {
+  it.each(['left', 'kicked'])(
+    'denies violation details when Telegram membership status is %s',
+    async (status) => {
+      const chatId = -1001;
+      mockGetChatMemberByChatId(() => statusResponse(status));
+      const prepare = vi.fn();
+      env.DB = { prepare } as any;
+      const cookie = await adminSessionCookie();
+
+      const response = await worker.fetch(
+        new Request(
+          `http://localhost/admin/api/criminal-violations?chatId=${chatId}&userId=77&period=today`,
+          { headers: { Cookie: cookie } },
+        ),
+        env,
+        ctx,
+      );
+
+      expect(response.status).toBe(403);
+      expect(prepare).not.toHaveBeenCalled();
+    },
+  );
+
+  it('returns at most 50 violation details after Telegram chat membership is verified', async () => {
     const chatId = -1001;
-    mockGetChatMemberByChatId(() => memberResponse());
-    env.DB = makeEmptyD1();
+    let membershipChecks = 0;
+    mockGetChatMemberByChatId(() => {
+      membershipChecks += 1;
+      return memberResponse();
+    });
+    const rows = Array.from({ length: 51 }, (_, index) => ({
+      id: index + 1,
+      message_id: 1000 + index,
+      target_message_id: 1000 + index,
+      article: '119',
+      subarticle: null,
+      article_title: 'Угроза',
+      quote: `quote-${index + 1}`,
+      punishment: null,
+      severity: 1,
+      confidence: null,
+      decision: 'violation',
+      evidence_json: null,
+      context_before: null,
+      context_after: null,
+      text_preview: null,
+      event_ts: 0,
+    }));
+    env.DB = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({
+          all: vi.fn(async () => ({ success: true, results: rows })),
+        })),
+      })),
+    } as any;
     const cookie = await adminSessionCookie();
     const day = new Date();
     day.setUTCDate(day.getUTCDate() - 1);
@@ -536,14 +587,17 @@ describe('/admin/api/criminal-violations', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(membershipChecks).toBe(1);
     const body = (await response.json()) as any;
     expect(body).toMatchObject({
       chatId,
       userId: 77,
       range: { from: dayStr, to: dayStr },
-      violations: [],
-      hasMore: false,
+      hasMore: true,
     });
+    expect(body.violations).toHaveLength(50);
+    expect(body.violations[0].id).toBe(1);
+    expect(body.violations[49].id).toBe(50);
   });
 
   it('lets unexpected detail failures reach the global admin boundary with a requestId', async () => {

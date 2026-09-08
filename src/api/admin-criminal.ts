@@ -8,6 +8,7 @@ import type { AdminDateRange } from './admin-stats';
 
 const RAW_HISTORY_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const MAX_DETAILS = 50;
+const MAX_RAW_HISTORY_MESSAGES = 2_000;
 const CONTEXT_BEFORE_LIMIT = 3;
 const CONTEXT_AFTER_LIMIT = 2;
 
@@ -115,21 +116,40 @@ async function loadRecentHistory(
 
   if (recentTimestamps.length === 0) return [];
 
-  const start = Math.max(cutoff, Math.min(...recentTimestamps) - 24 * 60 * 60);
-  const end = Math.min(now, Math.max(...recentTimestamps) + 24 * 60 * 60);
+  const firstDay = new Date(Math.min(...recentTimestamps) * 1000);
+  firstDay.setUTCHours(0, 0, 0, 0);
+  const lastDay = new Date(Math.max(...recentTimestamps) * 1000);
+  lastDay.setUTCHours(0, 0, 0, 0);
+  const history: StoredMessage[] = [];
 
   try {
-    return await fetchMessagesOptimized(env, chatId, start, end);
+    for (
+      let day = lastDay.getTime();
+      day >= firstDay.getTime() && history.length < MAX_RAW_HISTORY_MESSAGES;
+      day -= 24 * 60 * 60 * 1000
+    ) {
+      const dayStart = Math.max(cutoff, Math.floor(day / 1000));
+      const dayEnd = Math.min(now, Math.floor(day / 1000) + 24 * 60 * 60 - 1);
+      if (dayEnd < dayStart) continue;
+
+      const messages = await fetchMessagesOptimized(env, chatId, dayStart, dayEnd);
+      const remaining = MAX_RAW_HISTORY_MESSAGES - history.length;
+      history.push(...messages.slice(-remaining));
+    }
   } catch {
     // Details remain useful from D1 even after raw 7-day history is unavailable.
-    return [];
   }
+
+  return history.sort((a, b) => a.ts - b.ts);
 }
 
-function findTargetMessage(row: CriminalDetailRow, history: StoredMessage[]): number {
+function findTargetMessage(
+  row: CriminalDetailRow,
+  historyIndex: ReadonlyMap<number, number>,
+): number {
   const targetMessageId = row.target_message_id ?? row.message_id;
   if (targetMessageId === null) return -1;
-  return history.findIndex((message) => message.messageId === targetMessageId);
+  return historyIndex.get(targetMessageId) ?? -1;
 }
 
 function contextFor(
@@ -160,8 +180,9 @@ function contextFor(
 function mapViolation(
   row: CriminalDetailRow,
   history: StoredMessage[],
+  historyIndex: ReadonlyMap<number, number>,
 ): AdminCriminalViolationDetail {
-  const targetIndex = findTargetMessage(row, history);
+  const targetIndex = findTargetMessage(row, historyIndex);
   const targetMessage = targetIndex >= 0 ? history[targetIndex] : null;
   const trigger = targetMessage?.text
     ? { text: targetMessage.text, source: 'history' as const }
@@ -229,12 +250,16 @@ export async function getAdminCriminalViolationDetails(
   const rows = result.results || [];
   const visibleRows = rows.slice(0, MAX_DETAILS);
   const history = await loadRecentHistory(env, chatId, visibleRows);
+  const historyIndex = new Map<number, number>();
+  history.forEach((message, index) => {
+    if (message.messageId !== undefined) historyIndex.set(message.messageId, index);
+  });
 
   return {
     chatId,
     userId,
     range: { from: range.from, to: range.to },
-    violations: visibleRows.map((row) => mapViolation(row, history)),
+    violations: visibleRows.map((row) => mapViolation(row, history, historyIndex)),
     hasMore: rows.length > MAX_DETAILS,
   };
 }

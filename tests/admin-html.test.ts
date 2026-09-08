@@ -156,6 +156,9 @@ describe('renderAdminHtml', () => {
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
     const script = scripts[scripts.length - 1]?.[1];
     expect(script).toContain('function buildCriminalDetailsUrl');
+    expect(script).toMatch(
+      /catch \(_error\) \{[\s\S]*?state\.selectedCriminalUserId = null;[\s\S]*?syncCriminalDetailButtons\(\);/,
+    );
     expect(() => new Function(script!)).not.toThrow();
   });
 

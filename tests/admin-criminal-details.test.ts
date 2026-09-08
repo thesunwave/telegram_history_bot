@@ -141,6 +141,38 @@ describe('getAdminCriminalViolationDetails', () => {
     expect(result.violations[0].confidence).toBeNull();
   });
 
+  it('bounds retained raw history before loading older violation days', async () => {
+    const newestTs = Math.floor(new Date('2026-09-07T12:00:00.000Z').getTime() / 1000);
+    const olderTs = Math.floor(new Date('2026-09-06T12:00:00.000Z').getTime() / 1000);
+    const { env } = createEnv([
+      baseRow({ id: 1, message_id: 9001, target_message_id: 9001, event_ts: newestTs }),
+      baseRow({ id: 2, message_id: 9002, target_message_id: 9002, event_ts: olderTs }),
+    ]);
+    const messages: StoredMessage[] = Array.from({ length: 2001 }, (_, index) => ({
+      chat: -1001,
+      user: 42,
+      username: 'bob',
+      text: `message-${index}`,
+      ts: newestTs - 2000 + index,
+      messageId: 5000 + index,
+    }));
+    messages[messages.length - 1] = {
+      chat: -1001,
+      user: 42,
+      username: 'bob',
+      text: 'bounded target',
+      ts: newestTs,
+      messageId: 9001,
+    };
+    vi.mocked(fetchMessagesOptimized).mockResolvedValue(messages);
+
+    const result = await getAdminCriminalViolationDetails(env, -1001, 42, range);
+
+    expect(fetchMessagesOptimized).toHaveBeenCalledTimes(1);
+    expect(result.violations[0].trigger).toEqual({ text: 'bounded target', source: 'history' });
+    expect(result.violations[1].trigger).toEqual({ text: 'я тебя убью', source: 'quote' });
+  });
+
   it('bounds detail responses to 50 rows and reports truncation', async () => {
     const rows = Array.from({ length: 51 }, (_, index) => baseRow({
       id: index + 1,

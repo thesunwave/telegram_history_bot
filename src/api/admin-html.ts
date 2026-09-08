@@ -2043,6 +2043,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         renderCriminalDetails(row.username, payload);
       } catch (_error) {
         if (requestId !== state.criminalDetailsRequestId) return;
+        state.selectedCriminalUserId = null;
+        syncCriminalDetailButtons();
         list.innerHTML = '';
         const error = document.createElement('div');
         error.className = 'muted';
