@@ -646,8 +646,22 @@ export class CountersDO {
     const wordStatsV2Key = `${WORD_STATS_PREFIX}_v2:${chatId}:${day}:${userId}`;
     await this.env.COUNTERS.put(wordStatsV2Key, String(userDayWordCount));
 
-    await this.incrementMediaMetric(chatId, day, userId, 'voice', voiceCount, voiceDurationSeconds);
-    await this.incrementMediaMetric(chatId, day, userId, 'video_note', videoNoteCount, videoNoteDurationSeconds);
+    const voiceTotals = await this.incrementMediaMetric(
+      chatId,
+      day,
+      userId,
+      'voice',
+      voiceCount,
+      voiceDurationSeconds,
+    );
+    const videoNoteTotals = await this.incrementMediaMetric(
+      chatId,
+      day,
+      userId,
+      'video_note',
+      videoNoteCount,
+      videoNoteDurationSeconds,
+    );
 
     await this.env.COUNTERS.put(`${USER_PREFIX}:${userId}`, username);
 
@@ -660,15 +674,19 @@ export class CountersDO {
       parseInt((await this.env.COUNTERS.get(wordActivityKey)) || '0', 10) + wordCount;
     await this.env.COUNTERS.put(wordActivityKey, String(chatDayWords));
 
+    let hourCount: number | undefined;
+    let bucketCount: number | undefined;
     if (hour !== undefined && Number.isInteger(hour) && hour >= 0 && hour <= 23) {
       const activityHourKey = `${ACTIVITY_HOUR_PREFIX}:${chatId}:${day}:${hour.toString().padStart(2, '0')}`;
       const hourCnt = parseInt((await this.env.COUNTERS.get(activityHourKey)) || '0', 10) + 1;
       await this.env.COUNTERS.put(activityHourKey, String(hourCnt));
+      hourCount = hourCnt;
 
       const bucket = getTimeBucket(hour);
       const timeBucketKey = `${ACTIVITY_TIME_BUCKET_PREFIX}:${chatId}:${day}:${bucket}:${userId}`;
       const bucketCnt = parseInt((await this.env.COUNTERS.get(timeBucketKey)) || '0', 10) + 1;
       await this.env.COUNTERS.put(timeBucketKey, String(bucketCnt));
+      bucketCount = bucketCnt;
     }
 
     if (ts !== undefined) {
@@ -691,13 +709,22 @@ export class CountersDO {
           userId,
           username,
           day,
+          messageCount: count,
+          activityCount: actCnt,
           hour: validHourForD1,
+          hourCount,
           bucket: validHourForD1 !== undefined ? getTimeBucket(validHourForD1) : undefined,
-          wordCount,
-          voiceCount,
-          voiceDurationSeconds,
-          videoNoteCount,
-          videoNoteDurationSeconds,
+          bucketCount,
+          wordCount: userDayWordCount,
+          ...(voiceTotals
+            ? { voiceCount: voiceTotals.count, voiceDurationSeconds: voiceTotals.duration }
+            : {}),
+          ...(videoNoteTotals
+            ? {
+                videoNoteCount: videoNoteTotals.count,
+                videoNoteDurationSeconds: videoNoteTotals.duration,
+              }
+            : {}),
           ts,
           sequence,
           completedThroughTs: ts,
@@ -726,8 +753,8 @@ export class CountersDO {
     type: 'voice' | 'video_note',
     countDelta: number,
     durationDelta: number,
-  ) {
-    if (countDelta <= 0 && durationDelta <= 0) return;
+  ): Promise<{ count: number; duration: number } | null> {
+    if (countDelta <= 0 && durationDelta <= 0) return null;
 
     const countKey = `media_stats_v2:${chatId}:${day}:${userId}:${type}`;
     const nextCount = parseInt((await this.env.COUNTERS.get(countKey)) || '0', 10) + countDelta;
@@ -737,6 +764,7 @@ export class CountersDO {
     const nextDuration =
       parseInt((await this.env.COUNTERS.get(durationKey)) || '0', 10) + durationDelta;
     await this.env.COUNTERS.put(durationKey, String(nextDuration));
+    return { count: nextCount, duration: nextDuration };
   }
 
   private async incrementProfanityCounters(payload: ProfanityIncrementPayload) {
@@ -760,18 +788,23 @@ export class CountersDO {
 
     // Update user profanity count in KV
     const currentUserCount = parseInt((await this.env.COUNTERS.get(profanityUserKey)) || '0', 10);
-    await this.env.COUNTERS.put(profanityUserKey, String(currentUserCount + count));
+    const nextUserCount = currentUserCount + count;
+    await this.env.COUNTERS.put(profanityUserKey, String(nextUserCount));
     await this.env.COUNTERS.put(`${USER_PREFIX}:${userId}`, username);
 
-    // Update word-specific counts in KV
+    // Update word-specific counts in KV and retain the exact post-KV totals for D1.
+    const exactWords: Array<{ word: string; count: number; userCount: number }> = [];
     for (const word of words) {
       const wordKey = `${PROFANITY_WORDS_PREFIX}:${chatId}:${word.word}:${day}`;
       const currentWordCount = parseInt((await this.env.COUNTERS.get(wordKey)) || '0', 10);
-      await this.env.COUNTERS.put(wordKey, String(currentWordCount + word.count));
+      const nextWordCount = currentWordCount + word.count;
+      await this.env.COUNTERS.put(wordKey, String(nextWordCount));
 
       const wordUserKey = `${PROFANITY_WORD_USERS_PREFIX}:${chatId}:${word.word}:${day}:${userId}`;
       const currentWordUserCount = parseInt((await this.env.COUNTERS.get(wordUserKey)) || '0', 10);
-      await this.env.COUNTERS.put(wordUserKey, String(currentWordUserCount + word.count));
+      const nextWordUserCount = currentWordUserCount + word.count;
+      await this.env.COUNTERS.put(wordUserKey, String(nextWordUserCount));
+      exactWords.push({ word: word.word, count: nextWordCount, userCount: nextWordUserCount });
     }
 
     if (this.env.DB) {
@@ -790,8 +823,8 @@ export class CountersDO {
               userId,
               username,
               day,
-              count,
-              words,
+              count: nextUserCount,
+              words: exactWords,
               progress,
             });
             await this.saveProgressState(day, 'profanity', progress.nextState);
@@ -815,8 +848,8 @@ export class CountersDO {
             userId,
             username,
             day,
-            count,
-            words,
+            count: nextUserCount,
+            words: exactWords,
           });
         } catch (e: unknown) {
           logD1AggregateWriteError('profanity', chatId, e);
@@ -873,11 +906,13 @@ export class CountersDO {
 
     // Update user criminal violations count in KV
     const currentUserCount = parseInt((await this.env.COUNTERS.get(criminalUserKey)) || '0', 10);
-    await this.env.COUNTERS.put(criminalUserKey, String(currentUserCount + violations.length));
+    const nextUserCount = currentUserCount + violations.length;
+    await this.env.COUNTERS.put(criminalUserKey, String(nextUserCount));
 
     // Update user total severity in KV
     const currentSeverity = parseInt((await this.env.COUNTERS.get(criminalSeverityKey)) || '0', 10);
-    await this.env.COUNTERS.put(criminalSeverityKey, String(currentSeverity + totalSeverity));
+    const nextSeverity = currentSeverity + totalSeverity;
+    await this.env.COUNTERS.put(criminalSeverityKey, String(nextSeverity));
 
     // Update article-specific counts in KV
     for (const violation of violations) {
@@ -900,8 +935,8 @@ export class CountersDO {
               userId,
               username,
               day,
-              violationCount: violations.length,
-              totalSeverity,
+              violationCount: nextUserCount,
+              totalSeverity: nextSeverity,
               progress,
             });
             await this.saveProgressState(day, 'criminal', progress.nextState);
@@ -925,8 +960,8 @@ export class CountersDO {
             userId,
             username,
             day,
-            violationCount: violations.length,
-            totalSeverity,
+            violationCount: nextUserCount,
+            totalSeverity: nextSeverity,
           });
         } catch (e: unknown) {
           logD1AggregateWriteError('criminal', chatId, e);
