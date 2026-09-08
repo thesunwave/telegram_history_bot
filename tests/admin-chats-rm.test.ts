@@ -468,6 +468,30 @@ describe('/admin/api/chats — one Telegram failure does not break the whole lis
 });
 
 describe('/admin/api/criminal-violations', () => {
+  it.each(['0', '1.5'])(
+    'rejects invalid chatId %s before Telegram membership lookup',
+    async (chatId) => {
+      let membershipChecks = 0;
+      mockGetChatMemberByChatId(() => {
+        membershipChecks += 1;
+        return memberResponse();
+      });
+      const cookie = await adminSessionCookie();
+
+      const response = await worker.fetch(
+        new Request(
+          `http://localhost/admin/api/criminal-violations?chatId=${chatId}&userId=77&period=today`,
+          { headers: { Cookie: cookie } },
+        ),
+        env,
+        ctx,
+      );
+
+      expect(response.status).toBe(400);
+      expect(membershipChecks).toBe(0);
+    },
+  );
+
   it('returns bounded violation details only after Telegram chat membership is verified', async () => {
     const chatId = -1001;
     mockGetChatMemberByChatId(() => memberResponse());
@@ -496,6 +520,42 @@ describe('/admin/api/criminal-violations', () => {
       violations: [],
       hasMore: false,
     });
+  });
+
+  it('lets unexpected detail failures reach the global admin boundary with a requestId', async () => {
+    const chatId = -1001;
+    mockGetChatMemberByChatId(() => memberResponse());
+    env.DB = {
+      prepare: vi.fn(() => {
+        throw new Error('simulated detail query defect');
+      }),
+    } as any;
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const cookie = await adminSessionCookie();
+
+    const response = await worker.fetch(
+      new Request(
+        `http://localhost/admin/api/criminal-violations?chatId=${chatId}&userId=77&period=today`,
+        { headers: { Cookie: cookie } },
+      ),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as any;
+    expect(body.error.code).toBe('ADMIN_UNAVAILABLE');
+    expect(body.error.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      'Admin request failed with unhandled exception',
+      expect.objectContaining({
+        requestId: body.error.requestId,
+        pathname: '/admin/api/criminal-violations',
+        errorName: 'Error',
+      }),
+    );
   });
 });
 

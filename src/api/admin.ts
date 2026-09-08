@@ -83,7 +83,7 @@ function parseChatId(url: URL): number | null {
   }
 
   const chatId = Number(rawChatId);
-  return Number.isFinite(chatId) ? chatId : null;
+  return Number.isInteger(chatId) && chatId !== 0 ? chatId : null;
 }
 
 function parseUserId(url: URL): number | null {
@@ -381,12 +381,8 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
       return denied;
     }
 
-    try {
-      const details = await getAdminCriminalViolationDetails(env, chatId, userId, period);
-      return Response.json(details, { headers: { 'Cache-Control': 'no-store' } });
-    } catch {
-      return statsUnavailable(new AdminUnavailable(), period);
-    }
+    const details = await getAdminCriminalViolationDetails(env, chatId, userId, period);
+    return Response.json(details, { headers: { 'Cache-Control': 'no-store' } });
   }
 
   if (url.pathname === `${ADMIN_PATH}/api/notifications`) {

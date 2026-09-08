@@ -1227,7 +1227,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       currentActivity: null,
       currentProfanityRateRows: null,
       criminalDetailsRequestId: 0,
-      selectedCriminalUserId: null
+      selectedCriminalUserId: null,
+      loadedCriminalRange: null
     };
     const chartInstances = {};
     const labels = {
@@ -1613,10 +1614,18 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       return url.pathname + url.search;
     }
 
-    function buildCriminalDetailsUrl(chatId, userId, period) {
-      const url = new URL(buildStatsUrl(chatId, period), window.location.origin);
-      url.pathname = '/admin/api/criminal-violations';
+    function buildCriminalDetailsUrl(chatId, userId, period, loadedRange) {
+      const url = new URL('/admin/api/criminal-violations', window.location.origin);
+      url.searchParams.set('chatId', chatId);
+      url.searchParams.set('period', period);
       url.searchParams.set('userId', String(userId));
+      if (period === 'custom') {
+        if (!loadedRange?.from || !loadedRange?.to) {
+          throw new Error('Loaded custom range is unavailable');
+        }
+        url.searchParams.set('from', loadedRange.from);
+        url.searchParams.set('to', loadedRange.to);
+      }
       return url.pathname + url.search;
     }
 
@@ -2018,7 +2027,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       panel.classList.remove('hidden');
 
       try {
-        const url = buildCriminalDetailsUrl(state.chatId, row.userId, state.period);
+        const url = buildCriminalDetailsUrl(
+          state.chatId,
+          row.userId,
+          state.period,
+          state.loadedCriminalRange,
+        );
         const res = await fetch(url);
         if (res.status === 401) {
           redirectToLogin();
@@ -2794,7 +2808,6 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const period = document.getElementById('period').value;
       if (!chatId) return;
       state.chatId = chatId;
-      state.period = period;
 
       try {
         const statsUrl = buildStatsUrl(chatId, period);
@@ -2818,6 +2831,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           : null;
 
         const stats = await statsRes.json();
+        state.period = stats.period || period;
+        state.loadedCriminalRange = stats.range?.from && stats.range?.to
+          ? { from: stats.range.from, to: stats.range.to }
+          : null;
         const notifications = notificationsRes.ok
           ? await notificationsRes.json()
           : { settings: null, availableTypes: [], canEdit: false };

@@ -145,8 +145,14 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('Уверенность модели ');
     expect(html).toContain('Уверенность модели — это confidence конкретного анализа, а не измеренная точность классификатора.');
     expect(html).toContain('История сообщений хранится до 7 дней.');
-    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
-    expect(script).toBeTruthy();
+    expect(html).toContain('loadedCriminalRange: null');
+    expect(html).toContain('state.loadedCriminalRange = stats.range?.from && stats.range?.to');
+    expect(html).toContain('state.loadedCriminalRange,');
+    expect(html).not.toContain('new URL(buildStatsUrl(chatId, period)');
+
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+    const script = scripts[scripts.length - 1]?.[1];
+    expect(script).toContain('function buildCriminalDetailsUrl');
     expect(() => new Function(script!)).not.toThrow();
   });
 
