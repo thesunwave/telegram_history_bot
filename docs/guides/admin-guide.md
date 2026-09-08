@@ -35,4 +35,5 @@ Set `ADMIN_BASIC_USER` as a Worker variable. The password should stay in secrets
    text or raw message, word, or activity counts.
 
 Only chats known to the bot are listed. The Worker filters the list with Telegram `getChatMember`,
-so the logged-in Telegram user only sees chats where Telegram reports them as a participant.
+so the logged-in Telegram user sees chats where Telegram confirms them as a participant; transiently
+unverifiable chats stay listed, and chat-scoped endpoints re-check access before serving data.
