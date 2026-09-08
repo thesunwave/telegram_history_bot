@@ -46,7 +46,7 @@ export interface AdminCriminalViolationDetail {
   quote: string;
   punishment: string;
   severity: number;
-  confidence: number;
+  confidence: number | null;
   decision: string;
   occurredAt: number | null;
   trigger: {
@@ -180,7 +180,9 @@ function mapViolation(
     quote: row.quote,
     punishment: row.punishment || '',
     severity: Number(row.severity) || 0,
-    confidence: Number(row.confidence) || 0,
+    confidence: row.confidence === null || !Number.isFinite(Number(row.confidence))
+      ? null
+      : Number(row.confidence),
     decision: row.decision || 'violation',
     occurredAt: eventTimestamp(row),
     trigger,

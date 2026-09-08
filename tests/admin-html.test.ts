@@ -148,6 +148,9 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('loadedCriminalRange: null');
     expect(html).toContain('state.loadedCriminalRange = stats.range?.from && stats.range?.to');
     expect(html).toContain('state.loadedCriminalRange,');
+    expect(html).toContain("url.searchParams.set('period', 'custom')");
+    expect(html).toContain("return 'нет данных'");
+    expect(html).not.toContain('state.period');
     expect(html).not.toContain('new URL(buildStatsUrl(chatId, period)');
 
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];

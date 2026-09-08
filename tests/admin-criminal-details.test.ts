@@ -132,6 +132,15 @@ describe('getAdminCriminalViolationDetails', () => {
     });
   });
 
+  it('preserves missing confidence instead of reporting a false 0%', async () => {
+    const { env } = createEnv([baseRow({ confidence: null })]);
+    vi.mocked(fetchMessagesOptimized).mockResolvedValue([]);
+
+    const result = await getAdminCriminalViolationDetails(env, -1001, 42, range);
+
+    expect(result.violations[0].confidence).toBeNull();
+  });
+
   it('bounds detail responses to 50 rows and reports truncation', async () => {
     const rows = Array.from({ length: 51 }, (_, index) => baseRow({
       id: index + 1,

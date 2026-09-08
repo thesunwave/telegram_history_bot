@@ -83,7 +83,7 @@ function parseChatId(url: URL): number | null {
   }
 
   const chatId = Number(rawChatId);
-  return Number.isInteger(chatId) && chatId !== 0 ? chatId : null;
+  return Number.isSafeInteger(chatId) && chatId !== 0 ? chatId : null;
 }
 
 function parseUserId(url: URL): number | null {
@@ -93,7 +93,7 @@ function parseUserId(url: URL): number | null {
   }
 
   const userId = Number(rawUserId);
-  return Number.isInteger(userId) && userId > 0 ? userId : null;
+  return Number.isSafeInteger(userId) && userId > 0 ? userId : null;
 }
 
 async function readNotificationPayload(req: Request) {

@@ -468,7 +468,7 @@ describe('/admin/api/chats — one Telegram failure does not break the whole lis
 });
 
 describe('/admin/api/criminal-violations', () => {
-  it.each(['0', '1.5'])(
+  it.each(['0', '1.5', '9007199254740992'])(
     'rejects invalid chatId %s before Telegram membership lookup',
     async (chatId) => {
       let membershipChecks = 0;
@@ -481,6 +481,30 @@ describe('/admin/api/criminal-violations', () => {
       const response = await worker.fetch(
         new Request(
           `http://localhost/admin/api/criminal-violations?chatId=${chatId}&userId=77&period=today`,
+          { headers: { Cookie: cookie } },
+        ),
+        env,
+        ctx,
+      );
+
+      expect(response.status).toBe(400);
+      expect(membershipChecks).toBe(0);
+    },
+  );
+
+  it.each(['0', '-1', '1.5', '9007199254740992'])(
+    'rejects invalid userId %s before Telegram membership lookup',
+    async (userId) => {
+      let membershipChecks = 0;
+      mockGetChatMemberByChatId(() => {
+        membershipChecks += 1;
+        return memberResponse();
+      });
+      const cookie = await adminSessionCookie();
+
+      const response = await worker.fetch(
+        new Request(
+          `http://localhost/admin/api/criminal-violations?chatId=-1001&userId=${userId}&period=today`,
           { headers: { Cookie: cookie } },
         ),
         env,

@@ -1220,7 +1220,6 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     ];
     const state = {
       chatId: '',
-      period: 'today',
       notificationTypes: [],
       chats: [],
       loading: false,
@@ -1614,18 +1613,18 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       return url.pathname + url.search;
     }
 
-    function buildCriminalDetailsUrl(chatId, userId, period, loadedRange) {
+    function buildCriminalDetailsUrl(chatId, userId, loadedRange) {
+      if (!loadedRange?.from || !loadedRange?.to) {
+        throw new Error('Loaded dashboard range is unavailable');
+      }
       const url = new URL('/admin/api/criminal-violations', window.location.origin);
       url.searchParams.set('chatId', chatId);
-      url.searchParams.set('period', period);
       url.searchParams.set('userId', String(userId));
-      if (period === 'custom') {
-        if (!loadedRange?.from || !loadedRange?.to) {
-          throw new Error('Loaded custom range is unavailable');
-        }
-        url.searchParams.set('from', loadedRange.from);
-        url.searchParams.set('to', loadedRange.to);
-      }
+      // Pin the drill-down to the exact range that produced the visible leaderboard.
+      // Using the preset again could move the range across a UTC day boundary.
+      url.searchParams.set('period', 'custom');
+      url.searchParams.set('from', loadedRange.from);
+      url.searchParams.set('to', loadedRange.to);
       return url.pathname + url.search;
     }
 
@@ -1844,7 +1843,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     function formatCriminalConfidence(value) {
-      const confidence = Math.min(1, Math.max(0, Number(value) || 0));
+      if (value === null || value === undefined || value === '') return 'нет данных';
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return 'нет данных';
+      const confidence = Math.min(1, Math.max(0, numeric));
       return Math.round(confidence * 100) + '%';
     }
 
@@ -1885,24 +1887,22 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         }
         field.append(label, context);
         card.append(field);
-        return;
+      } else if (!violation.contextSummary) {
+        const field = document.createElement('div');
+        field.className = 'criminalField';
+        const label = document.createElement('div');
+        label.className = 'criminalFieldLabel';
+        label.textContent = 'Контекст переписки';
+        const unavailable = document.createElement('div');
+        unavailable.className = 'muted';
+        unavailable.textContent = 'Исходный контекст недоступен. История сообщений хранится до 7 дней.';
+        field.append(label, unavailable);
+        card.append(field);
       }
 
       if (violation.contextSummary) {
         appendCriminalField(card, 'Контекст, который учла модель', violation.contextSummary);
-        return;
       }
-
-      const field = document.createElement('div');
-      field.className = 'criminalField';
-      const label = document.createElement('div');
-      label.className = 'criminalFieldLabel';
-      label.textContent = 'Контекст переписки';
-      const unavailable = document.createElement('div');
-      unavailable.className = 'muted';
-      unavailable.textContent = 'Исходный контекст недоступен. История сообщений хранится до 7 дней.';
-      field.append(label, unavailable);
-      card.append(field);
     }
 
     function renderCriminalDetails(username, payload) {
@@ -2030,7 +2030,6 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const url = buildCriminalDetailsUrl(
           state.chatId,
           row.userId,
-          state.period,
           state.loadedCriminalRange,
         );
         const res = await fetch(url);
@@ -2831,7 +2830,6 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           : null;
 
         const stats = await statsRes.json();
-        state.period = stats.period || period;
         state.loadedCriminalRange = stats.range?.from && stats.range?.to
           ? { from: stats.range.from, to: stats.range.to }
           : null;
