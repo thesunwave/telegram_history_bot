@@ -118,8 +118,10 @@ async function loadRecentHistory(
 
   const firstDay = new Date(Math.min(...recentTimestamps) * 1000);
   firstDay.setUTCHours(0, 0, 0, 0);
+  firstDay.setUTCDate(firstDay.getUTCDate() - 1);
   const lastDay = new Date(Math.max(...recentTimestamps) * 1000);
   lastDay.setUTCHours(0, 0, 0, 0);
+  lastDay.setUTCDate(lastDay.getUTCDate() + 1);
   const history: StoredMessage[] = [];
 
   try {

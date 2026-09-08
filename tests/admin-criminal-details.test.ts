@@ -74,7 +74,9 @@ describe('getAdminCriminalViolationDetails', () => {
       { chat: -1001, user: 42, username: 'bob', text: 'я тебя убью завтра', ts: 1788782400, messageId: 1002 },
       { chat: -1001, user: 7, username: 'alice', text: 'это угроза?', ts: 1788782410, messageId: 1003 },
     ];
-    vi.mocked(fetchMessagesOptimized).mockResolvedValue(messages);
+    vi.mocked(fetchMessagesOptimized).mockImplementation(async (_env, _chatId, start) =>
+      new Date(start * 1000).toISOString().slice(0, 10) === '2026-09-07' ? messages : []
+    );
 
     const result = await getAdminCriminalViolationDetails(env, -1001, 42, range);
 
@@ -87,7 +89,7 @@ describe('getAdminCriminalViolationDetails', () => {
       '2026-09-07',
       51,
     );
-    expect(fetchMessagesOptimized).toHaveBeenCalledTimes(1);
+    expect(fetchMessagesOptimized).toHaveBeenCalledTimes(2);
     expect(result.violations).toHaveLength(1);
     expect(result.violations[0]).toMatchObject({
       article: '119',
@@ -139,6 +141,85 @@ describe('getAdminCriminalViolationDetails', () => {
     const result = await getAdminCriminalViolationDetails(env, -1001, 42, range);
 
     expect(result.violations[0].confidence).toBeNull();
+  });
+
+  it('loads adjacent UTC days so retained context can cross midnight boundaries', async () => {
+    vi.setSystemTime(new Date('2026-09-08T12:00:00.000Z'));
+    const startOfDayTargetTs = Math.floor(new Date('2026-09-07T00:00:01.000Z').getTime() / 1000);
+    const endOfDayTargetTs = Math.floor(new Date('2026-09-07T23:59:59.000Z').getTime() / 1000);
+    const { env } = createEnv([
+      baseRow({ id: 1, message_id: 1002, target_message_id: 1002, event_ts: startOfDayTargetTs }),
+      baseRow({ id: 2, message_id: 2002, target_message_id: 2002, event_ts: endOfDayTargetTs }),
+    ]);
+    const previousDay: StoredMessage = {
+      chat: -1001,
+      user: 7,
+      username: 'alice',
+      text: 'before start-of-day target',
+      ts: Math.floor(new Date('2026-09-06T23:59:59.000Z').getTime() / 1000),
+      messageId: 1001,
+    };
+    const startOfDayTarget: StoredMessage = {
+      chat: -1001,
+      user: 42,
+      username: 'bob',
+      text: 'start-of-day target',
+      ts: startOfDayTargetTs,
+      messageId: 1002,
+    };
+    const startOfDayAfter: StoredMessage = {
+      chat: -1001,
+      user: 7,
+      username: 'alice',
+      text: 'after start-of-day target',
+      ts: startOfDayTargetTs + 1,
+      messageId: 1003,
+    };
+    const endOfDayBefore: StoredMessage = {
+      chat: -1001,
+      user: 7,
+      username: 'alice',
+      text: 'before end-of-day target',
+      ts: endOfDayTargetTs - 1,
+      messageId: 2001,
+    };
+    const endOfDayTarget: StoredMessage = {
+      chat: -1001,
+      user: 42,
+      username: 'bob',
+      text: 'end-of-day target',
+      ts: endOfDayTargetTs,
+      messageId: 2002,
+    };
+    const nextDay: StoredMessage = {
+      chat: -1001,
+      user: 7,
+      username: 'alice',
+      text: 'after end-of-day target',
+      ts: Math.floor(new Date('2026-09-08T00:00:01.000Z').getTime() / 1000),
+      messageId: 2003,
+    };
+    vi.mocked(fetchMessagesOptimized).mockImplementation(async (_env, _chatId, start) => {
+      const day = new Date(start * 1000).toISOString().slice(0, 10);
+      if (day === '2026-09-06') return [previousDay];
+      if (day === '2026-09-07') {
+        return [startOfDayTarget, startOfDayAfter, endOfDayBefore, endOfDayTarget];
+      }
+      if (day === '2026-09-08') return [nextDay];
+      return [];
+    });
+
+    const result = await getAdminCriminalViolationDetails(env, -1001, 42, range);
+
+    expect(fetchMessagesOptimized).toHaveBeenCalledTimes(3);
+    expect(result.violations[0].contextMessages).toEqual([
+      { username: 'alice', text: 'before start-of-day target', ts: previousDay.ts, relativePosition: -1 },
+      { username: 'alice', text: 'after start-of-day target', ts: startOfDayAfter.ts, relativePosition: 1 },
+    ]);
+    expect(result.violations[1].contextMessages).toEqual([
+      { username: 'alice', text: 'before end-of-day target', ts: endOfDayBefore.ts, relativePosition: -1 },
+      { username: 'alice', text: 'after end-of-day target', ts: nextDay.ts, relativePosition: 1 },
+    ]);
   });
 
   it('bounds retained raw history before loading older violation days', async () => {
