@@ -339,6 +339,10 @@ describe("CriminalCodeAnalyzerDO", () => {
       const violation_day = insertCall[insertCall.length - 2];
       expect(violation_ts).toBe(sourceTs);
       expect(violation_day).toBe("2023-11-14");
+
+      const countersFetch = mockEnv.COUNTERS_DO.get.mock.results[0].value.fetch;
+      const countersPayload = JSON.parse(countersFetch.mock.calls[0][1].body as string);
+      expect(countersPayload.day).toBe("2023-11-14");
     });
 
     it("should fall back to processing time when analyze request has no timestamp", async () => {

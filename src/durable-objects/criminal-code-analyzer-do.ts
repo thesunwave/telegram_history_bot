@@ -2592,7 +2592,7 @@ export class CriminalCodeAnalyzerDO {
       // Send data to CountersDO for KV storage updates
       if (chatId && userId && violations.length > 0) {
         try {
-          const dayToUse = day || new Date().toISOString().slice(0, 10);
+          const dayToUse = canonicalDay;
           const totalSeverity = violations.reduce((sum, v) => sum + v.severity, 0);
 
           const countersId = this.env.COUNTERS_DO.idFromName(String(chatId));
