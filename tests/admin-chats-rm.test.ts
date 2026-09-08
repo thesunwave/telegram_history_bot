@@ -467,6 +467,38 @@ describe('/admin/api/chats — one Telegram failure does not break the whole lis
   });
 });
 
+describe('/admin/api/criminal-violations', () => {
+  it('returns bounded violation details only after Telegram chat membership is verified', async () => {
+    const chatId = -1001;
+    mockGetChatMemberByChatId(() => memberResponse());
+    env.DB = makeEmptyD1();
+    const cookie = await adminSessionCookie();
+    const day = new Date();
+    day.setUTCDate(day.getUTCDate() - 1);
+    const dayStr = day.toISOString().slice(0, 10);
+
+    const response = await worker.fetch(
+      new Request(
+        `http://localhost/admin/api/criminal-violations?chatId=${chatId}&userId=77&period=custom&from=${dayStr}&to=${dayStr}`,
+        { headers: { Cookie: cookie } },
+      ),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    const body = (await response.json()) as any;
+    expect(body).toMatchObject({
+      chatId,
+      userId: 77,
+      range: { from: dayStr, to: dayStr },
+      violations: [],
+      hasMore: false,
+    });
+  });
+});
+
 describe('requireTelegramChatAccess via worker.fetch — 503 on transient Telegram error (symptom B fix)', () => {
   it('returns 503 (not 403) when the per-chat getChatMember 429s after the listing succeeded', async () => {
     const chatId = -1001;

@@ -17,6 +17,7 @@ import {
   listAdminChatsForTelegramUser,
 } from './admin-chats';
 import { getAdminChatStats, parseAdminPeriod, type AdminDateRange } from './admin-stats';
+import { getAdminCriminalViolationDetails } from './admin-criminal';
 import {
   AdminUnavailable,
   HistoricalStatsNotReady,
@@ -83,6 +84,16 @@ function parseChatId(url: URL): number | null {
 
   const chatId = Number(rawChatId);
   return Number.isFinite(chatId) ? chatId : null;
+}
+
+function parseUserId(url: URL): number | null {
+  const rawUserId = url.searchParams.get('userId');
+  if (!rawUserId) {
+    return null;
+  }
+
+  const userId = Number(rawUserId);
+  return Number.isInteger(userId) && userId > 0 ? userId : null;
 }
 
 async function readNotificationPayload(req: Request) {
@@ -341,6 +352,40 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
         return statsUnavailable(error, period);
       }
       throw error;
+    }
+  }
+
+  if (url.pathname === `${ADMIN_PATH}/api/criminal-violations` && req.method === 'GET') {
+    const chatId = parseChatId(url);
+    const userId = parseUserId(url);
+    if (chatId === null) {
+      return jsonError('chatId is required', 400);
+    }
+    if (userId === null) {
+      return jsonError('userId is required', 400);
+    }
+
+    let period;
+    try {
+      period = parseAdminPeriod(
+        url.searchParams.get('period'),
+        url.searchParams.get('from'),
+        url.searchParams.get('to'),
+      );
+    } catch (error) {
+      return jsonError(error instanceof Error ? error.message : 'invalid period', 400);
+    }
+
+    const denied = await requireTelegramChatAccess(env, principal, chatId);
+    if (denied) {
+      return denied;
+    }
+
+    try {
+      const details = await getAdminCriminalViolationDetails(env, chatId, userId, period);
+      return Response.json(details, { headers: { 'Cache-Control': 'no-store' } });
+    } catch {
+      return statsUnavailable(new AdminUnavailable(), period);
     }
   }
 

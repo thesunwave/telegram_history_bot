@@ -125,6 +125,31 @@ describe('renderAdminHtml', () => {
     expect(html).not.toContain("participant.userId");
   });
 
+  it('renders criminal violation drill-down with model confidence and retained context', () => {
+    const html = renderAdminHtml({
+      botUsername: 'stats_bot',
+      principal: {
+        type: 'telegram',
+        username: 'admin',
+        telegramId: 123,
+      },
+    });
+
+    expect(html).toContain('id="criminalDetails"');
+    expect(html).toContain('id="criminalViolationList"');
+    expect(html).toContain('/admin/api/criminal-violations');
+    expect(html).toContain('renderCriminalRows(stats.criminal.topUsers || [])');
+    expect(html).toContain('Сообщение-триггер');
+    expect(html).toContain('Возможное наказание');
+    expect(html).toContain('Максимум лишения свободы по тексту наказания');
+    expect(html).toContain('Уверенность модели ');
+    expect(html).toContain('Уверенность модели — это confidence конкретного анализа, а не измеренная точность классификатора.');
+    expect(html).toContain('История сообщений хранится до 7 дней.');
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(script).toBeTruthy();
+    expect(() => new Function(script!)).not.toThrow();
+  });
+
   it('renders designed Russian error states and never raw serialized payload text', () => {
     const html = renderAdminHtml({
       botUsername: 'stats_bot',
