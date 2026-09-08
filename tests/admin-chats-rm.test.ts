@@ -467,6 +467,176 @@ describe('/admin/api/chats — one Telegram failure does not break the whole lis
   });
 });
 
+describe('/admin/api/criminal-violations', () => {
+  it.each(['0', '1.5', '9007199254740992'])(
+    'rejects invalid chatId %s before Telegram membership lookup',
+    async (chatId) => {
+      let membershipChecks = 0;
+      mockGetChatMemberByChatId(() => {
+        membershipChecks += 1;
+        return memberResponse();
+      });
+      const cookie = await adminSessionCookie();
+
+      const response = await worker.fetch(
+        new Request(
+          `http://localhost/admin/api/criminal-violations?chatId=${chatId}&userId=77&period=today`,
+          { headers: { Cookie: cookie } },
+        ),
+        env,
+        ctx,
+      );
+
+      expect(response.status).toBe(400);
+      expect(membershipChecks).toBe(0);
+    },
+  );
+
+  it.each(['0', '-1', '1.5', '9007199254740992'])(
+    'rejects invalid userId %s before Telegram membership lookup',
+    async (userId) => {
+      let membershipChecks = 0;
+      mockGetChatMemberByChatId(() => {
+        membershipChecks += 1;
+        return memberResponse();
+      });
+      const cookie = await adminSessionCookie();
+
+      const response = await worker.fetch(
+        new Request(
+          `http://localhost/admin/api/criminal-violations?chatId=-1001&userId=${userId}&period=today`,
+          { headers: { Cookie: cookie } },
+        ),
+        env,
+        ctx,
+      );
+
+      expect(response.status).toBe(400);
+      expect(membershipChecks).toBe(0);
+    },
+  );
+
+  it.each(['left', 'kicked'])(
+    'denies violation details when Telegram membership status is %s',
+    async (status) => {
+      const chatId = -1001;
+      mockGetChatMemberByChatId(() => statusResponse(status));
+      const prepare = vi.fn();
+      env.DB = { prepare } as any;
+      const cookie = await adminSessionCookie();
+
+      const response = await worker.fetch(
+        new Request(
+          `http://localhost/admin/api/criminal-violations?chatId=${chatId}&userId=77&period=today`,
+          { headers: { Cookie: cookie } },
+        ),
+        env,
+        ctx,
+      );
+
+      expect(response.status).toBe(403);
+      expect(prepare).not.toHaveBeenCalled();
+    },
+  );
+
+  it('returns at most 50 violation details after Telegram chat membership is verified', async () => {
+    const chatId = -1001;
+    let membershipChecks = 0;
+    mockGetChatMemberByChatId(() => {
+      membershipChecks += 1;
+      return memberResponse();
+    });
+    const rows = Array.from({ length: 51 }, (_, index) => ({
+      id: index + 1,
+      message_id: 1000 + index,
+      target_message_id: 1000 + index,
+      article: '119',
+      subarticle: null,
+      article_title: 'Угроза',
+      quote: `quote-${index + 1}`,
+      punishment: null,
+      severity: 1,
+      confidence: null,
+      decision: 'violation',
+      evidence_json: null,
+      context_before: null,
+      context_after: null,
+      text_preview: null,
+      event_ts: 0,
+    }));
+    env.DB = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({
+          all: vi.fn(async () => ({ success: true, results: rows })),
+        })),
+      })),
+    } as any;
+    const cookie = await adminSessionCookie();
+    const day = new Date();
+    day.setUTCDate(day.getUTCDate() - 1);
+    const dayStr = day.toISOString().slice(0, 10);
+
+    const response = await worker.fetch(
+      new Request(
+        `http://localhost/admin/api/criminal-violations?chatId=${chatId}&userId=77&period=custom&from=${dayStr}&to=${dayStr}`,
+        { headers: { Cookie: cookie } },
+      ),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(membershipChecks).toBe(1);
+    const body = (await response.json()) as any;
+    expect(body).toMatchObject({
+      chatId,
+      userId: 77,
+      range: { from: dayStr, to: dayStr },
+      hasMore: true,
+    });
+    expect(body.violations).toHaveLength(50);
+    expect(body.violations[0].id).toBe(1);
+    expect(body.violations[49].id).toBe(50);
+  });
+
+  it('lets unexpected detail failures reach the global admin boundary with a requestId', async () => {
+    const chatId = -1001;
+    mockGetChatMemberByChatId(() => memberResponse());
+    env.DB = {
+      prepare: vi.fn(() => {
+        throw new Error('simulated detail query defect');
+      }),
+    } as any;
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const cookie = await adminSessionCookie();
+
+    const response = await worker.fetch(
+      new Request(
+        `http://localhost/admin/api/criminal-violations?chatId=${chatId}&userId=77&period=today`,
+        { headers: { Cookie: cookie } },
+      ),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as any;
+    expect(body.error.code).toBe('ADMIN_UNAVAILABLE');
+    expect(body.error.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      'Admin request failed with unhandled exception',
+      expect.objectContaining({
+        requestId: body.error.requestId,
+        pathname: '/admin/api/criminal-violations',
+        errorName: 'Error',
+      }),
+    );
+  });
+});
+
 describe('requireTelegramChatAccess via worker.fetch — 503 on transient Telegram error (symptom B fix)', () => {
   it('returns 503 (not 403) when the per-chat getChatMember 429s after the listing succeeded', async () => {
     const chatId = -1001;

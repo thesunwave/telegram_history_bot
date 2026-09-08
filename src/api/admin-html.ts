@@ -658,6 +658,126 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       min-height: 18px;
     }
     .muted { color: var(--muted); }
+    button.criminalUserButton {
+      min-height: 30px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--text);
+      font-weight: 650;
+      text-align: left;
+      text-decoration: underline;
+      text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+      text-underline-offset: 3px;
+    }
+    button.criminalUserButton:hover,
+    button.criminalUserButton:focus-visible {
+      color: var(--accent-strong);
+      text-decoration-color: var(--accent);
+    }
+    .criminalDetails {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }
+    .criminalDetailsHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 4px;
+    }
+    .criminalDetailsHeader h3 {
+      margin: 0;
+      font-size: 14px;
+    }
+    .criminalDetailsHeader button {
+      min-height: 32px;
+      padding: 0 10px;
+      font-size: 12px;
+    }
+    .criminalConfidenceNote {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .criminalViolationList {
+      display: grid;
+      gap: 10px;
+    }
+    .criminalViolationCard {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+    .criminalViolationHead {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .criminalViolationTitle {
+      font-weight: 750;
+      overflow-wrap: anywhere;
+    }
+    .criminalBadges {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .criminalBadge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 2px 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--panel);
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .criminalField {
+      margin-top: 9px;
+    }
+    .criminalFieldLabel {
+      margin-bottom: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+    }
+    .criminalTrigger {
+      margin: 0;
+      padding: 9px 10px;
+      border-left: 3px solid var(--accent);
+      background: var(--panel);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .criminalContext {
+      display: grid;
+      gap: 6px;
+    }
+    .criminalContextMessage {
+      padding: 7px 9px;
+      border-left: 2px solid var(--line);
+      background: var(--panel);
+    }
+    .criminalContextMeta {
+      margin-bottom: 2px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .criminalOccurredAt {
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 10px;
+    }
     .login {
       display: grid;
       gap: 14px;
@@ -1053,6 +1173,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             <tbody id="criminalUsers"></tbody>
           </table>
         </div>
+        <div class="criminalDetails hidden" id="criminalDetails" aria-live="polite">
+          <div class="criminalDetailsHeader">
+            <h3 id="criminalDetailsTitle">Детали нарушений</h3>
+            <button class="secondary" id="criminalDetailsClose" type="button">Закрыть</button>
+          </div>
+          <p class="criminalConfidenceNote">Уверенность модели — это confidence конкретного анализа, а не измеренная точность классификатора.</p>
+          <div class="criminalViolationList" id="criminalViolationList"></div>
+        </div>
       </section>
       <section class="wide" data-block-id="notifications">
         <div class="blockHeader">
@@ -1092,12 +1220,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     ];
     const state = {
       chatId: '',
-      period: 'today',
       notificationTypes: [],
       chats: [],
       loading: false,
       currentActivity: null,
-      currentProfanityRateRows: null
+      currentProfanityRateRows: null,
+      criminalDetailsRequestId: 0,
+      selectedCriminalUserId: null,
+      loadedCriminalRange: null
     };
     const chartInstances = {};
     const labels = {
@@ -1483,6 +1613,21 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       return url.pathname + url.search;
     }
 
+    function buildCriminalDetailsUrl(chatId, userId, loadedRange) {
+      if (!loadedRange?.from || !loadedRange?.to) {
+        throw new Error('Loaded dashboard range is unavailable');
+      }
+      const url = new URL('/admin/api/criminal-violations', window.location.origin);
+      url.searchParams.set('chatId', chatId);
+      url.searchParams.set('userId', String(userId));
+      // Pin the drill-down to the exact range that produced the visible leaderboard.
+      // Using the preset again could move the range across a UTC day boundary.
+      url.searchParams.set('period', 'custom');
+      url.searchParams.set('from', loadedRange.from);
+      url.searchParams.set('to', loadedRange.to);
+      return url.pathname + url.search;
+    }
+
     function setNotificationEditAllowed(canEdit) {
       document.getElementById('saveNotifications').disabled = !canEdit;
       document.getElementById('notificationsEnabled').disabled = !canEdit;
@@ -1522,6 +1667,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     function renderDashboardSkeleton() {
       state.loading = true;
+      closeCriminalDetails();
       document.getElementById('dashboard').classList.remove('hidden');
       setControlsDisabled(true);
       for (const id of [
@@ -1599,7 +1745,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       renderRows('profanityUsers', [], 'username', 'count');
       renderProfanityRateRows([]);
       renderRows('profanityWords', [], 'word', 'count');
-      renderRows('criminalUsers', [], 'username', 'count');
+      renderCriminalRows([]);
       renderNotifications({ enabled: false, notifications: {} }, [], false);
     }
 
@@ -1685,6 +1831,269 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         tr.append(name, count);
         tbody.append(tr);
       }
+    }
+
+    function formatCriminalArticle(violation) {
+      const article = String(violation?.article || '?')
+        .replace(/^Статья\s+/i, '')
+        .replace(/\s+УК\s+РФ$/i, '');
+      const subarticle = violation?.subarticle ? '.' + violation.subarticle : '';
+      const title = violation?.articleTitle ? ' · ' + violation.articleTitle : '';
+      return 'Ст. ' + article + subarticle + ' УК РФ' + title;
+    }
+
+    function formatCriminalConfidence(value) {
+      if (value === null || value === undefined || value === '') return 'нет данных';
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return 'нет данных';
+      const confidence = Math.min(1, Math.max(0, numeric));
+      return Math.round(confidence * 100) + '%';
+    }
+
+    function appendCriminalField(card, labelText, valueText) {
+      if (!valueText) return;
+      const field = document.createElement('div');
+      field.className = 'criminalField';
+      const label = document.createElement('div');
+      label.className = 'criminalFieldLabel';
+      label.textContent = labelText;
+      const value = document.createElement('div');
+      value.textContent = valueText;
+      field.append(label, value);
+      card.append(field);
+    }
+
+    function appendCriminalContext(card, violation) {
+      const contextMessages = Array.isArray(violation.contextMessages) ? violation.contextMessages : [];
+      if (contextMessages.length) {
+        const field = document.createElement('div');
+        field.className = 'criminalField';
+        const label = document.createElement('div');
+        label.className = 'criminalFieldLabel';
+        label.textContent = 'Контекст переписки';
+        const context = document.createElement('div');
+        context.className = 'criminalContext';
+        for (const message of contextMessages) {
+          const item = document.createElement('div');
+          item.className = 'criminalContextMessage';
+          const meta = document.createElement('div');
+          meta.className = 'criminalContextMeta';
+          meta.textContent = (Number(message.relativePosition) < 0 ? 'До' : 'После') + ' · ' +
+            (message.username || 'unknown');
+          const text = document.createElement('div');
+          text.textContent = message.text || '';
+          item.append(meta, text);
+          context.append(item);
+        }
+        field.append(label, context);
+        card.append(field);
+      } else if (!violation.contextSummary) {
+        const field = document.createElement('div');
+        field.className = 'criminalField';
+        const label = document.createElement('div');
+        label.className = 'criminalFieldLabel';
+        label.textContent = 'Контекст переписки';
+        const unavailable = document.createElement('div');
+        unavailable.className = 'muted';
+        unavailable.textContent = 'Исходный контекст недоступен. История сообщений хранится до 7 дней.';
+        field.append(label, unavailable);
+        card.append(field);
+      }
+
+      if (violation.contextSummary) {
+        appendCriminalField(card, 'Контекст, который учла модель', violation.contextSummary);
+      }
+    }
+
+    function renderCriminalDetails(username, payload) {
+      const panel = document.getElementById('criminalDetails');
+      const list = document.getElementById('criminalViolationList');
+      document.getElementById('criminalDetailsTitle').textContent = 'Нарушения: ' + username;
+      list.innerHTML = '';
+      const violations = Array.isArray(payload?.violations) ? payload.violations : [];
+
+      if (!violations.length) {
+        const empty = document.createElement('div');
+        empty.className = 'muted';
+        empty.textContent = 'Детали нарушений за этот период не найдены.';
+        list.append(empty);
+        panel.classList.remove('hidden');
+        return;
+      }
+
+      for (const violation of violations) {
+        const card = document.createElement('article');
+        card.className = 'criminalViolationCard';
+        const head = document.createElement('div');
+        head.className = 'criminalViolationHead';
+        const title = document.createElement('div');
+        title.className = 'criminalViolationTitle';
+        title.textContent = formatCriminalArticle(violation);
+        const badges = document.createElement('div');
+        badges.className = 'criminalBadges';
+        const confidence = document.createElement('span');
+        confidence.className = 'criminalBadge';
+        confidence.textContent = 'Уверенность модели ' + formatCriminalConfidence(violation.confidence);
+        confidence.title = 'Confidence анализа, а не измеренная точность классификатора';
+        badges.append(confidence);
+        if (Number(violation.severity) > 0) {
+          const severity = document.createElement('span');
+          severity.className = 'criminalBadge';
+          severity.textContent = 'Серьёзность ' + violation.severity + '/10';
+          badges.append(severity);
+        }
+        head.append(title, badges);
+        card.append(head);
+
+        const triggerField = document.createElement('div');
+        triggerField.className = 'criminalField';
+        const triggerLabel = document.createElement('div');
+        triggerLabel.className = 'criminalFieldLabel';
+        const triggerSource = violation.trigger?.source;
+        triggerLabel.textContent = triggerSource === 'history'
+          ? 'Сообщение-триггер'
+          : triggerSource === 'preview'
+            ? 'Сохранённый фрагмент сообщения'
+            : 'Фрагмент, который выделила модель';
+        const trigger = document.createElement('blockquote');
+        trigger.className = 'criminalTrigger';
+        trigger.textContent = violation.trigger?.text || violation.quote || 'Текст недоступен';
+        triggerField.append(triggerLabel, trigger);
+        card.append(triggerField);
+
+        appendCriminalField(
+          card,
+          'Возможное наказание',
+          violation.punishment || 'Модель не указала наказание',
+        );
+        if (violation.sentence?.display && violation.sentence.display !== 'срок не распознан') {
+          appendCriminalField(
+            card,
+            'Максимум лишения свободы по тексту наказания',
+            violation.sentence.display,
+          );
+        }
+        const explanation = violation.evidence?.whyNotBenign || violation.evidence?.intent || '';
+        appendCriminalField(card, 'Почему модель сочла это нарушением', explanation);
+        appendCriminalContext(card, violation);
+
+        if (violation.occurredAt) {
+          const occurredAt = document.createElement('div');
+          occurredAt.className = 'criminalOccurredAt';
+          occurredAt.textContent = new Date(Number(violation.occurredAt) * 1000).toLocaleString('ru-RU');
+          card.append(occurredAt);
+        }
+        list.append(card);
+      }
+
+      if (payload?.hasMore) {
+        const more = document.createElement('div');
+        more.className = 'muted';
+        more.textContent = 'Показаны последние 50 нарушений за выбранный период.';
+        list.append(more);
+      }
+      panel.classList.remove('hidden');
+    }
+
+    function syncCriminalDetailButtons() {
+      for (const button of document.querySelectorAll('.criminalUserButton')) {
+        button.setAttribute(
+          'aria-expanded',
+          String(String(button.dataset.userId) === String(state.selectedCriminalUserId)),
+        );
+      }
+    }
+
+    function closeCriminalDetails() {
+      state.criminalDetailsRequestId += 1;
+      state.selectedCriminalUserId = null;
+      document.getElementById('criminalDetails').classList.add('hidden');
+      document.getElementById('criminalViolationList').innerHTML = '';
+      syncCriminalDetailButtons();
+    }
+
+    async function loadCriminalDetails(row) {
+      const requestId = ++state.criminalDetailsRequestId;
+      state.selectedCriminalUserId = row.userId;
+      syncCriminalDetailButtons();
+      const panel = document.getElementById('criminalDetails');
+      const list = document.getElementById('criminalViolationList');
+      document.getElementById('criminalDetailsTitle').textContent = 'Нарушения: ' + row.username;
+      list.innerHTML = '';
+      const loading = document.createElement('div');
+      loading.className = 'muted';
+      loading.textContent = 'Загрузка деталей...';
+      list.append(loading);
+      panel.classList.remove('hidden');
+
+      try {
+        const url = buildCriminalDetailsUrl(
+          state.chatId,
+          row.userId,
+          state.loadedCriminalRange,
+        );
+        const res = await fetch(url);
+        if (res.status === 401) {
+          redirectToLogin();
+          return;
+        }
+        if (!res.ok) throw new Error('details unavailable');
+        const payload = await res.json();
+        if (requestId !== state.criminalDetailsRequestId) return;
+        renderCriminalDetails(row.username, payload);
+      } catch (_error) {
+        if (requestId !== state.criminalDetailsRequestId) return;
+        state.selectedCriminalUserId = null;
+        syncCriminalDetailButtons();
+        list.innerHTML = '';
+        const error = document.createElement('div');
+        error.className = 'muted';
+        error.textContent = 'Не удалось загрузить детали нарушений. Попробуйте ещё раз.';
+        list.append(error);
+      }
+    }
+
+    function renderCriminalRows(rows) {
+      const tbody = document.getElementById('criminalUsers');
+      tbody.innerHTML = '';
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="2" class="muted">Нет данных</td></tr>';
+        closeCriminalDetails();
+        return;
+      }
+
+      for (const row of rows) {
+        const tr = document.createElement('tr');
+        const name = document.createElement('td');
+        const count = document.createElement('td');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'criminalUserButton';
+        button.dataset.userId = String(row.userId);
+        button.setAttribute('aria-controls', 'criminalDetails');
+        button.setAttribute('aria-expanded', 'false');
+        const isCurrentUser = principal?.telegramId && String(row.userId) === String(principal.telegramId);
+        if (isCurrentUser) {
+          const currentUser = document.createElement('strong');
+          currentUser.textContent = row.username;
+          button.append(currentUser);
+        } else {
+          button.textContent = row.username;
+        }
+        button.addEventListener('click', () => {
+          if (String(state.selectedCriminalUserId) === String(row.userId) &&
+              !document.getElementById('criminalDetails').classList.contains('hidden')) {
+            closeCriminalDetails();
+          } else {
+            loadCriminalDetails(row);
+          }
+        });
+        name.append(button);
+        count.textContent = String(row.count);
+        tr.append(name, count);
+        tbody.append(tr);
+      }
+      syncCriminalDetailButtons();
     }
 
     function clampTooltipPosition(value, size, viewportSize) {
@@ -2400,7 +2809,6 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const period = document.getElementById('period').value;
       if (!chatId) return;
       state.chatId = chatId;
-      state.period = period;
 
       try {
         const statsUrl = buildStatsUrl(chatId, period);
@@ -2424,6 +2832,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           : null;
 
         const stats = await statsRes.json();
+        state.loadedCriminalRange = stats.range?.from && stats.range?.to
+          ? { from: stats.range.from, to: stats.range.to }
+          : null;
         const notifications = notificationsRes.ok
           ? await notificationsRes.json()
           : { settings: null, availableTypes: [], canEdit: false };
@@ -2453,7 +2864,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         renderRows('profanityUsers', stats.profanity.topUsers, 'username', 'count');
         renderProfanityRateRows(stats.profanity.topRateUsers || []);
         renderRows('profanityWords', stats.profanity.topWords, 'word', 'count');
-        renderRows('criminalUsers', stats.criminal.topUsers, 'username', 'count');
+        renderCriminalRows(stats.criminal.topUsers || []);
         renderNotifications(
           notifications.settings,
           notifications.availableTypes,
@@ -2534,6 +2945,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }
     });
     document.getElementById('saveNotifications').addEventListener('click', saveNotifications);
+    document.getElementById('criminalDetailsClose').addEventListener('click', closeCriminalDetails);
     document.getElementById('resetDashboardLayout').addEventListener('click', resetDashboardLayout);
     document.addEventListener('mouseover', event => {
       const tooltipHost = event.target.closest?.('.hasTooltip');

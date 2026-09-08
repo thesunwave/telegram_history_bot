@@ -125,6 +125,43 @@ describe('renderAdminHtml', () => {
     expect(html).not.toContain("participant.userId");
   });
 
+  it('renders criminal violation drill-down with model confidence and retained context', () => {
+    const html = renderAdminHtml({
+      botUsername: 'stats_bot',
+      principal: {
+        type: 'telegram',
+        username: 'admin',
+        telegramId: 123,
+      },
+    });
+
+    expect(html).toContain('id="criminalDetails"');
+    expect(html).toContain('id="criminalViolationList"');
+    expect(html).toContain('/admin/api/criminal-violations');
+    expect(html).toContain('renderCriminalRows(stats.criminal.topUsers || [])');
+    expect(html).toContain('Сообщение-триггер');
+    expect(html).toContain('Возможное наказание');
+    expect(html).toContain('Максимум лишения свободы по тексту наказания');
+    expect(html).toContain('Уверенность модели ');
+    expect(html).toContain('Уверенность модели — это confidence конкретного анализа, а не измеренная точность классификатора.');
+    expect(html).toContain('История сообщений хранится до 7 дней.');
+    expect(html).toContain('loadedCriminalRange: null');
+    expect(html).toContain('state.loadedCriminalRange = stats.range?.from && stats.range?.to');
+    expect(html).toContain('state.loadedCriminalRange,');
+    expect(html).toContain("url.searchParams.set('period', 'custom')");
+    expect(html).toContain("return 'нет данных'");
+    expect(html).not.toContain('state.period');
+    expect(html).not.toContain('new URL(buildStatsUrl(chatId, period)');
+
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+    const script = scripts[scripts.length - 1]?.[1];
+    expect(script).toContain('function buildCriminalDetailsUrl');
+    expect(script).toMatch(
+      /catch \(_error\) \{[\s\S]*?state\.selectedCriminalUserId = null;[\s\S]*?syncCriminalDetailButtons\(\);/,
+    );
+    expect(() => new Function(script!)).not.toThrow();
+  });
+
   it('renders designed Russian error states and never raw serialized payload text', () => {
     const html = renderAdminHtml({
       botUsername: 'stats_bot',
