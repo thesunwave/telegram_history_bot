@@ -541,6 +541,57 @@ describe('MessageFormatter', () => {
       expect(result).not.toContain('слишком длинным для удобного чтения');
     });
 
+    it('should single-escape (not double-escape) HTML-special chars in critical-violation quotes', () => {
+      const quote = 'test <x> & "y" \'z\' message';
+      const statsWithSpecialChars: GeneralStats = {
+        ...mockGeneralStats,
+        criticalViolations: [
+          {
+            article: '205',
+            subarticle: null,
+            articleTitle: 'Терроризм',
+            quote,
+            punishment: 'лишение свободы',
+            severity: 9,
+            confidence: 0.95
+          }
+        ]
+      };
+
+      const result = formatter.formatGeneralStats(statsWithSpecialChars);
+
+      expect(result).toContain('   <i>' + formatter.escapeHtml('"' + quote + '"') + '</i>');
+
+      const ampEnt = '&' + 'amp;';
+      expect(result).not.toContain(ampEnt + 'lt;');
+      expect(result).not.toContain(ampEnt + 'gt;');
+      expect(result).not.toContain(ampEnt + 'amp;');
+      expect(result).not.toContain(ampEnt + 'quot;');
+      expect(result).not.toContain(ampEnt + '#x27;');
+    });
+
+    it('should escape critical-violation quote at the same level as formatViolation (convention parity)', () => {
+      const violation: Violation = {
+        article: '205',
+        subarticle: null,
+        articleTitle: 'Терроризм',
+        quote: 'test <x> & "y" \'z\' message',
+        punishment: 'лишение свободы',
+        severity: 9,
+        confidence: 0.95
+      };
+
+      const generalResult = formatter.formatGeneralStats({
+        ...mockGeneralStats,
+        criticalViolations: [violation]
+      });
+      const violationResult = formatter.formatViolation(violation);
+
+      const expectedItalic = '<i>' + formatter.escapeHtml('"' + violation.quote + '"') + '</i>';
+      expect(violationResult).toContain(expectedItalic);
+      expect(generalResult).toContain(expectedItalic);
+    });
+
     it('should handle empty sections gracefully', () => {
       const emptyStats: GeneralStats = {
         chatId: 'chat456',
