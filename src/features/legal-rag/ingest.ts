@@ -41,14 +41,14 @@ export async function handleLegalRagIngestBatch(req: Request, env: Env): Promise
   const payload = await req.json<IngestLegalRagBatchRequest>();
   validatePayload(payload);
 
-  if (payload.replaceExisting) {
-    await deleteExistingCorpus(payload.document.lawCode, env);
-  }
-
   const documentId = await upsertDocument(payload.document, env);
   const embeddings = await embedChunks(payload.chunks, env);
   await upsertChunks(documentId, payload.chunks, env);
   await upsertVectors(payload.chunks, embeddings, payload.document.checksum, env);
+
+  if (payload.replaceExisting) {
+    await deletePreviousCorpusExcluding(payload.document.lawCode, documentId, payload.chunks, env);
+  }
 
   return Response.json({
     ok: true,
@@ -113,23 +113,33 @@ function validatePayload(payload: IngestLegalRagBatchRequest): void {
   }
 }
 
-async function deleteExistingCorpus(lawCode: string, env: Env): Promise<void> {
-  const rows = await env.DB.prepare('SELECT vector_id FROM legal_chunks WHERE law_code = ?')
-    .bind(lawCode)
-    .all();
-  const vectorIds = ((rows.results || []) as Array<{ vector_id: string }>)
+async function deletePreviousCorpusExcluding(
+  lawCode: string,
+  currentDocumentId: number,
+  currentChunks: IngestLegalChunkRequest[],
+  env: Env
+): Promise<void> {
+  const currentVectorIds = new Set(currentChunks.map(chunk => chunk.vectorId));
+
+  const rows = await env.DB.prepare(
+    'SELECT vector_id FROM legal_chunks WHERE law_code = ? AND document_id != ?'
+  ).bind(lawCode, currentDocumentId).all();
+  const previousVectorIds = ((rows.results || []) as Array<{ vector_id: string }>)
     .map(row => row.vector_id)
     .filter(Boolean);
 
-  for (let index = 0; index < vectorIds.length; index += 100) {
-    const batch = vectorIds.slice(index, index + 100);
+  const staleVectorIds = previousVectorIds.filter(id => !currentVectorIds.has(id));
+  for (let index = 0; index < staleVectorIds.length; index += 100) {
+    const batch = staleVectorIds.slice(index, index + 100);
     if (batch.length > 0 && env.LEGAL_RAG_INDEX?.deleteByIds) {
       await env.LEGAL_RAG_INDEX.deleteByIds(batch);
     }
   }
 
-  await env.DB.prepare('DELETE FROM legal_chunks WHERE law_code = ?').bind(lawCode).run();
-  await env.DB.prepare('DELETE FROM legal_documents WHERE law_code = ?').bind(lawCode).run();
+  await env.DB.prepare('DELETE FROM legal_chunks WHERE law_code = ? AND document_id != ?')
+    .bind(lawCode, currentDocumentId).run();
+  await env.DB.prepare('DELETE FROM legal_documents WHERE law_code = ? AND id != ?')
+    .bind(lawCode, currentDocumentId).run();
 }
 
 async function upsertDocument(document: IngestLegalDocumentRequest, env: Env): Promise<number> {

@@ -466,7 +466,10 @@ export class CloudflareAIProvider implements AIProvider {
         }
       }
 
-      return parsed as CriminalAnalysisResult;
+      return {
+        ...parsed,
+        analysisTimestamp: Date.now(),
+      } as CriminalAnalysisResult;
     } catch (error) {
       Logger.error('Cloudflare criminal code analysis: response parsing failed', {
         provider: 'cloudflare',
