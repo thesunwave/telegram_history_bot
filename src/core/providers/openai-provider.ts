@@ -1021,7 +1021,10 @@ export class OpenAIProvider implements AIProvider {
         }
       }
 
-      return parsed as CriminalAnalysisResult;
+      return {
+        ...parsed,
+        analysisTimestamp: Date.now(),
+      } as CriminalAnalysisResult;
     } catch (error) {
       Logger.error('OpenAI criminal code analysis: response parsing failed', {
         provider: 'openai',

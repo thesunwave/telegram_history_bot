@@ -1671,7 +1671,7 @@ export class CriminalCodeAnalyzerDO {
         return judged;
       }
       console.log(`✅ Analysis completed: ${result.hasViolations ? result.violations.length + ' violations found' : 'no violations'}`);
-      return result;
+      return this.normalizeAnalysisResult(result);
     } catch (error: any) {
       console.error('❌ AI analysis failed', {
         op: 'analyze',
@@ -1728,7 +1728,7 @@ export class CriminalCodeAnalyzerDO {
         return await this.runOpenAIFinalJudge(input, result);
       }
 
-      return result;
+      return this.normalizeAnalysisResult(result);
     } catch (error: any) {
       console.error('Criminal contextual AI analysis failed', {
         op: 'contextualAnalysis',
@@ -1738,6 +1738,17 @@ export class CriminalCodeAnalyzerDO {
       // the provider exception into a fabricated no-violation / zero result.
       throw error;
     }
+  }
+
+  private normalizeAnalysisResult(result: CriminalAnalysisResult): CriminalAnalysisResult {
+    if (
+      typeof result.analysisTimestamp !== 'number' ||
+      !Number.isFinite(result.analysisTimestamp) ||
+      result.analysisTimestamp <= 0
+    ) {
+      return { ...result, analysisTimestamp: Date.now() };
+    }
+    return result;
   }
 
   private shouldRunOpenAIFinalJudge(
@@ -2451,7 +2462,7 @@ export class CriminalCodeAnalyzerDO {
       if (cached) {
         const cacheData = cached as CriminalAnalysisCache;
         if (Date.now() - cacheData.createdAt < cacheTTL * 1000) {
-          return cacheData.result;
+          return this.normalizeAnalysisResult(cacheData.result);
         }
       }
 
@@ -2463,7 +2474,9 @@ export class CriminalCodeAnalyzerDO {
       const dbResult = await stmt.bind(textHash).first();
 
       if (dbResult) {
-        const result = JSON.parse(dbResult.analysis_result as string) as CriminalAnalysisResult;
+        const result = this.normalizeAnalysisResult(
+          JSON.parse(dbResult.analysis_result as string) as CriminalAnalysisResult
+        );
         // Update KV cache
         await this.env.HISTORY.put(cacheKey, JSON.stringify({
           textHash,

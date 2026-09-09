@@ -1263,4 +1263,88 @@ describe('OpenAIProvider', () => {
       expect(catchWarns).toHaveLength(1);
     });
   });
+
+  describe('analyzeCriminalCode analysisTimestamp', () => {
+    const criminalViolation = {
+      article: '119',
+      subarticle: null,
+      articleTitle: 'Угроза убийством или причинением тяжкого вреда здоровью',
+      quote: 'я его убью',
+      punishment: 'обязательные работы до 480 часов',
+      severity: 6,
+      confidence: 0.85,
+    };
+
+    const mockOkResponse = (content: string) => ({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        choices: [{
+          message: { content },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      }),
+    });
+
+    it('sets analysisTimestamp when the model omits it', async () => {
+      const before = Date.now();
+      mockFetch.mockResolvedValue(mockOkResponse(JSON.stringify({
+        hasViolations: true,
+        violations: [criminalViolation],
+        totalSeverity: 6,
+        riskLevel: 'high',
+      })));
+
+      const result = await provider.analyzeCriminalCode('я его убью', mockEnv);
+
+      expect(result.hasViolations).toBe(true);
+      expect(result.violations).toHaveLength(1);
+      expect(result.violations[0].article).toBe('119');
+      expect(typeof result.analysisTimestamp).toBe('number');
+      expect(Number.isFinite(result.analysisTimestamp)).toBe(true);
+      expect(result.analysisTimestamp).toBeGreaterThanOrEqual(before);
+      expect(result.analysisTimestamp).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('overrides a model-supplied non-number analysisTimestamp', async () => {
+      const before = Date.now();
+      mockFetch.mockResolvedValue(mockOkResponse(JSON.stringify({
+        hasViolations: false,
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: 'low',
+        analysisTimestamp: 'model-supplied-not-a-number',
+      })));
+
+      const result = await provider.analyzeCriminalCode('чистый текст', mockEnv);
+
+      expect(result.hasViolations).toBe(false);
+      expect(typeof result.analysisTimestamp).toBe('number');
+      expect(Number.isFinite(result.analysisTimestamp)).toBe(true);
+      expect(result.analysisTimestamp).not.toBe('model-supplied-not-a-number');
+      expect(result.analysisTimestamp).toBeGreaterThanOrEqual(before);
+      expect(result.analysisTimestamp).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('overrides a model-supplied numeric analysisTimestamp', async () => {
+      const before = Date.now();
+      const modelSupplied = 1000;
+      mockFetch.mockResolvedValue(mockOkResponse(JSON.stringify({
+        hasViolations: false,
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: 'low',
+        analysisTimestamp: modelSupplied,
+      })));
+
+      const result = await provider.analyzeCriminalCode('чистый текст', mockEnv);
+
+      expect(typeof result.analysisTimestamp).toBe('number');
+      expect(result.analysisTimestamp).not.toBe(modelSupplied);
+      expect(result.analysisTimestamp).toBeGreaterThanOrEqual(before);
+      expect(result.analysisTimestamp).toBeLessThanOrEqual(Date.now());
+    });
+  });
+
 });
