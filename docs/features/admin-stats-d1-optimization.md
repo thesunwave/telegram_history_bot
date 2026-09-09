@@ -328,28 +328,27 @@ tables.
   (`source_key_invalid`, `source_value_invalid`, `missing_base_counter`,
   `missing_activity_total`, `message_count_mismatch`).
 
-### Race limitation (documented, no claimed convergence)
+### Live/backfill race (closed; both orderings converge)
 
-The exact KV source snapshot and the live dual-write are **not** atomically
-coordinated, so a message whose KV increment and additive D1 write straddle a
-backfill snapshot can transiently desynchronize a historical day. This phase
-does **not** claim automatic convergence. Instead it is conservative:
+The live dual-write persists **exact post-KV totals** (absolute, not additive),
+and the backfill uses `MAX` on conflict for live-owned days, so a stale backfill
+snapshot cannot reduce a counter that the live path already advanced, and a
+late live batch cannot double-count a message that the backfill snapshot
+already observed. Both orderings converge; a separate reconciliation run is not
+required.
 
 - The live writer (`d1-aggregate-writer.ts`) forces any category status it
   touches back to `live` (and `source = 'live'`) in the **same D1 batch** as its
-  additive write, even if that day was `pending`, `backfill`, or `complete`.
+  absolute write, even if that day was `pending`, `backfill`, or `complete`.
 - Backfill inserts missing coverage as `pending` with `source = 'backfill'`, but
   conditional UPSERT fields preserve an existing `source = 'live'` row. The
   `finalize` completion is conditional on the coverage still reflecting expected
-  backfill state (`source = 'backfill'` and all three statuses `pending`). Thus
-  live-before-backfill stays live, and live-after-backfill flips ownership to
-  live; neither ordering can become complete.
-- A raced/late day therefore becomes **unavailable until a subsequent
-  reconciliation run**, rather than being silently served from a potentially
-  stale snapshot. The base `message_count` double-count is additionally caught
-  by the `activity` parity check (`message_count_mismatch`).
-- Excluding the cutoff day and later, parity-gating completion, and keeping
-  anomalies incomplete is the required conservative behavior.
+  backfill state (`source = 'backfill'` and all three statuses `pending`), so a
+  live-owned day never marks coverage `complete` — only the finalize parity
+  check can.
+- Excluding the cutoff day and later and parity-gating coverage completion
+  remain required, but counter values converge, so a raced/late day serves its
+  live counts rather than rendering zero from a stale snapshot.
 
 ### Privacy
 
