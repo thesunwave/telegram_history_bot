@@ -2444,6 +2444,199 @@ describe("CriminalCodeAnalyzerDO", () => {
         expect(JSON.stringify(call)).not.toMatch(/error|Internal Server Error/i);
       }
     });
+
+    it("acks criminal completed for a known-user violation alongside the implicit /criminal increment", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
+      mockEnv.CRIMINAL_FINAL_JUDGE_ENABLED = false;
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      const confirmedProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "openrouter", model: "mock" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCodeWithContext: vi.fn().mockResolvedValue({
+          hasViolations: true,
+          violations: [{
+            article: "119",
+            subarticle: null,
+            articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+            quote: "я тебя убью",
+            punishment: "обязательные работы",
+            severity: 7,
+            confidence: 0.91,
+            decision: "violation",
+            evidence: {
+              subject: "author",
+              object: "victim",
+              intent: "threat",
+              contextSummary: "direct threat",
+              whyNotBenign: "literal threat"
+            }
+          }],
+          totalSeverity: 7,
+          riskLevel: "high",
+          analysisTimestamp: Date.now()
+        }),
+      };
+      ProviderFactory.createProvider = vi.fn().mockReturnValue(confirmedProvider);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "я тебя убью, это сообщение достаточно длинное для обхода локального детектора",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 2101,
+          username: "testuser",
+          day: "2026-05-18",
+          sequence: 81,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      // Known user: the implicit /criminal completed increment still fires
+      // exactly once (per-user/per-article aggregates are written).
+      const criminalIncrementCalls = counterFetch.mock.calls.filter((call) =>
+        (call[1] as RequestInit).method === "POST" && (call[0] as string).includes("/criminal")
+      );
+      expect(criminalIncrementCalls).toHaveLength(1);
+
+      // The explicit completed ack now also fires for the known-user path;
+      // CountersDO treats it as an idempotent no-op. Exactly one criminal ack.
+      const criminalAckCalls = counterFetch.mock.calls.filter((call) => {
+        const requestInit = call[1] as RequestInit;
+        if (requestInit.method !== "POST" || !(call[0] as string).includes("/ack")) {
+          return false;
+        }
+        return (JSON.parse(requestInit.body as string) as any).category === "criminal";
+      });
+      expect(criminalAckCalls).toHaveLength(1);
+      const ackPayload = JSON.parse((criminalAckCalls[0][1] as RequestInit).body as string);
+      expect(ackPayload).toMatchObject({
+        chatId: 12345,
+        day: "2026-05-18",
+        category: "criminal",
+        messageId: 2101,
+        sequence: 81,
+        outcome: "completed",
+      });
+      expect(ackPayload.outcome).not.toBe("failed");
+      expect(ackPayload.outcome).not.toBe("zero");
+    });
+
+    it("acks criminal completed for an anonymous (userId 0) violation so the sequence resolves", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      const counterFetch = vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
+      mockEnv.CRIMINAL_FINAL_JUDGE_ENABLED = false;
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue("test-id"),
+        get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+      };
+      const confirmedProvider = {
+        getProviderInfo: vi.fn().mockReturnValue({ name: "openrouter", model: "mock" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCodeWithContext: vi.fn().mockResolvedValue({
+          hasViolations: true,
+          violations: [{
+            article: "119",
+            subarticle: null,
+            articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+            quote: "я тебя убью",
+            punishment: "обязательные работы",
+            severity: 7,
+            confidence: 0.91,
+            decision: "violation",
+            evidence: {
+              subject: "author",
+              object: "victim",
+              intent: "threat",
+              contextSummary: "direct threat",
+              whyNotBenign: "literal threat"
+            }
+          }],
+          totalSeverity: 7,
+          riskLevel: "high",
+          analysisTimestamp: Date.now()
+        }),
+      };
+      ProviderFactory.createProvider = vi.fn().mockReturnValue(confirmedProvider);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "я тебя убью, это сообщение достаточно длинное для обхода локального детектора",
+          chatId: 12345,
+          userId: 0,
+          messageId: 2102,
+          username: "anonymous-admin",
+          day: "2026-05-18",
+          sequence: 82,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      // Anonymous author (userId 0): storeViolations' per-user guard
+      // (chatId && userId && violations.length) is false, so the implicit
+      // /criminal increment is suppressed — per-user/per-article aggregate
+      // writes stay absent (not corrupted) for the anonymous case.
+      const criminalIncrementCalls = counterFetch.mock.calls.filter((call) =>
+        (call[1] as RequestInit).method === "POST" && (call[0] as string).includes("/criminal")
+      );
+      expect(criminalIncrementCalls).toHaveLength(0);
+
+      // The criminal_violations D1 row is still inserted for the anonymous message.
+      expect(mockEnv.DB.prepare).toHaveBeenCalledWith(
+        expect.stringContaining("INSERT INTO criminal_violations")
+      );
+
+      // THE FIX: exactly one criminal completed ack resolves the otherwise-hung
+      // sequence. /ack requires only chatId/day/sequence/category/outcome — no
+      // userId dependency — so progress closes even when /criminal could not.
+      const criminalAckCalls = counterFetch.mock.calls.filter((call) => {
+        const requestInit = call[1] as RequestInit;
+        if (requestInit.method !== "POST" || !(call[0] as string).includes("/ack")) {
+          return false;
+        }
+        return (JSON.parse(requestInit.body as string) as any).category === "criminal";
+      });
+      expect(criminalAckCalls).toHaveLength(1);
+      const ackPayload = JSON.parse((criminalAckCalls[0][1] as RequestInit).body as string);
+      expect(ackPayload).toMatchObject({
+        chatId: 12345,
+        day: "2026-05-18",
+        category: "criminal",
+        messageId: 2102,
+        sequence: 82,
+        outcome: "completed",
+      });
+      expect(ackPayload.outcome).not.toBe("failed");
+      expect(ackPayload.outcome).not.toBe("zero");
+      expect(ackPayload.userId).toBeUndefined();
+    });
   });
 
   describe("database operations", () => {
