@@ -172,4 +172,79 @@ describe('CloudflareAIProvider', () => {
       });
     });
   });
+
+  describe('analyzeCriminalCode', () => {
+    const criminalViolation = {
+      article: '119',
+      subarticle: null,
+      articleTitle: 'Угроза убийством или причинением тяжкого вреда здоровью',
+      quote: 'я его убью',
+      punishment: 'обязательные работы до 480 часов',
+      severity: 6,
+      confidence: 0.85,
+    };
+
+    beforeEach(() => {
+      mockEnv.SUMMARY_MODEL = 'test-chat-model';
+    });
+
+    it('should set analysisTimestamp when the model omits it (prompt-compliant response)', async () => {
+      const before = Date.now();
+      mockAI.run.mockResolvedValue({ response: JSON.stringify({
+        hasViolations: true,
+        violations: [criminalViolation],
+        totalSeverity: 6,
+        riskLevel: 'high',
+      }) });
+
+      const result = await provider.analyzeCriminalCode('я его убью', mockEnv);
+
+      expect(result.hasViolations).toBe(true);
+      expect(result.violations).toHaveLength(1);
+      expect(result.violations[0].article).toBe('119');
+      expect(typeof result.analysisTimestamp).toBe('number');
+      expect(Number.isFinite(result.analysisTimestamp)).toBe(true);
+      expect(result.analysisTimestamp).toBeGreaterThanOrEqual(before);
+      expect(result.analysisTimestamp).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('should override a model-supplied, non-number analysisTimestamp with an application-controlled value', async () => {
+      const before = Date.now();
+      mockAI.run.mockResolvedValue({ response: JSON.stringify({
+        hasViolations: false,
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: 'low',
+        analysisTimestamp: 'model-supplied-not-a-number',
+      }) });
+
+      const result = await provider.analyzeCriminalCode('чистый текст', mockEnv);
+
+      expect(result.hasViolations).toBe(false);
+      expect(typeof result.analysisTimestamp).toBe('number');
+      expect(Number.isFinite(result.analysisTimestamp)).toBe(true);
+      expect(result.analysisTimestamp).not.toBe('model-supplied-not-a-number');
+      expect(result.analysisTimestamp).toBeGreaterThanOrEqual(before);
+      expect(result.analysisTimestamp).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('should override a model-supplied numeric analysisTimestamp with the application-controlled value', async () => {
+      const before = Date.now();
+      const modelSupplied = 1000;
+      mockAI.run.mockResolvedValue({ response: JSON.stringify({
+        hasViolations: false,
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: 'low',
+        analysisTimestamp: modelSupplied,
+      }) });
+
+      const result = await provider.analyzeCriminalCode('чистый текст', mockEnv);
+
+      expect(typeof result.analysisTimestamp).toBe('number');
+      expect(result.analysisTimestamp).not.toBe(modelSupplied);
+      expect(result.analysisTimestamp).toBeGreaterThanOrEqual(before);
+      expect(result.analysisTimestamp).toBeLessThanOrEqual(Date.now());
+    });
+  });
 });

@@ -29,11 +29,21 @@ export interface ActivityAggregateWrite {
   day: string;
   userId: number;
   username: string;
+  /** Exact post-KV user/day message total from serialized CountersDO. */
+  messageCount: number;
+  /** Exact post-KV chat/day activity total from serialized CountersDO. */
+  activityCount: number;
   /** Valid 0-23 integer; anything else suppresses hour/bucket rows. */
   hour?: number;
+  /** Exact post-KV total for `hour`; absent suppresses the hour row. */
+  hourCount?: number;
   /** Derived activity time bucket (night/morning/noon/evening) for the valid hour. */
   bucket?: string;
-  wordCount?: number;
+  /** Exact post-KV total for `bucket`; absent suppresses the bucket row. */
+  bucketCount?: number;
+  /** Exact post-KV user/day word total. */
+  wordCount: number;
+  /** Exact post-KV media totals. Omit both fields for an untouched media family. */
   voiceCount?: number;
   voiceDurationSeconds?: number;
   videoNoteCount?: number;
@@ -58,10 +68,10 @@ export interface ProfanityAggregateWrite {
   day: string;
   userId: number;
   username: string;
-  /** Total normalized profanity count (sum of word counts), validated by caller. */
+  /** Exact post-KV user/day profanity total. */
   count: number;
-  /** Already-normalized, aggregated words with per-word counts. */
-  words: Array<{ word: string; count: number }>;
+  /** Exact post-KV word totals for only the words touched by this event. */
+  words: Array<{ word: string; count: number; userCount: number }>;
   /** Present → the write also acks the category as completed. */
   progress?: ProgressResolveInput;
 }
@@ -71,48 +81,49 @@ export interface CriminalAggregateWrite {
   day: string;
   userId: number;
   username: string;
-  /** Number of violations (may be 0). */
+  /** Exact post-KV user/day violation total. */
   violationCount: number;
-  /** Total severity coming from the payload. */
+  /** Exact post-KV user/day severity total. */
   totalSeverity: number;
   /** Present → the write also acks the category as completed. */
   progress?: ProgressResolveInput;
 }
 
 /**
- * Upsert a user's daily base totals: message +1, exact word/media deltas, and
- * last_message_ts = max(existing, incoming). Zero deltas add nothing (payload
- * deltas are used exactly). Also carries the legacy `activity` table upsert so a
- * normal base write performs exactly one D1 batch.
+ * Upsert a user's exact post-KV daily base totals. The live path writes absolute
+ * snapshots rather than deltas so a backfill that read the same newer KV value
+ * cannot double-count by committing first. Media families that were untouched
+ * by the event are preserved on conflict. Also carries the legacy `activity`
+ * table upsert so a normal base write performs exactly one D1 batch.
  */
 const USER_DAILY_UPSERT_ACTIVITY = `
   INSERT INTO stats_daily_user
     (chat_id, day, user_id, message_count, word_count, voice_count, voice_duration_seconds,
      video_note_count, video_note_duration_seconds, profanity_count, criminal_count, criminal_severity, last_message_ts)
-  VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, 0, 0, 0, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?)
   ON CONFLICT(chat_id, day, user_id) DO UPDATE SET
-    message_count = message_count + 1,
-    word_count = word_count + ?,
-    voice_count = voice_count + ?,
-    voice_duration_seconds = voice_duration_seconds + ?,
-    video_note_count = video_note_count + ?,
-    video_note_duration_seconds = video_note_duration_seconds + ?,
-    last_message_ts = MAX(COALESCE(last_message_ts, ?), ?)
+    message_count = excluded.message_count,
+    word_count = excluded.word_count,
+    voice_count = CASE WHEN ? = 1 THEN excluded.voice_count ELSE stats_daily_user.voice_count END,
+    voice_duration_seconds = CASE WHEN ? = 1 THEN excluded.voice_duration_seconds ELSE stats_daily_user.voice_duration_seconds END,
+    video_note_count = CASE WHEN ? = 1 THEN excluded.video_note_count ELSE stats_daily_user.video_note_count END,
+    video_note_duration_seconds = CASE WHEN ? = 1 THEN excluded.video_note_duration_seconds ELSE stats_daily_user.video_note_duration_seconds END,
+    last_message_ts = MAX(COALESCE(stats_daily_user.last_message_ts, 0), COALESCE(excluded.last_message_ts, 0))
 `;
 
 const USER_DAILY_UPSERT_PROFANITY = `
   INSERT INTO stats_daily_user (chat_id, day, user_id, profanity_count)
   VALUES (?, ?, ?, ?)
   ON CONFLICT(chat_id, day, user_id) DO UPDATE SET
-    profanity_count = profanity_count + excluded.profanity_count
+    profanity_count = excluded.profanity_count
 `;
 
 const USER_DAILY_UPSERT_CRIMINAL = `
   INSERT INTO stats_daily_user (chat_id, day, user_id, criminal_count, criminal_severity)
   VALUES (?, ?, ?, ?, ?)
   ON CONFLICT(chat_id, day, user_id) DO UPDATE SET
-    criminal_count = criminal_count + excluded.criminal_count,
-    criminal_severity = criminal_severity + excluded.criminal_severity
+    criminal_count = excluded.criminal_count,
+    criminal_severity = excluded.criminal_severity
 `;
 
 const USER_PROFILE_UPSERT = `
@@ -142,30 +153,30 @@ const USER_PROFILE_INSERT_IF_MISSING = `
 
 const HOUR_UPSERT = `
   INSERT INTO stats_daily_hour (chat_id, day, hour, message_count)
-  VALUES (?, ?, ?, 1)
+  VALUES (?, ?, ?, ?)
   ON CONFLICT(chat_id, day, hour) DO UPDATE SET
-    message_count = message_count + 1
+    message_count = excluded.message_count
 `;
 
 const BUCKET_USER_UPSERT = `
   INSERT INTO stats_daily_bucket_user (chat_id, day, bucket, user_id, message_count)
-  VALUES (?, ?, ?, ?, 1)
+  VALUES (?, ?, ?, ?, ?)
   ON CONFLICT(chat_id, day, bucket, user_id) DO UPDATE SET
-    message_count = message_count + 1
+    message_count = excluded.message_count
 `;
 
 const PROFANITY_WORD_UPSERT = `
   INSERT INTO stats_daily_profanity_word (chat_id, day, word, count)
   VALUES (?, ?, ?, ?)
   ON CONFLICT(chat_id, day, word) DO UPDATE SET
-    count = count + excluded.count
+    count = excluded.count
 `;
 
 const PROFANITY_WORD_USER_UPSERT = `
   INSERT INTO stats_daily_profanity_word_user (chat_id, day, word, user_id, count)
   VALUES (?, ?, ?, ?, ?)
   ON CONFLICT(chat_id, day, word, user_id) DO UPDATE SET
-    count = count + excluded.count
+    count = excluded.count
 `;
 
 /**
@@ -191,8 +202,8 @@ const COVERAGE_UPSERT = `
 
 /** Legacy chat/day total upsert, kept identical to the pre-Phase-2 behavior. */
 const ACTIVITY_LEGACY_UPSERT = `
-  INSERT INTO activity (chat_id, day, count) VALUES (?, ?, 1)
-  ON CONFLICT(chat_id, day) DO UPDATE SET count = count + 1
+  INSERT INTO activity (chat_id, day, count) VALUES (?, ?, ?)
+  ON CONFLICT(chat_id, day) DO UPDATE SET count = excluded.count
 `;
 
 function isUsableHour(hour: number | undefined): hour is number {
@@ -276,7 +287,8 @@ export async function writeActivityAggregates(
   const { chatId, day, userId, username, ts } = input;
   const statements: D1PreparedStatement[] = [];
 
-  const wordCount = input.wordCount ?? 0;
+  const voiceTouched = input.voiceCount !== undefined || input.voiceDurationSeconds !== undefined;
+  const videoNoteTouched = input.videoNoteCount !== undefined || input.videoNoteDurationSeconds !== undefined;
   const voiceCount = input.voiceCount ?? 0;
   const voiceDurationSeconds = input.voiceDurationSeconds ?? 0;
   const videoNoteCount = input.videoNoteCount ?? 0;
@@ -292,28 +304,32 @@ export async function writeActivityAggregates(
         chatId,
         day,
         userId,
-        wordCount,
+        input.messageCount,
+        input.wordCount,
         voiceCount,
         voiceDurationSeconds,
         videoNoteCount,
         videoNoteDurationSeconds,
         lastMessageTs,
-        wordCount,
-        voiceCount,
-        voiceDurationSeconds,
-        videoNoteCount,
-        videoNoteDurationSeconds,
-        lastMessageTs,
-        lastMessageTs,
+        voiceTouched ? 1 : 0,
+        voiceTouched ? 1 : 0,
+        videoNoteTouched ? 1 : 0,
+        videoNoteTouched ? 1 : 0,
       ),
   );
 
   statements.push(profileStatement(db, chatId, userId, username, lastMessageTs));
 
-  if (isUsableHour(input.hour)) {
-    statements.push(db.prepare(HOUR_UPSERT).bind(chatId, day, input.hour));
-    if (typeof input.bucket === 'string' && input.bucket.length > 0) {
-      statements.push(db.prepare(BUCKET_USER_UPSERT).bind(chatId, day, input.bucket, userId));
+  if (isUsableHour(input.hour) && input.hourCount !== undefined) {
+    statements.push(db.prepare(HOUR_UPSERT).bind(chatId, day, input.hour, input.hourCount));
+    if (
+      typeof input.bucket === 'string' &&
+      input.bucket.length > 0 &&
+      input.bucketCount !== undefined
+    ) {
+      statements.push(
+        db.prepare(BUCKET_USER_UPSERT).bind(chatId, day, input.bucket, userId, input.bucketCount),
+      );
     }
   }
 
@@ -322,7 +338,7 @@ export async function writeActivityAggregates(
   );
   // Legacy activity total rides the same transaction so a normal base message
   // performs exactly one D1 batch invocation in total.
-  statements.push(db.prepare(ACTIVITY_LEGACY_UPSERT).bind(chatId, day));
+  statements.push(db.prepare(ACTIVITY_LEGACY_UPSERT).bind(chatId, day, input.activityCount));
 
   // Pipeline progress in the same batch: base accepted+completed and both async
   // categories accepted+pending. Only when the serialized allocator supplied a
@@ -358,7 +374,9 @@ export async function writeProfanityAggregates(
     if (!word || typeof word.word !== 'string' || word.word.length === 0) continue;
     if (!Number.isInteger(word.count) || word.count <= 0) continue;
     statements.push(db.prepare(PROFANITY_WORD_UPSERT).bind(chatId, day, word.word, word.count));
-    statements.push(db.prepare(PROFANITY_WORD_USER_UPSERT).bind(chatId, day, word.word, userId, word.count));
+    statements.push(
+      db.prepare(PROFANITY_WORD_USER_UPSERT).bind(chatId, day, word.word, userId, word.userCount),
+    );
   }
 
   statements.push(
@@ -385,7 +403,7 @@ export async function writeProfanityAggregates(
   return results;
 }
 
-/** Criminal aggregate batch: violation count and total severity deltas. */
+/** Criminal aggregate batch: exact post-KV violation count and total severity. */
 export async function writeCriminalAggregates(
   db: D1Database,
   input: CriminalAggregateWrite,

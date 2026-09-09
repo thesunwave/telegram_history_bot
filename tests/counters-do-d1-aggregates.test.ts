@@ -465,6 +465,92 @@ describe('CountersDO D1 aggregate dual-write', () => {
     expect(kv.map.get('criminal_severity:123:456:2026-05-07')).toBe('7');
   });
 
+  it('does not compound D1 rows that already contain the post-KV totals', async () => {
+    await post(counters, '/inc', basePayload());
+    harness.sqlite
+      .prepare(
+        `UPDATE stats_daily_user
+         SET message_count = 2, word_count = 8, voice_count = 2, voice_duration_seconds = 10
+         WHERE chat_id = 123 AND day = ? AND user_id = 456`,
+      )
+      .run('2026-05-07');
+    harness.sqlite
+      .prepare('UPDATE stats_daily_hour SET message_count = 2 WHERE chat_id = 123 AND day = ? AND hour = 13')
+      .run('2026-05-07');
+    harness.sqlite
+      .prepare(
+        `UPDATE stats_daily_bucket_user SET message_count = 2
+         WHERE chat_id = 123 AND day = ? AND bucket = 'noon' AND user_id = 456`,
+      )
+      .run('2026-05-07');
+    harness.sqlite.prepare('UPDATE activity SET count = 2 WHERE chat_id = 123 AND day = ?').run('2026-05-07');
+
+    // Models backfill committing the post-KV snapshot before the live D1 batch.
+    // The live writer must converge to the same totals, not add another delta.
+    await post(counters, '/inc', basePayload());
+    const base = rows(
+      harness.sqlite,
+      `SELECT message_count, word_count, voice_count, voice_duration_seconds
+       FROM stats_daily_user WHERE chat_id = 123 AND day = ? AND user_id = 456`,
+      ['2026-05-07'],
+    )[0];
+    expect(base).toEqual({
+      message_count: 2,
+      word_count: 8,
+      voice_count: 2,
+      voice_duration_seconds: 10,
+    });
+    expect(rows(harness.sqlite, 'SELECT message_count FROM stats_daily_hour WHERE chat_id = 123 AND day = ? AND hour = 13', ['2026-05-07'])[0].message_count).toBe(2);
+    expect(rows(harness.sqlite, `SELECT message_count FROM stats_daily_bucket_user WHERE chat_id = 123 AND day = ? AND bucket = 'noon' AND user_id = 456`, ['2026-05-07'])[0].message_count).toBe(2);
+    expect(rows(harness.sqlite, 'SELECT count FROM activity WHERE chat_id = 123 AND day = ?', ['2026-05-07'])[0].count).toBe(2);
+
+    const profanityPayload = {
+      chatId: 123,
+      userId: 456,
+      username: 'testuser',
+      day: '2026-05-07',
+      count: 1,
+      words: [{ baseForm: 'заебал', count: 1 }],
+    };
+    await post(counters, '/profanity', profanityPayload);
+    harness.sqlite
+      .prepare('UPDATE stats_daily_user SET profanity_count = 2 WHERE chat_id = 123 AND day = ? AND user_id = 456')
+      .run('2026-05-07');
+    harness.sqlite
+      .prepare(`UPDATE stats_daily_profanity_word SET count = 2 WHERE chat_id = 123 AND day = ? AND word = 'заебал'`)
+      .run('2026-05-07');
+    harness.sqlite
+      .prepare(`UPDATE stats_daily_profanity_word_user SET count = 2 WHERE chat_id = 123 AND day = ? AND word = 'заебал' AND user_id = 456`)
+      .run('2026-05-07');
+    await post(counters, '/profanity', profanityPayload);
+    expect(rows(harness.sqlite, 'SELECT profanity_count FROM stats_daily_user WHERE chat_id = 123 AND day = ? AND user_id = 456', ['2026-05-07'])[0].profanity_count).toBe(2);
+    expect(rows(harness.sqlite, `SELECT count FROM stats_daily_profanity_word WHERE chat_id = 123 AND day = ? AND word = 'заебал'`, ['2026-05-07'])[0].count).toBe(2);
+    expect(rows(harness.sqlite, `SELECT count FROM stats_daily_profanity_word_user WHERE chat_id = 123 AND day = ? AND word = 'заебал' AND user_id = 456`, ['2026-05-07'])[0].count).toBe(2);
+
+    const criminalPayload = {
+      chatId: 123,
+      userId: 456,
+      username: 'testuser',
+      day: '2026-05-07',
+      violations: [{ article: '282', severity: 5, count: 1 }],
+      totalSeverity: 5,
+    };
+    await post(counters, '/criminal', criminalPayload);
+    harness.sqlite
+      .prepare(
+        `UPDATE stats_daily_user SET criminal_count = 2, criminal_severity = 10
+         WHERE chat_id = 123 AND day = ? AND user_id = 456`,
+      )
+      .run('2026-05-07');
+    await post(counters, '/criminal', criminalPayload);
+    const criminal = rows(
+      harness.sqlite,
+      'SELECT criminal_count, criminal_severity FROM stats_daily_user WHERE chat_id = 123 AND day = ? AND user_id = 456',
+      ['2026-05-07'],
+    )[0];
+    expect(criminal).toEqual({ criminal_count: 2, criminal_severity: 10 });
+  });
+
   it('keeps KV writes and request success when D1 batch rejects', async () => {
     const { env, kv: failingKv } = makeEnv({
       prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
