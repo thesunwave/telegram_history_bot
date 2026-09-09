@@ -2553,9 +2553,18 @@ export class CriminalCodeAnalyzerDO {
       // Store violations in database with canonical message timestamp/day, not processing time.
       // A valid source timestamp wins over the caller-provided day: both must represent
       // the same original message instant, and the ts is the authoritative instant.
-      const hasValidTs = typeof ts === 'number' && Number.isInteger(ts) && Number.isFinite(ts) && ts >= 0;
-      const canonicalTs = hasValidTs ? (ts as number) : Math.floor(Date.now() / 1000);
-      const canonicalDay = hasValidTs
+      // Contract: Unix seconds (the webhook path sends Telegram `msg.date`). The operator
+      // `/analyze-test` boundary forwards any finite integer, so a caller passing
+      // `Date.now()` (milliseconds) would otherwise be stored as a year-~58000 date.
+      // Detect millisecond-scale values and rescale them to seconds so the contract
+      // always holds. Threshold 1e11 cleanly separates present-day seconds (~1.8e9)
+      // from milliseconds (~1.8e12); a seconds value above 1e11 would itself be year
+      // 5138+, so misclassifying it as milliseconds is harmless.
+      const safeTs = typeof ts === 'number' && Number.isInteger(ts) && Number.isFinite(ts) && ts >= 0 ? ts : NaN;
+      const canonicalTs = Number.isFinite(safeTs)
+        ? (safeTs > 1e11 ? Math.floor(safeTs / 1000) : safeTs)
+        : Math.floor(Date.now() / 1000);
+      const canonicalDay = Number.isFinite(safeTs)
         ? new Date(canonicalTs * 1000).toISOString().slice(0, 10)
         : day || new Date(canonicalTs * 1000).toISOString().slice(0, 10);
       for (const violation of violations) {
@@ -2596,7 +2605,7 @@ export class CriminalCodeAnalyzerDO {
       // Send data to CountersDO for KV storage updates
       if (chatId && userId && violations.length > 0) {
         try {
-          const dayToUse = day || new Date().toISOString().slice(0, 10);
+          const dayToUse = canonicalDay;
           const totalSeverity = violations.reduce((sum, v) => sum + v.severity, 0);
 
           const countersId = this.env.COUNTERS_DO.idFromName(String(chatId));

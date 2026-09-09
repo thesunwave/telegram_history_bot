@@ -125,6 +125,43 @@ describe('renderAdminHtml', () => {
     expect(html).not.toContain("participant.userId");
   });
 
+  it('renders criminal violation drill-down with model confidence and retained context', () => {
+    const html = renderAdminHtml({
+      botUsername: 'stats_bot',
+      principal: {
+        type: 'telegram',
+        username: 'admin',
+        telegramId: 123,
+      },
+    });
+
+    expect(html).toContain('id="criminalDetails"');
+    expect(html).toContain('id="criminalViolationList"');
+    expect(html).toContain('/admin/api/criminal-violations');
+    expect(html).toContain('renderCriminalRows(stats.criminal.topUsers || [])');
+    expect(html).toContain('Сообщение-триггер');
+    expect(html).toContain('Возможное наказание');
+    expect(html).toContain('Максимум лишения свободы по тексту наказания');
+    expect(html).toContain('Уверенность модели ');
+    expect(html).toContain('Уверенность модели — это confidence конкретного анализа, а не измеренная точность классификатора.');
+    expect(html).toContain('История сообщений хранится до 7 дней.');
+    expect(html).toContain('loadedCriminalRange: null');
+    expect(html).toContain('state.loadedCriminalRange = stats.range?.from && stats.range?.to');
+    expect(html).toContain('state.loadedCriminalRange,');
+    expect(html).toContain("url.searchParams.set('period', 'custom')");
+    expect(html).toContain("return 'нет данных'");
+    expect(html).not.toContain('state.period');
+    expect(html).not.toContain('new URL(buildStatsUrl(chatId, period)');
+
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+    const script = scripts[scripts.length - 1]?.[1];
+    expect(script).toContain('function buildCriminalDetailsUrl');
+    expect(script).toMatch(
+      /catch \(_error\) \{[\s\S]*?state\.selectedCriminalUserId = null;[\s\S]*?syncCriminalDetailButtons\(\);/,
+    );
+    expect(() => new Function(script!)).not.toThrow();
+  });
+
   it('renders designed Russian error states and never raw serialized payload text', () => {
     const html = renderAdminHtml({
       botUsername: 'stats_bot',
@@ -166,5 +203,85 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('Неделя · 7 дней, включая сегодня');
     expect(html).toContain('Месяц · 30 дней, включая сегодня');
     expect(html).toContain('включая сегодня · live');
+  });
+
+  it('builds the post-load status line with separators only between non-empty segments', () => {
+    const html = renderAdminHtml({
+      botUsername: 'stats_bot',
+      principal: null,
+    });
+
+    // The status line must join non-empty segments with " · " rather than
+    // hard-coding separators around optional badges, which left a dangling
+    // trailing "·" on every final response and a " · . " sandwich in the
+    // notifications-degraded branch.
+    expect(html).toContain(".filter(Boolean).join(' · ')");
+    expect(html).not.toContain("' · ' + liveBadge");
+    expect(html).not.toContain("servedRange + ' · ' + liveBadge");
+    expect(html).not.toContain('+ liveBadge + pendingBadge');
+    expect(html).not.toContain("' · анализ продолжается");
+    expect(html).not.toContain("pendingBadge + '. Настройки");
+
+    // The live/provisional badge copy, both branch prefixes, and the
+    // degraded-branch suffix are all preserved on the fixed path.
+    expect(html).toContain("'включая сегодня · live'");
+    expect(html).toContain("'анализ продолжается (' + pendingAnalysis + ')'");
+    expect(html).toContain("'Статистика загружена · ' + servedRange");
+    expect(html).toContain("'Обновлено · период ' + servedRange");
+    expect(html).toContain("'. Настройки уведомлений временно недоступны.'");
+
+    // Extract the real status-line algorithm out of the rendered inline
+    // script and evaluate it against every status shape to prove separators
+    // only appear between non-empty segments.
+    const match = html.match(
+      /const liveBadge = provisional[\s\S]*?\.filter\(Boolean\)\.join\(' · '\);/
+    );
+    if (!match) throw new Error('status-line algorithm not found in rendered admin HTML');
+    const buildStatus = new Function(
+      'servedRange',
+      'provisional',
+      'pendingAnalysis',
+      'notificationsError',
+      match[0] +
+        "\nreturn notificationsError ? statusLine + '. Настройки уведомлений временно недоступны.' : statusLine;"
+    );
+    const range = '2024-08-25 – 2024-08-31';
+    const sep = ' · ';
+    const live = 'включая сегодня · live';
+    const pending = 'анализ продолжается (3)';
+    const happyPrefix = 'Обновлено · период ' + range;
+    const degradedPrefix = 'Статистика загружена · ' + range;
+    const degradedSuffix = '. Настройки уведомлений временно недоступны.';
+
+    // Happy path: no notifications error.
+    expect(buildStatus(range, false, 0, null)).toBe(happyPrefix);
+    expect(buildStatus(range, true, 0, null)).toBe(happyPrefix + sep + live);
+    expect(buildStatus(range, true, 3, null)).toBe(happyPrefix + sep + live + sep + pending);
+
+    // Degraded path: notifications endpoint returned a 503 object error.
+    expect(buildStatus(range, false, 0, { code: 'ADMIN_UNAVAILABLE' })).toBe(
+      degradedPrefix + degradedSuffix
+    );
+    expect(buildStatus(range, true, 0, { code: 'ADMIN_UNAVAILABLE' })).toBe(
+      degradedPrefix + sep + live + degradedSuffix
+    );
+    expect(buildStatus(range, true, 3, { code: 'ADMIN_UNAVAILABLE' })).toBe(
+      degradedPrefix + sep + live + sep + pending + degradedSuffix
+    );
+
+    // No output for any shape may contain a dangling or sandwiched separator.
+    const allOutputs = [
+      buildStatus(range, false, 0, null),
+      buildStatus(range, true, 0, null),
+      buildStatus(range, true, 3, null),
+      buildStatus(range, false, 0, { code: 'ADMIN_UNAVAILABLE' }),
+      buildStatus(range, true, 0, { code: 'ADMIN_UNAVAILABLE' }),
+      buildStatus(range, true, 3, { code: 'ADMIN_UNAVAILABLE' }),
+    ];
+    for (const output of allOutputs) {
+      expect(output).not.toMatch(/ · $/);
+      expect(output).not.toMatch(/ · \./);
+      expect(output).not.toMatch(/^ · /);
+    }
   });
 });

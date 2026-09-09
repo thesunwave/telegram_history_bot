@@ -488,6 +488,10 @@ describe("CriminalCodeAnalyzerDO", () => {
       const violation_day = insertCall[insertCall.length - 2];
       expect(violation_ts).toBe(sourceTs);
       expect(violation_day).toBe("2023-11-14");
+
+      const countersFetch = mockEnv.COUNTERS_DO.get.mock.results[0].value.fetch;
+      const countersPayload = JSON.parse(countersFetch.mock.calls[0][1].body as string);
+      expect(countersPayload.day).toBe("2023-11-14");
     });
 
     it("should fall back to processing time when analyze request has no timestamp", async () => {
@@ -565,6 +569,45 @@ describe("CriminalCodeAnalyzerDO", () => {
       const violation_day = insertCall[insertCall.length - 2];
       expect(violation_ts).toBe(0);
       expect(violation_day).toBe("1970-01-01");
+    });
+
+    it("should normalize millisecond-scale ts to seconds, not store a far-future date", async () => {
+      // `Date.now()` is the natural JS millisecond value an operator might pass at the
+      // `/analyze-test` boundary; without normalization `storeViolations` would store it
+      // as Unix seconds -> datetime(?, 'unixepoch') = year ~58000, polluting end-user
+      // stats (/criminal, /mycriminal, /criminaltop) indefinitely.
+      const msTs = Date.now();
+      const requestBody = {
+        text: "Призываю к насилию против определенной группы людей",
+        chatId: 12345,
+        userId: 67890,
+        messageId: 111,
+        username: "testuser",
+        day: "2023-11-14",
+        ts: msTs,
+      };
+
+      const request = new Request("http://localhost/analyze", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await analyzer.fetch(request);
+      expect(response.status).toBe(200);
+
+      const bindSpy = mockEnv.DB.prepare.mock.results[0].value.bind;
+      const insertCall = bindSpy.mock.calls.find((call: any[]) => call.length > 10);
+      const violation_ts = insertCall[insertCall.length - 1];
+      const violation_day = insertCall[insertCall.length - 2];
+      // Ms-scale value is rescaled to seconds, not stored verbatim.
+      expect(violation_ts).toBe(Math.floor(msTs / 1000));
+      expect(violation_ts).toBeLessThan(msTs);
+      // Day is derived from the normalized seconds -> present day, never year ~58000.
+      expect(violation_day).toBe(new Date(Math.floor(msTs / 1000) * 1000).toISOString().slice(0, 10));
+      const storedYear = Number(violation_day.slice(0, 4));
+      expect(storedYear).toBeGreaterThanOrEqual(2024);
+      expect(storedYear).toBeLessThan(2100);
     });
 
     it("should enqueue short no-signal messages for semantic prefilter", async () => {

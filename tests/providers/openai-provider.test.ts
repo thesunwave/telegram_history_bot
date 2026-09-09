@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OpenAIProvider } from '../../src/core/providers/openai-provider';
 import { Env } from '../../src/core/env';
-import { SummaryRequest, SummaryOptions, ProviderError } from '../../src/core/providers/ai-provider';
+import { SummaryRequest, SummaryOptions, ProviderError, ChatMessage } from '../../src/core/providers/ai-provider';
 
 // Mock the utils module
 vi.mock('../../src/utils', () => ({
@@ -947,7 +947,324 @@ describe('OpenAIProvider', () => {
     });
   });
 
-  describe('analyzeCriminalCode', () => {
+  describe('Responses API truncation handling (Fix A: revive dead truncation warn)', () => {
+    let gpt5Provider: OpenAIProvider;
+    let warnSpy: ReturnType<typeof vi.spyOn>;
+    let errorSpy: ReturnType<typeof vi.spyOn>;
+    let logSpy: ReturnType<typeof vi.spyOn>;
+    let debugSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      mockEnv.OPENAI_MODEL = 'gpt-5-nano';
+      gpt5Provider = new OpenAIProvider(mockEnv);
+      mockFetch.mockClear();
+      warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      // Restore ONLY our own console spies — calling vi.restoreAllMocks() here
+      // would also restore `vi.spyOn(global, 'fetch')` spies leaked by other
+      // test files (e.g. tests/index.test.ts), which would clobber `global.fetch = mockFetch`
+      // set at the top of this file and let real network calls leak in.
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+      logSpy.mockRestore();
+      debugSpy.mockRestore();
+    });
+
+    const findWarns = (predicate: (msg: any, data: any) => boolean) =>
+      warnSpy.mock.calls.filter(([msg, data]) => predicate(msg, data));
+    const findErrors = (predicate: (msg: any, data: any) => boolean) =>
+      errorSpy.mock.calls.filter(([msg, data]) => predicate(msg, data));
+
+    // Test A — the bug: partial-content truncation. Before the fix, the
+    // early-return on `output_text` bypassed the truncation handler, so the
+    // author-written warn never fired. After the fix, the warn fires and the
+    // partial content is still surfaced to the caller.
+    it('emits truncation warn and returns partial content when status is incomplete with output_text', async () => {
+      const partialJson = '{"hasViolations": true, "violations": [{"article": "105"';
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          status: 'incomplete',
+          incomplete_details: { reason: 'max_output_tokens' },
+          output_text: partialJson,
+          usage: { prompt_tokens: 30, completion_tokens: 150, total_tokens: 180 }
+        })
+      });
+
+      const messages: ChatMessage[] = [{ role: 'user', content: 'analyze this' }];
+      const result = await (gpt5Provider as any).callOpenAI(
+        messages,
+        { maxTokens: 800 } as SummaryOptions,
+        false
+      );
+
+      // Partial content is still surfaced to the caller (downstream parser)
+      expect(result.choices[0].message.content).toBe(partialJson);
+      // Real termination reason threaded through finish_reason (was always 'stop' before)
+      expect(result.choices[0].finish_reason).toBe('length');
+
+      // The author-intended truncation categorisation warn now fires
+      const truncationWarns = findWarns(
+        (msg, data) => typeof msg === 'string' &&
+          msg.includes('OpenAI Responses API returned incomplete result') &&
+          msg.includes('max_output_tokens') &&
+          data?.reason === 'max_output_tokens' &&
+          data?.contentLength === partialJson.length
+      );
+      expect(truncationWarns).toHaveLength(1);
+    });
+
+    // Test B — zero-content truncation. The dead branch's helper
+    // `extractBestAvailableContent` always returned null here so the inner
+    // warn-and-return never fired. After the fix, the unified warn fires
+    // (contentLength: 0) and the ProviderError is thrown as before.
+    it('emits truncation warn (contentLength:0) and throws ProviderError for incomplete response with no content', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          status: 'incomplete',
+          incomplete_details: { reason: 'max_output_tokens' },
+          output: [{ id: 'rs_1', type: 'reasoning', summary: [] }],
+          usage: { prompt_tokens: 30, completion_tokens: 150, total_tokens: 180 }
+        })
+      });
+
+      const messages: ChatMessage[] = [{ role: 'user', content: 'analyze this' }];
+      let thrown: unknown;
+      try {
+        await (gpt5Provider as any).callOpenAI(messages, { maxTokens: 800 } as SummaryOptions, false);
+      } catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown).toBeInstanceOf(ProviderError);
+      expect((thrown as Error).message).toMatch(/incomplete result/i);
+
+      // The unified truncation warn fires before the throw (contentLength: 0)
+      const truncationWarns = findWarns(
+        (msg, data) => typeof msg === 'string' &&
+          msg.includes('OpenAI Responses API returned incomplete result') &&
+          msg.includes('max_output_tokens') &&
+          data?.reason === 'max_output_tokens' &&
+          data?.contentLength === 0
+      );
+      expect(truncationWarns).toHaveLength(1);
+    });
+
+    it('threads content_filter finish_reason for filtered Responses API output', async () => {
+      const filteredContent = '{"hasViolations": false, "violations": []}';
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          status: 'incomplete',
+          incomplete_details: { reason: 'content_filter' },
+          output_text: filteredContent,
+          usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 }
+        })
+      });
+
+      const messages: ChatMessage[] = [{ role: 'user', content: 'analyze this' }];
+      const result = await (gpt5Provider as any).callOpenAI(
+        messages,
+        { maxTokens: 800 } as SummaryOptions,
+        false
+      );
+
+      expect(result.choices[0].message.content).toBe(filteredContent);
+      expect(result.choices[0].finish_reason).toBe('content_filter');
+    });
+
+    // Non-regression — completed response: no truncation warn, finish_reason: 'stop'
+    it('does not warn and threads finish_reason:stop when status is completed', async () => {
+      const fullJson = '{"hasViolations": false, "violations": []}';
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          status: 'completed',
+          output_text: fullJson,
+          usage: { prompt_tokens: 30, completion_tokens: 80, total_tokens: 110 }
+        })
+      });
+
+      const messages: ChatMessage[] = [{ role: 'user', content: 'analyze this' }];
+      const result = await (gpt5Provider as any).callOpenAI(
+        messages,
+        { maxTokens: 800 } as SummaryOptions,
+        false
+      );
+
+      expect(result.choices[0].message.content).toBe(fullJson);
+      expect(result.choices[0].finish_reason).toBe('stop');
+      const truncationWarns = findWarns(
+        (msg) => typeof msg === 'string' && msg.includes('OpenAI Responses API returned incomplete result')
+      );
+      expect(truncationWarns).toHaveLength(0);
+    });
+
+    // Non-regression — missing status field is treated as completed
+    it('treats missing status as completed (no warn, finish_reason:stop)', async () => {
+      const fullJson = '{"hasViolations": false, "violations": []}';
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          output_text: fullJson,
+          usage: { prompt_tokens: 30, completion_tokens: 80, total_tokens: 110 }
+        })
+      });
+
+      const messages: ChatMessage[] = [{ role: 'user', content: 'analyze this' }];
+      const result = await (gpt5Provider as any).callOpenAI(
+        messages,
+        { maxTokens: 800 } as SummaryOptions,
+        false
+      );
+
+      expect(result.choices[0].message.content).toBe(fullJson);
+      expect(result.choices[0].finish_reason).toBe('stop');
+      const truncationWarns = findWarns(
+        (msg) => typeof msg === 'string' && msg.includes('OpenAI Responses API returned incomplete result')
+      );
+      expect(truncationWarns).toHaveLength(0);
+    });
+
+    // Non-regression — incomplete reason that is not a token/length reason
+    // (e.g. content_filter) also surfaces the warn and threads finish_reason.
+    // Pins that the warn is gated on `status !== 'completed'`, NOT on a token/
+    // length reason whitelist (the original code had such a whitelist, which
+    // is what made the dead branch dead in the first place).
+    it('emits warn and throws ProviderError when status is incomplete due to content_filter', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          status: 'incomplete',
+          incomplete_details: { reason: 'content_filter' },
+          output: [{ id: 'rs_1', type: 'reasoning', summary: [] }],
+          usage: { prompt_tokens: 30, completion_tokens: 0, total_tokens: 30 }
+        })
+      });
+
+      const messages: ChatMessage[] = [{ role: 'user', content: 'analyze this' }];
+      let thrown: unknown;
+      try {
+        await (gpt5Provider as any).callOpenAI(messages, { maxTokens: 800 } as SummaryOptions, false);
+      } catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown).toBeInstanceOf(ProviderError);
+      const truncationWarns = findWarns(
+        (msg, data) => typeof msg === 'string' &&
+          msg.includes('OpenAI Responses API returned incomplete result') &&
+          msg.includes('content_filter') &&
+          data?.reason === 'content_filter'
+      );
+      expect(truncationWarns).toHaveLength(1);
+    });
+
+    // End-to-end through analyzeCriminalCode — partial-content truncation:
+    // the operator should now see BOTH the truncation warn (categorisation)
+    // AND the parser-failure error (carrying the raw partial JSON), while the
+    // moderation outcome stays the deliberate fail-open clean fallback.
+    it('analyzeCriminalCode: partial-content truncation returns clean fallback with truncation warn + parser error', async () => {
+      const partialJson = '{"hasViolations": true, "violations": [{"article": "105"';
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          status: 'incomplete',
+          incomplete_details: { reason: 'max_output_tokens' },
+          output_text: partialJson,
+          usage: { prompt_tokens: 30, completion_tokens: 150, total_tokens: 180 }
+        })
+      });
+
+      const result = await gpt5Provider.analyzeCriminalCode('some message text', mockEnv);
+
+      // Author's deliberate fail-open-on-truncation moderation outcome is preserved
+      expect(result).toEqual({
+        hasViolations: false,
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: 'low',
+        analysisTimestamp: expect.any(Number)
+      });
+
+      // Categorisation: the extractResponsesContent truncation warn fires once
+      const extractorWarns = findWarns(
+        (msg, data) => typeof msg === 'string' &&
+          msg.includes('OpenAI Responses API returned incomplete result') &&
+          msg.includes('max_output_tokens') &&
+          data?.contentLength === partialJson.length
+      );
+      expect(extractorWarns).toHaveLength(1);
+
+      // Visibility: the parser-failure error log still carries the raw partial JSON
+      const parseErrors = findErrors(
+        (msg, data) => typeof msg === 'string' &&
+          msg.includes('response parsing failed') &&
+          typeof data === 'object' && data !== null &&
+          data.rawResponse === partialJson
+      );
+      expect(parseErrors).toHaveLength(1);
+
+      // The catch-path incompleteResult:true warn must NOT fire here, because
+      // analyzeCriminalCode's catch only runs on ProviderError; partial content
+      // returns cleanly through the parser fallback instead.
+      const catchWarns = findWarns(
+        (msg, data) => typeof msg === 'string' &&
+          msg.includes('criminal code analysis: failed') &&
+          data?.incompleteResult === true
+      );
+      expect(catchWarns).toHaveLength(0);
+    });
+
+    it('analyzeCriminalCode: zero-content truncation returns clean fallback and emits both warn layers', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          status: 'incomplete',
+          incomplete_details: { reason: 'max_output_tokens' },
+          output: [{ id: 'rs_1', type: 'reasoning', summary: [] }],
+          usage: { prompt_tokens: 30, completion_tokens: 150, total_tokens: 180 }
+        })
+      });
+
+      const result = await gpt5Provider.analyzeCriminalCode('some message text', mockEnv);
+
+      // Author's deliberate fail-open-on-truncation moderation outcome
+      expect(result).toEqual({
+        hasViolations: false,
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: 'low',
+        analysisTimestamp: expect.any(Number)
+      });
+
+      // The extractResponsesContent truncation warn fires before the throw
+      const extractorWarns = findWarns(
+        (msg, data) => typeof msg === 'string' &&
+          msg.includes('OpenAI Responses API returned incomplete result') &&
+          msg.includes('max_output_tokens') &&
+          data?.contentLength === 0
+      );
+      expect(extractorWarns).toHaveLength(1);
+
+      // analyzeCriminalCode's catch sees the ProviderError (regex matches
+      // /incomplete result|max_output_tokens/i) and emits the incomplete-tagged warn
+      const catchWarns = findWarns(
+        (msg, data) => typeof msg === 'string' &&
+          msg.includes('criminal code analysis: failed') &&
+          data?.incompleteResult === true
+      );
+      expect(catchWarns).toHaveLength(1);
+    });
+  });
+
+  describe('analyzeCriminalCode analysisTimestamp', () => {
     const criminalViolation = {
       article: '119',
       subarticle: null,
@@ -970,7 +1287,7 @@ describe('OpenAIProvider', () => {
       }),
     });
 
-    it('should set analysisTimestamp when the model omits it (prompt-compliant response)', async () => {
+    it('sets analysisTimestamp when the model omits it', async () => {
       const before = Date.now();
       mockFetch.mockResolvedValue(mockOkResponse(JSON.stringify({
         hasViolations: true,
@@ -990,7 +1307,7 @@ describe('OpenAIProvider', () => {
       expect(result.analysisTimestamp).toBeLessThanOrEqual(Date.now());
     });
 
-    it('should override a model-supplied, non-number analysisTimestamp with an application-controlled value', async () => {
+    it('overrides a model-supplied non-number analysisTimestamp', async () => {
       const before = Date.now();
       mockFetch.mockResolvedValue(mockOkResponse(JSON.stringify({
         hasViolations: false,
@@ -1010,7 +1327,7 @@ describe('OpenAIProvider', () => {
       expect(result.analysisTimestamp).toBeLessThanOrEqual(Date.now());
     });
 
-    it('should override a model-supplied numeric analysisTimestamp with the application-controlled value', async () => {
+    it('overrides a model-supplied numeric analysisTimestamp', async () => {
       const before = Date.now();
       const modelSupplied = 1000;
       mockFetch.mockResolvedValue(mockOkResponse(JSON.stringify({
@@ -1029,4 +1346,5 @@ describe('OpenAIProvider', () => {
       expect(result.analysisTimestamp).toBeLessThanOrEqual(Date.now());
     });
   });
+
 });
