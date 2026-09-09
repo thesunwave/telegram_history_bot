@@ -284,6 +284,27 @@ const EPOCH_FENCE = `
 `;
 
 /**
+ * Backfill remains absolute for backfill-owned days, but once the live path owns
+ * a day a stale KV snapshot must never reduce a counter that live already
+ * advanced. Using MAX on conflict preserves the newer live value while still
+ * allowing backfill to fill rows/columns that the live event did not touch.
+ *
+ * The complementary live writer persists exact post-KV totals. Therefore the
+ * opposite ordering also converges: if backfill first writes a newer snapshot,
+ * the subsequent live write stores that same exact total rather than adding a
+ * second delta.
+ */
+function liveAwareAbsoluteValue(table: string, column: string): string {
+  return `CASE
+    WHEN EXISTS (
+      SELECT 1 FROM stats_daily_coverage c
+      WHERE c.chat_id = ${table}.chat_id AND c.day = ${table}.day AND c.source = 'live'
+    ) THEN MAX(${table}.${column}, excluded.${column})
+    ELSE excluded.${column}
+  END`;
+}
+
+/**
  * Column-specific user upserts: each statement INSERTs only its own column so
  * source-family arrival order cannot zero or overwrite another family's value.
  * `stats_daily_user.last_message_ts` is never touched by backfill (the live
@@ -305,12 +326,13 @@ function userColumnUpsertSql(column: UserColumn): string {
   return `
     INSERT INTO stats_daily_user (chat_id, day, user_id, ${column})
     SELECT ?, ?, ?, ? WHERE ${EPOCH_FENCE}
-    ON CONFLICT(chat_id, day, user_id) DO UPDATE SET ${column} = excluded.${column}
+    ON CONFLICT(chat_id, day, user_id) DO UPDATE SET
+      ${column} = ${liveAwareAbsoluteValue('stats_daily_user', column)}
     WHERE ${EPOCH_FENCE}
   `;
 }
 
-/** Profile fill: username from user:{id}; last_message_ts from `last_message:{chat}:{user}` never regresses. */
+/** Profile fill: username from user:{id}; last_message_ts never regresses. */
 const PROFILE_UPSERT = `
   INSERT INTO stats_chat_user_profile (chat_id, user_id, username, last_message_ts)
   SELECT ?, ?, ?, ? WHERE ${EPOCH_FENCE}
@@ -324,7 +346,7 @@ const HOUR_ABSOLUTE_UPSERT = `
   INSERT INTO stats_daily_hour (chat_id, day, hour, message_count)
   SELECT ?, ?, ?, ? WHERE ${EPOCH_FENCE}
   ON CONFLICT(chat_id, day, hour) DO UPDATE SET
-    message_count = excluded.message_count
+    message_count = ${liveAwareAbsoluteValue('stats_daily_hour', 'message_count')}
   WHERE ${EPOCH_FENCE}
 `;
 
@@ -332,7 +354,7 @@ const BUCKET_ABSOLUTE_UPSERT = `
   INSERT INTO stats_daily_bucket_user (chat_id, day, bucket, user_id, message_count)
   SELECT ?, ?, ?, ?, ? WHERE ${EPOCH_FENCE}
   ON CONFLICT(chat_id, day, bucket, user_id) DO UPDATE SET
-    message_count = excluded.message_count
+    message_count = ${liveAwareAbsoluteValue('stats_daily_bucket_user', 'message_count')}
   WHERE ${EPOCH_FENCE}
 `;
 
@@ -340,7 +362,7 @@ const PROFANITY_WORD_ABSOLUTE_UPSERT = `
   INSERT INTO stats_daily_profanity_word (chat_id, day, word, count)
   SELECT ?, ?, ?, ? WHERE ${EPOCH_FENCE}
   ON CONFLICT(chat_id, day, word) DO UPDATE SET
-    count = excluded.count
+    count = ${liveAwareAbsoluteValue('stats_daily_profanity_word', 'count')}
   WHERE ${EPOCH_FENCE}
 `;
 
@@ -348,7 +370,7 @@ const PROFANITY_WORD_USER_ABSOLUTE_UPSERT = `
   INSERT INTO stats_daily_profanity_word_user (chat_id, day, word, user_id, count)
   SELECT ?, ?, ?, ?, ? WHERE ${EPOCH_FENCE}
   ON CONFLICT(chat_id, day, word, user_id) DO UPDATE SET
-    count = excluded.count
+    count = ${liveAwareAbsoluteValue('stats_daily_profanity_word_user', 'count')}
   WHERE ${EPOCH_FENCE}
 `;
 
@@ -981,7 +1003,9 @@ function makeCountBuilder(
     }
     const { sql, binds } = makeUpsert(entry);
     return {
-      statements: [prepareFencedStatement(env.DB, sql, [entry.chatId, entry.day, ...binds, count], epoch)],
+      statements: [
+        prepareFencedStatement(env.DB, sql, [entry.chatId, entry.day, ...binds, count], epoch),
+      ],
       reason: null,
     };
   };

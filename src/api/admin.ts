@@ -18,6 +18,7 @@ import {
   listAdminChatsForTelegramUser,
 } from './admin-chats';
 import { getAdminChatStats, parseAdminPeriod, type AdminDateRange } from './admin-stats';
+import { getAdminCriminalViolationDetails } from './admin-criminal';
 import {
   AdminUnavailable,
   HistoricalStatsNotReady,
@@ -83,7 +84,17 @@ function parseChatId(url: URL): number | null {
   }
 
   const chatId = Number(rawChatId);
-  return Number.isFinite(chatId) ? chatId : null;
+  return Number.isSafeInteger(chatId) && chatId !== 0 ? chatId : null;
+}
+
+function parseUserId(url: URL): number | null {
+  const rawUserId = url.searchParams.get('userId');
+  if (!rawUserId) {
+    return null;
+  }
+
+  const userId = Number(rawUserId);
+  return Number.isSafeInteger(userId) && userId > 0 ? userId : null;
 }
 
 async function readNotificationPayload(req: Request) {
@@ -111,10 +122,14 @@ async function handleNotificationGet(
   const service = new NotificationService(env, repository);
   const availableTypes = service.getAvailableNotificationTypes();
   const settings = await service.getChatSettings(String(chatId));
-  const canEdit =
-    principal.type === 'telegram' &&
-    Boolean(principal.telegramId) &&
-    await isTelegramUserChatAdmin(env, chatId, principal.telegramId!);
+  let canEdit = false;
+  if (principal.type === 'telegram' && Boolean(principal.telegramId)) {
+    try {
+      canEdit = await isTelegramUserChatAdmin(env, chatId, principal.telegramId!);
+    } catch {
+      canEdit = false;
+    }
+  }
 
   return Response.json({
     ok: true,
@@ -339,6 +354,36 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
       }
       throw error;
     }
+  }
+
+  if (url.pathname === `${ADMIN_PATH}/api/criminal-violations` && req.method === 'GET') {
+    const chatId = parseChatId(url);
+    const userId = parseUserId(url);
+    if (chatId === null) {
+      return jsonError('chatId is required', 400);
+    }
+    if (userId === null) {
+      return jsonError('userId is required', 400);
+    }
+
+    let period;
+    try {
+      period = parseAdminPeriod(
+        url.searchParams.get('period'),
+        url.searchParams.get('from'),
+        url.searchParams.get('to'),
+      );
+    } catch (error) {
+      return jsonError(error instanceof Error ? error.message : 'invalid period', 400);
+    }
+
+    const denied = await requireTelegramChatAccess(env, principal, chatId);
+    if (denied) {
+      return denied;
+    }
+
+    const details = await getAdminCriminalViolationDetails(env, chatId, userId, period);
+    return Response.json(details, { headers: { 'Cache-Control': 'no-store' } });
   }
 
   if (url.pathname === `${ADMIN_PATH}/api/notifications`) {

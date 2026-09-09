@@ -280,6 +280,155 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(mockEnv.HISTORY.get).toHaveBeenCalled();
     });
 
+    it("should heal cached analysis results that are missing analysisTimestamp (KV branch)", async () => {
+      const text = "Test text for cache healing (KV)";
+      const cachedResult = {
+        textHash: "test-hash",
+        result: {
+          hasViolations: true,
+          violations: [{
+            article: "282",
+            subarticle: null,
+            articleTitle: "Возбуждение ненависти либо вражды",
+            quote: "Призываю к насилию против определенной группы людей",
+            punishment: "Штраф до 300 000 рублей",
+            severity: 5,
+            confidence: 0.9,
+            decision: "violation",
+          }],
+          totalSeverity: 5,
+          riskLevel: "high",
+          // analysisTimestamp intentionally omitted: simulates a pre-fix malformed cached entry
+        },
+        createdAt: Date.now(),
+      };
+
+      mockEnv.HISTORY.get.mockResolvedValue(cachedResult);
+
+      const request = new Request("http://localhost/analyze", {
+        method: "POST",
+        body: JSON.stringify({ text, chatId: 12345, userId: 67890, messageId: 111 }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const before = Date.now();
+      const response = await analyzer.fetch(request);
+      const result = await response.json() as CriminalAnalysisResult;
+
+      expect(response.status).toBe(200);
+      expect(result.hasViolations).toBe(true);
+      expect(typeof result.analysisTimestamp).toBe("number");
+      expect(Number.isFinite(result.analysisTimestamp)).toBe(true);
+      expect(result.analysisTimestamp).toBeGreaterThanOrEqual(before);
+      expect(result.analysisTimestamp).toBeLessThanOrEqual(Date.now());
+      expect(mockEnv.HISTORY.get).toHaveBeenCalled();
+    });
+
+    it("should heal cached analysis results that are missing analysisTimestamp (D1 branch)", async () => {
+      const text = "Test text for cache healing (D1)";
+      const malformedStoredResult: CriminalAnalysisResult = {
+        hasViolations: false,
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: "low",
+        // analysisTimestamp intentionally omitted: simulates a pre-fix malformed cached row
+      } as any;
+
+      // KV miss, so the D1 fallback branch is exercised
+      mockEnv.HISTORY.get.mockResolvedValue(null);
+      const insertSpy = vi.fn().mockResolvedValue({ success: true });
+      const allSpy = vi.fn().mockResolvedValue({ results: [] });
+      const cacheRow = { analysis_result: JSON.stringify(malformedStoredResult) };
+      mockEnv.DB.prepare = vi.fn().mockImplementation((query: string) => ({
+        bind: vi.fn().mockReturnValue({
+          run: insertSpy,
+          all: allSpy,
+          first: vi.fn().mockResolvedValue(
+            query.includes("SELECT analysis_result FROM criminal_analysis_cache") ? cacheRow : null
+          ),
+        }),
+      }));
+
+      const request = new Request("http://localhost/analyze", {
+        method: "POST",
+        body: JSON.stringify({ text, chatId: 12345, userId: 67890, messageId: 111 }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const before = Date.now();
+      const response = await analyzer.fetch(request);
+      const result = await response.json() as CriminalAnalysisResult;
+
+      expect(response.status).toBe(200);
+      expect(typeof result.analysisTimestamp).toBe("number");
+      expect(Number.isFinite(result.analysisTimestamp)).toBe(true);
+      expect(result.analysisTimestamp).toBeGreaterThanOrEqual(before);
+      expect(result.analysisTimestamp).toBeLessThanOrEqual(Date.now());
+
+      // The healed entry is written back to KV (so the malformed shape does not survive the read).
+      const kvPutCall = mockEnv.HISTORY.put.mock.calls.find((call: any[]) =>
+        typeof call[0] === "string" && call[0].startsWith("criminal_cache:")
+      );
+      expect(kvPutCall).toBeDefined();
+      const written = JSON.parse(kvPutCall[1]);
+      expect(typeof written.result.analysisTimestamp).toBe("number");
+      expect(Number.isFinite(written.result.analysisTimestamp)).toBe(true);
+    });
+
+    it("should normalize analysisTimestamp when the provider omits it on the success path", async () => {
+      const text = "Призываю к насилию против определенной группы людей";
+      (ProviderFactory.createProvider as any).mockReturnValue({
+        getProviderInfo: vi.fn().mockReturnValue({ name: "mock", model: "mock" }),
+        validateConfig: vi.fn(),
+        analyzeCriminalCode: vi.fn().mockResolvedValue({
+          hasViolations: true,
+          violations: [{
+            article: "282",
+            subarticle: null,
+            articleTitle: "Возбуждение ненависти либо вражды",
+            quote: "Призываю к насилию против определенной группы людей",
+            punishment: "Штраф до 300 000 рублей",
+            severity: 5,
+            confidence: 0.9,
+            decision: "violation",
+          }],
+          totalSeverity: 5,
+          riskLevel: "high",
+          // analysisTimestamp intentionally omitted: simulates an OpenAI/Cloudflare provider
+          // success path that did not set the field
+        }),
+      });
+      // Fresh analyzer so its lazy initialize() picks up the malformed provider mock
+      const healAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+      mockEnv.HISTORY.get.mockResolvedValue(null);
+
+      const request = new Request("http://localhost/analyze", {
+        method: "POST",
+        body: JSON.stringify({ text, chatId: 12345, userId: 67890, messageId: 111, forceRefresh: true }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const before = Date.now();
+      const response = await healAnalyzer.fetch(request);
+      const result = await response.json() as CriminalAnalysisResult;
+
+      expect(response.status).toBe(200);
+      expect(result.hasViolations).toBe(true);
+      expect(typeof result.analysisTimestamp).toBe("number");
+      expect(Number.isFinite(result.analysisTimestamp)).toBe(true);
+      expect(result.analysisTimestamp).toBeGreaterThanOrEqual(before);
+      expect(result.analysisTimestamp).toBeLessThanOrEqual(Date.now());
+
+      // The normalized result (with analysisTimestamp) is persisted into the cache, not the malformed shape.
+      const kvPutCall = mockEnv.HISTORY.put.mock.calls.find((call: any[]) =>
+        typeof call[0] === "string" && call[0].startsWith("criminal_cache:")
+      );
+      expect(kvPutCall).toBeDefined();
+      const written = JSON.parse(kvPutCall[1]);
+      expect(typeof written.result.analysisTimestamp).toBe("number");
+      expect(Number.isFinite(written.result.analysisTimestamp)).toBe(true);
+    });
+
     it("should persist caller-provided source timestamp for violations", async () => {
       const sourceTs = 1700000000;
       const requestBody = {
@@ -339,6 +488,10 @@ describe("CriminalCodeAnalyzerDO", () => {
       const violation_day = insertCall[insertCall.length - 2];
       expect(violation_ts).toBe(sourceTs);
       expect(violation_day).toBe("2023-11-14");
+
+      const countersFetch = mockEnv.COUNTERS_DO.get.mock.results[0].value.fetch;
+      const countersPayload = JSON.parse(countersFetch.mock.calls[0][1].body as string);
+      expect(countersPayload.day).toBe("2023-11-14");
     });
 
     it("should fall back to processing time when analyze request has no timestamp", async () => {
@@ -416,6 +569,45 @@ describe("CriminalCodeAnalyzerDO", () => {
       const violation_day = insertCall[insertCall.length - 2];
       expect(violation_ts).toBe(0);
       expect(violation_day).toBe("1970-01-01");
+    });
+
+    it("should normalize millisecond-scale ts to seconds, not store a far-future date", async () => {
+      // `Date.now()` is the natural JS millisecond value an operator might pass at the
+      // `/analyze-test` boundary; without normalization `storeViolations` would store it
+      // as Unix seconds -> datetime(?, 'unixepoch') = year ~58000, polluting end-user
+      // stats (/criminal, /mycriminal, /criminaltop) indefinitely.
+      const msTs = Date.now();
+      const requestBody = {
+        text: "Призываю к насилию против определенной группы людей",
+        chatId: 12345,
+        userId: 67890,
+        messageId: 111,
+        username: "testuser",
+        day: "2023-11-14",
+        ts: msTs,
+      };
+
+      const request = new Request("http://localhost/analyze", {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await analyzer.fetch(request);
+      expect(response.status).toBe(200);
+
+      const bindSpy = mockEnv.DB.prepare.mock.results[0].value.bind;
+      const insertCall = bindSpy.mock.calls.find((call: any[]) => call.length > 10);
+      const violation_ts = insertCall[insertCall.length - 1];
+      const violation_day = insertCall[insertCall.length - 2];
+      // Ms-scale value is rescaled to seconds, not stored verbatim.
+      expect(violation_ts).toBe(Math.floor(msTs / 1000));
+      expect(violation_ts).toBeLessThan(msTs);
+      // Day is derived from the normalized seconds -> present day, never year ~58000.
+      expect(violation_day).toBe(new Date(Math.floor(msTs / 1000) * 1000).toISOString().slice(0, 10));
+      const storedYear = Number(violation_day.slice(0, 4));
+      expect(storedYear).toBeGreaterThanOrEqual(2024);
+      expect(storedYear).toBeLessThan(2100);
     });
 
     it("should enqueue short no-signal messages for semantic prefilter", async () => {
