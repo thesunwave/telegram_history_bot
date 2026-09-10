@@ -125,16 +125,21 @@ export class DayBlockManager {
 
       // Try to append to current shard
       shard.messages.push(message);
-      shard.messages.sort((a, b) => a.ts - b.ts);
 
-      // If shard too large, move message to a new shard
-      if (this.calcSizeBytes(shard) > DayBlockManager.TARGET_MAX_BYTES) {
-        // Remove the recently added message from current shard
-        shard.messages.pop();
-        // Persist the current shard if it was changed
+      // If shard too large, move the just-added message to a new shard.
+      // Remove it by identity (not by position): sorting ascending by ts then
+      // pop()-ing would evict the max-ts element, which is the just-added
+      // message only when it has the largest ts. Under out-of-order arrival
+      // (e.g. backfill) that invariant does not hold, and pop() would silently
+      // delete a previously-stored message.
+      const overflows = this.calcSizeBytes(shard) > DayBlockManager.TARGET_MAX_BYTES;
+      if (overflows) {
+        // Take the just-added message back out of the current shard by identity,
+        // without touching any previously-stored entry.
+        shard.messages = shard.messages.filter(m => m !== message);
         await this.saveShard(blockId, shardIndex, shard);
 
-        // Create a new shard and put the message there
+        // Create a new shard and put the just-added message there
         const newIndex = meta.shardCount; // next shard index
         const newShard = { messages: [message] };
         await this.saveShard(blockId, newIndex, newShard);
@@ -142,7 +147,8 @@ export class DayBlockManager {
         // Update meta for new shard
         meta.shardCount += 1;
       } else {
-        // Save updated shard
+        // Keeping the message: maintain ascending-ts order within the shard.
+        shard.messages.sort((a, b) => a.ts - b.ts);
         await this.saveShard(blockId, shardIndex, shard);
       }
 

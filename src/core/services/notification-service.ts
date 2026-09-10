@@ -71,7 +71,7 @@ export class NotificationService implements INotificationService {
         chatId,
         error: error.message || String(error)
       });
-      return null;
+      throw error;
     }
   }
 

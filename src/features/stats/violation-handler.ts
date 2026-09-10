@@ -22,7 +22,7 @@ import { validateViolationAnalysis, ValidationError, DataSanitizer, ValidationUt
  */
 export interface IViolationHandler {
   formatViolationMessage(analysis: ViolationAnalysis, userId?: string, chatId?: string): Promise<string>;
-  getUserStats(userId: string, chatId: string): Promise<string>;
+  getUserStats(userId: string, chatId: string, period?: string): Promise<string>;
   getPeriodStats(chatId: string, days: number): Promise<string>;
   getGeneralStats(chatId: string): Promise<string>;
 }
@@ -84,7 +84,7 @@ export class ViolationHandler implements IViolationHandler {
   /**
    * Получает и форматирует статистику пользователя
    */
-  async getUserStats(userId: string, chatId: string): Promise<string> {
+  async getUserStats(userId: string, chatId: string, period?: string): Promise<string> {
     try {
       // Валидация и санитизация входных параметров
       const sanitizedUserId = ValidationUtils.sanitizeString(userId);
@@ -93,7 +93,7 @@ export class ViolationHandler implements IViolationHandler {
       this.validateUserStatsParams(sanitizedUserId, sanitizedChatId);
 
       // Получаем статистику
-      const userStats = await this.statisticsService.getUserStats(sanitizedUserId, sanitizedChatId);
+      const userStats = await this.statisticsService.getUserStats(sanitizedUserId, sanitizedChatId, period);
 
       // Проверяем на пустую статистику
       if (!userStats || userStats.totalViolations === 0) {
@@ -129,7 +129,9 @@ export class ViolationHandler implements IViolationHandler {
     try {
       // Валидация и санитизация входных параметров
       const sanitizedChatId = ValidationUtils.sanitizeString(chatId);
-      const sanitizedDays = Math.max(1, Math.min(365, Math.floor(days || 7)));
+      const sanitizedDays = days === 0
+        ? 1
+        : Math.max(1, Math.min(365, Math.floor(days || 7)));
 
       this.validatePeriodStatsParams(sanitizedChatId, sanitizedDays);
 
@@ -157,7 +159,9 @@ export class ViolationHandler implements IViolationHandler {
       try {
         const endDate = new Date();
         const startDate = new Date();
-        const sanitizedDays = Math.max(1, Math.min(365, Math.floor(days || 7)));
+        const sanitizedDays = days === 0
+          ? 1
+          : Math.max(1, Math.min(365, Math.floor(days || 7)));
         startDate.setDate(endDate.getDate() - sanitizedDays);
 
         const fallbackStats = DataSanitizer.createEmptyPeriodStats(

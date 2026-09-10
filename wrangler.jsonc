@@ -143,6 +143,8 @@
     "SUMMARY_OPT_MAX_WORKERS": 5,
     "SUMMARY_OPT_WORKER_BATCH_SIZE": 50,
     "SUMMARY_OPT_WORKER_TIMEOUT": 60000,
+    // Minimum fraction of parallel chunks that must succeed; below this the run throws so the legacy fallback can run
+    "SUMMARY_OPT_MIN_CHUNK_COVERAGE": 0.5,
     // Context management configuration
     "SUMMARY_OPT_MAX_TOKENS_PER_REQUEST": 120000,
     "SUMMARY_OPT_PREPROCESSING_MAX_TOKENS": 60000,

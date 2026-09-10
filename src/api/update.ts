@@ -577,15 +577,27 @@ export async function handleUpdate(msg: any, env: Env) {
       periodArgs.length > 0 ? periodArgs : ['week'],
     );
   } else if (command.name === '/profanity_top') {
-    const parts = msg.text.split(/\s+/);
-    const count = Math.min(Math.max(parseInt(parts[1] || '10', 10), 1), 20);
-    const period = ['today', 'week', 'month'].includes(parts[2]) ? parts[2] : 'today';
-    await profanityTopUsers(env, chatId, count, period);
+    const requestedCount = parseInt(command.args[0] || '', 10);
+    const hasCount = Number.isFinite(requestedCount);
+    const count = hasCount ? Math.min(Math.max(requestedCount, 1), 20) : 10;
+    const period = hasCount ? command.args[1] : command.args[0];
+    await profanityTopUsers(
+      env,
+      chatId,
+      count,
+      ['today', 'week', 'month'].includes(period) ? period : 'today',
+    );
   } else if (command.name === '/profanity_words') {
-    const parts = msg.text.split(/\s+/);
-    const count = Math.min(Math.max(parseInt(parts[1] || '10', 10), 1), 20);
-    const period = ['today', 'week', 'month'].includes(parts[2]) ? parts[2] : 'today';
-    await profanityWordsStats(env, chatId, count, period);
+    const requestedCount = parseInt(command.args[0] || '', 10);
+    const hasCount = Number.isFinite(requestedCount);
+    const count = hasCount ? Math.min(Math.max(requestedCount, 1), 20) : 10;
+    const period = hasCount ? command.args[1] : command.args[0];
+    await profanityWordsStats(
+      env,
+      chatId,
+      count,
+      ['today', 'week', 'month'].includes(period) ? period : 'today',
+    );
   } else if (command.name === '/my_profanity') {
     const parts = msg.text.split(/\s+/);
     const period = ['today', 'week', 'month'].includes(parts[1]) ? parts[1] : undefined;
@@ -789,7 +801,11 @@ async function canEditAutoNotifications(env: Env, chatId: number, userId: string
     return false;
   }
 
-  return await isTelegramUserChatAdmin(env, chatId, numericUserId);
+  try {
+    return await isTelegramUserChatAdmin(env, chatId, numericUserId);
+  } catch {
+    return false;
+  }
 }
 
 /**

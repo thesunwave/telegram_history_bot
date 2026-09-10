@@ -493,7 +493,7 @@ export class MessageFormatter implements IMessageFormatter {
             const truncatedQuote = quote.length > 100 ?
               quote.substring(0, 100) + '...' :
               quote;
-            lines.push(`   ${this.htmlBuilder.italic(`"${this.escapeHtml(truncatedQuote)}"`)}`)
+            lines.push(`   ${this.htmlBuilder.italic(`"${truncatedQuote}"`)}`)
           } catch (criticalError) {
             console.warn('⚠️ Error formatting critical violation:', criticalError);
             lines.push(`🔴 ${this.htmlBuilder.bold(`${formatArticleForDisplay(violation.article)}`)} серьезность ${violation.severity || 8}/10`);

@@ -48,6 +48,23 @@ describe('criminal sentence calculator', () => {
     ).toEqual({ totalYears: 0, lifeSentences: 1 });
   });
 
+  it('counts life sentences in the instrumental form used by stored statute text', () => {
+    expect(
+      calculateSentenceFromPunishment('пожизненным лишением свободы')
+    ).toEqual({ totalYears: 0, lifeSentences: 1 });
+  });
+
+  it('counts life sentences alongside a determinate term in a verbatim sanction clause', () => {
+    const clause =
+      'наказывается лишением свободы на срок от восьми до двадцати лет с ограничением свободы на срок от одного года до двух лет, либо пожизненным лишением свободы, либо смертной казнью';
+    expect(calculateSentenceFromPunishment(clause)).toEqual({
+      totalYears: 20,
+      lifeSentences: 1,
+    });
+    expect(formatSentenceTotal(calculateSentenceFromPunishment(clause)))
+      .toBe('напиздел на 20 лет и 1 пожизненное');
+  });
+
   it('does not infer prison terms from article number fallbacks', () => {
     expect(calculateSentenceFromViolationCount({
       article: '119',

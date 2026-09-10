@@ -485,6 +485,124 @@ describe('MessageAggregatorDO', () => {
       expect(result.errors.some((error: string) => error.includes('text'))).toBe(true);
       expect(result.errors.some((error: string) => error.includes('timestamp'))).toBe(true);
     });
+
+    it('should not crash with 500 when a message is missing the text key entirely', async () => {
+      // `text` is intentionally absent from the serialized JSON; cast to satisfy TS.
+      const messagesMissingText = [
+        { chat: 12345, user: 1, username: 'user1', ts: 1000 },
+      ] as unknown as StoredMessage[];
+
+      const request = new Request('http://localhost/aggregate', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'test-session',
+          messages: messagesMissingText,
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await aggregator.fetch(request);
+      expect(response.status).not.toBe(500);
+      expect(response.status).toBe(200);
+      const result = await response.json() as AggregateResponse;
+      expect(result.success).toBe(true);
+    });
+
+    it('should keep the session running after a message missing text so subsequent batches still succeed', async () => {
+      const firstBatch = [
+        { chat: 12345, user: 1, username: 'user1', ts: 1000 },
+      ] as unknown as StoredMessage[];
+
+      const firstRequest = new Request('http://localhost/aggregate', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'test-session',
+          messages: firstBatch,
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const firstResponse = await aggregator.fetch(firstRequest);
+      expect(firstResponse.status).toBe(200);
+
+      // A follow-up valid batch must NOT be rejected with 409 (session not failed).
+      const secondBatch: StoredMessage[] = [
+        { chat: 12345, user: 2, username: 'user2', text: 'Valid follow-up message', ts: 2000 },
+      ];
+
+      const secondRequest = new Request('http://localhost/aggregate', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'test-session',
+          messages: secondBatch,
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const secondResponse = await aggregator.fetch(secondRequest);
+      expect(secondResponse.status).toBe(200);
+      const secondResult = await secondResponse.json() as AggregateResponse;
+      expect(secondResult.messagesReceived).toBe(2);
+      expect(secondResult.messagesAggregated).toBe(2);
+    });
+
+    it('should surface a validation error for missing text via /results', async () => {
+      const messagesMissingText = [
+        { chat: 12345, user: 1, username: 'user1', ts: 1000 },
+      ] as unknown as StoredMessage[];
+
+      const aggregateRequest = new Request('http://localhost/aggregate', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'test-session',
+          messages: messagesMissingText,
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const aggregateResponse = await aggregator.fetch(aggregateRequest);
+      expect(aggregateResponse.status).toBe(200);
+
+      const resultsRequest = new Request('http://localhost/results?sessionId=test-session');
+      const resultsResponse = await aggregator.fetch(resultsRequest);
+      const result = await resultsResponse.json() as ResultsResponse;
+
+      expect(result.status).toBe('completed');
+      expect(result.errors.some((error: string) => error.includes('text'))).toBe(true);
+      // The normalized message (text coerced to '') should still be returned.
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].text).toBe('');
+      expect(result.messages[0].username).toBe('user1');
+      expect(result.messages[0].ts).toBe(1000);
+    });
+
+    it('should normalize null and non-string text without crashing', async () => {
+      const messagesWithBadText = [
+        { chat: 12345, user: 1, username: 'user1', text: null, ts: 1000 },
+        { chat: 12345, user: 2, username: 'user2', text: 12345, ts: 2000 },
+      ] as unknown as StoredMessage[];
+
+      const request = new Request('http://localhost/aggregate', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'test-session',
+          messages: messagesWithBadText,
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const response = await aggregator.fetch(request);
+      expect(response.status).toBe(200);
+      const result = await response.json() as AggregateResponse;
+      expect(result.success).toBe(true);
+      expect(result.messagesAggregated).toBe(2);
+
+      const resultsRequest = new Request('http://localhost/results?sessionId=test-session');
+      const resultsResponse = await aggregator.fetch(resultsRequest);
+      const results = await resultsResponse.json() as ResultsResponse;
+      expect(results.messages.every((m: TelegramMessage) => typeof m.text === 'string')).toBe(true);
+      expect(results.errors.some((error: string) => error.includes('text'))).toBe(true);
+    });
   });
 
   describe('Error Handling', () => {

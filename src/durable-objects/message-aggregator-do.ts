@@ -171,10 +171,12 @@ export class MessageAggregatorDO {
       );
 
       try {
-        // Convert StoredMessage to TelegramMessage and add to aggregation
+        // Convert StoredMessage to TelegramMessage and add to aggregation.
+        // `text` is normalized to '' when missing/non-string so that deduplication
+        // (which calls text.substring()) cannot throw on untrusted HTTP input.
         const telegramMessages: TelegramMessage[] = messages.map(msg => ({
           username: msg.username,
-          text: msg.text,
+          text: typeof msg.text === 'string' ? msg.text : '',
           ts: msg.ts,
         }));
 

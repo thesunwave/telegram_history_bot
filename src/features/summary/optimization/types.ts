@@ -55,6 +55,7 @@ export interface SummaryOptimizationConfig {
     maxWorkers: number;
     workerBatchSize: number;
     workerTimeout: number;
+    minCoverageRatio: number;
   };
 
   // Context management

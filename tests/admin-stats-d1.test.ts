@@ -553,6 +553,33 @@ describe('D1 admin stats reader', () => {
     expect(result.criminal.topUsers[0].lifeSentences).toBeUndefined();
   });
 
+  it('topVoiceUsers/topVideoNoteUsers count preserves message_count, not Array.map rank index (fe6b53a follow-up)', async () => {
+    const sqlite = harness.sqlite;
+    const d1 = '2026-08-25';
+    // Three users whose message_count (50/30/10) is deliberately distinct from
+    // their leaderboard rank index (0/1/2). Voice leaderboard sorts by
+    // voice_duration_seconds DESC: alice(150) > bob(120) > carol(60); the
+    // video-note leaderboard sorts by video_note_duration_seconds DESC likewise.
+    insertUser(sqlite, { day: d1, user_id: 100, message_count: 50, word_count: 100, voice_count: 2, voice_duration_seconds: 150, video_note_count: 2, video_note_duration_seconds: 150, last_message_ts: 1000 });
+    insertUser(sqlite, { day: d1, user_id: 200, message_count: 30, word_count: 60, voice_count: 3, voice_duration_seconds: 120, video_note_count: 3, video_note_duration_seconds: 120, last_message_ts: 1000 });
+    insertUser(sqlite, { day: d1, user_id: 300, message_count: 10, word_count: 20, voice_count: 1, voice_duration_seconds: 60, video_note_count: 1, video_note_duration_seconds: 60, last_message_ts: 1000 });
+    insertProfile(sqlite, 1, 100, 'alice', 1000);
+    insertProfile(sqlite, 1, 200, 'bob', 1000);
+    insertProfile(sqlite, 1, 300, 'carol', 1000);
+
+    const result = await getAdminChatStatsFromD1(db, 1, range('custom', [d1, d1]));
+    const voice = result.activity.topVoiceUsers;
+    const vn = result.activity.topVideoNoteUsers;
+
+    // Population + sort are correct — only `count` was previously poisoned.
+    expect(voice.map((u) => u.username)).toEqual(['alice', 'bob', 'carol']);
+    expect(vn.map((u) => u.username)).toEqual(['alice', 'bob', 'carol']);
+    // mapUser must not receive Array.map's index as the `count` argument, or
+    // `count` becomes 0/1/2 instead of the user's message_count 50/30/10.
+    expect(voice.map((u) => u.count)).toEqual([50, 30, 10]);
+    expect(vn.map((u) => u.count)).toEqual([50, 30, 10]);
+  });
+
   it('preset periods produce sentence attributes from criminal_violations', async () => {
     const sqlite = harness.sqlite;
     const d1 = dayAt(-6);

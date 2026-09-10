@@ -258,6 +258,24 @@ describe('ViolationHandler Integration Tests', () => {
       }
     });
 
+    it('должен передавать period в StatisticsService.getUserStats', async () => {
+      const mockUserStats: UserStats = {
+        userId: '123456',
+        chatId: '-100123456789',
+        totalViolations: 4,
+        violationsByArticle: [],
+        averageSeverity: 6.0,
+        riskLevel: 'medium',
+        mostCommonViolation: undefined
+      };
+
+      const spy = vi.spyOn(mockStatisticsService, 'getUserStats').mockResolvedValue(mockUserStats);
+
+      await violationHandler.getUserStats('123456', '-100123456789', 'week');
+
+      expect(spy).toHaveBeenCalledWith('123456', '-100123456789', 'week');
+    });
+
     it('должен валидировать параметры для getUserStats', async () => {
       // Подавляем console.error для этого теста, так как ошибки валидации ожидаемы
       const originalError = console.error;

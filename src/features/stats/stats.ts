@@ -5,6 +5,7 @@ import { summariseChat } from '../summary/summary';
 import { ViolationHandler } from './violation-handler';
 import { ViolationRepository } from '../../core/repositories/violation-repository';
 import { formatSentenceTotalValue } from '../criminal/sentence-calculator';
+import { getStatsPeriodRange } from '../../core/stats-period';
 
 const WEEK_LENGTH_DAYS = 7;
 const MONTH_LENGTH_DAYS = 30;
@@ -744,29 +745,7 @@ export interface UserPersonalProfanityStats {
 
 // Helper function to get date range for period
 function getDateRange(period: string): { startStr: string; endStr: string } {
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const endStr = today.toISOString().slice(0, 10);
-
-  let startStr: string;
-  switch (period) {
-    case 'week':
-      const weekStart = new Date(today);
-      weekStart.setUTCDate(weekStart.getUTCDate() - WEEK_DAYS);
-      startStr = weekStart.toISOString().slice(0, 10);
-      break;
-    case 'month':
-      const monthStart = new Date(today);
-      monthStart.setUTCDate(monthStart.getUTCDate() - MONTH_DAYS);
-      startStr = monthStart.toISOString().slice(0, 10);
-      break;
-    case 'today':
-    default:
-      startStr = endStr;
-      break;
-  }
-
-  return { startStr, endStr };
+  return getStatsPeriodRange(period);
 }
 
 // Helper function to censor profanity words
@@ -1786,7 +1765,7 @@ export async function myCriminalStats(
   try {
     // Use ViolationHandler for enhanced formatting
     const violationHandler = new ViolationHandler(env);
-    const formattedStats = await violationHandler.getUserStats(userId.toString(), chatId.toString());
+    const formattedStats = await violationHandler.getUserStats(userId.toString(), chatId.toString(), period);
     return await sendMessage(env, chatId, formattedStats);
   } catch (error: any) {
     console.error('my criminal stats error', {
