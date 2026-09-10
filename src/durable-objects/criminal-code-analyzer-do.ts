@@ -60,7 +60,15 @@ interface CriminalFinalJudgeResult {
     contextSummary?: string;
     whyNotBenign?: string;
   };
-  violations?: Array<Partial<CriminalViolation>>;
+  violations?: CriminalFinalJudgeViolation[];
+}
+
+interface CriminalFinalJudgeViolation extends Partial<CriminalViolation> {
+  elements?: Array<{
+    name?: string;
+    status?: 'present' | 'absent' | 'unclear';
+    evidence?: string;
+  }>;
 }
 
 interface CriminalPrefilterBatchItem {
@@ -1078,7 +1086,7 @@ export class CriminalCodeAnalyzerDO {
         const fetchedResult = fetched.get(item.id) || this.buildNoSignalPrefilter(
           'model did not return this prefilter item'
         );
-        const filtered = this.applySemanticPrefilterThreshold(fetchedResult);
+        const filtered = this.applySemanticPrefilterThreshold(fetchedResult, item.input.targetText);
         await this.cacheSemanticPrefilter(item.input, filtered);
         results.set(item.id, filtered);
         console.log('Criminal semantic prefilter result', {
@@ -1299,9 +1307,13 @@ export class CriminalCodeAnalyzerDO {
       'Ты быстрый prefilter для Telegram-чата.',
       'Реши, нужно ли отправлять target-сообщение в дорогой юридический анализ УК РФ.',
       'Оценивай только target-сообщение. На этом этапе соседние сообщения не передаются намеренно, чтобы они не подменяли target.',
+      'Сначала опиши фактический смысл target в semanticFrame, а уже потом выбирай shouldAnalyze/reason.',
+      'Отличай обещание/угрозу действия автора от прогноза, насмешки, цитаты или сообщения о действиях третьих лиц.',
+      'Негативный прогноз сам по себе не является угрозой: фразы вроде "скоро не будет вашей школы/компании/образования" без обещания насилия классифицируй как prediction или taunt, а не threat.',
       'Ищи только реальные признаки: угрозы, угрозы сексуального насилия, призывы к насилию, экстремизм/терроризм, самообвинение в насилии, опасные инструкции.',
       'Мат, сексуальный сленг, шутки, бытовые фразы и действия с предметами сами по себе не являются причиной.',
       'Но разговорные угрозы причинить вред человеку должны проходить: обещания избить, ударить, покалечить, убить, изнасиловать или совершить иное насилие.',
+      'semanticFrame.evidenceSpans должен содержать только точные короткие цитаты из target-сообщения, подтверждающие выбранный смысл.',
       'Если shouldAnalyze=true, reason не может быть none.',
       'Для угроз сексуального насилия используй reason=sexual_threat.',
       'Для бытовых угроз физической расправы без сексуального смысла используй reason=threat, не sexual_threat.',
@@ -1312,8 +1324,8 @@ export class CriminalCodeAnalyzerDO {
       'В profanity.words возвращай только точные словоформы мата из target-сообщения и count по ним, не леммы и не базовые формы.',
       'Не включай морально-негативные, религиозные или просто грубые слова, если они не являются русской обсценной лексикой.',
       isBatch
-        ? 'Верни строго JSON: {"items":[{"id":"same id","shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}]}'
-        : 'Верни строго JSON: {"shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}'
+        ? 'Верни строго JSON: {"items":[{"id":"same id","shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}]}'
+        : 'Верни строго JSON: {"shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}'
     ].join('\n');
   }
 
@@ -1352,8 +1364,46 @@ export class CriminalCodeAnalyzerDO {
       confidence: typeof result.confidence === 'number' ? Math.max(0, Math.min(1, result.confidence)) : 0,
       explanation: typeof result.explanation === 'string' ? result.explanation.slice(0, 200) : '',
       searchQuery: typeof result.searchQuery === 'string' ? result.searchQuery.slice(0, 300) : '',
+      semanticFrame: this.normalizeSemanticFrame((result as any).semanticFrame),
       profanity: this.normalizeSemanticPrefilterProfanity((result as any).profanity),
     };
+  }
+
+  private normalizeSemanticFrame(result: any): CriminalSemanticPrefilterResult['semanticFrame'] {
+    if (!result || typeof result !== 'object') {
+      return undefined;
+    }
+
+    const speechActs = new Set([
+      'threat', 'prediction', 'taunt', 'admission', 'incitement', 'instruction',
+      'report', 'quote', 'hypothetical', 'other', 'unknown',
+    ]);
+    const actors = new Set(['author', 'third_party', 'unknown']);
+    const targetKinds = new Set(['person', 'group', 'property', 'institution', 'abstract', 'unknown']);
+    const harmKinds = new Set([
+      'death', 'grievous_bodily_harm', 'bodily_harm', 'sexual_violence',
+      'property_damage', 'coercion', 'other', 'none', 'unknown',
+    ]);
+    const modalities = new Set([
+      'intended', 'promised', 'desired', 'predicted', 'hypothetical', 'reported', 'unknown',
+    ]);
+    const evidenceSpans = Array.isArray(result.evidenceSpans)
+      ? result.evidenceSpans
+        .filter((value: unknown): value is string => typeof value === 'string')
+        .map((value: string) => value.replace(/\s+/g, ' ').trim().slice(0, 300))
+        .filter(Boolean)
+        .slice(0, 5)
+      : [];
+
+    return {
+      speechAct: speechActs.has(result.speechAct) ? result.speechAct : 'unknown',
+      actor: actors.has(result.actor) ? result.actor : 'unknown',
+      action: typeof result.action === 'string' ? result.action.replace(/\s+/g, ' ').trim().slice(0, 200) : '',
+      targetKind: targetKinds.has(result.targetKind) ? result.targetKind : 'unknown',
+      harmKind: harmKinds.has(result.harmKind) ? result.harmKind : 'unknown',
+      modality: modalities.has(result.modality) ? result.modality : 'unknown',
+      evidenceSpans,
+    } as CriminalSemanticPrefilterResult['semanticFrame'];
   }
 
   private normalizeSemanticPrefilterProfanity(
@@ -1380,11 +1430,21 @@ export class CriminalCodeAnalyzerDO {
   }
 
   private applySemanticPrefilterThreshold(
-    result: CriminalSemanticPrefilterResult
+    result: CriminalSemanticPrefilterResult,
+    targetText: string
   ): CriminalSemanticPrefilterResult {
     const threshold = this.getSemanticPrefilterMinConfidence();
+    const semanticFrame = result.semanticFrame
+      ? {
+        ...result.semanticFrame,
+        evidenceSpans: result.semanticFrame.evidenceSpans.filter(span =>
+          this.isQuoteGroundedInTarget(span, targetText)
+        ),
+      }
+      : undefined;
     return {
       ...result,
+      semanticFrame,
       shouldAnalyze: result.shouldAnalyze && result.reason !== 'none' && result.confidence >= threshold,
     };
   }
@@ -1441,7 +1501,8 @@ export class CriminalCodeAnalyzerDO {
         return null;
       }
       return this.applySemanticPrefilterThreshold(
-        this.normalizeSemanticPrefilterResult(cached.result)
+        this.normalizeSemanticPrefilterResult(cached.result),
+        input.targetText
       );
     } catch (error: any) {
       console.warn('Criminal semantic prefilter cache read failed', {
@@ -1480,7 +1541,7 @@ export class CriminalCodeAnalyzerDO {
   private async getSemanticPrefilterCacheKey(input: CriminalContextAnalysisInput): Promise<string> {
     const normalized = this.normalizeTextForSemanticCache(input.targetText);
     const hash = await this.hashText(normalized);
-    const version = String((this.env as any).CRIMINAL_PREFILTER_CACHE_VERSION || 'v4')
+    const version = String((this.env as any).CRIMINAL_PREFILTER_CACHE_VERSION || 'v5')
       .replace(/[^a-z0-9_-]+/gi, '_');
     const model = String((this.env as any).CRIMINAL_PREFILTER_MODEL || (this.env as any).LLM_NANO_MODEL || 'default')
       .replace(/[^a-z0-9_.-]+/gi, '_');
@@ -1847,17 +1908,24 @@ export class CriminalCodeAnalyzerDO {
       'Используй только статьи из legalReferences. Не добавляй статьи, которых нет в списке.',
       'Квалифицируй только target-сообщение. Соседние сообщения служат только для понимания target; не сохраняй violation, если состав есть только в before/after.',
       'Сначала выбери основную норму Особенной части УК РФ. Общие нормы о приготовлении, соучастии, группе лиц или отягчающих обстоятельствах сами по себе недостаточны без подходящей основной статьи.',
-      'Сверяй target-сообщение с диспозицией статьи в legalReferences, а не только с названием статьи. Если обязательные признаки состава из текста статьи не видны в target/context, верни uncertain или no_violation.',
+      'Перед тем как добавить статью в violations, выпиши в violations[].elements ВСЕ обязательные фактические признаки и условия из диспозиции legalReferences, затем сопоставь каждый с target/context.',
+      'Для каждого обязательного элемента верни status=present|absent|unclear. Для present поле evidence должно быть точной короткой цитатой из target/context, которая подтверждает этот элемент.',
+      'Если хотя бы один обязательный элемент absent, эта статья не является violation. Если хотя бы один обязательный элемент unclear, по этой статье максимум uncertain.',
+      'violation разрешен только если все обязательные элементы статьи имеют status=present и подтверждены evidence из target/context.',
+      'Сверяй target-сообщение с диспозицией статьи в legalReferences, а не только с названием статьи.',
       'violation разрешен только если target/context содержит конкретное деяние, угрозу, призыв, самообвинение или опасную инструкцию, подходящие под найденную статью.',
       'Шутки, цитаты, обсуждение закона, новостей, книг, игр, мемов и гипотетические рассуждения не классифицируй как violation без прямого опасного смысла.',
+      'Не превращай угрозу или прогноз вреда школе, компании, проекту, образованию или другому не-человеческому объекту в угрозу убийством/телесным вредом, если target не содержит угрозы человеку.',
+      'semanticFrame и retrievalScores являются только подсказками для поиска и понимания. Они не доказывают состав преступления и не заменяют evidence из target/context.',
       'Поле violations[].quote должно быть точной цитатой из targetText, а не из соседнего сообщения и не из legalReferences.',
       'Поле violations[].punishment не используй для вольного пересказа санкции: если сомневаешься, верни пустую строку. Приложение сохранит наказание из legalReferences.',
-      'Верни строго JSON: {"decision":"violation|no_violation|uncertain","confidence":0..1,"evidence":{"subject":"short","object":"short","intent":"short","contextSummary":"short","whyNotBenign":"short"},"violations":[{"article":"article number from legalReferences","subarticle":null,"articleTitle":"...","quote":"exact user quote","punishment":"short","severity":1..10,"confidence":0..1}]}',
+      'Верни строго JSON: {"decision":"violation|no_violation|uncertain","confidence":0..1,"evidence":{"subject":"short","object":"short","intent":"short","contextSummary":"short","whyNotBenign":"short"},"violations":[{"article":"article number from legalReferences","subarticle":null,"articleTitle":"...","quote":"exact user quote","punishment":"short","severity":1..10,"confidence":0..1,"elements":[{"name":"mandatory factual element from disposition","status":"present|absent|unclear","evidence":"exact target/context quote or empty"}]}]}',
     ].join('\n');
     const payload = {
       targetMessageId: input.targetMessageId,
       targetText: input.targetText,
       targetUsername: input.targetUsername,
+      semanticFrame: input.semanticPrefilter?.semanticFrame,
       contextWindow: input.contextWindow,
       messages: this.selectFinalJudgeMessages(input).map(message => ({
         username: message.username,
@@ -1872,6 +1940,7 @@ export class CriminalCodeAnalyzerDO {
         quote: this.buildFinalJudgeReferenceExcerpt(reference),
         sourceUrl: reference.sourceUrl,
         score: reference.score,
+        retrievalScores: reference.retrievalScores,
       })),
     };
     const userInput = `Classify this JSON payload and return JSON only:\n${JSON.stringify(payload)}`;
@@ -2002,8 +2071,20 @@ export class CriminalCodeAnalyzerDO {
       contextSummary: this.cleanJudgeText(judge.evidence?.contextSummary, 'Final judge completed'),
       whyNotBenign: this.cleanJudgeText(judge.evidence?.whyNotBenign, decision === 'violation' ? 'model classified as non-benign' : 'not classified as violation'),
     };
-    const violations = (judge.violations || [])
-      .map(violation => this.normalizeJudgedViolation(violation, allowedReferences, evidence, input))
+    const judgedViolations = judge.violations || [];
+    const elementVerdicts = judgedViolations.map(violation =>
+      this.evaluateFinalJudgeElements(violation.elements, input)
+    );
+    const violations = judgedViolations
+      .map((violation, index) => elementVerdicts[index] === 'present'
+        ? this.normalizeJudgedViolation(
+          violation,
+          allowedReferences,
+          retrievalResult.legalReferences || [],
+          evidence,
+          input
+        )
+        : null)
       .filter((violation): violation is CriminalViolation => Boolean(violation));
     const confidentViolations = violations.filter(violation => violation.confidence >= minConfidence);
     const hasViolations = decision === 'violation' && confidentViolations.length > 0;
@@ -2011,9 +2092,17 @@ export class CriminalCodeAnalyzerDO {
       ? confidentViolations.reduce((sum, violation) => sum + violation.severity, 0)
       : 0;
 
+    const rejectedAsAbsent = decision === 'violation' &&
+      elementVerdicts.length > 0 &&
+      elementVerdicts.every(verdict => verdict === 'absent');
+
     return {
       hasViolations,
-      decision: hasViolations ? 'violation' : decision === 'violation' ? 'uncertain' : decision,
+      decision: hasViolations
+        ? 'violation'
+        : decision === 'violation'
+          ? rejectedAsAbsent ? 'no_violation' : 'uncertain'
+          : decision,
       evidence,
       violations: hasViolations ? confidentViolations : [],
       totalSeverity,
@@ -2026,8 +2115,9 @@ export class CriminalCodeAnalyzerDO {
   }
 
   private normalizeJudgedViolation(
-    violation: Partial<CriminalViolation>,
+    violation: CriminalFinalJudgeViolation,
     allowedReferences: Map<string, LegalReferenceHit>,
+    allReferences: LegalReferenceHit[],
     evidence: NonNullable<CriminalAnalysisResult['evidence']>,
     input: CriminalContextAnalysisInput
   ): CriminalViolation | null {
@@ -2051,12 +2141,13 @@ export class CriminalCodeAnalyzerDO {
       return null;
     }
 
+    const punishmentReference = this.selectPunishmentReference(allReferences, reference) || reference;
     return {
       article: reference.article,
       subarticle: reference.subarticle || null,
       articleTitle: reference.articleTitle || this.cleanJudgeText(violation.articleTitle, ''),
       quote,
-      punishment: this.buildStoredPunishment(reference),
+      punishment: this.buildStoredPunishment(punishmentReference),
       severity,
       confidence,
       decision: 'violation',
@@ -2064,6 +2155,42 @@ export class CriminalCodeAnalyzerDO {
       targetMessageId: input.targetMessageId,
       contextWindow: input.contextWindow,
     };
+  }
+
+  private evaluateFinalJudgeElements(
+    elements: CriminalFinalJudgeViolation['elements'],
+    input: CriminalContextAnalysisInput
+  ): 'present' | 'absent' | 'unclear' {
+    if (!Array.isArray(elements) || elements.length === 0) {
+      return 'unclear';
+    }
+
+    let hasUnclearElement = false;
+    for (const element of elements) {
+      if (element?.status === 'absent') {
+        return 'absent';
+      }
+      if (element?.status !== 'present') {
+        hasUnclearElement = true;
+        continue;
+      }
+
+      const evidence = this.cleanJudgeText(element.evidence, '');
+      if (!evidence || !this.isEvidenceGroundedInFinalJudgeMessages(evidence, input)) {
+        hasUnclearElement = true;
+      }
+    }
+
+    return hasUnclearElement ? 'unclear' : 'present';
+  }
+
+  private isEvidenceGroundedInFinalJudgeMessages(
+    evidence: string,
+    input: CriminalContextAnalysisInput
+  ): boolean {
+    return this.selectFinalJudgeMessages(input).some(message =>
+      this.isQuoteGroundedInTarget(evidence, message.text)
+    );
   }
 
   private buildAllowedReferenceMap(references: LegalReferenceHit[]): Map<string, LegalReferenceHit> {
@@ -2090,6 +2217,18 @@ export class CriminalCodeAnalyzerDO {
     const referenceText = this.cleanLegalReferenceText(reference.quote);
     const punishmentText = this.extractPunishmentText(referenceText);
     return (punishmentText || referenceText).slice(0, 1000);
+  }
+
+  private selectPunishmentReference(
+    references: LegalReferenceHit[],
+    qualificationReference: LegalReferenceHit
+  ): LegalReferenceHit | null {
+    const matching = references.filter(reference =>
+      reference.article === qualificationReference.article &&
+      (reference.subarticle || null) === (qualificationReference.subarticle || null) &&
+      this.hasPunishmentSignal(reference.quote || '')
+    );
+    return matching.sort((a, b) => (b.score || 0) - (a.score || 0))[0] || null;
   }
 
   private extractPunishmentText(value: string): string {
@@ -2127,14 +2266,37 @@ export class CriminalCodeAnalyzerDO {
     for (const reference of references) {
       const key = `${reference.article}:${reference.subarticle || ''}`;
       const existing = bestByArticle.get(key);
-      if (!existing || this.getReferencePriority(reference) > this.getReferencePriority(existing)) {
+      if (!existing || this.isBetterQualificationReference(reference, existing)) {
         bestByArticle.set(key, reference);
       }
     }
 
     return Array.from(bestByArticle.values())
-      .sort((a, b) => this.getReferencePriority(b) - this.getReferencePriority(a))
+      .sort((a, b) => (b.score || 0) - (a.score || 0))
       .slice(0, maxReferences);
+  }
+
+  private isBetterQualificationReference(
+    candidate: LegalReferenceHit,
+    existing: LegalReferenceHit
+  ): boolean {
+    const candidateIndex = this.getLegalChunkIndex(candidate);
+    const existingIndex = this.getLegalChunkIndex(existing);
+    if (candidateIndex !== null && existingIndex !== null && candidateIndex !== existingIndex) {
+      return candidateIndex < existingIndex;
+    }
+    return (candidate.score || 0) > (existing.score || 0);
+  }
+
+  private getLegalChunkIndex(reference: LegalReferenceHit): number | null {
+    const parts = reference.vectorId?.split(':') || [];
+    for (const rawIndex of [parts[parts.length - 2], parts[parts.length - 1]]) {
+      const index = Number(rawIndex);
+      if (Number.isInteger(index) && index >= 0) {
+        return index;
+      }
+    }
+    return null;
   }
 
   private isQuoteGroundedInTarget(quote: string, targetText: string): boolean {
@@ -2157,11 +2319,28 @@ export class CriminalCodeAnalyzerDO {
     if (/утратил[аои]? силу/i.test(reference.quote || '')) {
       return false;
     }
+    if (!this.hasQualificationContent(text)) {
+      return false;
+    }
     const titleAndText = `${reference.articleTitle} ${text}`;
     if (text.length < 80) {
       return /^Статья\s+\d/i.test(text) && this.hasLegalDispositionSignal(titleAndText);
     }
     return this.hasLegalDispositionSignal(titleAndText);
+  }
+
+  private hasQualificationContent(text: string): boolean {
+    const normalized = this.cleanLegalReferenceText(text);
+    if (!normalized) {
+      return false;
+    }
+    const punishmentIndex = normalized.search(
+      /наказыва(?:ет|ю)тся|лишением свободы|штрафом|обязательными работами|принудительными работами|арестом/i
+    );
+    const qualificationText = punishmentIndex >= 0
+      ? normalized.slice(0, punishmentIndex).trim()
+      : normalized;
+    return qualificationText.length >= 40;
   }
 
   private hasLegalDispositionSignal(text: string): boolean {
@@ -2175,13 +2354,6 @@ export class CriminalCodeAnalyzerDO {
     if (text.length <= maxChars) {
       return text;
     }
-
-    const punishmentIndex = text.search(/наказыва(?:ет|ю)тся/i);
-    if (punishmentIndex > 0) {
-      const start = Math.max(0, punishmentIndex - Math.floor(maxChars * 0.65));
-      return text.slice(start, start + maxChars).trim();
-    }
-
     return text.slice(0, maxChars).trim();
   }
 
@@ -2194,16 +2366,9 @@ export class CriminalCodeAnalyzerDO {
       .toLowerCase();
   }
 
-  private getReferencePriority(reference: LegalReferenceHit): number {
-    const quote = reference.quote || '';
-    let priority = reference.score || 0;
-    if (/наказыва(?:ет|ю)тся|лишением свободы|штрафом/i.test(quote)) {
-      priority += 1;
-    }
-    if (/утратил[аои]? силу/i.test(quote)) {
-      priority -= 1;
-    }
-    return priority;
+  private hasPunishmentSignal(text: string): boolean {
+    return /наказыва(?:ет|ю)тся|лишением свободы|штрафом|обязательными работами|принудительными работами|арестом/i
+      .test(text);
   }
 
   private cleanLegalReferenceText(value: string): string {

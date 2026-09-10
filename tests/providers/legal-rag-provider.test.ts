@@ -131,6 +131,53 @@ describe("LegalRagProvider", () => {
       { text: "сырой сленговый текст" }
     );
     expect(run).toHaveBeenCalledTimes(2);
+    expect(run.mock.calls[0][1]).toEqual({ text: "сырой сленговый текст" });
+    expect(run.mock.calls[1][1]).toEqual({ text: "прямая угроза физической расправы адресату" });
+  });
+
+  it("does not let a grounded non-violent prediction semantic query self-confirm a threat", async () => {
+    const run = vi.fn().mockResolvedValue({ data: [{ embedding: [0.7, 0.8, 0.9] }] });
+    const env = createMockEnv({
+      AI: { run } as any,
+      LEGAL_RAG_INDEX: {
+        query: vi.fn().mockResolvedValue({ matches: [] }),
+      } as any,
+    });
+    const targetText = "не будет скоро вашего образования нахуй";
+
+    const provider = new LegalRagProvider(env);
+    await provider.analyzeCriminalCodeWithContext({
+      targetText,
+      targetTimestamp: 1779200000,
+      chatId: 123,
+      contextWindow: { before: 0, after: 0, totalMessages: 1 },
+      messages: [{
+        username: "user",
+        text: targetText,
+        ts: 1779200000,
+        relativePosition: 0,
+        isTarget: true,
+      }],
+      semanticPrefilter: {
+        shouldAnalyze: true,
+        reason: "threat",
+        confidence: 0.9,
+        explanation: "possible threat",
+        searchQuery: "угроза убийством или причинением вреда здоровью",
+        semanticFrame: {
+          speechAct: "prediction",
+          actor: "unknown",
+          action: "исчезновение образования",
+          targetKind: "abstract",
+          harmKind: "none",
+          modality: "predicted",
+          evidenceSpans: ["не будет скоро вашего образования"],
+        },
+      },
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(expect.any(String), { text: targetText });
   });
 
   it("deduplicates multi-query matches by best score", async () => {
@@ -215,6 +262,9 @@ describe("LegalRagProvider", () => {
     expect(query).toHaveBeenCalledTimes(2);
     expect(result.legalReferences?.map(reference => reference.article)).toEqual(["119", "280", "105"]);
     expect(result.legalReferences?.[0].score).toBe(0.84);
+    expect(result.legalReferences?.[0].retrievalScores).toEqual({ target: 0.7, semantic: 0.84 });
+    expect(result.legalReferences?.[1].retrievalScores).toEqual({ target: 0.62 });
+    expect(result.legalReferences?.[2].retrievalScores).toEqual({ semantic: 0.6 });
   });
 
   it("filters out low-score matches", async () => {

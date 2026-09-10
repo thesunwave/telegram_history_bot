@@ -69,6 +69,13 @@ export interface LegalReferenceHit {
   lawCode: string;
   score: number;
   vectorId: string;
+  retrievalScores?: LegalReferenceRetrievalScores;
+}
+
+export interface LegalReferenceRetrievalScores {
+  target?: number;
+  semantic?: number;
+  context?: number;
 }
 
 export interface CriminalAnalysisResult {
@@ -128,7 +135,18 @@ export interface CriminalSemanticPrefilterResult {
   confidence: number;
   explanation: string;
   searchQuery?: string;
+  semanticFrame?: CriminalSemanticFrame;
   profanity?: CriminalSemanticPrefilterProfanityResult;
+}
+
+export interface CriminalSemanticFrame {
+  speechAct: 'threat' | 'prediction' | 'taunt' | 'admission' | 'incitement' | 'instruction' | 'report' | 'quote' | 'hypothetical' | 'other' | 'unknown';
+  actor: 'author' | 'third_party' | 'unknown';
+  action: string;
+  targetKind: 'person' | 'group' | 'property' | 'institution' | 'abstract' | 'unknown';
+  harmKind: 'death' | 'grievous_bodily_harm' | 'bodily_harm' | 'sexual_violence' | 'property_damage' | 'coercion' | 'other' | 'none' | 'unknown';
+  modality: 'intended' | 'promised' | 'desired' | 'predicted' | 'hypothetical' | 'reported' | 'unknown';
+  evidenceSpans: string[];
 }
 
 export interface CriminalSemanticPrefilterProfanityResult {
