@@ -722,7 +722,76 @@ describe("CriminalCodeAnalyzerDO", () => {
       const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
       expect(requestBody.max_output_tokens).toBeGreaterThanOrEqual(512);
       expect(requestBody.reasoning).toEqual({ effort: "minimal" });
+      expect(requestBody.instructions).toContain('"semanticFrame"');
       vi.unstubAllGlobals();
+    });
+
+    it("should keep only target-grounded semantic frame evidence", () => {
+      const targetText = "не будет скоро вашего образования нахуй";
+      const normalized = (analyzer as any).normalizeSemanticPrefilterResult({
+        shouldAnalyze: true,
+        reason: "threat",
+        confidence: 0.9,
+        explanation: "possible threat",
+        searchQuery: "угроза причинением вреда",
+        semanticFrame: {
+          speechAct: "prediction",
+          actor: "unknown",
+          action: "исчезновение образования",
+          targetKind: "abstract",
+          harmKind: "none",
+          modality: "predicted",
+          evidenceSpans: [
+            "не будет скоро вашего образования",
+            "я уничтожу вашу школу",
+          ],
+        },
+      });
+
+      const filtered = (analyzer as any).applySemanticPrefilterThreshold(normalized, targetText);
+
+      expect(filtered.semanticFrame).toEqual(expect.objectContaining({
+        speechAct: "prediction",
+        targetKind: "abstract",
+        harmKind: "none",
+        modality: "predicted",
+        evidenceSpans: ["не будет скоро вашего образования"],
+      }));
+      expect(filtered.shouldAnalyze).toBe(true);
+    });
+
+    it("should require grounded evidence for every positive legal element", () => {
+      const targetText = "я тебя убью";
+      const input = {
+        targetText,
+        targetTimestamp: 1779200000,
+        chatId: 123,
+        contextWindow: { before: 0, after: 0, totalMessages: 1 },
+        messages: [{
+          username: "user",
+          text: targetText,
+          ts: 1779200000,
+          relativePosition: 0,
+          isTarget: true,
+        }],
+      };
+
+      expect((analyzer as any).evaluateFinalJudgeElements(undefined, input)).toBe("unclear");
+      expect((analyzer as any).evaluateFinalJudgeElements([{
+        name: "угроза убийством",
+        status: "absent",
+        evidence: "",
+      }], input)).toBe("absent");
+      expect((analyzer as any).evaluateFinalJudgeElements([{
+        name: "угроза убийством",
+        status: "present",
+        evidence: "выдуманная цитата",
+      }], input)).toBe("unclear");
+      expect((analyzer as any).evaluateFinalJudgeElements([{
+        name: "угроза убийством",
+        status: "present",
+        evidence: "я тебя убью",
+      }], input)).toBe("present");
     });
 
     it("should not continue to RAG when semantic prefilter rejects the target", async () => {
@@ -1033,11 +1102,20 @@ describe("CriminalCodeAnalyzerDO", () => {
             article: "119",
             subarticle: "1",
             articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
-            quote: "Статья 119. Угроза убийством или причинением тяжкого вреда здоровью 1. Угроза убийством или причинением тяжкого вреда здоровью, если имелись основания опасаться осуществления этой угрозы, - наказывается обязательными работами на срок до четырехсот восьмидесяти часов, либо лишением свободы на срок до двух лет.",
+            quote: "Статья 119. Угроза убийством или причинением тяжкого вреда здоровью. 1. Угроза убийством или причинением тяжкого вреда здоровью, если имелись основания опасаться осуществления этой угрозы.",
             sourceUrl: "https://uk-rf.ru/",
             lawCode: "uk-rf",
-            score: 0.88,
-            vectorId: "uk-rf:119:main:0",
+            score: 0.72,
+            vectorId: "uk-rf:119:1:0:qualification",
+          }, {
+            article: "119",
+            subarticle: "1",
+            articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+            quote: "Наказывается обязательными работами на срок до четырехсот восьмидесяти часов, либо ограничением свободы на срок до двух лет, либо принудительными работами на срок до двух лет, либо арестом на срок до шести месяцев, либо лишением свободы на срок до двух лет.",
+            sourceUrl: "https://uk-rf.ru/",
+            lawCode: "uk-rf",
+            score: 0.96,
+            vectorId: "uk-rf:119:1:1:punishment",
           }],
         }),
         analyzeCriminalCode: vi.fn(),
@@ -1069,7 +1147,16 @@ describe("CriminalCodeAnalyzerDO", () => {
             quote: "я тебя убью",
             punishment: "обязательные работы",
             severity: 7,
-            confidence: 0.91
+            confidence: 0.91,
+            elements: [{
+              name: "угроза убийством или причинением тяжкого вреда здоровью",
+              status: "present",
+              evidence: "я тебя убью",
+            }, {
+              name: "основания опасаться осуществления угрозы",
+              status: "present",
+              evidence: "я тебя убью",
+            }]
           }]
         }),
         usage: { input_tokens: 900, output_tokens: 120, total_tokens: 1020 }
@@ -1096,6 +1183,9 @@ describe("CriminalCodeAnalyzerDO", () => {
           body: expect.stringContaining("Classify this JSON payload and return JSON only")
         })
       );
+      const finalJudgeBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(finalJudgeBody.input[0].content).toContain("если имелись основания опасаться");
+      expect(finalJudgeBody.input[0].content).not.toContain("наказывается обязательными работами");
       expect(fetchMock).not.toHaveBeenCalledWith(
         expect.stringContaining("openrouter.ai"),
         expect.anything()
@@ -1110,6 +1200,105 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(insertCall[4]).toBe("1");
       expect(insertCall[7]).toContain("лишением свободы на срок до двух лет");
       vi.unstubAllGlobals();
+    });
+
+    it("should reject article 119 when required legal elements are absent", () => {
+      const targetText = "о, я ж говорил что у нас тоже школы пачками закрывают))) не будет скоро вашего образования нахуй)";
+      const input = {
+        targetMessageId: 121,
+        targetUserId: 67890,
+        targetUsername: "testuser",
+        targetText,
+        targetTimestamp: 1779200000,
+        chatId: 12345,
+        contextWindow: { before: 0, after: 0, totalMessages: 1 },
+        messages: [{
+          messageId: 121,
+          username: "testuser",
+          userId: 67890,
+          text: targetText,
+          ts: 1779200000,
+          relativePosition: 0,
+          isTarget: true,
+        }],
+      };
+      const retrievalResult = {
+        hasViolations: false,
+        decision: "uncertain",
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: "low",
+        analysisTimestamp: Date.now(),
+        legalReferences: [{
+          article: "119",
+          subarticle: "1",
+          articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+          quote: "Статья 119. Угроза убийством или причинением тяжкого вреда здоровью 1. Угроза убийством или причинением тяжкого вреда здоровью, если имелись основания опасаться осуществления этой угрозы, - наказывается обязательными работами на срок до четырехсот восьмидесяти часов, либо лишением свободы на срок до двух лет.",
+          sourceUrl: "https://uk-rf.ru/",
+          lawCode: "uk-rf",
+          score: 0.88,
+          vectorId: "uk-rf:119:main:0",
+        }],
+      };
+      const judge = {
+        decision: "violation",
+        confidence: 0.92,
+        evidence: {
+          subject: "testuser",
+          object: "образовательная система",
+          intent: "threat",
+          contextSummary: "сообщение о закрытии школ",
+          whyNotBenign: "агрессивная формулировка",
+        },
+        violations: [{
+          article: "119",
+          subarticle: null,
+          articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+          quote: targetText,
+          punishment: "до двух лет лишения свободы",
+          severity: 5,
+          confidence: 0.92,
+          elements: [
+            {
+              name: "угроза убийством или причинением тяжкого вреда здоровью",
+              status: "absent",
+              evidence: "",
+            },
+          ],
+        }],
+      };
+
+      const result = (analyzer as any).buildJudgedAnalysisResult(input, retrievalResult, judge);
+
+      expect(result.hasViolations).toBe(false);
+      expect(result.decision).not.toBe("violation");
+      expect(result.violations).toEqual([]);
+    });
+
+    it("should not treat punishment-only chunks as qualification evidence", () => {
+      const dispositionReference = {
+        article: "119",
+        subarticle: "1",
+        articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+        quote: "Статья 119. Угроза убийством или причинением тяжкого вреда здоровью. 1. Угроза убийством или причинением тяжкого вреда здоровью, если имелись основания опасаться осуществления этой угрозы.",
+        sourceUrl: "https://uk-rf.ru/",
+        lawCode: "uk-rf",
+        score: 0.72,
+        vectorId: "uk-rf:119:1:0:qualification",
+      };
+      const punishmentReference = {
+        ...dispositionReference,
+        quote: "Наказывается обязательными работами на срок до четырехсот восьмидесяти часов либо лишением свободы на срок до двух лет.",
+        score: 0.96,
+        vectorId: "uk-rf:119:1:1:punishment",
+      };
+
+      expect((analyzer as any).isUsefulFinalJudgeReference(dispositionReference)).toBe(true);
+      expect((analyzer as any).isUsefulFinalJudgeReference(punishmentReference)).toBe(false);
+      expect((analyzer as any).selectFinalJudgeReferences([
+        punishmentReference,
+        dispositionReference,
+      ], 1)).toEqual([dispositionReference]);
     });
 
     it("should reject final judge violations quoted from neighboring context", async () => {
@@ -1172,7 +1361,12 @@ describe("CriminalCodeAnalyzerDO", () => {
             quote: "Я тебе ебало набью",
             punishment: "до четырех лет лишения свободы",
             severity: 4,
-            confidence: 0.92
+            confidence: 0.92,
+            elements: [{
+              name: "опасное деяние",
+              status: "present",
+              evidence: "Я тебе ебало набью",
+            }]
           }]
         }),
         usage: { input_tokens: 900, output_tokens: 120, total_tokens: 1020 }

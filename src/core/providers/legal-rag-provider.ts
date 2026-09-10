@@ -15,6 +15,14 @@ interface VectorizeMatch {
   id: string;
   score?: number;
   metadata?: Record<string, unknown>;
+  retrievalScores?: NonNullable<LegalReferenceHit['retrievalScores']>;
+}
+
+type RetrievalSource = keyof NonNullable<LegalReferenceHit['retrievalScores']>;
+
+interface RetrievalQuery {
+  text: string;
+  source: RetrievalSource;
 }
 
 interface LegalChunkRow {
@@ -52,8 +60,8 @@ export class LegalRagProvider implements AIProvider {
     input: CriminalContextAnalysisInput,
     env?: Env
   ): Promise<CriminalAnalysisResult> {
-    const retrievalTexts = this.buildRetrievalTexts(input, env || this.env);
-    return this.findLegalReferences(retrievalTexts, input, env);
+    const retrievalQueries = this.buildRetrievalQueries(input, env || this.env);
+    return this.findLegalReferences(retrievalQueries, input, env);
   }
 
   validateConfig(): void {
@@ -76,7 +84,7 @@ export class LegalRagProvider implements AIProvider {
   }
 
   private async findLegalReferences(
-    textOrTexts: string | string[],
+    textOrQueries: string | RetrievalQuery[],
     input?: CriminalContextAnalysisInput,
     envOverride?: Env
   ): Promise<CriminalAnalysisResult> {
@@ -86,7 +94,7 @@ export class LegalRagProvider implements AIProvider {
     const lawCode = this.getStringEnv('LEGAL_RAG_LAW_CODE', DEFAULT_LAW_CODE, env);
     const topK = this.getNumberEnv('LEGAL_RAG_TOP_K', DEFAULT_TOP_K, env);
     const minScore = this.getNumberEnv('LEGAL_RAG_MIN_SCORE', DEFAULT_MIN_SCORE, env);
-    const matches = await this.retrieveMatches(textOrTexts, lawCode, topK, minScore, env);
+    const matches = await this.retrieveMatches(textOrQueries, lawCode, topK, minScore, env);
     const references = await this.loadLegalReferences(matches, lawCode, env);
 
     return {
@@ -111,17 +119,42 @@ export class LegalRagProvider implements AIProvider {
     };
   }
 
-  private buildRetrievalTexts(input: CriminalContextAnalysisInput, env: Env): string[] {
+  private buildRetrievalQueries(input: CriminalContextAnalysisInput, env: Env): RetrievalQuery[] {
     const maxVariants = Math.max(
       1,
       Math.min(this.getNumberEnv('LEGAL_RAG_QUERY_VARIANTS', DEFAULT_QUERY_VARIANTS, env), 3)
     );
-    const candidates = [
-      input.semanticPrefilter?.searchQuery,
-      input.targetText,
-      this.buildCompactContextQuery(input),
+    const semanticQuery = this.shouldUseSemanticQuery(input)
+      ? input.semanticPrefilter?.searchQuery
+      : '';
+    const candidates: Array<RetrievalQuery | null> = [
+      { text: input.targetText, source: 'target' },
+      semanticQuery
+        ? { text: semanticQuery, source: 'semantic' }
+        : null,
+      { text: this.buildCompactContextQuery(input), source: 'context' },
     ];
-    return this.uniqueNonEmptyTexts(candidates).slice(0, maxVariants);
+    return this.uniqueNonEmptyQueries(candidates).slice(0, maxVariants);
+  }
+
+  private shouldUseSemanticQuery(input: CriminalContextAnalysisInput): boolean {
+    const frame = input.semanticPrefilter?.semanticFrame;
+    if (!frame || frame.evidenceSpans.length === 0 || frame.harmKind !== 'none') {
+      return true;
+    }
+    if (
+      frame.speechAct === 'prediction' ||
+      frame.speechAct === 'report' ||
+      frame.speechAct === 'quote' ||
+      frame.speechAct === 'hypothetical'
+    ) {
+      return false;
+    }
+    return !(
+      frame.speechAct === 'taunt' &&
+      frame.modality === 'predicted' &&
+      (frame.targetKind === 'institution' || frame.targetKind === 'abstract')
+    );
   }
 
   private buildCompactContextQuery(input: CriminalContextAnalysisInput): string {
@@ -135,38 +168,49 @@ export class LegalRagProvider implements AIProvider {
       .slice(0, 1000);
   }
 
-  private uniqueNonEmptyTexts(values: Array<string | undefined | null>): string[] {
-    const result: string[] = [];
+  private uniqueNonEmptyQueries(values: Array<RetrievalQuery | null>): RetrievalQuery[] {
+    const result: RetrievalQuery[] = [];
     const seen = new Set<string>();
     for (const value of values) {
-      const normalized = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+      const normalized = value?.text.replace(/\s+/g, ' ').trim() || '';
       if (!normalized || seen.has(normalized)) {
         continue;
       }
       seen.add(normalized);
-      result.push(normalized);
+      result.push({ text: normalized, source: value!.source });
     }
-    return result.length > 0 ? result : [''];
+    return result.length > 0 ? result : [{ text: '', source: 'target' }];
   }
 
   private async retrieveMatches(
-    textOrTexts: string | string[],
+    textOrQueries: string | RetrievalQuery[],
     lawCode: string,
     topK: number,
     minScore: number,
     env: Env
   ): Promise<VectorizeMatch[]> {
-    const texts = Array.isArray(textOrTexts) ? textOrTexts : [textOrTexts];
+    const queries: RetrievalQuery[] = Array.isArray(textOrQueries)
+      ? textOrQueries
+      : [{ text: textOrQueries, source: 'target' }];
     const matchesById = new Map<string, VectorizeMatch>();
 
-    for (const text of texts) {
-      const vector = await this.embedQuery(text, env);
+    for (const retrievalQuery of queries) {
+      const vector = await this.embedQuery(retrievalQuery.text, env);
       const matches = await this.queryVectorIndex(vector, lawCode, topK, minScore, env);
       for (const match of matches) {
         const existing = matchesById.get(match.id);
-        if (!existing || (match.score ?? 0) > (existing.score ?? 0)) {
-          matchesById.set(match.id, match);
-        }
+        const score = match.score ?? 0;
+        const previousSourceScore = existing?.retrievalScores?.[retrievalQuery.source] ?? 0;
+        const retrievalScores = {
+          ...(existing?.retrievalScores || {}),
+          [retrievalQuery.source]: Math.max(previousSourceScore, score),
+        };
+        const winner = !existing || score > (existing.score ?? 0) ? match : existing;
+        matchesById.set(match.id, {
+          ...winner,
+          score: Math.max(existing?.score ?? 0, score),
+          retrievalScores,
+        });
       }
     }
 
@@ -244,7 +288,7 @@ export class LegalRagProvider implements AIProvider {
         if (!row) {
           return null;
         }
-        return {
+        const reference: LegalReferenceHit = {
           article: row.article,
           subarticle: row.subarticle,
           articleTitle: row.article_title || '',
@@ -254,6 +298,10 @@ export class LegalRagProvider implements AIProvider {
           score: match.score ?? 0,
           vectorId: row.vector_id,
         };
+        if (match.retrievalScores) {
+          reference.retrievalScores = match.retrievalScores;
+        }
+        return reference;
       })
       .filter((reference): reference is LegalReferenceHit => reference !== null);
   }

@@ -141,7 +141,7 @@ function parseArticles(text) {
   return matches.map((match, index) => {
     const start = match.index;
     const end = index + 1 < matches.length ? matches[index + 1].index : normalized.length;
-    const articleText = normalized.slice(start, end).trim();
+    const articleText = stripTrailingDocumentStructure(normalized.slice(start, end));
     const articleTitle = match[2].replace(/\s+/g, ' ').trim();
     return {
       article: match[1],
@@ -209,29 +209,39 @@ async function prepareDocument(input, maxChunkChars) {
 }
 
 function splitArticleIntoSections(article) {
-  const cleanedText = stripObsoleteLegalFragments(article.text);
+  const cleanedText = stripTrailingDocumentStructure(stripObsoleteLegalFragments(article.text));
+  const notesIndex = cleanedText.search(/\n\s*Примечани(?:е|я)\./i);
+  const mainText = notesIndex >= 0 ? cleanedText.slice(0, notesIndex).trim() : cleanedText;
+  const notesText = notesIndex >= 0 ? cleanedText.slice(notesIndex).trim() : '';
   const partRegex = /(?:^|\n)\s*(\d+(?:\.\d+)*)\.\s+/g;
-  const matches = [...cleanedText.matchAll(partRegex)]
+  const matches = [...mainText.matchAll(partRegex)]
     .filter(match => match.index !== undefined && match.index > 0);
 
-  if (matches.length === 0) {
+  if (matches.length === 0 || matches[0][1] !== '1') {
     return [{ section: null, text: cleanedText }];
   }
 
-  const header = cleanedText.slice(0, matches[0].index).trim();
-  return matches.map((match, index) => {
+  const header = mainText.slice(0, matches[0].index).trim();
+  const sections = matches.map((match, index) => {
     const start = match.index || 0;
-    const end = index + 1 < matches.length ? matches[index + 1].index : cleanedText.length;
-    const partText = cleanedText.slice(start, end).trim();
+    const end = index + 1 < matches.length ? matches[index + 1].index : mainText.length;
+    const partText = mainText.slice(start, end).trim();
     return {
       section: match[1],
       text: [header, partText].filter(Boolean).join('\n'),
     };
   });
+  if (notesText) {
+    sections.push({
+      section: null,
+      text: [header, notesText].filter(Boolean).join('\n'),
+    });
+  }
+  return sections;
 }
 
 function splitIntoChunks(text, maxChunkChars) {
-  const cleanedText = stripObsoleteLegalFragments(text);
+  const cleanedText = stripTrailingDocumentStructure(stripObsoleteLegalFragments(text));
   const paragraphs = cleanedText
     .split(/\n{2,}/)
     .map(part => part.replace(/\s+/g, ' ').trim())
@@ -243,11 +253,78 @@ function splitIntoChunks(text, maxChunkChars) {
       chunks.push(paragraph);
       continue;
     }
-    for (let start = 0; start < paragraph.length; start += maxChunkChars) {
-      chunks.push(paragraph.slice(start, start + maxChunkChars).trim());
-    }
+    chunks.push(...splitLongParagraph(paragraph, maxChunkChars));
   }
   return chunks;
+}
+
+function stripTrailingDocumentStructure(text) {
+  const lines = text.split('\n');
+  while (lines.length > 0) {
+    const line = lines[lines.length - 1].trim();
+    if (!line || isDocumentStructureLine(line)) {
+      lines.pop();
+      continue;
+    }
+    break;
+  }
+  return lines.join('\n').trim();
+}
+
+function isDocumentStructureLine(line) {
+  return /^(?:Общая|Особенная)\s+часть(?:\s+Раздел\b.*)?$/i.test(line) ||
+    /^Раздел\s+[IVXLCDM]+\./i.test(line) ||
+    /^Глава\s+\d+(?:\.\d+)*\./i.test(line) ||
+    /^Президент Российской Федерации$/i.test(line) ||
+    /^[А-ЯЁ]\.?\s+[А-ЯЁ][а-яё-]+$/u.test(line) ||
+    /^Москва,\s*Кремль$/i.test(line) ||
+    /^\d{1,2}\s+[а-яё]+\s+\d{4}\s+года$/i.test(line) ||
+    /^N\s*\d+(?:-[A-ZА-ЯЁ]+)?$/i.test(line) ||
+    /^HYPERLINK\b/i.test(line) ||
+    /^https?:\/\//i.test(line);
+}
+
+function splitLongParagraph(paragraph, maxChunkChars) {
+  const chunks = [];
+  const minTailChars = Math.min(300, Math.max(1, Math.floor(maxChunkChars / 4)));
+  let remaining = paragraph.trim();
+
+  while (remaining.length > maxChunkChars) {
+    let targetEnd = maxChunkChars;
+    const tailLength = remaining.length - targetEnd;
+    if (tailLength < minTailChars) {
+      targetEnd = remaining.length - minTailChars;
+    }
+
+    const splitAt = findNaturalChunkBoundary(remaining, targetEnd, maxChunkChars);
+    chunks.push(remaining.slice(0, splitAt).trim());
+    remaining = remaining.slice(splitAt).trim();
+  }
+
+  if (remaining) {
+    chunks.push(remaining);
+  }
+  return chunks;
+}
+
+function findNaturalChunkBoundary(text, targetEnd, maxChunkChars) {
+  const lookback = Math.min(240, Math.max(20, Math.floor(maxChunkChars / 5)));
+  const windowStart = Math.max(1, targetEnd - lookback);
+  const window = text.slice(windowStart, targetEnd);
+  let bestBoundary = -1;
+
+  for (const delimiter of ['. ', '; ', ': ']) {
+    const index = window.lastIndexOf(delimiter);
+    if (index >= 0) {
+      bestBoundary = Math.max(bestBoundary, windowStart + index + 1);
+    }
+  }
+  if (bestBoundary > 0) {
+    return bestBoundary;
+  }
+
+  const whitespaceIndex = window.lastIndexOf(' ');
+  return whitespaceIndex >= 0 ? windowStart + whitespaceIndex : targetEnd;
 }
 
 function stripObsoleteLegalFragments(text) {

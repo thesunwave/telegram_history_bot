@@ -57,6 +57,50 @@ describe("legal RAG corpus preparation", () => {
     expect(first.chunks[0].vectorId).toContain("uk-rf:280:1:0:");
   });
 
+  it("rebalances a tiny trailing fragment and keeps word boundaries", async () => {
+    const text = Array.from({ length: 13 }, (_, index) => `условие${index}`).join(" ");
+    const document = await prepareLegalDocument({
+      lawCode: "uk-rf",
+      title: "УК РФ",
+      versionDate: "2026-09-10",
+      articles: [{
+        article: "322.3",
+        articleTitle: "Фиктивная постановка на учет",
+        text,
+      }],
+    }, 100);
+
+    expect(document.chunks).toHaveLength(2);
+    expect(document.chunks.every(chunk => chunk.chunkText.length <= 100)).toBe(true);
+    expect(document.chunks[1].chunkText.length).toBeGreaterThanOrEqual(25);
+    expect(document.chunks.map(chunk => chunk.chunkText).join(" ")).toBe(text);
+  });
+
+  it("drops trailing document structure that belongs after the article", async () => {
+    const document = await prepareLegalDocument({
+      lawCode: "uk-rf",
+      title: "УК РФ",
+      versionDate: "2026-09-10",
+      articles: [{
+        article: "23",
+        articleTitle: "Ответственность в состоянии опьянения",
+        text: [
+          "Статья 23. Ответственность в состоянии опьянения",
+          "Лицо подлежит уголовной ответственности.",
+          "",
+          "Раздел II. Преступление",
+          "",
+          "Глава 5. Вина",
+        ].join("\n"),
+      }],
+    });
+
+    const text = document.chunks.map(chunk => chunk.chunkText).join(" ");
+    expect(text).toContain("Лицо подлежит уголовной ответственности.");
+    expect(text).not.toContain("Раздел II");
+    expect(text).not.toContain("Глава 5");
+  });
+
   it("removes obsolete legal fragments before chunking", async () => {
     const document = await prepareLegalDocument({
       lawCode: "uk-rf",

@@ -104,7 +104,7 @@ export async function prepareLegalDocument(
 }
 
 function splitIntoChunks(text: string, maxChunkChars: number): string[] {
-  const rawText = stripObsoleteLegalFragments(text)?.trim();
+  const rawText = stripTrailingDocumentStructure(stripObsoleteLegalFragments(text)).trim();
   if (!rawText) {
     throw new Error('text is required');
   }
@@ -122,11 +122,78 @@ function splitIntoChunks(text: string, maxChunkChars: number): string[] {
       chunks.push(paragraph);
       continue;
     }
-    for (let start = 0; start < paragraph.length; start += safeMax) {
-      chunks.push(paragraph.slice(start, start + safeMax).trim());
-    }
+    chunks.push(...splitLongParagraph(paragraph, safeMax));
   }
   return chunks;
+}
+
+function stripTrailingDocumentStructure(text: string): string {
+  const lines = text.split('\n');
+  while (lines.length > 0) {
+    const line = lines[lines.length - 1].trim();
+    if (!line || isDocumentStructureLine(line)) {
+      lines.pop();
+      continue;
+    }
+    break;
+  }
+  return lines.join('\n').trim();
+}
+
+function isDocumentStructureLine(line: string): boolean {
+  return /^(?:Общая|Особенная)\s+часть(?:\s+Раздел\b.*)?$/i.test(line) ||
+    /^Раздел\s+[IVXLCDM]+\./i.test(line) ||
+    /^Глава\s+\d+(?:\.\d+)*\./i.test(line) ||
+    /^Президент Российской Федерации$/i.test(line) ||
+    /^[А-ЯЁ]\.?\s+[А-ЯЁ][а-яё-]+$/u.test(line) ||
+    /^Москва,\s*Кремль$/i.test(line) ||
+    /^\d{1,2}\s+[а-яё]+\s+\d{4}\s+года$/i.test(line) ||
+    /^N\s*\d+(?:-[A-ZА-ЯЁ]+)?$/i.test(line) ||
+    /^HYPERLINK\b/i.test(line) ||
+    /^https?:\/\//i.test(line);
+}
+
+function splitLongParagraph(paragraph: string, maxChunkChars: number): string[] {
+  const chunks: string[] = [];
+  const minTailChars = Math.min(300, Math.max(1, Math.floor(maxChunkChars / 4)));
+  let remaining = paragraph.trim();
+
+  while (remaining.length > maxChunkChars) {
+    let targetEnd = maxChunkChars;
+    const tailLength = remaining.length - targetEnd;
+    if (tailLength < minTailChars) {
+      targetEnd = remaining.length - minTailChars;
+    }
+
+    const splitAt = findNaturalChunkBoundary(remaining, targetEnd, maxChunkChars);
+    chunks.push(remaining.slice(0, splitAt).trim());
+    remaining = remaining.slice(splitAt).trim();
+  }
+
+  if (remaining) {
+    chunks.push(remaining);
+  }
+  return chunks;
+}
+
+function findNaturalChunkBoundary(text: string, targetEnd: number, maxChunkChars: number): number {
+  const lookback = Math.min(240, Math.max(20, Math.floor(maxChunkChars / 5)));
+  const windowStart = Math.max(1, targetEnd - lookback);
+  const window = text.slice(windowStart, targetEnd);
+  let bestBoundary = -1;
+
+  for (const delimiter of ['. ', '; ', ': ']) {
+    const index = window.lastIndexOf(delimiter);
+    if (index >= 0) {
+      bestBoundary = Math.max(bestBoundary, windowStart + index + 1);
+    }
+  }
+  if (bestBoundary > 0) {
+    return bestBoundary;
+  }
+
+  const whitespaceIndex = window.lastIndexOf(' ');
+  return whitespaceIndex >= 0 ? windowStart + whitespaceIndex : targetEnd;
 }
 
 export function stripObsoleteLegalFragments(text: string): string {
