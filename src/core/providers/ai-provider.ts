@@ -131,7 +131,7 @@ export interface CriminalContextAnalysisInput {
 
 export interface CriminalSemanticPrefilterResult {
   shouldAnalyze: boolean;
-  reason: 'threat' | 'sexual_threat' | 'incitement' | 'self_incrimination' | 'extremism' | 'dangerous_instruction' | 'none';
+  reason: 'threat' | 'sexual_threat' | 'incitement' | 'self_incrimination' | 'extremism' | 'dangerous_instruction' | 'violent_expression' | 'none';
   confidence: number;
   explanation: string;
   searchQuery?: string;
@@ -140,7 +140,7 @@ export interface CriminalSemanticPrefilterResult {
 }
 
 export interface CriminalSemanticFrame {
-  speechAct: 'threat' | 'prediction' | 'taunt' | 'admission' | 'incitement' | 'instruction' | 'report' | 'quote' | 'hypothetical' | 'other' | 'unknown';
+  speechAct: 'threat' | 'prediction' | 'taunt' | 'admission' | 'incitement' | 'instruction' | 'fantasy' | 'endorsement' | 'plan' | 'report' | 'quote' | 'hypothetical' | 'other' | 'unknown';
   actor: 'author' | 'third_party' | 'unknown';
   action: string;
   targetKind: 'person' | 'group' | 'property' | 'institution' | 'abstract' | 'unknown';
