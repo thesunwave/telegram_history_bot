@@ -723,6 +723,10 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(requestBody.max_output_tokens).toBeGreaterThanOrEqual(512);
       expect(requestBody.reasoning).toEqual({ effort: "minimal" });
       expect(requestBody.instructions).toContain('"semanticFrame"');
+      expect(requestBody.instructions).toContain("фантазии");
+      expect(requestBody.instructions).toContain("violent_expression");
+      expect(requestBody.instructions).toContain("признание в тайном хищении чужого имущества");
+      expect(requestBody.instructions).toContain("призыв к насилию против группы по национальному признаку");
       vi.unstubAllGlobals();
     });
 
@@ -760,7 +764,29 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(filtered.shouldAnalyze).toBe(true);
     });
 
-    it("should require grounded evidence for every positive legal element", () => {
+    it("should preserve violent_expression as an analyzable prefilter reason", () => {
+      const normalized = (analyzer as any).normalizeSemanticPrefilterResult({
+        shouldAnalyze: true,
+        reason: "violent_expression",
+        confidence: 0.8,
+        explanation: "author fantasizes about violence",
+        searchQuery: "одобрение причинения тяжкого вреда здоровью",
+        semanticFrame: {
+          speechAct: "fantasy",
+          actor: "author",
+          action: "причинить тяжкий вред",
+          targetKind: "person",
+          harmKind: "grievous_bodily_harm",
+          modality: "desired",
+          evidenceSpans: ["я бы его избил"],
+        },
+      });
+
+      expect(normalized.reason).toBe("violent_expression");
+      expect(normalized.shouldAnalyze).toBe(true);
+    });
+
+    it("should require grounded evidence for the final literal meaning", () => {
       const targetText = "я тебя убью";
       const input = {
         targetText,
@@ -776,22 +802,19 @@ describe("CriminalCodeAnalyzerDO", () => {
         }],
       };
 
-      expect((analyzer as any).evaluateFinalJudgeElements(undefined, input)).toBe("unclear");
-      expect((analyzer as any).evaluateFinalJudgeElements([{
-        name: "угроза убийством",
-        status: "absent",
-        evidence: "",
-      }], input)).toBe("absent");
-      expect((analyzer as any).evaluateFinalJudgeElements([{
-        name: "угроза убийством",
-        status: "present",
-        evidence: "выдуманная цитата",
-      }], input)).toBe("unclear");
-      expect((analyzer as any).evaluateFinalJudgeElements([{
-        name: "угроза убийством",
-        status: "present",
+      expect((analyzer as any).evaluateFinalJudgeMeaning(undefined, input)).toBe("unclear");
+      expect((analyzer as any).evaluateFinalJudgeMeaning({
+        speechAct: "report",
         evidence: "я тебя убью",
-      }], input)).toBe("present");
+      }, input)).toBe("benign");
+      expect((analyzer as any).evaluateFinalJudgeMeaning({
+        speechAct: "threat",
+        evidence: "выдуманная цитата",
+      }, input)).toBe("unclear");
+      expect((analyzer as any).evaluateFinalJudgeMeaning({
+        speechAct: "threat",
+        evidence: "я тебя убью",
+      }, input)).toBe("criminal");
     });
 
     it("should not continue to RAG when semantic prefilter rejects the target", async () => {
@@ -1133,6 +1156,10 @@ describe("CriminalCodeAnalyzerDO", () => {
         output_text: JSON.stringify({
           decision: "violation",
           confidence: 0.91,
+          meaning: {
+            speechAct: "threat",
+            evidence: "я тебя убью",
+          },
           evidence: {
             subject: "author",
             object: "victim",
@@ -1148,15 +1175,6 @@ describe("CriminalCodeAnalyzerDO", () => {
             punishment: "обязательные работы",
             severity: 7,
             confidence: 0.91,
-            elements: [{
-              name: "угроза убийством или причинением тяжкого вреда здоровью",
-              status: "present",
-              evidence: "я тебя убью",
-            }, {
-              name: "основания опасаться осуществления угрозы",
-              status: "present",
-              evidence: "я тебя убью",
-            }]
           }]
         }),
         usage: { input_tokens: 900, output_tokens: 120, total_tokens: 1020 }
@@ -1186,6 +1204,9 @@ describe("CriminalCodeAnalyzerDO", () => {
       const finalJudgeBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
       expect(finalJudgeBody.input[0].content).toContain("если имелись основания опасаться");
       expect(finalJudgeBody.input[0].content).not.toContain("наказывается обязательными работами");
+      expect(finalJudgeBody.instructions).toContain("игровой классификатор");
+      expect(finalJudgeBody.instructions).toContain("fantasy");
+      expect(finalJudgeBody.instructions).not.toContain("ВСЕ обязательные фактические признаки");
       expect(fetchMock).not.toHaveBeenCalledWith(
         expect.stringContaining("openrouter.ai"),
         expect.anything()
@@ -1202,7 +1223,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       vi.unstubAllGlobals();
     });
 
-    it("should reject article 119 when required legal elements are absent", () => {
+    it("should reject a non-human prediction even if the judge proposes article 119", () => {
       const targetText = "о, я ж говорил что у нас тоже школы пачками закрывают))) не будет скоро вашего образования нахуй)";
       const input = {
         targetMessageId: 121,
@@ -1243,6 +1264,10 @@ describe("CriminalCodeAnalyzerDO", () => {
       const judge = {
         decision: "violation",
         confidence: 0.92,
+        meaning: {
+          speechAct: "prediction",
+          evidence: "не будет скоро вашего образования нахуй",
+        },
         evidence: {
           subject: "testuser",
           object: "образовательная система",
@@ -1258,20 +1283,228 @@ describe("CriminalCodeAnalyzerDO", () => {
           punishment: "до двух лет лишения свободы",
           severity: 5,
           confidence: 0.92,
-          elements: [
-            {
-              name: "угроза убийством или причинением тяжкого вреда здоровью",
-              status: "absent",
-              evidence: "",
-            },
-          ],
         }],
       };
 
       const result = (analyzer as any).buildJudgedAnalysisResult(input, retrievalResult, judge);
 
       expect(result.hasViolations).toBe(false);
-      expect(result.decision).not.toBe("violation");
+      expect(result.decision).toBe("no_violation");
+      expect(result.violations).toEqual([]);
+    });
+
+    it("should count a grounded violent fantasy as a grotesque violation without courtroom elements", () => {
+      const targetText = "Я бы на месте бати нашел того тцкшника и хуярил по голове пока от нее фарша даже не осталось";
+      const input = {
+        targetMessageId: 1669723,
+        targetUserId: 67890,
+        targetUsername: "testuser",
+        targetText,
+        targetTimestamp: 1779200000,
+        chatId: 12345,
+        contextWindow: { before: 0, after: 0, totalMessages: 1 },
+        messages: [{
+          messageId: 1669723,
+          username: "testuser",
+          userId: 67890,
+          text: targetText,
+          ts: 1779200000,
+          relativePosition: 0,
+          isTarget: true,
+        }],
+      };
+      const retrievalResult = {
+        hasViolations: false,
+        decision: "uncertain",
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: "low",
+        analysisTimestamp: Date.now(),
+        legalReferences: [{
+          article: "111",
+          subarticle: "1",
+          articleTitle: "Умышленное причинение тяжкого вреда здоровью",
+          quote: "Статья 111. Умышленное причинение тяжкого вреда здоровью...",
+          sourceUrl: "https://uk-rf.ru/",
+          lawCode: "uk-rf",
+          score: 0.59,
+          vectorId: "uk-rf:111:1:0",
+        }],
+      };
+      const judge = {
+        decision: "violation",
+        confidence: 0.68,
+        meaning: {
+          speechAct: "fantasy",
+          evidence: targetText,
+        },
+        evidence: {
+          subject: "testuser",
+          object: "person",
+          intent: "violent fantasy",
+          contextSummary: "author imagines severe violence",
+          whyNotBenign: "literal violent fantasy",
+        },
+        violations: [{
+          article: "111",
+          subarticle: "1",
+          articleTitle: "Умышленное причинение тяжкого вреда здоровью",
+          quote: targetText,
+          punishment: "",
+          severity: 7,
+        }],
+      };
+
+      const result = (analyzer as any).buildJudgedAnalysisResult(input, retrievalResult, judge);
+
+      expect(result.decision).toBe("violation");
+      expect(result.hasViolations).toBe(true);
+      expect(result.violations).toHaveLength(1);
+      expect(result.violations[0].article).toBe("111");
+      expect(result.violations[0].confidence).toBe(0.68);
+    });
+
+    it("should count an explicit theft admission when article 158 reaches the judge", () => {
+      const targetText = "Я вчера тайно украл чужой телефон из кармана владельца и оставил себе";
+      const input = {
+        targetMessageId: 777,
+        targetUserId: 67890,
+        targetUsername: "testuser",
+        targetText,
+        targetTimestamp: 1779200000,
+        chatId: 12345,
+        contextWindow: { before: 0, after: 0, totalMessages: 1 },
+        messages: [{
+          messageId: 777,
+          username: "testuser",
+          userId: 67890,
+          text: targetText,
+          ts: 1779200000,
+          relativePosition: 0,
+          isTarget: true,
+        }],
+      };
+      const retrievalResult = {
+        hasViolations: false,
+        decision: "uncertain",
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: "low",
+        analysisTimestamp: Date.now(),
+        legalReferences: [{
+          article: "158",
+          subarticle: "1",
+          articleTitle: "Кража",
+          quote: "Статья 158. Кража 1. Кража, то есть тайное хищение чужого имущества...",
+          sourceUrl: "https://uk-rf.ru/",
+          lawCode: "uk-rf",
+          score: 0.638,
+          vectorId: "uk-rf:158:1:0",
+        }],
+      };
+      const judge = {
+        decision: "violation",
+        confidence: 0.81,
+        meaning: {
+          speechAct: "admission",
+          evidence: targetText,
+        },
+        evidence: {
+          subject: "testuser",
+          object: "phone",
+          intent: "theft admission",
+          contextSummary: "author says they stole property",
+          whyNotBenign: "literal admission",
+        },
+        violations: [{
+          article: "158",
+          subarticle: "1",
+          articleTitle: "Кража",
+          quote: targetText,
+          severity: 5,
+        }],
+      };
+
+      const result = (analyzer as any).buildJudgedAnalysisResult(input, retrievalResult, judge);
+
+      expect(result.decision).toBe("violation");
+      expect(result.violations[0].article).toBe("158");
+    });
+
+    it("should reject a contextual report even when it contains violent words", () => {
+      const targetText = "он убить меня хочет";
+      const input = {
+        targetMessageId: 1669707,
+        targetUserId: 67890,
+        targetUsername: "testuser",
+        targetText,
+        targetTimestamp: 1779200000,
+        chatId: 12345,
+        contextWindow: { before: 0, after: 1, totalMessages: 2 },
+        messages: [{
+          messageId: 1669707,
+          username: "testuser",
+          userId: 67890,
+          text: targetText,
+          ts: 1779200000,
+          relativePosition: 0,
+          isTarget: true,
+        }, {
+          messageId: 1669708,
+          username: "testuser",
+          userId: 67890,
+          text: "он говорит ебашь на лыжах в горы",
+          ts: 1779200001,
+          relativePosition: 1,
+          isTarget: false,
+        }],
+      };
+      const retrievalResult = {
+        hasViolations: false,
+        decision: "uncertain",
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: "low",
+        analysisTimestamp: Date.now(),
+        legalReferences: [{
+          article: "119",
+          subarticle: "1",
+          articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+          quote: "Статья 119. Угроза убийством...",
+          sourceUrl: "https://uk-rf.ru/",
+          lawCode: "uk-rf",
+          score: 0.67,
+          vectorId: "uk-rf:119:1:0",
+        }],
+      };
+      const judge = {
+        decision: "violation",
+        confidence: 0.9,
+        meaning: {
+          speechAct: "report",
+          evidence: targetText,
+        },
+        evidence: {
+          subject: "testuser",
+          object: "other speaker",
+          intent: "report",
+          contextSummary: "context shows a joke about a route suggestion",
+          whyNotBenign: "",
+        },
+        violations: [{
+          article: "119",
+          subarticle: "1",
+          articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+          quote: targetText,
+          severity: 7,
+          confidence: 0.9,
+        }],
+      };
+
+      const result = (analyzer as any).buildJudgedAnalysisResult(input, retrievalResult, judge);
+
+      expect(result.hasViolations).toBe(false);
+      expect(result.decision).toBe("no_violation");
       expect(result.violations).toEqual([]);
     });
 
@@ -1299,6 +1532,47 @@ describe("CriminalCodeAnalyzerDO", () => {
         punishmentReference,
         dispositionReference,
       ], 1)).toEqual([dispositionReference]);
+    });
+
+    it("should diversify final judge references by article before adding extra parts", () => {
+      const references = [
+        { article: "165", subarticle: "1", score: 0.69 },
+        { article: "167", subarticle: "1", score: 0.68 },
+        { article: "168", subarticle: null, score: 0.67 },
+        { article: "160", subarticle: "1", score: 0.66 },
+        { article: "296", subarticle: "1", score: 0.65 },
+        { article: "164", subarticle: "2", score: 0.64 },
+        { article: "165", subarticle: "2", score: 0.639 },
+        { article: "158", subarticle: "1", score: 0.638 },
+      ].map((reference, index) => ({
+        ...reference,
+        articleTitle: `article ${reference.article}`,
+        quote: `Статья ${reference.article}. Диспозиция`,
+        sourceUrl: "https://uk-rf.ru/",
+        lawCode: "uk-rf",
+        vectorId: `uk-rf:${reference.article}:${reference.subarticle || "main"}:0:${index}`,
+      }));
+
+      const selected = (analyzer as any).selectFinalJudgeReferences(references, 7);
+
+      expect(selected.map((reference: any) => reference.article)).toEqual([
+        "165", "167", "168", "160", "296", "164", "158",
+      ]);
+    });
+
+    it("should let the final judge inspect every reference that already passed RAG filtering", () => {
+      const reference = {
+        article: "282",
+        subarticle: "2",
+        articleTitle: "Возбуждение ненависти либо вражды",
+        quote: "Статья 282. Действия, направленные на возбуждение ненависти либо вражды...",
+        sourceUrl: "https://uk-rf.ru/",
+        lawCode: "uk-rf",
+        score: 0.56,
+        vectorId: "uk-rf:282:2:0",
+      };
+
+      expect((analyzer as any).isUsefulFinalJudgeReference(reference)).toBe(true);
     });
 
     it("should reject final judge violations quoted from neighboring context", async () => {
