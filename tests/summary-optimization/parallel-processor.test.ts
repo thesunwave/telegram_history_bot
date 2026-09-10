@@ -125,6 +125,20 @@ describe("ParallelProcessor", () => {
       expect(run.mock.calls.length).toBe(20);
     });
 
+    it("uses message coverage when the final chunk is much smaller", async () => {
+      const messages = createMessages(51);
+      const { env, run } = setupRun({
+        totalChunks: 2,
+        failCount: 1,
+        envOverrides: { SUMMARY_OPT_WORKER_BATCH_SIZE: "50" } as any,
+      });
+
+      await expect(processor.process(messages, env)).rejects.toThrow(
+        /1\/2 chunks succeeded.*~1\/51 messages.*2\.0% below minimum 50\.0%/,
+      );
+      expect(run.mock.calls.length).toBe(2);
+    });
+
     it("does NOT throw at the exact threshold boundary (5/10) and aggregates", async () => {
       const messages = createMessages(50);
       const { env, run } = setupRun({
@@ -134,7 +148,10 @@ describe("ParallelProcessor", () => {
       });
 
       const result = await processor.process(messages, env);
-      expect(result).toBe("AGGREGATED FINAL SUMMARY");
+      expect(result).toBe(
+        "⚠️ Неполное покрытие: 5/10 частичных сводок (~25 из 50 сообщений).\n\n" +
+          "AGGREGATED FINAL SUMMARY",
+      );
       expect(run.mock.calls.length).toBe(11);
     });
 
@@ -186,7 +203,10 @@ describe("ParallelProcessor", () => {
 
       const fail3 = setupRun({ totalChunks: 10, failCount: 3, envOverrides });
       const result = await processor.process(messages, fail3.env);
-      expect(result).toBe("AGGREGATED FINAL SUMMARY");
+      expect(result).toBe(
+        "⚠️ Неполное покрытие: 7/10 частичных сводок (~35 из 50 сообщений).\n\n" +
+          "AGGREGATED FINAL SUMMARY",
+      );
       expect(fail3.run.mock.calls.length).toBe(11);
     });
 
@@ -247,7 +267,10 @@ describe("ParallelProcessor", () => {
       });
 
       const result = await processor.process(messages, env);
-      expect(result).toBe("AGGREGATED FINAL SUMMARY");
+      expect(result).toBe(
+        "⚠️ Неполное покрытие: 7/10 частичных сводок (~35 из 50 сообщений).\n\n" +
+          "AGGREGATED FINAL SUMMARY",
+      );
 
       const prompt = aggregationPrompt(run, 10);
       expect(prompt).toContain("ℹ️ Покрытие: 7/10 частичных сводок");
@@ -269,7 +292,7 @@ describe("ParallelProcessor", () => {
   });
 
   describe("lone-survivor path", () => {
-    it("returns the single surviving chunk verbatim when coverage is adequate (1/2)", async () => {
+    it("warns when a single surviving chunk has adequate but partial coverage (1/2)", async () => {
       const messages = createMessages(10);
       const { env, run } = setupRun({
         totalChunks: 2,
@@ -278,7 +301,10 @@ describe("ParallelProcessor", () => {
       });
 
       const result = await processor.process(messages, env);
-      expect(result).toBe("chunk 1 summary");
+      expect(result).toBe(
+        "⚠️ Неполное покрытие: 1/2 частичных сводок (~5 из 10 сообщений).\n\n" +
+          "chunk 1 summary",
+      );
       expect(run.mock.calls.length).toBe(2);
     });
 

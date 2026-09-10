@@ -77,11 +77,15 @@ export class ParallelProcessor implements IDirectProcessor {
 
             const totalChunks = chunks.length;
             const survivorChunks = validResults.length;
-            const coverageRatio = totalChunks > 0 ? survivorChunks / totalChunks : 0;
+            const chunkCoverageRatio = totalChunks > 0 ? survivorChunks / totalChunks : 0;
             const coveredMessages = survivorEntries.reduce(
                 (sum, entry) => sum + chunks[entry.index].length,
                 0,
             );
+            const messageCoverageRatio = messages.length > 0
+                ? coveredMessages / messages.length
+                : 0;
+            const coverageRatio = Math.min(chunkCoverageRatio, messageCoverageRatio);
 
             if (survivorChunks === 0) {
                 throw new Error('All parallel chunks failed to produce a summary');
@@ -96,8 +100,15 @@ export class ParallelProcessor implements IDirectProcessor {
                 );
             }
 
+            const coverageWarning = survivorChunks < totalChunks
+                ? `⚠️ Неполное покрытие: ${survivorChunks}/${totalChunks} частичных сводок ` +
+                    `(~${coveredMessages} из ${messages.length} сообщений).`
+                : '';
+
             if (survivorChunks === 1) {
-                return validResults[0];
+                return coverageWarning
+                    ? `${coverageWarning}\n\n${validResults[0]}`
+                    : validResults[0];
             }
 
             // Final aggregation
@@ -110,9 +121,13 @@ export class ParallelProcessor implements IDirectProcessor {
             });
             const reduceDuration = Date.now() - reduceStart;
 
+            const result = coverageWarning
+                ? `${coverageWarning}\n\n${finalSummary}`
+                : finalSummary;
+
             Logger.debug(env, 'ParallelProcessor: Reduce phase completed', {
                 duration: reduceDuration,
-                finalLength: finalSummary.length
+                finalLength: result.length
             });
 
             PerformanceTracker.end(trackerId, {
@@ -124,7 +139,7 @@ export class ParallelProcessor implements IDirectProcessor {
                 success: true
             });
 
-            return finalSummary;
+            return result;
 
         } catch (error) {
             const e = error as Error;
@@ -232,14 +247,14 @@ export class ParallelProcessor implements IDirectProcessor {
             `ℹ️ Покрытие: ${survivorChunks}/${totalChunks} частичных сводок ` +
             `(~${coveredMessages} из ${requestedMessages} сообщений).` +
             (isPartial
-                ? ' Покрытие неполное — часть сообщений не учтена. Обязательно начни итоговую сводку с короткой пометки о неполном покрытии.'
+                ? ' Покрытие неполное — часть сообщений не учтена.'
                 : '');
 
         const systemPrompt =
             `Ты главный редактор. Твоя задача — объединить несколько частичных сводок одного и того же чата (за разные временные промежутки) в одну связную, логичную и полную итоговую сводку.\n` +
             `Убери повторы, объедини связанные темы и хронологию. Итоговый текст должен читаться как единый документ, а не набор разрозненных частей.` +
             (isPartial
-                ? '\n\nВНИМАНИЕ: доступны не все частичные сводки — покрытие чата неполное. Обязательно начни итоговую сводку с короткой пометки о неполном покрытии, чтобы читатель понимал, что охвачена лишь часть переписки.'
+                ? '\n\nВНИМАНИЕ: доступны не все частичные сводки — покрытие чата неполное. Не утверждай, что итог охватывает всю переписку.'
                 : '');
 
         const userPrompt =
