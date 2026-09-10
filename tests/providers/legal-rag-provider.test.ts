@@ -135,7 +135,7 @@ describe("LegalRagProvider", () => {
     expect(run.mock.calls[1][1]).toEqual({ text: "прямая угроза физической расправы адресату" });
   });
 
-  it("does not let a grounded non-violent prediction semantic query self-confirm a threat", async () => {
+  it("does not let a grounded non-violent institution threat semantic query self-confirm a crime", async () => {
     const run = vi.fn().mockResolvedValue({ data: [{ embedding: [0.7, 0.8, 0.9] }] });
     const env = createMockEnv({
       AI: { run } as any,
@@ -165,12 +165,12 @@ describe("LegalRagProvider", () => {
         explanation: "possible threat",
         searchQuery: "угроза убийством или причинением вреда здоровью",
         semanticFrame: {
-          speechAct: "prediction",
-          actor: "unknown",
-          action: "исчезновение образования",
-          targetKind: "abstract",
+          speechAct: "threat",
+          actor: "author",
+          action: "обещание/план не будет вашего образования",
+          targetKind: "institution",
           harmKind: "none",
-          modality: "predicted",
+          modality: "promised",
           evidenceSpans: ["не будет скоро вашего образования"],
         },
       },
@@ -178,6 +178,73 @@ describe("LegalRagProvider", () => {
 
     expect(run).toHaveBeenCalledTimes(1);
     expect(run).toHaveBeenCalledWith(expect.any(String), { text: targetText });
+  });
+
+  it("uses the semantic frame action as a core-behavior retrieval query", async () => {
+    const run = vi.fn().mockResolvedValue({ data: [{ embedding: [0.2, 0.3, 0.4] }] });
+    const query = vi.fn()
+      .mockResolvedValueOnce({ matches: [] })
+      .mockResolvedValueOnce({ matches: [{ id: "uk-rf:158:1:0", score: 0.64 }] })
+      .mockResolvedValueOnce({ matches: [] });
+    const env = createMockEnv({
+      AI: { run } as any,
+      LEGAL_RAG_INDEX: { query } as any,
+      LEGAL_RAG_QUERY_VARIANTS: 3,
+    });
+    const all = vi.fn().mockResolvedValue({
+      results: [{
+        vector_id: "uk-rf:158:1:0",
+        law_code: "uk-rf",
+        article: "158",
+        subarticle: "1",
+        article_title: "Кража",
+        chunk_text: "Статья 158. Кража, то есть тайное хищение чужого имущества...",
+        source_url: "https://publication.pravo.gov.ru/",
+      }],
+    });
+    env.DB.prepare = vi.fn().mockReturnValue({
+      bind: vi.fn().mockReturnValue({ all }),
+    }) as any;
+
+    const provider = new LegalRagProvider(env);
+    const targetText = "Я вчера тайно украл чужой телефон из кармана владельца и оставил себе";
+    const result = await provider.analyzeCriminalCodeWithContext({
+      targetText,
+      targetTimestamp: 1779200000,
+      chatId: 123,
+      contextWindow: { before: 0, after: 0, totalMessages: 1 },
+      messages: [{
+        username: "user",
+        text: targetText,
+        ts: 1779200000,
+        relativePosition: 0,
+        isTarget: true,
+      }],
+      semanticPrefilter: {
+        shouldAnalyze: true,
+        reason: "self_incrimination",
+        confidence: 0.9,
+        explanation: "theft admission",
+        searchQuery: "признание в тайном хищении чужого имущества",
+        semanticFrame: {
+          speechAct: "admission",
+          actor: "author",
+          action: "кража чужого телефона",
+          targetKind: "property",
+          harmKind: "property_damage",
+          modality: "reported",
+          evidenceSpans: [targetText],
+        },
+      },
+    });
+
+    expect(run.mock.calls.map(call => call[1])).toEqual([
+      { text: targetText },
+      { text: "кража чужого телефона" },
+      { text: "признание в тайном хищении чужого имущества" },
+    ]);
+    expect(result.legalReferences?.map(reference => reference.article)).toEqual(["158"]);
+    expect(result.legalReferences?.[0].retrievalScores).toEqual({ behavior: 0.64 });
   });
 
   it("deduplicates multi-query matches by best score", async () => {

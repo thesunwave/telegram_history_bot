@@ -216,6 +216,7 @@ export interface LegalReferenceHit {
 
 export interface LegalReferenceRetrievalScores {
   target?: number;
+  behavior?: number;
   semantic?: number;
   context?: number;
 }

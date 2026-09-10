@@ -39,7 +39,7 @@ const DEFAULT_EMBEDDING_MODEL = '@cf/baai/bge-m3';
 const DEFAULT_LAW_CODE = 'uk-rf';
 const DEFAULT_TOP_K = 5;
 const DEFAULT_MIN_SCORE = 0.55;
-const DEFAULT_QUERY_VARIANTS = 2;
+const DEFAULT_QUERY_VARIANTS = 3;
 
 export class LegalRagProvider implements AIProvider {
   constructor(private env: Env) {}
@@ -122,16 +122,15 @@ export class LegalRagProvider implements AIProvider {
   private buildRetrievalQueries(input: CriminalContextAnalysisInput, env: Env): RetrievalQuery[] {
     const maxVariants = Math.max(
       1,
-      Math.min(this.getNumberEnv('LEGAL_RAG_QUERY_VARIANTS', DEFAULT_QUERY_VARIANTS, env), 3)
+      Math.min(this.getNumberEnv('LEGAL_RAG_QUERY_VARIANTS', DEFAULT_QUERY_VARIANTS, env), 4)
     );
-    const semanticQuery = this.shouldUseSemanticQuery(input)
-      ? input.semanticPrefilter?.searchQuery
-      : '';
+    const useSemanticExpansion = this.shouldUseSemanticQuery(input);
+    const semanticQuery = useSemanticExpansion ? input.semanticPrefilter?.searchQuery : '';
+    const behaviorQuery = useSemanticExpansion ? this.buildBehaviorQuery(input) : '';
     const candidates: Array<RetrievalQuery | null> = [
       { text: input.targetText, source: 'target' },
-      semanticQuery
-        ? { text: semanticQuery, source: 'semantic' }
-        : null,
+      behaviorQuery ? { text: behaviorQuery, source: 'behavior' } : null,
+      semanticQuery ? { text: semanticQuery, source: 'semantic' } : null,
       { text: this.buildCompactContextQuery(input), source: 'context' },
     ];
     return this.uniqueNonEmptyQueries(candidates).slice(0, maxVariants);
@@ -150,11 +149,21 @@ export class LegalRagProvider implements AIProvider {
     ) {
       return false;
     }
-    return !(
-      frame.speechAct === 'taunt' &&
-      frame.modality === 'predicted' &&
+    if (
+      (frame.speechAct === 'threat' || frame.speechAct === 'taunt') &&
       (frame.targetKind === 'institution' || frame.targetKind === 'abstract')
-    );
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private buildBehaviorQuery(input: CriminalContextAnalysisInput): string {
+    const frame = input.semanticPrefilter?.semanticFrame;
+    if (!frame || frame.evidenceSpans.length === 0) {
+      return '';
+    }
+    return frame.action.replace(/\s+/g, ' ').trim().slice(0, 300);
   }
 
   private buildCompactContextQuery(input: CriminalContextAnalysisInput): string {
