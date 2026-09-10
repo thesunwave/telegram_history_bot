@@ -1,5 +1,4 @@
 import { Env, LOG_ID_RADIX, TELEGRAM_LIMIT } from "./env";
-import { chunkText } from "./utils";
 
 const TELEGRAM_HTML_TAG_RE = /&lt;(\/?)(b|i|u|s|code|pre)&gt;/g;
 
@@ -62,6 +61,118 @@ function convertToHtml(text: string): string {
   return result;
 }
 
+const TELEGRAM_FORMATTING_TAGS = new Set(['b', 'i', 'u', 's', 'code', 'pre']);
+
+function nextUnitEnd(html: string, i: number): number {
+  const ch = html[i];
+  if (ch === '<') {
+    const gt = html.indexOf('>', i);
+    return gt === -1 ? i + 1 : gt + 1;
+  }
+  if (ch === '&') {
+    const semi = html.indexOf(';', i);
+    return semi !== -1 && semi - i <= 12 ? semi + 1 : i + 1;
+  }
+
+  const codeUnit = html.charCodeAt(i);
+  if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && i + 1 < html.length) {
+    const nextCodeUnit = html.charCodeAt(i + 1);
+    if (nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) return i + 2;
+  }
+  return i + 1;
+}
+
+function applyTag(stack: string[], tag: string): void {
+  const m = tag.match(/^<\/?([a-zA-Z][a-zA-Z0-9]*)/);
+  if (!m) return;
+  const name = m[1].toLowerCase();
+  if (!TELEGRAM_FORMATTING_TAGS.has(name)) return;
+  if (tag.startsWith('</')) {
+    const idx = stack.lastIndexOf(name);
+    if (idx !== -1) stack.splice(idx, 1);
+  } else {
+    stack.push(name);
+  }
+}
+
+function openTagsBetween(reopened: string[], html: string, start: number, end: number): string[] {
+  const stack = [...reopened];
+  let i = start;
+  while (i < end) {
+    const ch = html[i];
+    if (ch === '<') {
+      const gt = html.indexOf('>', i);
+      if (gt === -1 || gt >= end) break;
+      applyTag(stack, html.substring(i, gt + 1));
+      i = gt + 1;
+    } else if (ch === '&') {
+      const semi = html.indexOf(';', i);
+      i = semi !== -1 && semi < end && semi - i <= 12 ? semi + 1 : i + 1;
+    } else {
+      i += 1;
+    }
+  }
+  return stack;
+}
+
+/**
+ * Splits Telegram HTML into chunks of at most `limit` characters (UTF-16 code
+ * units), never cutting inside an HTML entity (`&...;`) or a tag (`<...>`),
+ * and keeps the Telegram formatting tags (`<b>`, `<i>`, `<u>`, `<s>`, `<code>`,
+ * `<pre>`) balanced in every chunk: open tags at a chunk boundary are closed at
+ * the end of the chunk and reopened at the start of the next one.
+ */
+function chunkHtml(html: string, limit: number): string[] {
+  if (html.length <= limit) return [html];
+
+  const n = html.length;
+  const parts: string[] = [];
+  let start = 0;
+  let reopened: string[] = [];
+
+  while (start < n) {
+    const reopenPrefix = reopened.map(t => `<${t}>`).join('');
+    const baseLen = reopenPrefix.length;
+
+    let i = start;
+    let stack = [...reopened];
+    let bestEnd = -1;
+    let bestNewlineEnd = -1;
+
+    while (i < n) {
+      const next = nextUnitEnd(html, i);
+
+      if (html[i] === '<') {
+        applyTag(stack, html.substring(i, next));
+      }
+
+      const contentLen = next - start;
+      let closeLen = 0;
+      for (const t of stack) closeLen += t.length + 3;
+
+      if (baseLen + contentLen + closeLen <= limit) {
+        bestEnd = next;
+        if (html.charCodeAt(next - 1) === 10) bestNewlineEnd = next;
+      }
+
+      if (baseLen + contentLen > limit) break;
+      i = next;
+    }
+
+    let end = bestNewlineEnd !== -1 ? bestNewlineEnd : bestEnd;
+    if (end === -1) end = nextUnitEnd(html, start);
+
+    const openAtEnd = openTagsBetween(reopened, html, start, end);
+    const closeSuffix = [...openAtEnd].reverse().map(t => `</${t}>`).join('');
+    parts.push(reopenPrefix + html.substring(start, end) + closeSuffix);
+
+    start = end;
+    reopened = openAtEnd;
+  }
+
+  return parts.length ? parts : [''];
+}
+
 export async function sendMessage(env: Env, chatId: number, text: string): Promise<string | void> {
   // In DRY_RUN mode, return the text without sending
   if (env.DRY_RUN) {
@@ -70,7 +181,7 @@ export async function sendMessage(env: Env, chatId: number, text: string): Promi
 
   const url = `https://api.telegram.org/bot${env.TOKEN}/sendMessage`;
   const formattedText = convertToHtml(text);
-  const parts = chunkText(formattedText, TELEGRAM_LIMIT);
+  const parts = chunkHtml(formattedText, TELEGRAM_LIMIT);
 
   let lastError: Error | null = null;
   let successfulParts = 0;

@@ -106,32 +106,40 @@ export async function fetchMessagesOptimized(
 
     // Fetch all day blocks in parallel using race-safe method
     const dayBlockPromises = dates.map(async (date) => {
+      let block: DayBlock | null = null;
       try {
         // Try Durable Object first for most up-to-date data
         const { getDayBlockSafe } = await import('../../durable-objects/day-block-manager');
-        let block = await getDayBlockSafe(env, chatId, date);
-
-        // Fallback to KV if DO doesn't have the block
-        if (!block) {
-          // Try new sharded format first
-          block = await loadShardedBlockFromKV(env, chatId, date);
-
-          // Fallback to legacy single-block format
-          if (!block) {
-            const key = getDayBlockKey(chatId, date);
-            block = await env.HISTORY.get<DayBlock>(key, { type: 'json' });
-          }
-        }
-
-        return { date, block, success: true };
+        block = await getDayBlockSafe(env, chatId, date);
       } catch (error: any) {
-        Logger.error('fetchMessagesOptimized: day block fetch failed', {
+        Logger.error('fetchMessagesOptimized: DO read failed, falling back to KV', {
           chat: chatId.toString(LOG_ID_RADIX),
           date,
           error: error.message || String(error)
         });
-        return { date, block: null, success: false };
       }
+
+      // Fallback to KV if DO doesn't have the block or the DO read threw
+      if (!block) {
+        // Try new sharded format first
+        block = await loadShardedBlockFromKV(env, chatId, date);
+
+        // Fallback to legacy single-block format
+        if (!block) {
+          const key = getDayBlockKey(chatId, date);
+          try {
+            block = await env.HISTORY.get<DayBlock>(key, { type: 'json' });
+          } catch (error: any) {
+            Logger.error('fetchMessagesOptimized: legacy KV fallback failed', {
+              chat: chatId.toString(LOG_ID_RADIX),
+              date,
+              error: error.message || String(error)
+            });
+          }
+        }
+      }
+
+      return { date, block, success: !!block };
     });
 
     const dayBlockResults = await Promise.all(dayBlockPromises);

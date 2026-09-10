@@ -99,7 +99,7 @@ export class NotificationRepository implements INotificationRepository {
         chatId,
         error: error.message || String(error)
       });
-      return null;
+      throw error;
     }
   }
 

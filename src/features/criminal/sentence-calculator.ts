@@ -88,7 +88,7 @@ export function calculateSentenceFromPunishment(punishment: string): SentenceTot
   const normalized = normalizePunishment(punishment);
   if (!normalized) return { ...ZERO_TOTAL };
 
-  const lifeSentences = /пожизненн(?:ое|ого|ым|ому|ая|ую)\s+лишени[ея]\s+свободы/i
+  const lifeSentences = /пожизненн(?:ое|ого|ым|ому|ая|ую)\s+(?:лишени[ея]|лишением)\s+свободы/i
     .test(normalized)
     ? 1
     : 0;

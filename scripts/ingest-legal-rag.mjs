@@ -63,7 +63,7 @@ async function main() {
           checksum: document.checksum,
         },
         chunks: batches[index],
-        replaceExisting: index === 0 && options.replace !== 'false',
+        replaceExisting: index === batches.length - 1 && options.replace !== 'false',
       }),
     });
 
