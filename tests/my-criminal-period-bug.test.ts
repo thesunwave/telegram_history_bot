@@ -157,7 +157,7 @@ describe('/my_criminal [period] — period argument is honored', () => {
       const env = makeEnv(db);
       await myCriminalStats(env, TEST_CHAT_ID, TEST_USER_ID, period);
 
-      // The aggregate and article queries both bind (userId, chatId, startStr).
+      // Both queries use the same period start for canonical and legacy rows.
       const periodBinds = bindCalls.filter((args) => args[2] === expectedStart);
       expect(periodBinds.length).toBe(2);
     }

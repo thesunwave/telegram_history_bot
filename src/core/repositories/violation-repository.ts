@@ -192,7 +192,14 @@ export class ViolationRepository implements IViolationRepository {
       const periodClause = this.buildPeriodClause(period);
       const datePredicate = periodClause ? periodClause.clause : '';
       const bindArgs = periodClause
-        ? [parseInt(userId), parseInt(chatId), periodClause.startStr]
+        ? [
+          parseInt(userId),
+          parseInt(chatId),
+          periodClause.startStr,
+          periodClause.endStr,
+          periodClause.startStr,
+          periodClause.endStr,
+        ]
         : [parseInt(userId), parseInt(chatId)];
 
       // Получаем агрегированную статистику пользователя
@@ -562,13 +569,21 @@ export class ViolationRepository implements IViolationRepository {
   }
 
   /**
-   * Строит SQL-фрагмент для фильтрации по периоду на колонке violation_day
-   * (календарные дни, формат YYYY-MM-DD, совпадает с KV-путём getUserCriminalStats).
+   * Строит SQL-фрагмент для фильтрации по календарному периоду.
+   * Новые строки используют canonical violation_day, старые строки — created_at.
    * Возвращает null для отсутствующего/невалидного периода (все нарушения).
    */
-  private buildPeriodClause(period: string | undefined): { clause: string; startStr: string } | null {
+  private buildPeriodClause(
+    period: string | undefined,
+  ): { clause: string; startStr: string; endStr: string } | null {
     if (!isValidStatsPeriod(period)) return null;
-    const { startStr } = getStatsPeriodRange(period);
-    return { clause: ' AND violation_day >= ?', startStr };
+    const { startStr, endStr } = getStatsPeriodRange(period);
+    return {
+      clause:
+        ' AND ((violation_day IS NOT NULL AND violation_day >= ? AND violation_day <= ?)' +
+        ' OR (violation_day IS NULL AND date(created_at) >= ? AND date(created_at) <= ?))',
+      startStr,
+      endStr,
+    };
   }
 }

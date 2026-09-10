@@ -234,7 +234,7 @@ describe('ViolationRepository Integration Tests', () => {
       vi.useRealTimers();
     });
 
-    it('должен добавить фильтр violation_day >= ? для week и биндить startStr (today - WEEK_DAYS)', async () => {
+    it('должен фильтровать week по canonical day с fallback на created_at для старых строк', async () => {
       mockStmt.first.mockResolvedValueOnce({
         total_violations: 7,
         average_severity: 5.0,
@@ -248,8 +248,21 @@ describe('ViolationRepository Integration Tests', () => {
         .map((c: any) => c[0] as string)
         .filter((q: string) => q.includes('criminal_violations') && q.includes('violation_day >= ?'));
       expect(periodQueries.length).toBe(2); // aggregate + GROUP BY
+      for (const query of periodQueries) {
+        expect(query).toContain('violation_day IS NOT NULL AND violation_day >= ? AND violation_day <= ?');
+        expect(query).toContain(
+          'violation_day IS NULL AND date(created_at) >= ? AND date(created_at) <= ?',
+        );
+      }
 
-      expect(mockStmt.bind).toHaveBeenCalledWith(12345, -1001234567890, '2026-09-01');
+      expect(mockStmt.bind).toHaveBeenCalledWith(
+        12345,
+        -1001234567890,
+        '2026-09-01',
+        '2026-09-07',
+        '2026-09-01',
+        '2026-09-07',
+      );
       expect(result.totalViolations).toBe(7);
     });
 
@@ -263,7 +276,14 @@ describe('ViolationRepository Integration Tests', () => {
 
       await repository.getUserStats('12345', '-1001234567890', 'today');
 
-      expect(mockStmt.bind).toHaveBeenCalledWith(12345, -1001234567890, '2026-09-07');
+      expect(mockStmt.bind).toHaveBeenCalledWith(
+        12345,
+        -1001234567890,
+        '2026-09-07',
+        '2026-09-07',
+        '2026-09-07',
+        '2026-09-07',
+      );
     });
 
     it('должен биндить month startStr = today - MONTH_DAYS', async () => {
@@ -276,7 +296,14 @@ describe('ViolationRepository Integration Tests', () => {
 
       await repository.getUserStats('12345', '-1001234567890', 'month');
 
-      expect(mockStmt.bind).toHaveBeenCalledWith(12345, -1001234567890, '2026-08-11');
+      expect(mockStmt.bind).toHaveBeenCalledWith(
+        12345,
+        -1001234567890,
+        '2026-08-11',
+        '2026-09-07',
+        '2026-08-11',
+        '2026-09-07',
+      );
     });
 
     it('не должен добавлять фильтр для невалидного периода (all-time)', async () => {
