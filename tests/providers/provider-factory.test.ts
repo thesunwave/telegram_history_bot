@@ -251,6 +251,26 @@ describe("ProviderFactory", () => {
       expect(provider.getProviderInfo().model).toBe("gpt-4.1");
     });
 
+    it("should fall back to SUMMARY_PROVIDER when capability-specific provider is empty string", () => {
+      (mockEnv as any).SUMMARY_PROVIDER = "openai";
+      (mockEnv as any).OPENAI_API_KEY = "test-key";
+      (mockEnv as any).CRIMINAL_PROVIDER = "";
+
+      const provider = ProviderFactory.createProvider(mockEnv, "criminal");
+
+      expect(provider).toBeInstanceOf(OpenAIProvider);
+      expect(provider.getProviderInfo().name).toBe("openai");
+    });
+
+    it("should default to cloudflare when capability var and SUMMARY_PROVIDER are both empty/unset", () => {
+      (mockEnv as any).CRIMINAL_PROVIDER = "";
+
+      const provider = ProviderFactory.createProvider(mockEnv, "criminal");
+
+      expect(provider).toBeInstanceOf(CloudflareAIProvider);
+      expect(provider.getProviderInfo().name).toBe("cloudflare");
+    });
+
     it("should handle missing required configuration gracefully", () => {
       // Test with missing AI binding for Cloudflare
       const envWithoutAI = {

@@ -247,7 +247,7 @@ describe('ContextOptimizer', () => {
       }
     });
 
-    it('should respect max preprocessing chunks limit', () => {
+    it('should preserve all messages when chunk count exceeds max preprocessing chunks', () => {
       const manyMessages: TelegramMessage[] = [];
       for (let i = 0; i < 100; i++) {
         manyMessages.push({
@@ -258,7 +258,24 @@ describe('ContextOptimizer', () => {
       }
 
       const result = optimizer.createOptimalChunks(manyMessages, 20); // Smaller token limit to force more chunks
-      expect(result.length).toBeLessThanOrEqual(config.hierarchicalProcessing.maxPreprocessingChunks);
+
+      // maxPreprocessingChunks is a merge target, not a hard truncation: once
+      // the total tokens exceed maxChunks * effectiveMaxTokens the chunk count
+      // cannot be reduced to the cap without dropping messages. Every message
+      // must survive chunking (previously the trailing/newest messages were
+      // silently discarded via slice(0, maxChunks)).
+      const totalMessages = result.reduce((sum, chunk) => sum + chunk.length, 0);
+      expect(totalMessages).toBe(manyMessages.length);
+
+      const returnedTexts = new Set(result.flat().map((m) => m.text));
+      for (const m of manyMessages) {
+        expect(returnedTexts.has(m.text)).toBe(true);
+      }
+      expect(returnedTexts.has(manyMessages[manyMessages.length - 1].text)).toBe(true);
+
+      for (const chunk of result) {
+        expect(chunk.length).toBeGreaterThan(0);
+      }
     });
   });
 

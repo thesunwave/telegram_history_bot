@@ -494,11 +494,15 @@ export class OpenAIProvider implements AIProvider {
 
     if (useResponsesApi) {
       const content = this.extractResponsesContent(parsed);
+      let finishReason = 'stop';
+      if (parsed.status === 'incomplete') {
+        finishReason = parsed.incomplete_details?.reason === 'content_filter' ? 'content_filter' : 'length';
+      }
       return {
         choices: [
           {
             message: { content },
-            finish_reason: 'stop'
+            finish_reason: finishReason
           }
         ],
         usage: usage
@@ -519,12 +523,20 @@ export class OpenAIProvider implements AIProvider {
 
     const status = response.status;
     const incompleteReason = response.incomplete_details?.reason;
+    const truncated = !!status && status !== 'completed';
+
+    // Extract the best available content BEFORE consulting `status`. The
+    // OpenAI Responses API can return `status:"incomplete"` (e.g. with
+    // `incomplete_details.reason:"max_output_tokens"`) together with a
+    // truncated `output_text` / `output` array. Inspecting `status` only
+    // after extraction — and surfacing a warn whenever the response was
+    // truncated — keeps the truncation categorisation visible for partial
+    // content instead of silently swallowing it via the early-return path.
+    let content: string | null = null;
 
     if (typeof response.output_text === 'string' && response.output_text.trim()) {
-      return response.output_text.trim();
-    }
-
-    if (Array.isArray(response.output)) {
+      content = response.output_text.trim();
+    } else if (Array.isArray(response.output)) {
       // Prefer message-type items; fallback to any item with text
       const orderedOutputs = [
         ...response.output.filter((item: any) => item?.type === 'message' || item?.role === 'assistant'),
@@ -532,70 +544,60 @@ export class OpenAIProvider implements AIProvider {
       ];
 
       for (const item of orderedOutputs) {
-        if (typeof item === 'string' && item.trim()) return item.trim();
+        if (typeof item === 'string' && item.trim()) {
+          content = item.trim();
+          break;
+        }
 
-        const content = item?.content || item?.message?.content;
-        if (typeof content === 'string' && content.trim()) return content.trim();
-        if (Array.isArray(content)) {
-          const textPart = content.find((c: any) => c?.text?.value || c?.text || typeof c === 'string');
-          if (textPart?.text?.value?.trim()) return textPart.text.value.trim();
-          if (typeof textPart?.text === 'string' && textPart.text.trim()) return textPart.text.trim();
-          if (typeof textPart === 'string' && textPart.trim()) return textPart.trim();
+        const itemContent = item?.content || item?.message?.content;
+        if (typeof itemContent === 'string' && itemContent.trim()) {
+          content = itemContent.trim();
+          break;
+        }
+        if (Array.isArray(itemContent)) {
+          const textPart = itemContent.find((c: any) => c?.text?.value || c?.text || typeof c === 'string');
+          if (textPart?.text?.value?.trim()) {
+            content = textPart.text.value.trim();
+            break;
+          }
+          if (typeof textPart?.text === 'string' && textPart.text.trim()) {
+            content = textPart.text.trim();
+            break;
+          }
+          if (typeof textPart === 'string' && textPart.trim()) {
+            content = textPart.trim();
+            break;
+          }
         }
 
         if (Array.isArray(item?.summary) && item.summary.length > 0) {
           const summaryText = item.summary.join(' ').trim();
-          if (summaryText) return summaryText;
+          if (summaryText) {
+            content = summaryText;
+            break;
+          }
         }
       }
     }
 
-    if (status && status !== 'completed') {
+    if (truncated) {
       const reasonSuffix = incompleteReason ? ` (${incompleteReason})` : '';
+      Logger.warn(`OpenAI Responses API returned incomplete result${reasonSuffix}`, {
+        contentLength: content?.length ?? 0,
+        reason: incompleteReason
+      });
+    }
 
-      // If we have content but stopped due to length/token limits, return what we have with a warning
-      if (incompleteReason === 'max_output_tokens' || incompleteReason === 'max_tokens' || incompleteReason === 'length') {
-        const content = this.extractBestAvailableContent(response);
-        if (content) {
-          Logger.warn(`OpenAI Responses API returned incomplete result${reasonSuffix}, returning partial content`, {
-            contentLength: content.length,
-            reason: incompleteReason
-          });
-          return content;
-        }
-      }
+    if (content) {
+      return content;
+    }
 
+    if (truncated) {
+      const reasonSuffix = incompleteReason ? ` (${incompleteReason})` : '';
       throw new ProviderError(`OpenAI Responses API returned incomplete result${reasonSuffix}`, 'openai');
     }
 
     throw new ProviderError('OpenAI Responses API did not return any text output', 'openai');
-  }
-
-  private extractBestAvailableContent(response: any): string | null {
-    if (typeof response.output_text === 'string' && response.output_text.trim()) {
-      return response.output_text.trim();
-    }
-
-    if (Array.isArray(response.output)) {
-      const orderedOutputs = [
-        ...response.output.filter((item: any) => item?.type === 'message' || item?.role === 'assistant'),
-        ...response.output
-      ];
-
-      for (const item of orderedOutputs) {
-        if (typeof item === 'string' && item.trim()) return item.trim();
-
-        const content = item?.content || item?.message?.content;
-        if (typeof content === 'string' && content.trim()) return content.trim();
-        if (Array.isArray(content)) {
-          const textPart = content.find((c: any) => c?.text?.value || c?.text || typeof c === 'string');
-          if (textPart?.text?.value?.trim()) return textPart.text.value.trim();
-          if (typeof textPart?.text === 'string' && textPart.text.trim()) return textPart.text.trim();
-          if (typeof textPart === 'string' && textPart.trim()) return textPart.trim();
-        }
-      }
-    }
-    return null;
   }
 
   private getModelOutputCap(model: string): number {
@@ -1019,7 +1021,10 @@ export class OpenAIProvider implements AIProvider {
         }
       }
 
-      return parsed as CriminalAnalysisResult;
+      return {
+        ...parsed,
+        analysisTimestamp: Date.now(),
+      } as CriminalAnalysisResult;
     } catch (error) {
       Logger.error('OpenAI criminal code analysis: response parsing failed', {
         provider: 'openai',

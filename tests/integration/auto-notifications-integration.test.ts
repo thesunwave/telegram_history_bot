@@ -371,12 +371,13 @@ describe('Auto Notifications Integration', () => {
 
       await handleUpdate(mockMessage, mockEnv);
 
-      // Проверяем, что система обработала ошибку и показала сообщение для нового чата
+      // Повреждённые данные не должны маскироваться как «настроек нет»: ошибка
+      // разбора должна всплывать как сообщение об ошибке команды.
       const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
-        expect.stringContaining('Уведомления не настроены для этого чата')
+        expect.stringContaining('Ошибка при выполнении команды')
       );
     });
   });
