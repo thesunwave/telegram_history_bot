@@ -53,6 +53,28 @@ interface CircuitBreakerState {
   lastSuccessTime: number;
 }
 
+// Module-level circuit breaker state, shared across ProfanityAnalyzer instances.
+// Production constructs a fresh ProfanityAnalyzer per message (src/api/update.ts),
+// so storing this on the instance would discard accumulated failures before the
+// threshold (CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5) could ever be reached.
+// Module-level state lets failures accumulate across those per-message instances
+// within the same isolate. (Cross-isolate persistence would require DO/KV.)
+const circuitBreakerState: CircuitBreakerState = {
+  failures: 0,
+  lastFailureTime: 0,
+  isOpen: false,
+  lastSuccessTime: Date.now()
+};
+
+// Reset module-level circuit breaker state. Intended for use between tests so
+// isolated test cases do not inherit failure counts from prior cases.
+export function resetCircuitBreakerState(): void {
+  circuitBreakerState.failures = 0;
+  circuitBreakerState.lastFailureTime = 0;
+  circuitBreakerState.isOpen = false;
+  circuitBreakerState.lastSuccessTime = Date.now();
+}
+
 // Main profanity analyzer class
 export class ProfanityAnalyzer {
   // TTL is now configured via env variables, defaults to 4 hours
@@ -75,13 +97,6 @@ export class ProfanityAnalyzer {
 
   private static readonly COUNTER_BATCH_SIZE = 25;
   private static readonly COUNTER_BATCH_TIMEOUT_MS = 50;
-
-  private circuitBreakerState: CircuitBreakerState = {
-    failures: 0,
-    lastFailureTime: 0,
-    isOpen: false,
-    lastSuccessTime: Date.now()
-  };
 
   // Batching state
   private batchQueue: BatchRequest[] = [];
@@ -117,14 +132,14 @@ export class ProfanityAnalyzer {
     const now = Date.now();
 
     // If circuit is open, check if timeout has passed
-    if (this.circuitBreakerState.isOpen) {
-      if (now - this.circuitBreakerState.lastFailureTime > ProfanityAnalyzer.CIRCUIT_BREAKER_TIMEOUT) {
+    if (circuitBreakerState.isOpen) {
+      if (now - circuitBreakerState.lastFailureTime > ProfanityAnalyzer.CIRCUIT_BREAKER_TIMEOUT) {
         // Try to close the circuit (half-open state)
-        this.circuitBreakerState.isOpen = false;
+        circuitBreakerState.isOpen = false;
         Logger.log('Profanity circuit breaker: attempting to close circuit', {
-          failureCount: this.circuitBreakerState.failures,
+          failureCount: circuitBreakerState.failures,
           timeoutDuration: ProfanityAnalyzer.CIRCUIT_BREAKER_TIMEOUT,
-          timeSinceLastFailure: now - this.circuitBreakerState.lastFailureTime
+          timeSinceLastFailure: now - circuitBreakerState.lastFailureTime
         });
         return false;
       }
@@ -132,10 +147,10 @@ export class ProfanityAnalyzer {
     }
 
     // Check if we should open the circuit due to too many failures
-    if (this.circuitBreakerState.failures >= ProfanityAnalyzer.CIRCUIT_BREAKER_FAILURE_THRESHOLD) {
-      this.circuitBreakerState.isOpen = true;
+    if (circuitBreakerState.failures >= ProfanityAnalyzer.CIRCUIT_BREAKER_FAILURE_THRESHOLD) {
+      circuitBreakerState.isOpen = true;
       Logger.log('Profanity circuit breaker: opening circuit due to failures', {
-        failureCount: this.circuitBreakerState.failures,
+        failureCount: circuitBreakerState.failures,
         threshold: ProfanityAnalyzer.CIRCUIT_BREAKER_FAILURE_THRESHOLD,
         timeoutDuration: ProfanityAnalyzer.CIRCUIT_BREAKER_TIMEOUT
       });
@@ -147,30 +162,30 @@ export class ProfanityAnalyzer {
 
   private recordAISuccess(): void {
     const now = Date.now();
-    const wasOpen = this.circuitBreakerState.isOpen;
-    const previousLastSuccessTime = this.circuitBreakerState.lastSuccessTime;
+    const wasOpen = circuitBreakerState.isOpen;
+    const previousLastSuccessTime = circuitBreakerState.lastSuccessTime;
 
     // Reset circuit breaker state on success
-    this.circuitBreakerState.isOpen = false;
-    this.circuitBreakerState.lastSuccessTime = now;
+    circuitBreakerState.isOpen = false;
+    circuitBreakerState.lastSuccessTime = now;
 
     // If successful after timeout, we can consider reducing failures
-    if (now - this.circuitBreakerState.lastFailureTime > ProfanityAnalyzer.CIRCUIT_BREAKER_RESET_TIMEOUT) {
-      if (this.circuitBreakerState.failures > 0) {
+    if (now - circuitBreakerState.lastFailureTime > ProfanityAnalyzer.CIRCUIT_BREAKER_RESET_TIMEOUT) {
+      if (circuitBreakerState.failures > 0) {
         Logger.log('Profanity circuit breaker: resetting failure count due to sustained success', {
-          previousFailures: this.circuitBreakerState.failures,
+          previousFailures: circuitBreakerState.failures,
           resetTimeout: ProfanityAnalyzer.CIRCUIT_BREAKER_RESET_TIMEOUT,
-          successDuration: now - this.circuitBreakerState.lastFailureTime,
+          successDuration: now - circuitBreakerState.lastFailureTime,
           circuitWasPreviouslyOpen: wasOpen
         });
-        this.circuitBreakerState.failures = 0;
+        circuitBreakerState.failures = 0;
       }
     }
 
     if (wasOpen) {
       Logger.log('Profanity circuit breaker: successfully closed circuit', {
-        previousFailures: this.circuitBreakerState.failures,
-        currentFailures: this.circuitBreakerState.failures,
+        previousFailures: circuitBreakerState.failures,
+        currentFailures: circuitBreakerState.failures,
         timeSinceLastSuccess: now - previousLastSuccessTime,
         circuitCloseTime: now
       });
@@ -178,13 +193,13 @@ export class ProfanityAnalyzer {
   }
 
   private recordAIFailure(): void {
-    this.circuitBreakerState.failures++;
-    this.circuitBreakerState.lastFailureTime = Date.now();
+    circuitBreakerState.failures++;
+    circuitBreakerState.lastFailureTime = Date.now();
 
     Logger.log('Profanity circuit breaker: recorded AI failure', {
-      failureCount: this.circuitBreakerState.failures,
+      failureCount: circuitBreakerState.failures,
       threshold: ProfanityAnalyzer.CIRCUIT_BREAKER_FAILURE_THRESHOLD,
-      willOpenCircuit: this.circuitBreakerState.failures >= ProfanityAnalyzer.CIRCUIT_BREAKER_FAILURE_THRESHOLD
+      willOpenCircuit: circuitBreakerState.failures >= ProfanityAnalyzer.CIRCUIT_BREAKER_FAILURE_THRESHOLD
     });
   }
 
@@ -266,8 +281,8 @@ export class ProfanityAnalyzer {
         const circuitBreakerDuration = Date.now() - startTime;
         Logger.log('Profanity analysis: circuit breaker is open, returning empty result', {
           duration: circuitBreakerDuration,
-          failures: this.circuitBreakerState.failures,
-          lastFailureTime: this.circuitBreakerState.lastFailureTime
+          failures: circuitBreakerState.failures,
+          lastFailureTime: circuitBreakerState.lastFailureTime
         });
 
         const emptyResult: ProfanityResult = { words: [], totalCount: 0 };
@@ -335,9 +350,9 @@ export class ProfanityAnalyzer {
           cacheStorage: timings.cacheStorage || null
         },
         circuitBreakerState: {
-          failures: this.circuitBreakerState.failures,
-          isOpen: this.circuitBreakerState.isOpen,
-          lastFailureTime: this.circuitBreakerState.lastFailureTime
+          failures: circuitBreakerState.failures,
+          isOpen: circuitBreakerState.isOpen,
+          lastFailureTime: circuitBreakerState.lastFailureTime
         },
         errorType: error instanceof Error ? error.constructor.name : 'unknown',
         stack: error instanceof Error ? error.stack?.substring(0, 200) : null
@@ -635,7 +650,7 @@ export class ProfanityAnalyzer {
           duration,
           provider: aiProvider.getProviderInfo().name,
           timeoutThreshold: ProfanityAnalyzer.ANALYSIS_TIMEOUT,
-          circuitBreakerFailures: this.circuitBreakerState.failures,
+          circuitBreakerFailures: circuitBreakerState.failures,
           timeoutRatio: (duration / ProfanityAnalyzer.ANALYSIS_TIMEOUT * 100).toFixed(1) + '%',
           recommendation: 'Check AI provider status or increase timeout if this persists'
         });
@@ -645,7 +660,7 @@ export class ProfanityAnalyzer {
           duration,
           provider: aiProvider.getProviderInfo().name,
           error: error instanceof Error ? error.message : String(error),
-          circuitBreakerFailures: this.circuitBreakerState.failures
+          circuitBreakerFailures: circuitBreakerState.failures
         });
       }
       throw error;
@@ -696,6 +711,11 @@ export class ProfanityAnalyzer {
       // For batch processing, we'll process each text individually through the provider
       // This is simpler than trying to extend all providers to support batch analysis
       const results: ProfanityResult[] = [];
+      // Track which batch items failed so the corresponding request is rejected
+      // (not resolved) below. This propagates the failure to analyzeMessage's catch,
+      // which is the only path that calls recordAIFailure() and so the only way the
+      // circuit breaker's failure counter can increment through the batch path.
+      const failedIndexes = new Set<number>();
 
       for (let i = 0; i < batch.length; i++) {
         try {
@@ -713,13 +733,22 @@ export class ProfanityAnalyzer {
             textLength: batch[i].text.length,
             error: error instanceof Error ? error.message : String(error)
           });
+          failedIndexes.add(i);
+          // Placeholder keeps results aligned with batch indexes; it is rejected
+          // below and the value is never observed by the caller.
           results.push({ words: [], totalCount: 0 });
         }
       }
 
-      // Resolve all batch requests
+      // Failed items reject so analyzeMessage's catch (which calls recordAIFailure)
+      // runs; successful items resolve normally. Resolving a failed item as an empty
+      // result here would swallow the failure and keep the circuit breaker closed.
       batch.forEach((request, index) => {
-        request.resolve(results[index]);
+        if (failedIndexes.has(index)) {
+          request.reject(new Error('AI analysis failed for batch item'));
+        } else {
+          request.resolve(results[index]);
+        }
       });
 
     } catch (error) {
