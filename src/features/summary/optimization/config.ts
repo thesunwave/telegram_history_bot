@@ -13,6 +13,7 @@ const DEFAULT_CONFIG: Omit<SummaryOptimizationConfig, 'modelLimits'> = {
     maxWorkers: 5,
     workerBatchSize: 50,
     workerTimeout: 30000, // 30 seconds
+    minCoverageRatio: 0.5, // minimum fraction of chunks that must succeed before aggregation
   },
 
   contextManagement: {
@@ -181,6 +182,11 @@ export function loadOptimizationConfig(env: Env): SummaryOptimizationConfig {
         'SUMMARY_OPT_WORKER_TIMEOUT',
         DEFAULT_CONFIG.parallelProcessing.workerTimeout,
       ),
+      minCoverageRatio: getEnvFloat(
+        env,
+        'SUMMARY_OPT_MIN_CHUNK_COVERAGE',
+        DEFAULT_CONFIG.parallelProcessing.minCoverageRatio,
+      ),
     },
 
     contextManagement: {
@@ -258,6 +264,13 @@ function validateConfig(config: SummaryOptimizationConfig): void {
     throw new Error('SUMMARY_OPT_WORKER_TIMEOUT must be between 5000ms and 300000ms');
   }
 
+  if (
+    config.parallelProcessing.minCoverageRatio < 0.01 ||
+    config.parallelProcessing.minCoverageRatio > 1
+  ) {
+    throw new Error('SUMMARY_OPT_MIN_CHUNK_COVERAGE must be between 0.01 and 1');
+  }
+
   // Validate context management config
   if (
     config.contextManagement.maxTokensPerRequest < 1000 ||
@@ -320,6 +333,15 @@ function getEnvNumber(env: Env, key: string, defaultValue: number): number {
   const value = (env as any)[key];
   if (typeof value === 'string') {
     const parsed = parseInt(value, 10);
+    return isNaN(parsed) ? defaultValue : parsed;
+  }
+  return typeof value === 'number' ? value : defaultValue;
+}
+
+function getEnvFloat(env: Env, key: string, defaultValue: number): number {
+  const value = (env as any)[key];
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
     return isNaN(parsed) ? defaultValue : parsed;
   }
   return typeof value === 'number' ? value : defaultValue;
