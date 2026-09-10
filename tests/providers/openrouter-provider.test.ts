@@ -116,4 +116,38 @@ describe('OpenRouterProvider', () => {
     expect(result.hasViolations).toBe(false);
     expect(result.violations).toEqual([]);
   });
+
+  it('summarize emits response_format when caller sets forceJsonResponse=true', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: '{}' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = new OpenRouterProvider(env);
+    await provider.summarize(
+      { messages: [{ username: 'u', text: 'hi', ts: 1 }], systemPrompt: 's', userPrompt: 'u', limitNote: '' },
+      { maxTokens: 1000, temperature: 0.2, forceJsonResponse: true },
+      env,
+    );
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.response_format).toEqual({ type: 'json_object' });
+  });
+
+  it('summarize omits response_format when forceJsonResponse is not set', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'summary text' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = new OpenRouterProvider(env);
+    await provider.summarize(
+      { messages: [{ username: 'u', text: 'hi', ts: 1 }], systemPrompt: 's', userPrompt: 'u', limitNote: '' },
+      { maxTokens: 1000, temperature: 0.2 },
+      env,
+    );
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.response_format).toBeUndefined();
+  });
 });
