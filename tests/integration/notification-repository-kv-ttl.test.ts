@@ -109,12 +109,12 @@ describe('NotificationRepository getScheduledNotifications — real-KV TTL expir
       }));
       await repo.saveScheduledNotification(makeNotification(nowMs, {
         id: 'stale',
-        scheduledAt: new Date(nowMs - 16_000),
+        scheduledAt: new Date(nowMs - 16_000_000),
       }));
     });
 
     // Advance 7 days. The stale entry (ttl ~6.8 days) has expired; the live
-    // entry (ttl ~8 days) is still within TTL.
+    // entry (ttl ~7 days + 60s) is still within TTL.
     nowMs += 7 * DAY_MS;
 
     const staleBefore = await history.get(`scheduled_notification:stale`);
