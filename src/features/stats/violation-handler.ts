@@ -22,7 +22,7 @@ import { validateViolationAnalysis, ValidationError, DataSanitizer, ValidationUt
  */
 export interface IViolationHandler {
   formatViolationMessage(analysis: ViolationAnalysis, userId?: string, chatId?: string): Promise<string>;
-  getUserStats(userId: string, chatId: string): Promise<string>;
+  getUserStats(userId: string, chatId: string, period?: string): Promise<string>;
   getPeriodStats(chatId: string, days: number): Promise<string>;
   getGeneralStats(chatId: string): Promise<string>;
 }
@@ -84,7 +84,7 @@ export class ViolationHandler implements IViolationHandler {
   /**
    * Получает и форматирует статистику пользователя
    */
-  async getUserStats(userId: string, chatId: string): Promise<string> {
+  async getUserStats(userId: string, chatId: string, period?: string): Promise<string> {
     try {
       // Валидация и санитизация входных параметров
       const sanitizedUserId = ValidationUtils.sanitizeString(userId);
@@ -93,7 +93,7 @@ export class ViolationHandler implements IViolationHandler {
       this.validateUserStatsParams(sanitizedUserId, sanitizedChatId);
 
       // Получаем статистику
-      const userStats = await this.statisticsService.getUserStats(sanitizedUserId, sanitizedChatId);
+      const userStats = await this.statisticsService.getUserStats(sanitizedUserId, sanitizedChatId, period);
 
       // Проверяем на пустую статистику
       if (!userStats || userStats.totalViolations === 0) {

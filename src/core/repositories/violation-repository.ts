@@ -14,6 +14,7 @@ import type {
   PeriodComparison
 } from '../models/statistics';
 import { ValidationUtils } from '../models/validation';
+import { getStatsPeriodRange, isValidStatsPeriod } from '../stats-period';
 import {
   addSentenceTotals,
   calculateSentenceFromViolationCount,
@@ -30,7 +31,7 @@ export interface IViolationRepository {
   getAllViolations(chatId: string): Promise<Violation[]>;
   
   // Методы для статистики
-  getUserStats(userId: string, chatId: string): Promise<UserStats>;
+  getUserStats(userId: string, chatId: string, period?: string): Promise<UserStats>;
   getPeriodStats(chatId: string, days: number): Promise<PeriodStats>;
   getGeneralStats(chatId: string): Promise<GeneralStats>;
   getTopUsersBySentenceStats?(chatId: string, days: number, limit: number): Promise<UserViolationCount[]>;
@@ -181,12 +182,26 @@ export class ViolationRepository implements IViolationRepository {
   /**
    * Получить статистику пользователя
    */
-  async getUserStats(userId: string, chatId: string): Promise<UserStats> {
+  async getUserStats(userId: string, chatId: string, period?: string): Promise<UserStats> {
     if (!this.env.DB) {
       throw new Error('Database not available');
     }
 
     try {
+      // Опциональный фильтр по периоду (календарные дни через violation_day)
+      const periodClause = this.buildPeriodClause(period);
+      const datePredicate = periodClause ? periodClause.clause : '';
+      const bindArgs = periodClause
+        ? [
+          parseInt(userId),
+          parseInt(chatId),
+          periodClause.startStr,
+          periodClause.endStr,
+          periodClause.startStr,
+          periodClause.endStr,
+        ]
+        : [parseInt(userId), parseInt(chatId)];
+
       // Получаем агрегированную статистику пользователя
       const userStatsStmt = this.env.DB.prepare(`
         SELECT 
@@ -194,10 +209,10 @@ export class ViolationRepository implements IViolationRepository {
           AVG(severity) as average_severity,
           MAX(created_at) as last_violation_date
         FROM criminal_violations 
-        WHERE user_id = ? AND chat_id = ?
+        WHERE user_id = ? AND chat_id = ?${datePredicate}
       `);
 
-      const userStatsResult: any = await userStatsStmt.bind(parseInt(userId), parseInt(chatId)).first();
+      const userStatsResult: any = await userStatsStmt.bind(...bindArgs).first();
 
       // Получаем нарушения по статьям
       const violationsByArticleStmt = this.env.DB.prepare(`
@@ -209,12 +224,12 @@ export class ViolationRepository implements IViolationRepository {
           COUNT(*) as count,
           AVG(severity) as average_severity
         FROM criminal_violations 
-        WHERE user_id = ? AND chat_id = ?
+        WHERE user_id = ? AND chat_id = ?${datePredicate}
         GROUP BY article, subarticle, article_title, punishment
         ORDER BY count DESC
       `);
 
-      const violationsByArticleResult = await violationsByArticleStmt.bind(parseInt(userId), parseInt(chatId)).all();
+      const violationsByArticleResult = await violationsByArticleStmt.bind(...bindArgs).all();
 
       const totalViolations = Number(userStatsResult?.total_violations || 0);
       const averageSeverity = Number(userStatsResult?.average_severity || 0);
@@ -550,6 +565,25 @@ export class ViolationRepository implements IViolationRepository {
       punishment: row.punishment || '',
       count: row.count || 0,
       averageSeverity: row.average_severity || 0
+    };
+  }
+
+  /**
+   * Строит SQL-фрагмент для фильтрации по календарному периоду.
+   * Новые строки используют canonical violation_day, старые строки — created_at.
+   * Возвращает null для отсутствующего/невалидного периода (все нарушения).
+   */
+  private buildPeriodClause(
+    period: string | undefined,
+  ): { clause: string; startStr: string; endStr: string } | null {
+    if (!isValidStatsPeriod(period)) return null;
+    const { startStr, endStr } = getStatsPeriodRange(period);
+    return {
+      clause:
+        ' AND ((violation_day IS NOT NULL AND violation_day >= ? AND violation_day <= ?)' +
+        ' OR (violation_day IS NULL AND date(created_at) >= ? AND date(created_at) <= ?))',
+      startStr,
+      endStr,
     };
   }
 }

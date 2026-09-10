@@ -56,7 +56,7 @@ describe('StatisticsService', () => {
 
       // Assert
       expect(result).toEqual(emptyUserStats);
-      expect(mockViolationRepository.getUserStats).toHaveBeenCalledWith(userId, chatId);
+      expect(mockViolationRepository.getUserStats).toHaveBeenCalledWith(userId, chatId, undefined);
     });
 
     it('должен правильно группировать нарушения по статьям УК РФ', async () => {
@@ -97,7 +97,31 @@ describe('StatisticsService', () => {
 
       // Assert
       expect(result).toEqual(expectedUserStats);
-      expect(mockViolationRepository.getUserStats).toHaveBeenCalledWith(userId, chatId);
+      expect(mockViolationRepository.getUserStats).toHaveBeenCalledWith(userId, chatId, undefined);
+    });
+
+    it('должен передавать period в репозиторий', async () => {
+      // Arrange
+      const userId = '123';
+      const chatId = '456';
+      const periodUserStats: UserStats = {
+        userId,
+        chatId,
+        totalViolations: 2,
+        violationsByArticle: [],
+        averageSeverity: 4,
+        riskLevel: 'medium',
+        mostCommonViolation: undefined
+      };
+
+      vi.mocked(mockViolationRepository.getUserStats).mockResolvedValue(periodUserStats);
+
+      // Act
+      const result = await statisticsService.getUserStats(userId, chatId, 'week');
+
+      // Assert
+      expect(result).toEqual(periodUserStats);
+      expect(mockViolationRepository.getUserStats).toHaveBeenCalledWith(userId, chatId, 'week');
     });
 
     it('должен правильно вычислять уровень риска', async () => {

@@ -15,7 +15,7 @@ import type { IViolationRepository } from '../repositories/violation-repository'
  * Интерфейс сервиса статистики
  */
 export interface IStatisticsService {
-  getUserStats(userId: string, chatId: string): Promise<UserStats>;
+  getUserStats(userId: string, chatId: string, period?: string): Promise<UserStats>;
   getPeriodStats(chatId: string, days: number): Promise<PeriodStats>;
   getGeneralStats(chatId: string): Promise<GeneralStats>;
   saveViolation(violation: Violation, userId: string, chatId: string): Promise<void>;
@@ -30,10 +30,10 @@ export class StatisticsService implements IStatisticsService {
   /**
    * Получить статистику пользователя с группировкой по статьям УК РФ
    */
-  async getUserStats(userId: string, chatId: string): Promise<UserStats> {
+  async getUserStats(userId: string, chatId: string, period?: string): Promise<UserStats> {
     try {
       // Используем готовый метод репозитория, который уже реализует всю логику
-      return await this.violationRepository.getUserStats(userId, chatId);
+      return await this.violationRepository.getUserStats(userId, chatId, period);
     } catch (error) {
       console.error('❌ Error getting user stats:', error);
       throw new Error(`Failed to get user stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
