@@ -12,14 +12,15 @@ export function chunkText(text: string, limit: number): string[] {
   for (const line of lines) {
     const candidate = current ? current + '\n' + line : line;
     if (Array.from(candidate).length > limit) {
-      if (current) {
-        flush();
-        current = line;
-      } else {
-        const chars = Array.from(line);
+      if (current) flush();
+
+      const chars = Array.from(line);
+      if (chars.length > limit) {
         for (let i = 0; i < chars.length; i += limit) {
           parts.push(chars.slice(i, i + limit).join(''));
         }
+      } else {
+        current = line;
       }
       continue;
     }

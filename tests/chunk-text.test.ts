@@ -57,6 +57,14 @@ describe('chunkText', () => {
     expect(parts.join('')).toBe(text);
   });
 
+  it('hard-splits an over-limit line after flushing a preceding line', () => {
+    const parts = chunkText(`short\n${'x'.repeat(20)}`, 10);
+    expect(parts).toEqual(['short', 'x'.repeat(10), 'x'.repeat(10)]);
+    for (const part of parts) {
+      expect(codePoints(part)).toBeLessThanOrEqual(10);
+    }
+  });
+
   it('chunks on newline boundaries so no line is severed and parts.join("\\n") reconstructs the input', () => {
     const lines = Array.from({ length: 100 }, (_, i) => `user_${i % 5}: message number ${i}`);
     const text = lines.join('\n');
