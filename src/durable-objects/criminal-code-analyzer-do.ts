@@ -2069,6 +2069,7 @@ export class CriminalCodeAnalyzerDO {
       whyNotBenign: this.cleanJudgeText(judge.evidence?.whyNotBenign, decision === 'violation' ? 'model classified as non-benign' : 'not classified as violation'),
     };
     const meaningVerdict = this.evaluateFinalJudgeMeaning(judge.meaning, input);
+    const groundedMeaningQuote = this.getGroundedFinalJudgeMeaningEvidence(judge.meaning, input);
     const judgedViolations = judge.violations || [];
     const violations = meaningVerdict === 'criminal'
       ? judgedViolations
@@ -2078,7 +2079,8 @@ export class CriminalCodeAnalyzerDO {
           retrievalResult.legalReferences || [],
           evidence,
           input,
-          judge.confidence
+          judge.confidence,
+          groundedMeaningQuote
         ))
         .filter((violation): violation is CriminalViolation => Boolean(violation))
       : [];
@@ -2112,7 +2114,8 @@ export class CriminalCodeAnalyzerDO {
     allReferences: LegalReferenceHit[],
     evidence: NonNullable<CriminalAnalysisResult['evidence']>,
     input: CriminalContextAnalysisInput,
-    fallbackConfidence?: number
+    fallbackConfidence?: number,
+    groundedMeaningQuote?: string
   ): CriminalViolation | null {
     const article = typeof violation.article === 'string' ? violation.article.trim() : '';
     const subarticle = typeof violation.subarticle === 'string' && violation.subarticle.trim()
@@ -2125,13 +2128,22 @@ export class CriminalCodeAnalyzerDO {
 
     const confidence = this.clampNumber(Number(violation.confidence ?? fallbackConfidence ?? 0), 0, 1);
     const severity = Math.round(this.clampNumber(Number(violation.severity ?? 1), 1, 10));
-    const quote = this.cleanJudgeText(violation.quote, '').slice(0, 500);
-    if (!this.isQuoteGroundedInTarget(quote, input.targetText)) {
+    const modelQuote = this.cleanJudgeText(violation.quote, '').slice(0, 500);
+    const quote = this.isQuoteGroundedInTarget(modelQuote, input.targetText)
+      ? modelQuote
+      : groundedMeaningQuote || '';
+    if (!quote) {
       console.warn('Criminal final judge rejected ungrounded violation quote', {
         op: 'finalJudgeQuote',
         errorCode: 'UNGROUNDED_QUOTE',
       });
       return null;
+    }
+    if (quote !== modelQuote) {
+      console.warn('Criminal final judge replaced ungrounded violation quote with grounded meaning evidence', {
+        op: 'finalJudgeQuote',
+        errorCode: 'QUOTE_FALLBACK_TO_MEANING',
+      });
     }
 
     const punishmentReference = this.selectPunishmentReference(allReferences, reference) || reference;
@@ -2178,6 +2190,17 @@ export class CriminalCodeAnalyzerDO {
       return 'benign';
     }
     return 'unclear';
+  }
+
+  private getGroundedFinalJudgeMeaningEvidence(
+    meaning: CriminalFinalJudgeResult['meaning'],
+    input: CriminalContextAnalysisInput
+  ): string {
+    if (!meaning || typeof meaning !== 'object') {
+      return '';
+    }
+    const evidence = this.cleanJudgeText(meaning.evidence, '').slice(0, 500);
+    return this.isQuoteGroundedInTarget(evidence, input.targetText) ? evidence : '';
   }
 
   private buildAllowedReferenceMap(references: LegalReferenceHit[]): Map<string, LegalReferenceHit> {
