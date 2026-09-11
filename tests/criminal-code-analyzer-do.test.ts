@@ -817,6 +817,66 @@ describe("CriminalCodeAnalyzerDO", () => {
       }, input)).toBe("criminal");
     });
 
+    it("should pass compact neighboring context to semantic prefilter", () => {
+      const input = {
+        targetMessageId: 1141,
+        targetUserId: 67890,
+        targetUsername: "testuser",
+        targetText: "Заебет через неделю",
+        targetTimestamp: 1000,
+        chatId: 12345,
+        contextWindow: { before: 3, after: 2, totalMessages: 6 },
+        messages: [
+          { username: "a", text: "слишком далекое сообщение", ts: 995, relativePosition: -3, isTarget: false },
+          { username: "a", text: "думаю купить велосипед", ts: 996, relativePosition: -2, isTarget: false },
+          { username: "b", text: "будешь каждый день кататься?", ts: 997, relativePosition: -1, isTarget: false },
+          { username: "testuser", text: "Заебет через неделю", ts: 998, relativePosition: 0, isTarget: true },
+          { username: "b", text: "может быть", ts: 999, relativePosition: 1, isTarget: false },
+          { username: "a", text: "тоже далекое сообщение", ts: 1000, relativePosition: 2, isTarget: false },
+        ],
+      };
+
+      const payload = (analyzer as any).buildSemanticPrefilterPayload(input);
+      const positions = payload.messages.map((message: any) => message.relativePosition);
+      const prompt = (analyzer as any).buildSemanticPrefilterSystemPrompt(false);
+
+      expect(positions).toEqual([-2, -1, 0, 1]);
+      expect(prompt).toContain("Короткий соседний контекст");
+      expect(prompt).not.toContain("соседние сообщения не передаются намеренно");
+    });
+
+    it("should scope semantic prefilter cache to nearby context", async () => {
+      const base = {
+        targetMessageId: 1142,
+        targetUserId: 67890,
+        targetUsername: "testuser",
+        targetText: "Заебет через неделю",
+        targetTimestamp: 1000,
+        chatId: 12345,
+        contextWindow: { before: 1, after: 0, totalMessages: 2 },
+      };
+      const bicycleInput = {
+        ...base,
+        messages: [
+          { username: "a", text: "будешь каждый день на велике кататься?", ts: 999, relativePosition: -1, isTarget: false },
+          { username: "testuser", text: base.targetText, ts: 1000, relativePosition: 0, isTarget: true },
+        ],
+      };
+      const hostileInput = {
+        ...base,
+        messages: [
+          { username: "a", text: "он обещал со мной разобраться", ts: 999, relativePosition: -1, isTarget: false },
+          { username: "testuser", text: base.targetText, ts: 1000, relativePosition: 0, isTarget: true },
+        ],
+      };
+
+      const bicycleKey = await (analyzer as any).getSemanticPrefilterCacheKey(bicycleInput);
+      const hostileKey = await (analyzer as any).getSemanticPrefilterCacheKey(hostileInput);
+
+      expect(bicycleKey).not.toBe(hostileKey);
+      expect(bicycleKey).toContain(":v7:");
+    });
+
     it("should not continue to RAG when semantic prefilter rejects the target", async () => {
       const storage = new Map<string, any>();
       mockState.storage = {
@@ -1283,6 +1343,72 @@ describe("CriminalCodeAnalyzerDO", () => {
           punishment: "до двух лет лишения свободы",
           severity: 5,
           confidence: 0.92,
+        }],
+      };
+
+      const result = (analyzer as any).buildJudgedAnalysisResult(input, retrievalResult, judge);
+
+      expect(result.hasViolations).toBe(false);
+      expect(result.decision).toBe("no_violation");
+      expect(result.violations).toEqual([]);
+    });
+
+    it("should reject a violation when context resolves the target as benign", () => {
+      const targetText = "Заебет через неделю";
+      const input = {
+        targetMessageId: 1191,
+        targetUserId: 67890,
+        targetUsername: "testuser",
+        targetText,
+        targetTimestamp: 1000,
+        chatId: 12345,
+        contextWindow: { before: 2, after: 0, totalMessages: 3 },
+        messages: [
+          { username: "a", text: "купил велик, хочу каждый день кататься", ts: 998, relativePosition: -2, isTarget: false },
+          { username: "b", text: "не надоест?", ts: 999, relativePosition: -1, isTarget: false },
+          { username: "testuser", text: targetText, ts: 1000, relativePosition: 0, isTarget: true },
+        ],
+      };
+      const retrievalResult = {
+        hasViolations: false,
+        decision: "uncertain",
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: "low",
+        analysisTimestamp: Date.now(),
+        legalReferences: [{
+          article: "119",
+          subarticle: "1",
+          articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+          quote: "Статья 119. Угроза убийством или причинением тяжкого вреда здоровью...",
+          sourceUrl: "https://uk-rf.ru/",
+          lawCode: "uk-rf",
+          score: 0.88,
+          vectorId: "uk-rf:119:main:0",
+        }],
+      };
+      const judge = {
+        decision: "violation",
+        confidence: 0.95,
+        contextResolvesBenign: true,
+        meaning: {
+          speechAct: "threat",
+          evidence: targetText,
+        },
+        evidence: {
+          subject: "testuser",
+          object: "велосипедная активность",
+          intent: "говорит, что ежедневное катание быстро надоест",
+          contextSummary: "обсуждается регулярное катание на велосипеде",
+          whyNotBenign: "",
+        },
+        violations: [{
+          article: "119",
+          subarticle: "1",
+          articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+          quote: targetText,
+          severity: 6,
+          confidence: 0.95,
         }],
       };
 

@@ -53,6 +53,7 @@ interface QueuedCriminalAnalysisTask {
 interface CriminalFinalJudgeResult {
   decision?: 'violation' | 'no_violation' | 'uncertain';
   confidence?: number;
+  contextResolvesBenign?: boolean;
   meaning?: {
     speechAct?: 'threat' | 'admission' | 'fantasy' | 'endorsement' | 'incitement' | 'plan' | 'instruction' | 'prediction' | 'taunt' | 'report' | 'quote' | 'metaphor' | 'other' | 'unclear';
     evidence?: string;
@@ -79,6 +80,8 @@ interface CriminalPrefilterBatchItem {
 const QUEUE_STORAGE_KEY = 'criminal_analysis_queue';
 const LAST_OPENROUTER_CALL_KEY = 'criminal_openrouter_last_call';
 const LAST_FINAL_ANALYSIS_CALL_KEY = 'criminal_final_analysis_last_call';
+const SEMANTIC_PREFILTER_CONTEXT_BEFORE = 2;
+const SEMANTIC_PREFILTER_CONTEXT_AFTER = 1;
 
 /**
  * Privacy-safe error classification: never include message/stack/content in
@@ -1305,7 +1308,9 @@ export class CriminalCodeAnalyzerDO {
     return [
       'Ты быстрый prefilter для Telegram-чата.',
       'Реши, нужно ли отправлять target-сообщение в дорогой юридический анализ УК РФ.',
-      'Оценивай только target-сообщение. На этом этапе соседние сообщения не передаются намеренно, чтобы они не подменяли target.',
+      'Квалифицируй только target-сообщение. Короткий соседний контекст дан только для восстановления смысла target: местоимений, пропущенного субъекта/объекта, сленга, эллипсиса и переносных выражений.',
+      'Опасный смысл только в соседних сообщениях не является причиной анализировать target. Если контекст однозначно раскрывает target как бытовую, предметную, игровую или иную некриминальную реплику, верни shouldAnalyze=false.',
+      'Не достраивай отсутствующее насильственное действие, жертву или умысел из грубой, двусмысленной или эллиптической фразы.',
       'Сначала опиши фактический смысл target в semanticFrame, а уже потом выбирай shouldAnalyze/reason.',
       'Отличай обещание/угрозу действия автора от прогноза, насмешки, цитаты или сообщения о действиях третьих лиц.',
       'Негативный прогноз сам по себе не является угрозой: фразы вроде "скоро не будет вашей школы/компании/образования" без обещания насилия классифицируй как prediction или taunt, а не threat.',
@@ -1338,8 +1343,7 @@ export class CriminalCodeAnalyzerDO {
       targetText: input.targetText,
       targetUsername: input.targetUsername,
       contextWindow: input.contextWindow,
-      messages: input.messages
-        .filter(message => message.isTarget)
+      messages: this.selectSemanticPrefilterMessages(input)
         .map(message => ({
           username: message.username,
           text: message.text,
@@ -1347,6 +1351,18 @@ export class CriminalCodeAnalyzerDO {
           isTarget: message.isTarget
         }))
     };
+  }
+
+  private selectSemanticPrefilterMessages(input: CriminalContextAnalysisInput): CriminalContextMessage[] {
+    return input.messages.filter(message => {
+      if (message.isTarget) {
+        return true;
+      }
+      if (message.relativePosition < 0) {
+        return Math.abs(message.relativePosition) <= SEMANTIC_PREFILTER_CONTEXT_BEFORE;
+      }
+      return message.relativePosition <= SEMANTIC_PREFILTER_CONTEXT_AFTER;
+    });
   }
 
   private normalizeSemanticPrefilterResult(
@@ -1543,9 +1559,13 @@ export class CriminalCodeAnalyzerDO {
   }
 
   private async getSemanticPrefilterCacheKey(input: CriminalContextAnalysisInput): Promise<string> {
-    const normalized = this.normalizeTextForSemanticCache(input.targetText);
-    const hash = await this.hashText(normalized);
-    const version = String((this.env as any).CRIMINAL_PREFILTER_CACHE_VERSION || 'v5')
+    const normalizedTarget = this.normalizeTextForSemanticCache(input.targetText);
+    const normalizedContext = this.selectSemanticPrefilterMessages(input)
+      .filter(message => !message.isTarget)
+      .map(message => `${message.relativePosition}:${this.normalizeTextForSemanticCache(message.text)}`)
+      .join('\n');
+    const hash = await this.hashText(`${normalizedTarget}\ncontext:\n${normalizedContext}`);
+    const version = String((this.env as any).CRIMINAL_PREFILTER_CACHE_VERSION || 'v7')
       .replace(/[^a-z0-9_-]+/gi, '_');
     const model = String((this.env as any).CRIMINAL_PREFILTER_MODEL || (this.env as any).LLM_NANO_MODEL || 'default')
       .replace(/[^a-z0-9_.-]+/gi, '_');
@@ -1913,6 +1933,8 @@ export class CriminalCodeAnalyzerDO {
       'Квалифицируй только target-сообщение. Соседние сообщения служат только для понимания target; не сохраняй violation, если состав есть только в before/after.',
       'Сначала выбери основную норму Особенной части УК РФ. Общие нормы о приготовлении, соучастии, группе лиц или отягчающих обстоятельствах сами по себе недостаточны без подходящей основной статьи.',
       'Сначала определи literal meaning target в поле meaning. speechAct должен быть одним из threat|admission|fantasy|endorsement|incitement|plan|instruction|prediction|taunt|report|quote|metaphor|other|unclear.',
+      'Для эллиптических и двусмысленных target используй соседний контекст только чтобы восстановить обычный смысл самого target; не переноси опасное действие из before/after на target.',
+      'Установи contextResolvesBenign=true, только если соседний контекст однозначно раскрывает target как бытовую, предметную, игровую, метафорическую или иную некриминальную реплику. Тогда decision не может быть violation.',
       'meaning.evidence должна быть точной короткой цитатой только из targetText, которая подтверждает выбранный literal meaning.',
       'Для этого продукта threat, admission, fantasy, endorsement, incitement, plan и instruction считаются violation, если буквально выражают деяние, которое разумно соответствует одной из legalReferences.',
       'Фантазия, пожелание или одобрение насилия считаются, если автор выражает их от себя. Не требуй, чтобы это было прямой угрозой адресату.',
@@ -1924,7 +1946,7 @@ export class CriminalCodeAnalyzerDO {
       'semanticFrame и retrievalScores являются только подсказками для поиска и понимания. Они не доказывают состав преступления и не заменяют evidence из target/context.',
       'Поле violations[].quote должно быть точной цитатой из targetText, а не из соседнего сообщения и не из legalReferences.',
       'Поле violations[].punishment не используй для вольного пересказа санкции: если сомневаешься, верни пустую строку. Приложение сохранит наказание из legalReferences.',
-      'Верни strictly JSON: {"decision":"violation|no_violation|uncertain","confidence":0..1,"meaning":{"speechAct":"threat|admission|fantasy|endorsement|incitement|plan|instruction|prediction|taunt|report|quote|metaphor|other|unclear","evidence":"exact target quote"},"evidence":{"subject":"short","object":"short","intent":"short","contextSummary":"short","whyNotBenign":"short"},"violations":[{"article":"article number from legalReferences","subarticle":"part from legalReferences or null","articleTitle":"...","quote":"exact target quote","punishment":"short","severity":1..10,"confidence":0..1}]}',
+      'Верни strictly JSON: {"decision":"violation|no_violation|uncertain","confidence":0..1,"contextResolvesBenign":boolean,"meaning":{"speechAct":"threat|admission|fantasy|endorsement|incitement|plan|instruction|prediction|taunt|report|quote|metaphor|other|unclear","evidence":"exact target quote"},"evidence":{"subject":"short","object":"short","intent":"short","contextSummary":"short","whyNotBenign":"short"},"violations":[{"article":"article number from legalReferences","subarticle":"part from legalReferences or null","articleTitle":"...","quote":"exact target quote","punishment":"short","severity":1..10,"confidence":0..1}]}',
     ].join('\n');
     const payload = {
       targetMessageId: input.targetMessageId,
@@ -2064,12 +2086,14 @@ export class CriminalCodeAnalyzerDO {
     const evidence = {
       subject: this.cleanJudgeText(judge.evidence?.subject, input.targetUsername || 'unknown'),
       object: this.cleanJudgeText(judge.evidence?.object, 'unknown'),
-      intent: this.cleanJudgeText(judge.evidence?.intent, decision === 'violation' ? 'possible criminal intent' : 'not established'),
+      intent: this.cleanJudgeText(judge.evidence?.intent, 'not established'),
       contextSummary: this.cleanJudgeText(judge.evidence?.contextSummary, 'Final judge completed'),
-      whyNotBenign: this.cleanJudgeText(judge.evidence?.whyNotBenign, decision === 'violation' ? 'model classified as non-benign' : 'not classified as violation'),
+      whyNotBenign: this.cleanJudgeText(judge.evidence?.whyNotBenign, 'not established'),
     };
-    const meaningVerdict = this.evaluateFinalJudgeMeaning(judge.meaning, input);
     const groundedMeaningQuote = this.getGroundedFinalJudgeMeaningEvidence(judge.meaning, input);
+    const meaningVerdict = judge.contextResolvesBenign === true && groundedMeaningQuote
+      ? 'benign'
+      : this.evaluateFinalJudgeMeaning(judge.meaning, input);
     const judgedViolations = judge.violations || [];
     const violations = meaningVerdict === 'criminal'
       ? judgedViolations
