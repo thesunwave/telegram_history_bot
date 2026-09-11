@@ -1364,6 +1364,77 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(result.violations[0].confidence).toBe(0.68);
     });
 
+    it("should use grounded meaning evidence when the judge paraphrases the violation quote", () => {
+      const targetText = "да его вообще надо было пристрелить и дело с концом";
+      const input = {
+        targetMessageId: 886,
+        targetUserId: 65247408,
+        targetUsername: "testuser",
+        targetText,
+        targetTimestamp: 1789072582,
+        chatId: 65247408,
+        contextWindow: { before: 0, after: 0, totalMessages: 1 },
+        messages: [{
+          messageId: 886,
+          username: "testuser",
+          userId: 65247408,
+          text: targetText,
+          ts: 1789072582,
+          relativePosition: 0,
+          isTarget: true,
+        }],
+      };
+      const retrievalResult = {
+        hasViolations: false,
+        decision: "uncertain",
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: "low",
+        analysisTimestamp: Date.now(),
+        legalReferences: [{
+          article: "119",
+          subarticle: "1",
+          articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+          quote: "Статья 119. Угроза убийством или причинением тяжкого вреда здоровью.",
+          sourceUrl: "https://uk-rf.ru/",
+          lawCode: "uk-rf",
+          score: 0.71,
+          vectorId: "uk-rf:119:1:0",
+        }],
+      };
+      const judge = {
+        decision: "violation",
+        confidence: 0.82,
+        meaning: {
+          speechAct: "endorsement",
+          evidence: "надо было пристрелить",
+        },
+        evidence: {
+          subject: "testuser",
+          object: "person",
+          intent: "endorses killing",
+          contextSummary: "violent endorsement",
+          whyNotBenign: "literal violent meaning",
+        },
+        violations: [{
+          article: "119",
+          subarticle: "1",
+          articleTitle: "Угроза убийством или причинением тяжкого вреда здоровью",
+          quote: "его следовало пристрелить",
+          punishment: "",
+          severity: 5,
+          confidence: 0.82,
+        }],
+      };
+
+      const result = (analyzer as any).buildJudgedAnalysisResult(input, retrievalResult, judge);
+
+      expect(result.hasViolations).toBe(true);
+      expect(result.decision).toBe("violation");
+      expect(result.violations).toHaveLength(1);
+      expect(result.violations[0].quote).toBe("надо было пристрелить");
+    });
+
     it("should count an explicit theft admission when article 158 reaches the judge", () => {
       const targetText = "Я вчера тайно украл чужой телефон из кармана владельца и оставил себе";
       const input = {
