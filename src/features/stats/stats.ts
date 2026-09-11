@@ -12,6 +12,7 @@ import {
   loadCriminalTopReport,
   loadPersonalCriminalReport,
   parseCriminalReportPeriod,
+  parsePersonalCriminalReportPeriod,
 } from '../criminal/telegram-reports';
 
 const WEEK_LENGTH_DAYS = 7;
@@ -1737,7 +1738,7 @@ export async function myCriminalStats(
   period?: string
 ): Promise<string | void> {
   try {
-    const range = parseCriminalReportPeriod(period);
+    const range = parsePersonalCriminalReportPeriod(period);
     const report = await loadPersonalCriminalReport(env, chatId, userId, range);
     return await sendMessage(env, chatId, formatPersonalCriminalReport(report));
   } catch (error: any) {

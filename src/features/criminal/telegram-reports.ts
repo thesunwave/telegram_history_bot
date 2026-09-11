@@ -10,12 +10,12 @@ import {
   type SentenceTotal,
 } from './sentence-calculator';
 
-export type CriminalReportPeriod = 'today' | 'week' | 'month';
+export type CriminalReportPeriod = 'today' | 'week' | 'month' | 'all';
 
 export interface CriminalReportRange {
   period: CriminalReportPeriod;
-  from: string;
-  to: string;
+  from: string | null;
+  to: string | null;
   label: string;
 }
 
@@ -65,7 +65,7 @@ export interface ChatCriminalReport {
   mostSevereEpisode: CriminalEpisode | null;
 }
 
-const PERIOD_DAYS: Record<CriminalReportPeriod, number> = {
+const PERIOD_DAYS: Record<Exclude<CriminalReportPeriod, 'all'>, number> = {
   today: 1,
   week: 7,
   month: 30,
@@ -75,6 +75,7 @@ const PERIOD_LABELS: Record<CriminalReportPeriod, string> = {
   today: 'сегодня',
   week: '7 дней',
   month: '30 дней',
+  all: 'за всё время',
 };
 
 const DATE_FILTER = `(
@@ -101,7 +102,7 @@ export function parseCriminalReportPeriod(
   value: string | undefined,
   now: Date = new Date(),
 ): CriminalReportRange {
-  const period = (value || 'today') as CriminalReportPeriod;
+  const period = (value || 'today') as Exclude<CriminalReportPeriod, 'all'>;
   if (!Object.prototype.hasOwnProperty.call(PERIOD_DAYS, period)) {
     throw new Error('Неверный период. Используйте: today, week, month');
   }
@@ -118,7 +119,22 @@ export function parseCriminalReportPeriod(
   };
 }
 
+export function parsePersonalCriminalReportPeriod(
+  value: string | undefined,
+  now: Date = new Date(),
+): CriminalReportRange {
+  if (value === undefined) {
+    return { period: 'all', from: null, to: null, label: PERIOD_LABELS.all };
+  }
+  return parseCriminalReportPeriod(value, now);
+}
+
+function dateFilter(range: CriminalReportRange): string {
+  return range.period === 'all' ? '' : ` AND ${DATE_FILTER}`;
+}
+
 function rangeBindings(range: CriminalReportRange): string[] {
+  if (range.period === 'all' || range.from === null || range.to === null) return [];
   return [range.from, range.to, range.from, range.to];
 }
 
@@ -162,7 +178,7 @@ async function loadArticleStats(
     SELECT article, subarticle, article_title, punishment,
            COUNT(*) AS count, AVG(severity) AS average_severity
     FROM criminal_violations
-    WHERE chat_id = ?${userFilter} AND ${DATE_FILTER}
+    WHERE chat_id = ?${userFilter}${dateFilter(range)}
     GROUP BY article, subarticle, article_title, punishment
     ORDER BY count DESC, average_severity DESC, article ASC
   `);
@@ -188,7 +204,7 @@ async function loadEpisodes(
            severity, confidence,
            COALESCE(violation_ts, CAST(strftime('%s', created_at) AS INTEGER)) AS event_ts
     FROM criminal_violations
-    WHERE chat_id = ?${userFilter} AND ${DATE_FILTER}
+    WHERE chat_id = ?${userFilter}${dateFilter(range)}
     ORDER BY ${orderBy}
     LIMIT ?
   `);
@@ -208,7 +224,7 @@ async function loadUserRanks(
     SELECT user_id, article, subarticle, article_title, punishment,
            COUNT(*) AS count, AVG(severity) AS average_severity
     FROM criminal_violations
-    WHERE chat_id = ? AND ${DATE_FILTER}
+    WHERE chat_id = ?${dateFilter(range)}
     GROUP BY user_id, article, subarticle, article_title, punishment
   `);
   const result = await statement.bind(chatId, ...rangeBindings(range)).all();
@@ -429,7 +445,9 @@ export function formatPersonalCriminalReport(report: PersonalCriminalReport): st
   ];
 
   if (report.totalViolations === 0) {
-    lines.push('', '<i>За этот период уголовщина не обнаружена.</i>');
+    lines.push('', report.range.period === 'all'
+      ? '<i>Уголовщина пока не обнаружена.</i>'
+      : '<i>За этот период уголовщина не обнаружена.</i>');
     return lines.join('\n');
   }
 

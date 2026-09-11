@@ -246,7 +246,7 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       const sentMessage = mockSendMessage.mock.calls[0][2]; // третий аргумент - текст сообщения
 
       // Проверяем, что сообщение содержит ожидаемые элементы
-      expect(sentMessage).toContain('⚖️ <b>Твоё уголовное дело · сегодня</b>');
+      expect(sentMessage).toContain('⚖️ <b>Твоё уголовное дело · за всё время</b>');
       expect(sentMessage).toContain('Нарушений: <b>3</b>');
       expect(sentMessage).toContain('Средняя серьёзность: <b>6.3/10</b>');
       expect(sentMessage).toContain('ст. 282 — Возбуждение ненависти ×2');
@@ -297,10 +297,10 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       const sentMessage = mockSendMessage.mock.calls[0][2];
 
-      expect(sentMessage).toContain('⚖️ <b>Твоё уголовное дело · сегодня</b>');
+      expect(sentMessage).toContain('⚖️ <b>Твоё уголовное дело · за всё время</b>');
       expect(sentMessage).toContain('Нарушений: <b>0</b>');
       expect(sentMessage).toContain('Напиздел: <b>0 лет</b>');
-      expect(sentMessage).toContain('<i>За этот период уголовщина не обнаружена.</i>');
+      expect(sentMessage).toContain('<i>Уголовщина пока не обнаружена.</i>');
     });
 
     it('должен обработать команду /my_criminal с периодом', async () => {
