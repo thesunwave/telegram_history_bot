@@ -161,16 +161,23 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       const testChatId = -100123456789;
       const testUsername = 'test_user';
 
-      // Мокаем данные из базы для getUserStats
-      const mockUserStatsData = {
-        total_violations: 3,
-        average_severity: 6.5,
-        last_violation_date: '2024-01-15T10:30:00Z'
-      };
-
       const mockViolationsByArticle = [
-        { article: '282', count: 2, average_severity: 7.0 },
-        { article: '130', count: 1, average_severity: 5.0 }
+        {
+          article: '282',
+          subarticle: null,
+          article_title: 'Возбуждение ненависти',
+          punishment: 'лишение свободы до 3 лет',
+          count: 2,
+          average_severity: 7.0,
+        },
+        {
+          article: '130',
+          subarticle: null,
+          article_title: 'Оскорбление',
+          punishment: 'лишение свободы до 1 года',
+          count: 1,
+          average_severity: 5.0,
+        }
       ];
 
       // Настраиваем мок базы данных
@@ -183,18 +190,35 @@ describe('Criminal Statistics E2E Integration Tests', () => {
           })
         };
 
-        if (query.includes('COUNT(*) as total_violations')) {
-          // Запрос для общей статистики пользователя
-          mockStmt.bind.mockReturnValue({
-            first: vi.fn().mockResolvedValue(mockUserStatsData),
-            all: vi.fn(),
-            run: vi.fn()
-          });
-        } else if (query.includes('GROUP BY article')) {
-          // Запрос для нарушений по статьям
+        if (query.includes('GROUP BY article')) {
           mockStmt.bind.mockReturnValue({
             first: vi.fn(),
             all: vi.fn().mockResolvedValue({ results: mockViolationsByArticle }),
+            run: vi.fn()
+          });
+        } else if (query.includes('ORDER BY event_ts DESC')) {
+          mockStmt.bind.mockReturnValue({
+            first: vi.fn(),
+            all: vi.fn().mockResolvedValue({
+              results: [{
+                id: 1,
+                article: '282',
+                subarticle: null,
+                article_title: 'Возбуждение ненависти',
+                quote: 'тестовая цитата',
+                text_preview: 'тестовый эпизод',
+                punishment: 'лишение свободы до 3 лет',
+                severity: 7,
+                confidence: 0.91,
+                event_ts: 1760000000,
+              }],
+            }),
+            run: vi.fn()
+          });
+        } else {
+          mockStmt.bind.mockReturnValue({
+            first: vi.fn().mockResolvedValue(null),
+            all: vi.fn().mockResolvedValue({ results: [] }),
             run: vi.fn()
           });
         }
@@ -222,20 +246,18 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       const sentMessage = mockSendMessage.mock.calls[0][2]; // третий аргумент - текст сообщения
 
       // Проверяем, что сообщение содержит ожидаемые элементы
-      expect(sentMessage).toContain('📊');
-      expect(sentMessage).toContain('Статистика пользователя');
-      expect(sentMessage).toContain('<b>Всего нарушений:</b> 3');
-      expect(sentMessage).toContain('<b>Средняя серьезность:</b> 6.5/10');
-      expect(sentMessage).toContain('🟡'); // Medium risk level emoji
-      expect(sentMessage).toContain('<b>Статья 282 УК РФ</b> 2 раз');
-      expect(sentMessage).toContain('<b>Статья 130 УК РФ</b> 1 раз');
-      expect(sentMessage).toContain('15.01.2024'); // Дата последнего нарушения
+      expect(sentMessage).toContain('⚖️ <b>Твоё уголовное дело · сегодня</b>');
+      expect(sentMessage).toContain('Нарушений: <b>3</b>');
+      expect(sentMessage).toContain('Средняя серьёзность: <b>6.3/10</b>');
+      expect(sentMessage).toContain('ст. 282 — Возбуждение ненависти ×2');
+      expect(sentMessage).toContain('<b>Последние эпизоды:</b>');
+      expect(sentMessage).toContain('«тестовый эпизод»');
 
       // Проверяем, что вызов был с правильными параметрами
       expect(mockSendMessage).toHaveBeenCalledWith(
         mockEnv,
         testChatId,
-        expect.stringContaining('📊')
+        expect.stringContaining('Твоё уголовное дело')
       );
     });
 
@@ -245,35 +267,14 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       const testChatId = -100987654321;
       const testUsername = 'clean_user';
 
-      // Мокаем пустые данные из базы
-      const mockEmptyUserStats = {
-        total_violations: 0,
-        average_severity: 0,
-        last_violation_date: null
-      };
-
       mockDB.prepare.mockImplementation((query: string) => {
         const mockStmt = {
           bind: vi.fn().mockReturnValue({
-            first: vi.fn(),
-            all: vi.fn(),
+            first: vi.fn().mockResolvedValue(null),
+            all: vi.fn().mockResolvedValue({ results: [] }),
             run: vi.fn()
           })
         };
-
-        if (query.includes('COUNT(*) as total_violations')) {
-          mockStmt.bind.mockReturnValue({
-            first: vi.fn().mockResolvedValue(mockEmptyUserStats),
-            all: vi.fn(),
-            run: vi.fn()
-          });
-        } else if (query.includes('GROUP BY article')) {
-          mockStmt.bind.mockReturnValue({
-            first: vi.fn(),
-            all: vi.fn().mockResolvedValue({ results: [] }),
-            run: vi.fn()
-          });
-        }
 
         return mockStmt;
       });
@@ -296,11 +297,10 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       const sentMessage = mockSendMessage.mock.calls[0][2];
 
-      expect(sentMessage).toContain('📊');
-      expect(sentMessage).toContain('Статистика пользователя');
-      expect(sentMessage).toContain('<b>Всего нарушений:</b> 0');
-      expect(sentMessage).toContain('<i>У пользователя пока нет нарушений</i>');
-      expect(sentMessage).toContain('🟢 Низкий'); // Low risk level
+      expect(sentMessage).toContain('⚖️ <b>Твоё уголовное дело · сегодня</b>');
+      expect(sentMessage).toContain('Нарушений: <b>0</b>');
+      expect(sentMessage).toContain('Напиздел: <b>0 лет</b>');
+      expect(sentMessage).toContain('<i>За этот период уголовщина не обнаружена.</i>');
     });
 
     it('должен обработать команду /my_criminal с периодом', async () => {
@@ -308,35 +308,49 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       const testUserId = 345678;
       const testChatId = -100345678901;
 
-      const mockUserStatsData = {
-        total_violations: 1,
-        average_severity: 4.0,
-        last_violation_date: '2024-01-10T15:20:00Z'
-      };
-
       const mockViolationsByArticle = [
-        { article: '130', count: 1, average_severity: 4.0 }
+        {
+          article: '130',
+          subarticle: null,
+          article_title: 'Оскорбление',
+          punishment: 'лишение свободы до 1 года',
+          count: 1,
+          average_severity: 4.0,
+        }
       ];
 
       mockDB.prepare.mockImplementation((query: string) => {
         const mockStmt = {
           bind: vi.fn().mockReturnValue({
-            first: vi.fn(),
-            all: vi.fn(),
+            first: vi.fn().mockResolvedValue(null),
+            all: vi.fn().mockResolvedValue({ results: [] }),
             run: vi.fn()
           })
         };
 
-        if (query.includes('COUNT(*) as total_violations')) {
-          mockStmt.bind.mockReturnValue({
-            first: vi.fn().mockResolvedValue(mockUserStatsData),
-            all: vi.fn(),
-            run: vi.fn()
-          });
-        } else if (query.includes('GROUP BY article')) {
+        if (query.includes('GROUP BY article')) {
           mockStmt.bind.mockReturnValue({
             first: vi.fn(),
             all: vi.fn().mockResolvedValue({ results: mockViolationsByArticle }),
+            run: vi.fn()
+          });
+        } else if (query.includes('ORDER BY event_ts DESC')) {
+          mockStmt.bind.mockReturnValue({
+            first: vi.fn(),
+            all: vi.fn().mockResolvedValue({
+              results: [{
+                id: 3,
+                article: '130',
+                subarticle: null,
+                article_title: 'Оскорбление',
+                quote: 'эпизод за неделю',
+                text_preview: null,
+                punishment: 'лишение свободы до 1 года',
+                severity: 4,
+                confidence: 0.8,
+                event_ts: 1760000000,
+              }],
+            }),
             run: vi.fn()
           });
         }
@@ -362,12 +376,10 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       const sentMessage = mockSendMessage.mock.calls[0][2];
 
-      expect(sentMessage).toContain('📊');
-      expect(sentMessage).toContain('Статистика пользователя');
-      expect(sentMessage).toContain('<b>Всего нарушений:</b> 1');
-      expect(sentMessage).toContain('<b>Средняя серьезность:</b> 4.0/10');
-      expect(sentMessage).toContain('🟡 Средний'); // Medium risk level (4.0 is medium)
-      expect(sentMessage).toContain('<b>Статья 130 УК РФ</b> 1 раз');
+      expect(sentMessage).toContain('⚖️ <b>Твоё уголовное дело · 7 дней</b>');
+      expect(sentMessage).toContain('Нарушений: <b>1</b>');
+      expect(sentMessage).toContain('Средняя серьёзность: <b>4.0/10</b>');
+      expect(sentMessage).toContain('ст. 130 — Оскорбление ×1');
     });
   });
 
@@ -376,32 +388,83 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       // Arrange: Подготавливаем данные для общей статистики
       const testChatId = -100111222333;
 
-      const mockGeneralStats = {
-        total_violations: 15,
-        average_severity: 7.2
-      };
-
       const mockTopViolations = [
-        { article: '282', count: 8, average_severity: 7.5 },
-        { article: '205', count: 4, average_severity: 9.0 },
-        { article: '130', count: 3, average_severity: 5.0 }
+        {
+          article: '282',
+          subarticle: null,
+          article_title: 'Возбуждение ненависти',
+          punishment: 'лишение свободы до 3 лет',
+          count: 8,
+          average_severity: 7.5,
+        },
+        {
+          article: '205',
+          subarticle: null,
+          article_title: 'Террористический акт',
+          punishment: 'лишение свободы до 20 лет',
+          count: 4,
+          average_severity: 9.0,
+        },
+        {
+          article: '130',
+          subarticle: null,
+          article_title: 'Оскорбление',
+          punishment: 'лишение свободы до 1 года',
+          count: 3,
+          average_severity: 5.0,
+        }
       ];
 
       const mockTopUsers = [
-        { user_id: 111, count: 6, average_severity: 8.0 },
-        { user_id: 222, count: 5, average_severity: 6.5 },
-        { user_id: 333, count: 4, average_severity: 7.0 }
+        {
+          user_id: 111,
+          article: '205',
+          subarticle: null,
+          article_title: 'Террористический акт',
+          punishment: 'лишение свободы до 20 лет',
+          count: 6,
+          average_severity: 8.0,
+        },
+        {
+          user_id: 222,
+          article: '282',
+          subarticle: null,
+          article_title: 'Возбуждение ненависти',
+          punishment: 'лишение свободы до 3 лет',
+          count: 5,
+          average_severity: 6.5,
+        },
+        {
+          user_id: 333,
+          article: '130',
+          subarticle: null,
+          article_title: 'Оскорбление',
+          punishment: 'лишение свободы до 1 года',
+          count: 4,
+          average_severity: 7.0,
+        }
       ];
 
       const mockCriticalViolations = [
         {
           article: '205',
+          subarticle: null,
+          article_title: 'Террористический акт',
           quote: 'Критическое нарушение',
-          punishment: 'Лишение свободы',
+          text_preview: 'Критическое нарушение',
+          punishment: 'лишение свободы до 20 лет',
           severity: 10,
-          confidence: 0.95
+          confidence: 0.95,
+          event_ts: 1760000000,
         }
       ];
+
+      mockEnv.COUNTERS.get = vi.fn().mockImplementation((key: string) => {
+        if (key === 'user:111') return Promise.resolve('user111');
+        if (key === 'user:222') return Promise.resolve('user222');
+        if (key === 'user:333') return Promise.resolve('user333');
+        return Promise.resolve(null);
+      });
 
       mockDB.prepare.mockImplementation((query: string) => {
         const mockStmt = {
@@ -412,46 +475,22 @@ describe('Criminal Statistics E2E Integration Tests', () => {
           })
         };
 
-        if (query.includes('COUNT(*) as total_violations') && query.includes('AVG(severity)')) {
-          // Общая статистика
-          mockStmt.bind.mockReturnValue({
-            first: vi.fn().mockResolvedValue(mockGeneralStats),
-            all: vi.fn().mockResolvedValue({ results: [] }),
-            run: vi.fn().mockResolvedValue({ success: true })
-          });
-        } else if (query.includes('GROUP BY article') && query.includes('LIMIT 5')) {
-          // Топ нарушений
-          mockStmt.bind.mockReturnValue({
-            first: vi.fn().mockResolvedValue(null),
-            all: vi.fn().mockResolvedValue({ results: mockTopViolations }),
-            run: vi.fn().mockResolvedValue({ success: true })
-          });
-        } else if (query.includes('GROUP BY article') && query.includes('ORDER BY count DESC') && !query.includes('LIMIT')) {
-          // Нарушения по статьям за период (для getPeriodStats)
-          mockStmt.bind.mockReturnValue({
-            first: vi.fn().mockResolvedValue(null),
-            all: vi.fn().mockResolvedValue({ results: [] }),
-            run: vi.fn().mockResolvedValue({ success: true })
-          });
-        } else if (query.includes('GROUP BY user_id') && query.includes('LIMIT 5')) {
-          // Топ пользователей
+        if (query.includes('GROUP BY user_id')) {
           mockStmt.bind.mockReturnValue({
             first: vi.fn().mockResolvedValue(null),
             all: vi.fn().mockResolvedValue({ results: mockTopUsers }),
             run: vi.fn().mockResolvedValue({ success: true })
           });
-        } else if (query.includes('severity >= 8')) {
-          // Критические нарушения
+        } else if (query.includes('GROUP BY article')) {
+          mockStmt.bind.mockReturnValue({
+            first: vi.fn().mockResolvedValue(null),
+            all: vi.fn().mockResolvedValue({ results: mockTopViolations }),
+            run: vi.fn().mockResolvedValue({ success: true })
+          });
+        } else if (query.includes('ORDER BY severity DESC')) {
           mockStmt.bind.mockReturnValue({
             first: vi.fn().mockResolvedValue(null),
             all: vi.fn().mockResolvedValue({ results: mockCriticalViolations }),
-            run: vi.fn().mockResolvedValue({ success: true })
-          });
-        } else if (query.includes('SELECT COUNT(*) as total_violations') && query.includes('WHERE user_id')) {
-          // Статистика пользователя (getUserStats)
-          mockStmt.bind.mockReturnValue({
-            first: vi.fn().mockResolvedValue({ total_violations: 0, avg_severity: 0 }),
-            all: vi.fn().mockResolvedValue({ results: [] }),
             run: vi.fn().mockResolvedValue({ success: true })
           });
         }
@@ -477,10 +516,13 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       const sentMessage = mockSendMessage.mock.calls[0][2];
 
-      expect(sentMessage).toContain('📈');
-      expect(sentMessage).toContain('Статистика за период');
-      expect(sentMessage).toContain('<b>Всего нарушений:</b> 15');
-      expect(sentMessage).toContain('<b>Средняя серьезность:</b> 7.2/10');
+      expect(sentMessage).toContain('⚖️ <b>УК РФ · статистика чата · сегодня</b>');
+      expect(sentMessage).toContain('Нарушений: <b>15</b>');
+      expect(sentMessage).toContain('Нарушителей: <b>3</b>');
+      expect(sentMessage).toContain('<b>Самые популярные статьи:</b>');
+      expect(sentMessage).toContain('<b>Главный уголовник:</b>');
+      expect(sentMessage).toContain('user111 · 6 нарушений · 120 лет');
+      expect(sentMessage).toContain('<b>Самый тяжёлый эпизод:</b>');
     });
   });
 
@@ -489,20 +531,47 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       // Arrange: Подготавливаем данные для топа пользователей
       const testChatId = -100444555666;
 
-      // Мокаем KV storage для получения топа пользователей
-      const today = new Date().toISOString().slice(0, 10);
-      const mockCountersData = [
-        { name: `criminal:${testChatId}:111:${today}`, value: '5' },
-        { name: `criminal:${testChatId}:222:${today}`, value: '3' },
-        { name: `criminal:${testChatId}:333:${today}`, value: '2' }
+      const mockTopUsers = [
+        {
+          user_id: 111,
+          article: '119',
+          subarticle: null,
+          article_title: 'Угроза убийством',
+          punishment: 'лишение свободы до 2 лет',
+          count: 5,
+          average_severity: 7,
+        },
+        {
+          user_id: 222,
+          article: '119',
+          subarticle: null,
+          article_title: 'Угроза убийством',
+          punishment: 'лишение свободы до 2 лет',
+          count: 3,
+          average_severity: 7,
+        },
+        {
+          user_id: 333,
+          article: '119',
+          subarticle: null,
+          article_title: 'Угроза убийством',
+          punishment: 'лишение свободы до 2 лет',
+          count: 2,
+          average_severity: 7,
+        }
       ];
 
       const mockUsernames = ['user111', 'user222', 'user333'];
 
-      mockEnv.COUNTERS.list = vi.fn().mockResolvedValue({
-        keys: mockCountersData.map(item => ({ name: item.name })),
-        list_complete: true
-      });
+      mockDB.prepare.mockImplementation((query: string) => ({
+        bind: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue(null),
+          all: vi.fn().mockResolvedValue({
+            results: query.includes('GROUP BY user_id') ? mockTopUsers : [],
+          }),
+          run: vi.fn().mockResolvedValue({ success: true }),
+        }),
+      }));
 
       mockEnv.COUNTERS.get = vi.fn()
         .mockImplementation((key: string) => {
@@ -511,8 +580,7 @@ describe('Criminal Statistics E2E Integration Tests', () => {
             const index = ['111', '222', '333'].indexOf(userId);
             return Promise.resolve(index >= 0 ? mockUsernames[index] : null);
           }
-          const item = mockCountersData.find(d => d.name === key);
-          return Promise.resolve(item ? item.value : '0');
+          return Promise.resolve(null);
         });
 
       const testMessage = {
@@ -533,10 +601,11 @@ describe('Criminal Statistics E2E Integration Tests', () => {
 
       const sentMessage = mockSendMessage.mock.calls[0][2];
 
-      expect(sentMessage).toContain('Топ нарушителей УК РФ сегодня:');
-      expect(sentMessage).toContain('1. user111: 5');
-      expect(sentMessage).toContain('2. user222: 3');
-      expect(sentMessage).toContain('3. user333: 2');
+      expect(sentMessage).toContain('🏆 <b>Уголовный рейтинг · сегодня</b>');
+      expect(sentMessage).toContain('1. <b>user111</b>');
+      expect(sentMessage).toContain('5 нарушений · напиздел на 10 лет');
+      expect(sentMessage).toContain('2. <b>user222</b>');
+      expect(sentMessage).toContain('3. <b>user333</b>');
     });
 
     it('должен обработать команду /criminal_top без данных', async () => {

@@ -2,10 +2,17 @@ import { Env, DAY, MONTH_DAYS, WEEK_DAYS } from '../../core/env';
 import type { KVNamespace } from '@cloudflare/workers-types';
 import { sendMessage, sendPhoto } from '../../core/telegram';
 import { summariseChat } from '../summary/summary';
-import { ViolationHandler } from './violation-handler';
 import { ViolationRepository } from '../../core/repositories/violation-repository';
-import { formatSentenceTotalValue } from '../criminal/sentence-calculator';
 import { getStatsPeriodRange } from '../../core/stats-period';
+import {
+  formatChatCriminalReport,
+  formatCriminalTopReport,
+  formatPersonalCriminalReport,
+  loadChatCriminalReport,
+  loadCriminalTopReport,
+  loadPersonalCriminalReport,
+  parseCriminalReportPeriod,
+} from '../criminal/telegram-reports';
 
 const WEEK_LENGTH_DAYS = 7;
 const MONTH_LENGTH_DAYS = 30;
@@ -1693,48 +1700,15 @@ export async function criminalTopUsers(
   count: number = 5,
   period: string = 'today'
 ): Promise<string | void> {
-  // Validate parameters
-  const validPeriods = ['today', 'week', 'month'];
-  if (!validPeriods.includes(period)) {
-    return await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
-  }
-
-  const limit = Math.min(Math.max(count, 1), 20); // Limit between 1 and 20
-
   try {
-    let topUsers: UserCriminalStat[];
-    try {
-      topUsers = await getTopCriminalUsersBySentence(env, chatId, limit, period);
-    } catch (sentenceError: any) {
-      console.error('criminal sentence top users error', {
-        chatId,
-        error: sentenceError.message || String(sentenceError)
-      });
-      topUsers = await getTopCriminalUsers(env, chatId, limit, period);
-    }
-
-    if (topUsers.length === 0) {
-      return await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
-    }
-
-    const periodText = period === 'today' ? 'сегодня' :
-      period === 'week' ? 'за неделю' : 'за месяц';
-
-    const lines = [`Топ нарушителей УК РФ ${periodText}:`];
-    for (let i = 0; i < topUsers.length; i++) {
-      const user = topUsers[i];
-      const sentenceText = user.totalYears !== undefined || user.lifeSentences !== undefined
-        ? `, напиздел: ${formatSentenceTotalValue({
-          totalYears: user.totalYears || 0,
-          lifeSentences: user.lifeSentences || 0,
-        })}`
-        : '';
-      lines.push(`${i + 1}. ${user.username}: ${user.count} нарушений${sentenceText}`);
-    }
-
-    const text = lines.join('\n');
-    return await sendMessage(env, chatId, text);
+    const range = parseCriminalReportPeriod(period);
+    const limit = Math.min(Math.max(count, 1), 20);
+    const report = await loadCriminalTopReport(env, chatId, range, limit);
+    return await sendMessage(env, chatId, formatCriminalTopReport(report));
   } catch (error: any) {
+    if (error?.message === 'Неверный период. Используйте: today, week, month') {
+      return await sendMessage(env, chatId, error.message);
+    }
     console.error('criminal top users error', {
       chatId,
       error: error.message || String(error)
@@ -1763,79 +1737,19 @@ export async function myCriminalStats(
   period?: string
 ): Promise<string | void> {
   try {
-    // Use ViolationHandler for enhanced formatting
-    const violationHandler = new ViolationHandler(env);
-    const formattedStats = await violationHandler.getUserStats(userId.toString(), chatId.toString(), period);
-    return await sendMessage(env, chatId, formattedStats);
+    const range = parseCriminalReportPeriod(period);
+    const report = await loadPersonalCriminalReport(env, chatId, userId, range);
+    return await sendMessage(env, chatId, formatPersonalCriminalReport(report));
   } catch (error: any) {
+    if (error?.message === 'Неверный период. Используйте: today, week, month') {
+      return await sendMessage(env, chatId, error.message);
+    }
     console.error('my criminal stats error', {
       chatId,
       userId,
       error: error.message || String(error)
     });
-
-    // Fallback to legacy formatting if ViolationHandler fails
-    try {
-      if (period) {
-        // Show stats for specific period
-        const validPeriods = ['today', 'week', 'month'];
-        if (!validPeriods.includes(period)) {
-          return await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
-        }
-
-        const stats = await getUserCriminalStats(env, chatId, userId);
-        let count: number;
-        let periodText: string;
-
-        switch (period) {
-          case 'today':
-            count = stats.today;
-            periodText = 'сегодня';
-            break;
-          case 'week':
-            count = stats.week;
-            periodText = 'за неделю';
-            break;
-          case 'month':
-            count = stats.month;
-            periodText = 'за месяц';
-            break;
-          default:
-            count = stats.today;
-            periodText = 'сегодня';
-        }
-
-        if (count === 0) {
-          return await sendMessage(env, chatId, `У вас чистая речь ${periodText}!`);
-        } else {
-          return await sendMessage(env, chatId, `Ваша статистика ${periodText}: ${count} нарушений УК РФ`);
-        }
-      } else {
-        // Show stats for all periods
-        const stats = await getUserCriminalStats(env, chatId, userId);
-
-        if (stats.today === 0 && stats.week === 0 && stats.month === 0) {
-          return await sendMessage(env, chatId, 'У вас чистая речь!');
-        }
-
-        const lines = [
-          'Ваша статистика нарушений УК РФ:',
-          `Сегодня: ${stats.today}`,
-          `За неделю: ${stats.week}`,
-          `За месяц: ${stats.month}`
-        ];
-
-        const text = lines.join('\n');
-        return await sendMessage(env, chatId, text);
-      }
-    } catch (fallbackError: any) {
-      console.error('my criminal stats fallback error', {
-        chatId,
-        userId,
-        error: fallbackError.message || String(fallbackError)
-      });
-      return await sendMessage(env, chatId, 'Ошибка при получении вашей статистики');
-    }
+    return await sendMessage(env, chatId, 'Ошибка при получении вашей статистики');
   }
 }
 
@@ -1845,69 +1759,19 @@ export async function criminalCodeStats(
   chatId: number,
   period: string = 'today'
 ): Promise<string | void> {
-  // Validate parameters
-  const validPeriods = ['today', 'week', 'month'];
-  if (!validPeriods.includes(period)) {
-    return await sendMessage(env, chatId, 'Неверный период. Используйте: today, week, month');
-  }
-
   try {
-    // Convert period to days for ViolationHandler
-    let days: number;
-    switch (period) {
-      case 'today':
-        days = 1;
-        break;
-      case 'week':
-        days = 7;
-        break;
-      case 'month':
-        days = 30;
-        break;
-      default:
-        days = 1;
-    }
-
-    // Use ViolationHandler for enhanced formatting
-    const violationHandler = new ViolationHandler(env);
-    const formattedStats = await violationHandler.getPeriodStats(chatId.toString(), days);
-    return await sendMessage(env, chatId, formattedStats);
+    const range = parseCriminalReportPeriod(period);
+    const report = await loadChatCriminalReport(env, chatId, range);
+    return await sendMessage(env, chatId, formatChatCriminalReport(report));
   } catch (error: any) {
+    if (error?.message === 'Неверный период. Используйте: today, week, month') {
+      return await sendMessage(env, chatId, error.message);
+    }
     console.error('criminal code stats error', {
       chatId,
       error: error.message || String(error)
     });
-
-    // Fallback to legacy formatting if ViolationHandler fails
-    try {
-      const topUsers = await getTopCriminalUsers(env, chatId, 10, period);
-
-      if (topUsers.length === 0) {
-        return await sendMessage(env, chatId, 'Нет данных о нарушениях УК РФ');
-      }
-
-      const periodText = period === 'today' ? 'сегодня' :
-        period === 'week' ? 'за неделю' : 'за месяц';
-
-      const lines = [`Статистика нарушений УК РФ ${periodText}:`];
-      const totalViolations = topUsers.reduce((sum, user) => sum + user.count, 0);
-
-      for (let i = 0; i < Math.min(topUsers.length, 10); i++) {
-        const user = topUsers[i];
-        lines.push(`${i + 1}. ${user.username}: ${user.count}`);
-      }
-
-      lines.push(`\nВсего нарушений: ${totalViolations}`);
-
-      const text = lines.join('\n');
-      return await sendMessage(env, chatId, text);
-    } catch (fallbackError: any) {
-      console.error('criminal code stats fallback error', {
-        chatId,
-        error: fallbackError.message || String(fallbackError)
-      });
-      return await sendMessage(env, chatId, 'Ошибка при получении статистики УК РФ');
-    }
+    return await sendMessage(env, chatId, 'Ошибка при получении статистики УК РФ');
   }
 }
 
