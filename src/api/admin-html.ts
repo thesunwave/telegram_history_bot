@@ -886,6 +886,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     <div class="wrap topbar">
       <h1>Telegram Stats Admin</h1>
       <div class="topbarRight">
+        <a href="/admin/setup">Настройка</a>
         <label class="themeControl">Тема
           <select id="themeSelect" aria-label="Тема оформления">
             <option value="system">Система</option>

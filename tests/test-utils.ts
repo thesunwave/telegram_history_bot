@@ -128,6 +128,8 @@ export function createMockEnv(overrides: Partial<Env> = {}): Env {
     TOKEN: "test-token",
     SECRET: "test-secret",
     SUMMARY_MODEL: "test-model",
+    ENABLE_SUMMARY: true,
+    SUMMARY_OPT_ENABLED: true,
     CRIMINAL_PROVIDER: "mock",
     SUMMARY_PROMPT: "Test prompt",
     KV_BATCH_SIZE: DEFAULT_KV_BATCH_SIZE,
