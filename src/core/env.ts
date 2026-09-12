@@ -134,17 +134,6 @@ export interface Env {
   LLM_BUDGET_KV_KEY?: string;     // Default: 'llm_budget'
 }
 
-export interface DurableObjectId { }
-
-export interface DurableObjectStub {
-  fetch(request: Request): Promise<Response>;
-}
-
-export interface DurableObjectNamespace {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
-}
-
 export interface StoredMessage {
   chat: number;
   user: number;
@@ -177,11 +166,6 @@ export const LARGE_DATASET_BATCH_SIZE = 25; // More conservative batch size for 
 export const LARGE_DATASET_BATCH_DELAY = 200; // Minimum delay for large datasets
 export const VERY_LARGE_DATASET_BATCH_SIZE = 15; // Very conservative batch size for very large datasets  
 export const VERY_LARGE_DATASET_BATCH_DELAY = 500; // Longer delay for very large datasets
-
-// Batch processing constants
-export const BATCH_SIZE = 50;
-export const MAX_BATCH_SIZE = 100;
-export const BATCH_TIMEOUT = 30000; // 30 seconds
 
 // ========================================
 // 🏛️ CRIMINAL CODE ANALYSIS TYPES
@@ -339,17 +323,6 @@ export interface CriminalBatchAnalysisRequest {
   forceRefresh?: boolean;
 }
 
-// Statistics for criminal violations
-export interface CriminalViolationStats {
-  userId?: number;
-  chatId?: number;
-  totalViolations: number;
-  avgSeverity: number;
-  mostCommonArticle?: string;
-  lastViolationAt?: string;
-  riskTrend: 'increasing' | 'stable' | 'decreasing';
-}
-
 // Cache entry for analysis results
 export interface CriminalAnalysisCache {
   textHash: string;
@@ -358,7 +331,5 @@ export interface CriminalAnalysisCache {
 }
 
 // Criminal Code Analyzer DO constants
-export const CRIMINAL_ANALYSIS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 export const CRIMINAL_MAX_TEXT_LENGTH = 10000; // Maximum text length for analysis
-export const CRIMINAL_ANALYSIS_TIMEOUT = 30000; // 30 seconds timeout
 export const CRIMINAL_BATCH_SIZE = 10; // Maximum batch size for analysis
