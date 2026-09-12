@@ -8,9 +8,6 @@
 import { Env } from '../env';
 import { Logger } from '../logger';
 
-// Use Cloudflare Workers KVNamespace type
-type KVNamespace = import('@cloudflare/workers-types').KVNamespace;
-
 /**
  * Feature types that use LLM capabilities
  */
@@ -93,11 +90,6 @@ export interface ILLMBudgetTracker {
      * Get all usage data for the current month.
      */
     getMonthlyData(): MonthlyUsageData;
-
-    /**
-     * Flush in-memory data to persistent storage.
-     */
-    flush(): Promise<void>;
 }
 
 /**
@@ -130,36 +122,25 @@ function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
 
 /**
  * Default implementation of LLMBudgetTracker.
- * Uses in-memory counters with optional KV persistence.
+ * Uses in-memory counters.
  */
 export class LLMBudgetTracker implements ILLMBudgetTracker {
     private data: MonthlyUsageData;
     private softLimits: Record<string, number>;
-    private kv: KVNamespace | null;
-    private kvKey: string;
-    private isDirty: boolean = false;
 
-    constructor(
-        env?: Partial<Env> | null,
-        existingData?: MonthlyUsageData
-    ) {
+    constructor(env?: Partial<Env> | null) {
         const currentMonth = getCurrentMonth();
 
-        // Initialize or load existing data
-        if (existingData && existingData.month === currentMonth) {
-            this.data = existingData;
-        } else {
-            this.data = {
-                month: currentMonth,
-                models: {},
-                features: {
-                    summary: emptyUsage(),
-                    profanity: emptyUsage(),
-                    criminal: emptyUsage(),
-                },
-                lastUpdated: Date.now(),
-            };
-        }
+        this.data = {
+            month: currentMonth,
+            models: {},
+            features: {
+                summary: emptyUsage(),
+                profanity: emptyUsage(),
+                criminal: emptyUsage(),
+            },
+            lastUpdated: Date.now(),
+        };
 
         // Build soft limits from defaults and environment
         this.softLimits = { ...DEFAULT_SOFT_LIMITS };
@@ -189,11 +170,6 @@ export class LLMBudgetTracker implements ILLMBudgetTracker {
                 }
             }
         }
-
-        // KV persistence setup
-        this.kv = env?.COUNTERS || null;
-        const budgetKey = env?.['LLM_BUDGET_KV_KEY'];
-        this.kvKey = typeof budgetKey === 'string' ? budgetKey : 'llm_budget';
     }
 
     recordUsage(model: string, feature: FeatureType, usage: TokenUsage): void {
@@ -224,7 +200,6 @@ export class LLMBudgetTracker implements ILLMBudgetTracker {
 
         // Update timestamp
         this.data.lastUpdated = Date.now();
-        this.isDirty = true;
 
         // Log for observability
         Logger.log('LLM usage recorded', {
@@ -283,50 +258,6 @@ export class LLMBudgetTracker implements ILLMBudgetTracker {
 
     getMonthlyData(): MonthlyUsageData {
         return { ...this.data };
-    }
-
-    async flush(): Promise<void> {
-        if (!this.isDirty || !this.kv) {
-            return;
-        }
-
-        try {
-            const key = `${this.kvKey}_${this.data.month}`;
-            await this.kv.put(key, JSON.stringify(this.data));
-            this.isDirty = false;
-            Logger.log('LLM budget data flushed to KV', { key, month: this.data.month });
-        } catch (error) {
-            Logger.error('Failed to flush LLM budget data', {
-                error: error instanceof Error ? error.message : String(error),
-            });
-        }
-    }
-
-    /**
-     * Load existing data from KV storage.
-     */
-    static async loadFromKV(
-        kv: KVNamespace,
-        kvKeyPrefix: string = 'llm_budget'
-    ): Promise<MonthlyUsageData | null> {
-        try {
-            const currentMonth = getCurrentMonth();
-            const key = `${kvKeyPrefix}_${currentMonth}`;
-            const data = await kv.get(key);
-
-            if (data) {
-                const parsed = JSON.parse(data) as MonthlyUsageData;
-                if (parsed.month === currentMonth) {
-                    return parsed;
-                }
-            }
-        } catch (error) {
-            Logger.error('Failed to load LLM budget data from KV', {
-                error: error instanceof Error ? error.message : String(error),
-            });
-        }
-
-        return null;
     }
 }
 
