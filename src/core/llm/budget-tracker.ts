@@ -26,24 +26,6 @@ export interface TokenUsage {
 }
 
 /**
- * Usage record for a specific model
- */
-export interface ModelUsageRecord {
-    model: string;
-    usage: TokenUsage;
-    lastUpdated: number;
-}
-
-/**
- * Usage record for a specific feature
- */
-export interface FeatureUsageRecord {
-    feature: FeatureType;
-    usage: TokenUsage;
-    lastUpdated: number;
-}
-
-/**
  * Monthly usage data structure for persistence
  */
 export interface MonthlyUsageData {
