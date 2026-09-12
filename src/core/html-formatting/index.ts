@@ -9,9 +9,7 @@
 export { 
   HTMLBuilder, 
   htmlBuilder,
-  type IHTMLBuilder,
-  type ViolationMessageData,
-  type StatsMessageData 
+  type IHTMLBuilder
 } from '../html-builder';
 
 // Export MessageFormatter classes and interfaces
