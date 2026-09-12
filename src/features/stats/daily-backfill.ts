@@ -47,12 +47,12 @@ import type { Env } from '../../core/env';
  *   Missing base counters (`missing_base_counter`), missing activity rows
  *   (`missing_activity_total`) and mismatches (`message_count_mismatch`) keep
  *   non-complete statuses with a safe reason.
- * - **Conservative race handling (no claimed convergence).** The live writer
- *   (`d1-aggregate-writer.ts`) forces any touched category status to `live`
- *   (and `source='live'`) in the same batch as its additive write. Backfill
- *   finalization therefore refuses to complete a day that a live write has
- *   taken over after backfill last wrote it: a raced/late day becomes
- *   unavailable until a subsequent reconciliation, never silently converged.
+ * - **Live/backfill races converge.** The live writer
+ *   (`d1-aggregate-writer.ts`) persists exact post-KV totals and forces any
+ *   touched category status to `live` (and `source='live'`) in the same batch.
+ *   Backfill uses MAX on conflict for live-owned days, so a stale snapshot
+ *   cannot regress a newer live value; if backfill writes first, the later live
+ *   write stores the same exact total instead of adding a second delta.
  * - **Bounded per invocation.** One phase (or page portion) per invocation, at
  *   most 50 inspected source keys (including malformed and cutoff keys), at
  *   most 300 KV gets, and at most **90 D1 statements total across the whole
