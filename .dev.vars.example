@@ -1,0 +1,2 @@
+# Deploy to Cloudflare asks for this value and stores it as a Worker Secret.
+TOKEN=replace-with-botfather-token

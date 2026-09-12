@@ -14,7 +14,7 @@ export interface Env {
   LEGAL_RAG_INDEX?: any;
   ENVIRONMENT?: string;
   TOKEN: string;
-  SECRET: string;
+  SECRET?: string;
   SUMMARY_MODEL: string;
   SUMMARY_PROMPT: string;
   SUMMARY_SYSTEM?: string;
@@ -33,6 +33,7 @@ export interface Env {
   PROFANITY_USER_PROMPT?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
+  CLOUDFLARE_MODEL?: string;
   OPENROUTER_API_KEY?: string;
   OPENROUTER_BASE_URL?: string;
   OPENROUTER_MODEL?: string;

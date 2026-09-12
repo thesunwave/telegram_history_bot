@@ -2,8 +2,13 @@
 	"name": "purple-bread-9739",
 	"version": "0.0.0",
 	"private": true,
+	"engines": {
+		"node": ">=22.0.0"
+	},
 	"scripts": {
 		"deploy": "wrangler deploy",
+		"postdeploy": "wrangler d1 migrations apply DB --remote",
+		"deploy:production": "wrangler deploy --config wrangler.production.jsonc && wrangler d1 migrations apply DB --remote --config wrangler.production.jsonc",
 		"start": "wrangler dev",
 		"dev": "wrangler dev",
 		"cf-typegen": "wrangler types",
@@ -16,7 +21,7 @@
 		"backfill:criminal-punishments": "node scripts/fixes/backfill-criminal-punishments.mjs"
 	},
 	"devDependencies": {
-		"@cloudflare/workers-types": "^4.20250810.0",
+		"@cloudflare/workers-types": "^4.20260702.1",
 		"@miniflare/core": "^2.14.4",
 		"@miniflare/d1": "^2.14.4",
 		"@miniflare/kv": "^2.14.4",
@@ -24,7 +29,14 @@
 		"better-sqlite3": "^11.10.0",
 		"typescript": "^5.0.4",
 		"vitest": "^3.2.3",
-		"wrangler": "^4.26.1"
+		"wrangler": "4.107.1"
+	},
+	"cloudflare": {
+		"bindings": {
+			"TOKEN": {
+				"description": "Telegram bot token issued by BotFather. It is stored as a Worker Secret."
+			}
+		}
 	},
 	"dependencies": {
 		"dotenv": "^17.2.3"

@@ -37,6 +37,28 @@ const makeEmptyD1 = () => ({
   ),
 });
 
+const makeSettingsD1 = () => {
+  let settingsJson: string | null = null;
+  return {
+    prepare: vi.fn((sql: string) => ({
+      bind: vi.fn((...args: unknown[]) => ({
+        all: vi.fn(async () => ({ results: [] })),
+        first: vi.fn(async () =>
+          sql.includes("SELECT settings_json") && settingsJson
+            ? { settings_json: settingsJson }
+            : null,
+        ),
+        run: vi.fn(async () => {
+          if (sql.includes("INSERT INTO app_settings")) settingsJson = String(args[1]);
+          return { success: true };
+        }),
+      })),
+    })),
+    batch: vi.fn(async () => []),
+    readSettings: () => settingsJson,
+  };
+};
+
 // Установим переменные окружения для тестов
 env.TOKEN = "t";
 env.SECRET = "s";
@@ -60,6 +82,15 @@ beforeEach(() => {
   disableConsoleLogging();
 
   tasks = [];
+  env.TOKEN = "t";
+  env.SECRET = "s";
+  env.SUMMARY_PROVIDER = "cloudflare";
+  env.SUMMARY_MODEL = "test-model";
+  env.CLOUDFLARE_MODEL = undefined;
+  env.OPENAI_MODEL = undefined;
+  env.OPENROUTER_MODEL = undefined;
+  env.ENABLE_SUMMARY = "true";
+  env.OPENAI_API_KEY = "test-openai-key";
   ctx = { waitUntil: (p: Promise<any>) => tasks.push(p) };
   vi.clearAllMocks();
   vi.restoreAllMocks();
@@ -237,6 +268,265 @@ describe("webhook", () => {
     const html = await response.text();
     expect(html).toContain("Вход через Telegram");
     expect(html).toContain("test_bot");
+  });
+
+  it("serves deployment guidance on the Worker root", async () => {
+    const response = await worker.fetch(new Request("https://bot.example/"), env, ctx);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/html");
+    const html = await response.text();
+    expect(html).toContain("/setdomain");
+    expect(html).toContain('href="/admin"');
+    expect(html).toContain("location.hostname");
+  });
+
+  it("requires a Telegram session for setup routes", async () => {
+    const unauthorized = await worker.fetch(
+      new Request("http://localhost/admin/setup"),
+      env,
+      ctx,
+    );
+    const basicOnly = await worker.fetch(
+      new Request("http://localhost/admin/api/setup", {
+        headers: { Authorization: adminAuth },
+      }),
+      env,
+      ctx,
+    );
+
+    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.headers.get("Location")).toBe("/admin");
+    expect(basicOnly.status).toBe(401);
+  });
+
+  it("returns setup status without exposing secret values", async () => {
+    env.TOKEN = "super-secret-token";
+    env.SECRET = "super-secret-webhook-token";
+    env.OPENAI_API_KEY = "super-secret-openai-key";
+    env.CLOUDFLARE_MODEL = "cloudflare-model";
+    env.OPENAI_MODEL = "wrong-provider-model";
+    vi.spyOn(global, "fetch").mockImplementation(async (input: any) => {
+      if (String(input).endsWith("/getMe")) {
+        return Response.json({ ok: true, result: { id: 123, username: "test_bot" } });
+      }
+      if (String(input).endsWith("/getWebhookInfo")) {
+        return Response.json({ ok: true, result: { url: "https://example.test/telegram/webhook" } });
+      }
+      return Response.json({ ok: true, result: true });
+    });
+
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/setup", { headers: await adminSessionHeaders() }),
+      env,
+      ctx,
+    );
+    const body = (await response.json()) as any;
+    const serialized = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      ok: true,
+      bot: { ok: true, result: { username: "test_bot" } },
+      summary: { enabled: true, provider: "cloudflare", model: "cloudflare-model" },
+      configured: { token: true, webhookSecret: true, openaiApiKey: true, workersAi: true },
+    });
+    expect(serialized).not.toContain(env.TOKEN);
+    expect(serialized).not.toContain(env.SECRET);
+    expect(serialized).not.toContain(env.OPENAI_API_KEY);
+  });
+
+  it("saves Cloudflare summary settings through the setup wizard without a redeploy", async () => {
+    const db = makeSettingsD1();
+    env.DB = db as any;
+    env.ENABLE_SUMMARY = false;
+    env.SUMMARY_PROVIDER = "cloudflare";
+    env.CLOUDFLARE_MODEL = "@cf/default/model";
+
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/setup/summary", {
+        method: "PATCH",
+        headers: {
+          ...(await adminSessionHeaders()),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          enabled: true,
+          provider: "cloudflare",
+          model: "@cf/custom/model",
+        }),
+      }),
+      env,
+      ctx,
+    );
+    const body = (await response.json()) as any;
+
+    expect(response.status).toBe(200);
+    expect(body.summary).toEqual({
+      enabled: true,
+      provider: "cloudflare",
+      model: "@cf/custom/model",
+    });
+    expect(JSON.parse(db.readSettings() || "{}").summary).toEqual(body.summary);
+  });
+
+  it("reports the model for the selected summary provider", async () => {
+    env.SUMMARY_PROVIDER = "openai";
+    env.OPENAI_MODEL = "openai-model";
+    env.CLOUDFLARE_MODEL = "wrong-provider-model";
+    vi.spyOn(global, "fetch").mockResolvedValue(Response.json({ ok: true, result: true }));
+
+    const response = await worker.fetch(
+      new Request("http://localhost/admin/api/setup", { headers: await adminSessionHeaders() }),
+      env,
+      ctx,
+    );
+    const body = (await response.json()) as any;
+
+    expect(body.summary).toEqual({ enabled: true, provider: "openai", model: "openai-model" });
+  });
+
+  it("registers the origin-derived canonical webhook and commands", async () => {
+    const fetchMock = vi.spyOn(global, "fetch").mockImplementation(async () =>
+      Response.json({ ok: true, result: true }),
+    );
+    const response = await worker.fetch(
+      new Request("https://bot.example/admin/api/setup/webhook", {
+        method: "POST",
+        headers: await adminSessionHeaders(),
+      }),
+      env,
+      ctx,
+    );
+    const body = (await response.json()) as any;
+    const webhookCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/setWebhook"));
+    const commandsCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/setMyCommands"));
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ ok: true, webhookUrl: "https://bot.example/telegram/webhook" });
+    expect(JSON.parse((webhookCall?.[1] as RequestInit).body as string)).toMatchObject({
+      url: "https://bot.example/telegram/webhook",
+      secret_token: "s",
+    });
+    expect(JSON.parse((commandsCall?.[1] as RequestInit).body as string).commands).toEqual(
+      expect.arrayContaining([expect.objectContaining({ command: "summary" })]),
+    );
+  });
+
+  it("requires the secret header on the canonical webhook and keeps the legacy route working", async () => {
+    const update = {
+      update_id: 1,
+      message: {
+        message_id: 1,
+        date: Math.floor(Date.now() / 1000),
+        chat: { id: -1003, type: "group" },
+        from: { id: 9, is_bot: false, first_name: "User" },
+        text: "hello",
+      },
+    };
+    const missingSecret = await worker.fetch(
+      new Request("http://localhost/telegram/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(update),
+      }),
+      env,
+      ctx,
+    );
+    const canonical = await worker.fetch(
+      new Request("http://localhost/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": "s",
+        },
+        body: JSON.stringify(update),
+      }),
+      env,
+      ctx,
+    );
+    const legacy = await worker.fetch(
+      new Request("http://localhost/tg/t/webhook", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": "s",
+        },
+        body: JSON.stringify(update),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(missingSecret.status).toBe(403);
+    expect(canonical.status).toBe(200);
+    expect(legacy.status).toBe(200);
+  });
+
+  it("fails closed when canonical webhook credentials are missing", async () => {
+    env.TOKEN = undefined;
+    env.SECRET = undefined;
+
+    const response = await worker.fetch(
+      new Request("http://localhost/telegram/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ update_id: 1 }),
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it("derives the canonical webhook secret when a fresh install only has TOKEN", async () => {
+    env.TOKEN = "123456789:test_bot_token_value";
+    env.SECRET = undefined;
+    const fetchMock = vi.spyOn(global, "fetch").mockImplementation(async () =>
+      Response.json({ ok: true, result: true }),
+    );
+
+    const setupResponse = await worker.fetch(
+      new Request("https://bot.example/admin/api/setup/webhook", {
+        method: "POST",
+        headers: await adminSessionHeaders(),
+      }),
+      env,
+      ctx,
+    );
+    expect(setupResponse.status).toBe(200);
+
+    const webhookCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/setWebhook"));
+    const webhookBody = JSON.parse((webhookCall?.[1] as RequestInit).body as string);
+    expect(webhookBody.secret_token).toMatch(/^[0-9a-f]{64}$/);
+    expect(webhookBody.secret_token).not.toContain(env.TOKEN);
+
+    const update = {
+      update_id: 2,
+      message: {
+        message_id: 2,
+        date: Math.floor(Date.now() / 1000),
+        chat: { id: -1004, type: "group" },
+        from: { id: 10, is_bot: false, first_name: "User" },
+        text: "hello",
+      },
+    };
+    fetchMock.mockRestore();
+
+    const webhookResponse = await worker.fetch(
+      new Request("http://localhost/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": webhookBody.secret_token,
+        },
+        body: JSON.stringify(update),
+      }),
+      env,
+      ctx,
+    );
+    expect(webhookResponse.status).toBe(200);
   });
 
   it("requires telegram auth for admin API routes without triggering basic auth", async () => {
