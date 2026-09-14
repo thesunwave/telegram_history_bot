@@ -16,6 +16,7 @@ import type {
   CriminalAnalysisCache,
   CriminalSemanticPrefilterResult,
   StoredMessage,
+  MessageReplyContext,
   LegalReferenceHit
 } from '../core/env';
 import {
@@ -42,6 +43,7 @@ interface QueuedCriminalAnalysisTask {
   userId?: number;
   messageId?: number;
   username?: string;
+  replyTo?: MessageReplyContext;
   day?: string;
   ts?: number;
   sequence?: number;
@@ -278,6 +280,7 @@ export class CriminalCodeAnalyzerDO {
       }
 
       const { text, chatId, messageId, userId, username, day, ts, sequence } = body;
+      const replyTo = this.normalizeReplyContext(body.replyTo);
       if (!text || text.trim().length === 0) {
         return new Response(JSON.stringify({ error: 'Text is required' }), { status: 400 });
       }
@@ -300,6 +303,7 @@ export class CriminalCodeAnalyzerDO {
           userId,
           messageId,
           username,
+          replyTo,
           day,
           ts,
           sequence,
@@ -339,6 +343,7 @@ export class CriminalCodeAnalyzerDO {
           userId,
           messageId,
           username,
+          replyTo,
           day,
           ts,
           sequence,
@@ -394,6 +399,7 @@ export class CriminalCodeAnalyzerDO {
         userId: input.targetUserId,
         messageId: input.targetMessageId,
         username: input.targetUsername,
+        replyTo: input.replyTo,
         ts: targetTimestamp,
         reasons: ['semantic_prefilter'],
         enqueuedAt: Date.now(),
@@ -460,6 +466,7 @@ export class CriminalCodeAnalyzerDO {
     const targetMessageId = Number.isFinite(Number(body.messageId)) ? Number(body.messageId) : Date.now();
     const targetUserId = Number.isFinite(Number(body.userId)) ? Number(body.userId) : undefined;
     const targetUsername = typeof body.username === 'string' ? body.username : 'diagnostic';
+    const replyTo = this.normalizeReplyContext(body.replyTo);
     const rawMessages = Array.isArray(body.messages) ? body.messages : [];
 
     if (rawMessages.length === 0) {
@@ -470,6 +477,7 @@ export class CriminalCodeAnalyzerDO {
         targetText: text,
         targetTimestamp,
         chatId,
+        replyTo,
         contextWindow: { before: 0, after: 0, totalMessages: 1 },
         messages: [{
           messageId: targetMessageId,
@@ -516,6 +524,7 @@ export class CriminalCodeAnalyzerDO {
       targetText: text,
       targetTimestamp,
       chatId,
+      replyTo,
       contextWindow: {
         before: messages.filter((message: CriminalContextMessage) => message.relativePosition < 0).length,
         after: messages.filter((message: CriminalContextMessage) => message.relativePosition > 0).length,
@@ -773,6 +782,9 @@ export class CriminalCodeAnalyzerDO {
     const recentMessages = await fetchLastMessagesOptimized(this.env, task.chatId, Math.max(totalLimit, 25))
       .catch(() => [] as StoredMessage[]);
     const messages = this.buildContextMessages(recentMessages, task, beforeLimit, afterLimit);
+    const targetIndex = this.findTargetMessageIndex(recentMessages, task);
+    const storedReplyTo = targetIndex >= 0 ? recentMessages[targetIndex]?.replyTo : undefined;
+    const replyTo = this.normalizeReplyContext(task.replyTo ?? storedReplyTo);
 
     return {
       targetMessageId: task.messageId,
@@ -781,6 +793,7 @@ export class CriminalCodeAnalyzerDO {
       targetText: task.text,
       targetTimestamp: task.ts || Math.floor(Date.now() / 1000),
       chatId: task.chatId,
+      replyTo,
       contextWindow: {
         before: messages.filter(message => message.relativePosition < 0).length,
         after: messages.filter(message => message.relativePosition > 0).length,
@@ -855,6 +868,27 @@ export class CriminalCodeAnalyzerDO {
       relativePosition,
       isTarget,
     };
+  }
+
+  private normalizeReplyContext(value: unknown): MessageReplyContext | undefined {
+    if (!value || typeof value !== 'object') {
+      return undefined;
+    }
+    const reply = value as Record<string, unknown>;
+    const messageId = Number.isFinite(Number(reply.messageId)) ? Number(reply.messageId) : undefined;
+    const userId = Number.isFinite(Number(reply.userId)) ? Number(reply.userId) : undefined;
+    const username = typeof reply.username === 'string'
+      ? reply.username.replace(/\s+/g, ' ').trim().slice(0, 100)
+      : undefined;
+    const text = typeof reply.text === 'string'
+      ? reply.text.replace(/\s+/g, ' ').trim().slice(0, 2000)
+      : undefined;
+    const ts = Number.isFinite(Number(reply.ts)) ? Number(reply.ts) : undefined;
+
+    if (messageId === undefined && userId === undefined && !username && !text && ts === undefined) {
+      return undefined;
+    }
+    return { messageId, userId, username: username || undefined, text: text || undefined, ts };
   }
 
   private compareStoredMessageToTask(message: StoredMessage, task: QueuedCriminalAnalysisTask): number {
@@ -1169,6 +1203,7 @@ export class CriminalCodeAnalyzerDO {
         userId: input.targetUserId,
         messageId: input.targetMessageId,
         username: input.targetUsername,
+        replyTo: input.replyTo,
         ts: input.targetTimestamp,
         reasons: ['semantic_prefilter'],
         enqueuedAt: Date.now(),
@@ -1358,6 +1393,8 @@ export class CriminalCodeAnalyzerDO {
       'Ты быстрый prefilter для Telegram-чата.',
       'Реши, нужно ли отправлять target-сообщение в дорогой юридический анализ УК РФ.',
       'Квалифицируй только target-сообщение. Короткий соседний контекст дан только для восстановления смысла target: местоимений, пропущенного субъекта/объекта, сленга, эллипсиса и переносных выражений.',
+      'Если передан replyTo, это сообщение, на которое target отвечает напрямую. Для коротких ответов, подколов, эллипсиса и местоимений replyTo важнее обычных соседних сообщений при восстановлении смысла target.',
+      'Никогда не переноси угрозу, насилие или иной криминальный смысл из replyTo на target. Если target в связке с replyTo является только ответной шуткой, сексуальным/грубым подколом, уточнением или отрицанием без собственного уголовно значимого действия автора, верни shouldAnalyze=false.',
       'Опасный смысл только в соседних сообщениях не является причиной анализировать target. Если контекст однозначно раскрывает target как бытовую, предметную, игровую или иную некриминальную реплику, верни shouldAnalyze=false.',
       'Не достраивай отсутствующее насильственное действие, жертву или умысел из грубой, двусмысленной или эллиптической фразы.',
       'Сначала опиши фактический смысл target в semanticFrame, а уже потом выбирай shouldAnalyze/reason.',
@@ -1391,6 +1428,7 @@ export class CriminalCodeAnalyzerDO {
       targetMessageId: input.targetMessageId,
       targetText: input.targetText,
       targetUsername: input.targetUsername,
+      replyTo: input.replyTo,
       contextWindow: input.contextWindow,
       messages: this.selectSemanticPrefilterMessages(input)
         .map(message => ({
@@ -1649,11 +1687,17 @@ export class CriminalCodeAnalyzerDO {
 
   private async getSemanticPrefilterCacheKey(input: CriminalContextAnalysisInput): Promise<string> {
     const normalizedTarget = this.normalizeTextForSemanticCache(input.targetText);
+    const normalizedReply = input.replyTo
+      ? [
+        Number.isFinite(input.replyTo.messageId) ? String(input.replyTo.messageId) : '',
+        this.normalizeTextForSemanticCache(input.replyTo.text || ''),
+      ].join(':')
+      : '';
     const normalizedContext = this.selectSemanticPrefilterMessages(input)
       .filter(message => !message.isTarget)
       .map(message => `${message.relativePosition}:${this.normalizeTextForSemanticCache(message.text)}`)
       .join('\n');
-    const hash = await this.hashText(`${normalizedTarget}\ncontext:\n${normalizedContext}`);
+    const hash = await this.hashText(`${normalizedTarget}\nreply:\n${normalizedReply}\ncontext:\n${normalizedContext}`);
     const version = String((this.env as any).CRIMINAL_PREFILTER_CACHE_VERSION || 'v7')
       .replace(/[^a-z0-9_-]+/gi, '_');
     const model = String((this.env as any).CRIMINAL_PREFILTER_MODEL || (this.env as any).LLM_NANO_MODEL || 'default')
@@ -2020,6 +2064,8 @@ export class CriminalCodeAnalyzerDO {
       'Не требуй судебной доказуемости, публичности, реальной возможности исполнить угрозу, факта предыдущей административной ответственности или иных формальных условий, если они не меняют основной смысл высказывания.',
       'Используй только статьи из legalReferences. Не добавляй статьи, которых нет в списке.',
       'Квалифицируй только target-сообщение. Соседние сообщения служат только для понимания target; не сохраняй violation, если состав есть только в before/after.',
+      'Если передан replyTo, это сообщение, на которое target является прямым ответом. Для короткой ответной реплики используй replyTo как основной семантический контекст перед обычными before/after.',
+      'Не переноси деяние, угрозу или объект из replyTo на target. Ответный подкол, шутка, сексуальный сленг, уточнение или отрицание без самостоятельного криминального смысла target должны давать no_violation, даже если отдельные слова target без replyTo двусмысленны.',
       'Сначала выбери основную норму Особенной части УК РФ. Общие нормы о приготовлении, соучастии, группе лиц или отягчающих обстоятельствах сами по себе недостаточны без подходящей основной статьи.',
       'Сначала определи literal meaning target в поле meaning. speechAct должен быть одним из threat|admission|fantasy|endorsement|incitement|plan|instruction|prediction|taunt|report|quote|metaphor|other|unclear.',
       'Для эллиптических и двусмысленных target используй соседний контекст только чтобы восстановить обычный смысл самого target; не переноси опасное действие из before/after на target.',
@@ -2041,6 +2087,7 @@ export class CriminalCodeAnalyzerDO {
       targetMessageId: input.targetMessageId,
       targetText: input.targetText,
       targetUsername: input.targetUsername,
+      replyTo: input.replyTo,
       semanticFrame: input.semanticPrefilter?.semanticFrame,
       contextWindow: input.contextWindow,
       messages: this.selectFinalJudgeMessages(input).map(message => ({

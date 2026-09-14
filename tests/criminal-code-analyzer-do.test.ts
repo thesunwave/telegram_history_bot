@@ -630,6 +630,51 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(result.reasons).toContain("semantic_prefilter");
     });
 
+    it("should preserve Telegram reply context in the queued criminal task", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      const response = await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "Только твою маман, но она не жалуется",
+          chatId: -1001496674952,
+          userId: 65247408,
+          messageId: 1201,
+          username: "thesunwave",
+          day: "2026-09-14",
+          ts: 1789413420,
+          replyTo: {
+            messageId: 1200,
+            userId: 204661056,
+            username: "visualklik",
+            text: "Артур уже всех заебал",
+            ts: 1789413410,
+          },
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(response.status).toBe(200);
+      const queue = storage.get("criminal_analysis_queue");
+      expect(queue).toHaveLength(1);
+      expect(queue[0].replyTo).toEqual({
+        messageId: 1200,
+        userId: 204661056,
+        username: "visualklik",
+        text: "Артур уже всех заебал",
+        ts: 1789413410,
+      });
+    });
+
     it("should enqueue and flush suspicious messages when batch size is reached", async () => {
       const storage = new Map<string, any>();
       mockState.storage = {
@@ -884,6 +929,79 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(positions).toEqual([-2, -1, 0, 1]);
       expect(prompt).toContain("Короткий соседний контекст");
       expect(prompt).not.toContain("соседние сообщения не передаются намеренно");
+    });
+
+    it("should pass Telegram reply target as explicit high-priority semantic context", () => {
+      const input = {
+        targetMessageId: 1201,
+        targetUserId: 65247408,
+        targetUsername: "thesunwave",
+        targetText: "Только твою маман, но она не жалуется",
+        targetTimestamp: 1789413420,
+        chatId: -1001496674952,
+        replyTo: {
+          messageId: 1200,
+          userId: 204661056,
+          username: "visualklik",
+          text: "Артур уже всех заебал",
+          ts: 1789413410,
+        },
+        contextWindow: { before: 2, after: 1, totalMessages: 4 },
+        messages: [
+          { username: "a", text: "чет ты не то кодишь", ts: 1789413390, relativePosition: -2, isTarget: false },
+          { username: "b", text: "моя любимая игрушка", ts: 1789413400, relativePosition: -1, isTarget: false },
+          { username: "thesunwave", text: "Только твою маман, но она не жалуется", ts: 1789413420, relativePosition: 0, isTarget: true },
+          { username: "b", text: "после доты", ts: 1789413430, relativePosition: 1, isTarget: false },
+        ],
+      };
+
+      const payload = (analyzer as any).buildSemanticPrefilterPayload(input);
+      const prompt = (analyzer as any).buildSemanticPrefilterSystemPrompt(false);
+
+      expect(payload.replyTo).toEqual(input.replyTo);
+      expect(prompt).toContain("replyTo");
+      expect(prompt).toContain("важнее обычных соседних сообщений");
+      expect(prompt).toContain("ответной шуткой");
+    });
+
+    it("should isolate semantic prefilter cache by Telegram reply target", async () => {
+      const base = {
+        targetMessageId: 1201,
+        targetUserId: 65247408,
+        targetUsername: "thesunwave",
+        targetText: "Только твою маман, но она не жалуется",
+        targetTimestamp: 1789413420,
+        chatId: -1001496674952,
+        contextWindow: { before: 0, after: 0, totalMessages: 1 },
+        messages: [
+          { username: "thesunwave", text: "Только твою маман, но она не жалуется", ts: 1789413420, relativePosition: 0, isTarget: true },
+        ],
+      };
+      const jokeReply = {
+        ...base,
+        replyTo: {
+          messageId: 1200,
+          userId: 204661056,
+          username: "visualklik",
+          text: "Артур уже всех заебал",
+          ts: 1789413410,
+        },
+      };
+      const hostileReply = {
+        ...base,
+        replyTo: {
+          messageId: 1199,
+          userId: 204661056,
+          username: "visualklik",
+          text: "Я тебе сейчас реально угрожаю",
+          ts: 1789413400,
+        },
+      };
+
+      const jokeKey = await (analyzer as any).getSemanticPrefilterCacheKey(jokeReply);
+      const hostileKey = await (analyzer as any).getSemanticPrefilterCacheKey(hostileReply);
+
+      expect(jokeKey).not.toBe(hostileKey);
     });
 
     it("should inject the queued target when it has fallen out of recent history", () => {

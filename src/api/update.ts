@@ -1,4 +1,4 @@
-import { Env, DAY, MAX_LAST_MESSAGES } from '../core/env';
+import { Env, DAY, MAX_LAST_MESSAGES, type MessageReplyContext } from '../core/env';
 import type { KVNamespace, ExecutionContext } from '@cloudflare/workers-types';
 import { summariseChat, summariseChatMessages } from '../features/summary/summary';
 import {
@@ -118,6 +118,31 @@ export function countWords(text: string | undefined): number {
   return textWithoutUrls.trim().match(/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu)?.length ?? 0;
 }
 
+function extractReplyContext(msg: any): MessageReplyContext | undefined {
+  const reply = msg?.reply_to_message;
+  if (!reply || typeof reply !== 'object') return undefined;
+
+  const messageId = Number.isInteger(reply.message_id) ? reply.message_id : undefined;
+  const userId = Number.isInteger(reply.from?.id) ? reply.from.id : undefined;
+  const username = typeof reply.from?.username === 'string'
+    ? reply.from.username
+    : userId !== undefined
+      ? `id${userId}`
+      : undefined;
+  const text = typeof reply.text === 'string'
+    ? reply.text
+    : typeof reply.caption === 'string'
+      ? reply.caption
+      : undefined;
+  const ts = Number.isInteger(reply.date) ? reply.date : undefined;
+
+  if (messageId === undefined && userId === undefined && text === undefined && ts === undefined) {
+    return undefined;
+  }
+
+  return { messageId, userId, username, text, ts };
+}
+
 type ProgressCategory = 'base' | 'profanity' | 'criminal';
 type ProgressOutcome = 'completed' | 'zero' | 'skipped' | 'failed';
 
@@ -196,6 +221,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     text: msg.text,
     ts,
     messageId: msg.message_id,
+    replyTo: extractReplyContext(msg),
   };
 
   Logger.debug(env, 'recordMessage: saving message', {
@@ -522,6 +548,7 @@ async function analyzeCriminalCodeAsync(
         userId,
         messageId: msg.message_id,
         username,
+        replyTo: extractReplyContext(msg),
         day,
         ts: msg.date,
         sequence,
@@ -749,6 +776,7 @@ async function handleCriminalBackfillCommand(env: Env, msg: any, args: string[])
         userId: message.user,
         messageId: message.messageId,
         username: message.username,
+        replyTo: message.replyTo,
         day: new Date(message.ts * 1000).toISOString().slice(0, 10),
         ts: message.ts,
         enqueueOnly: true,

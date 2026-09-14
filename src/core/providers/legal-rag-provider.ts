@@ -167,12 +167,16 @@ export class LegalRagProvider implements AIProvider {
   }
 
   private buildCompactContextQuery(input: CriminalContextAnalysisInput): string {
-    if (input.messages.length <= 1) {
+    const replyText = input.replyTo?.text?.replace(/\s+/g, ' ').trim() || '';
+    if (input.messages.length <= 1 && !replyText) {
       return '';
     }
-    return input.messages
+    const chronologicalContext = input.messages
       .filter(message => message.isTarget || Math.abs(message.relativePosition) <= 1)
       .map(message => message.text)
+      .join('\n');
+    return [replyText ? `reply_to: ${replyText}` : '', chronologicalContext]
+      .filter(Boolean)
       .join('\n')
       .slice(0, 1000);
   }

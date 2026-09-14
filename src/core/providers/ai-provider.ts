@@ -118,6 +118,14 @@ export interface CriminalContextMessage {
   isTarget: boolean;
 }
 
+export interface MessageReplyContext {
+  messageId?: number;
+  userId?: number;
+  username?: string;
+  text?: string;
+  ts?: number;
+}
+
 export interface CriminalContextAnalysisInput {
   targetMessageId?: number;
   targetUserId?: number;
@@ -125,6 +133,7 @@ export interface CriminalContextAnalysisInput {
   targetText: string;
   targetTimestamp: number;
   chatId: number;
+  replyTo?: MessageReplyContext;
   contextWindow: CriminalContextWindow;
   messages: CriminalContextMessage[];
   semanticPrefilter?: CriminalSemanticPrefilterResult;
