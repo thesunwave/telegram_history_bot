@@ -761,7 +761,47 @@ describe("CriminalCodeAnalyzerDO", () => {
         modality: "predicted",
         evidenceSpans: ["не будет скоро вашего образования"],
       }));
-      expect(filtered.shouldAnalyze).toBe(true);
+      expect(filtered.shouldAnalyze).toBe(false);
+    });
+
+    it("should fail closed when a positive semantic prefilter omits semanticFrame", () => {
+      const filtered = (analyzer as any).applySemanticPrefilterThreshold(
+        (analyzer as any).normalizeSemanticPrefilterResult({
+          shouldAnalyze: true,
+          reason: "threat",
+          confidence: 0.9,
+          explanation: "possible threat",
+          searchQuery: "угроза физическому насилию",
+        }),
+        "жопой считал"
+      );
+
+      expect(filtered.shouldAnalyze).toBe(false);
+    });
+
+    it("should reject weak threat guesses even when the semantic frame looks criminal", () => {
+      const targetText = "Будешь просыпаться";
+      const filtered = (analyzer as any).applySemanticPrefilterThreshold(
+        (analyzer as any).normalizeSemanticPrefilterResult({
+          shouldAnalyze: true,
+          reason: "threat",
+          confidence: 0.58,
+          explanation: "possible threat",
+          searchQuery: "угроза причинения насилия",
+          semanticFrame: {
+            speechAct: "threat",
+            actor: "author",
+            action: "угроза физической расправы",
+            targetKind: "person",
+            harmKind: "bodily_harm",
+            modality: "promised",
+            evidenceSpans: [targetText],
+          },
+        }),
+        targetText
+      );
+
+      expect(filtered.shouldAnalyze).toBe(false);
     });
 
     it("should preserve violent_expression as an analyzable prefilter reason", () => {
@@ -784,6 +824,7 @@ describe("CriminalCodeAnalyzerDO", () => {
 
       expect(normalized.reason).toBe("violent_expression");
       expect(normalized.shouldAnalyze).toBe(true);
+      expect((analyzer as any).applySemanticPrefilterThreshold(normalized, "я бы его избил").shouldAnalyze).toBe(true);
     });
 
     it("should require grounded evidence for the final literal meaning", () => {
@@ -843,6 +884,39 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(positions).toEqual([-2, -1, 0, 1]);
       expect(prompt).toContain("Короткий соседний контекст");
       expect(prompt).not.toContain("соседние сообщения не передаются намеренно");
+    });
+
+    it("should inject the queued target when it has fallen out of recent history", () => {
+      const recentMessages = Array.from({ length: 25 }, (_, index) => ({
+        messageId: 200 + index,
+        chat: 12345,
+        user: 9000 + index,
+        username: `user${index}`,
+        text: `later message ${index}`,
+        ts: 2000 + index,
+      }));
+      const task = {
+        text: "original queued target",
+        chatId: 12345,
+        userId: 67890,
+        messageId: 150,
+        username: "targetuser",
+        ts: 1500,
+        reasons: ["semantic_prefilter"],
+        enqueuedAt: Date.now(),
+      };
+
+      const messages = (analyzer as any).buildContextMessages(recentMessages, task, 15, 5);
+      const targets = messages.filter((message: any) => message.isTarget);
+
+      expect(targets).toHaveLength(1);
+      expect(targets[0]).toEqual(expect.objectContaining({
+        messageId: 150,
+        text: "original queued target",
+        relativePosition: 0,
+      }));
+      expect(messages.filter((message: any) => message.relativePosition > 0)).toHaveLength(5);
+      expect(messages.some((message: any) => message.text === "later message 4" && message.isTarget)).toBe(false);
     });
 
     it("should scope semantic prefilter cache to nearby context", async () => {

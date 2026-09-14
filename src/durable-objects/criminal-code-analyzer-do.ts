@@ -772,37 +772,7 @@ export class CriminalCodeAnalyzerDO {
     const totalLimit = beforeLimit + afterLimit + 1;
     const recentMessages = await fetchLastMessagesOptimized(this.env, task.chatId, Math.max(totalLimit, 25))
       .catch(() => [] as StoredMessage[]);
-
-    const targetIndex = this.findTargetMessageIndex(recentMessages, task);
-    const start = targetIndex >= 0 ? Math.max(0, targetIndex - beforeLimit) : Math.max(0, recentMessages.length - beforeLimit);
-    const end = targetIndex >= 0 ? Math.min(recentMessages.length, targetIndex + afterLimit + 1) : recentMessages.length;
-    const selected = recentMessages.slice(start, end);
-    const effectiveTargetIndex = targetIndex >= 0 ? targetIndex : selected.length - 1;
-
-    const messages: CriminalContextMessage[] = selected.map((message, index) => {
-      const absoluteIndex = start + index;
-      return {
-        messageId: message.messageId,
-        username: message.username,
-        userId: message.user,
-        text: message.text,
-        ts: message.ts,
-        relativePosition: absoluteIndex - effectiveTargetIndex,
-        isTarget: absoluteIndex === effectiveTargetIndex,
-      };
-    });
-
-    if (!messages.some(message => message.isTarget)) {
-      messages.push({
-        messageId: task.messageId,
-        username: task.username || 'unknown',
-        userId: task.userId,
-        text: task.text,
-        ts: task.ts || Math.floor(Date.now() / 1000),
-        relativePosition: 0,
-        isTarget: true,
-      });
-    }
+    const messages = this.buildContextMessages(recentMessages, task, beforeLimit, afterLimit);
 
     return {
       targetMessageId: task.messageId,
@@ -818,6 +788,85 @@ export class CriminalCodeAnalyzerDO {
       },
       messages,
     };
+  }
+
+  private buildContextMessages(
+    recentMessages: StoredMessage[],
+    task: QueuedCriminalAnalysisTask,
+    beforeLimit: number,
+    afterLimit: number
+  ): CriminalContextMessage[] {
+    const targetIndex = this.findTargetMessageIndex(recentMessages, task);
+    if (targetIndex >= 0) {
+      const start = Math.max(0, targetIndex - beforeLimit);
+      const end = Math.min(recentMessages.length, targetIndex + afterLimit + 1);
+      return recentMessages.slice(start, end).map((message, index) => {
+        const absoluteIndex = start + index;
+        return this.toContextMessage(message, absoluteIndex - targetIndex, absoluteIndex === targetIndex);
+      });
+    }
+
+    // The queue can be processed after the original message has fallen out of
+    // the bounded recent-history read. Never nominate an arbitrary later chat
+    // message as the target in that case: inject the queued task itself and use
+    // message id/timestamp only to split the available context around it.
+    const before: StoredMessage[] = [];
+    const after: StoredMessage[] = [];
+    for (const message of recentMessages) {
+      if (this.compareStoredMessageToTask(message, task) > 0) {
+        after.push(message);
+      } else {
+        before.push(message);
+      }
+    }
+
+    const selectedBefore = before.slice(-beforeLimit);
+    const selectedAfter = after.slice(0, afterLimit);
+    return [
+      ...selectedBefore.map((message, index) =>
+        this.toContextMessage(message, index - selectedBefore.length, false)
+      ),
+      {
+        messageId: task.messageId,
+        username: task.username || 'unknown',
+        userId: task.userId,
+        text: task.text,
+        ts: task.ts || Math.floor(Date.now() / 1000),
+        relativePosition: 0,
+        isTarget: true,
+      },
+      ...selectedAfter.map((message, index) =>
+        this.toContextMessage(message, index + 1, false)
+      ),
+    ];
+  }
+
+  private toContextMessage(
+    message: StoredMessage,
+    relativePosition: number,
+    isTarget: boolean
+  ): CriminalContextMessage {
+    return {
+      messageId: message.messageId,
+      username: message.username,
+      userId: message.user,
+      text: message.text,
+      ts: message.ts,
+      relativePosition,
+      isTarget,
+    };
+  }
+
+  private compareStoredMessageToTask(message: StoredMessage, task: QueuedCriminalAnalysisTask): number {
+    if (Number.isInteger(message.messageId) && Number.isInteger(task.messageId)) {
+      return (message.messageId as number) - (task.messageId as number);
+    }
+    if (Number.isFinite(message.ts) && Number.isFinite(task.ts)) {
+      return message.ts - (task.ts as number);
+    }
+    // Without a reliable ordering field, preserve the old useful behavior of
+    // treating the latest bounded history as preceding context.
+    return -1;
   }
 
   private findTargetMessageIndex(
@@ -1462,15 +1511,55 @@ export class CriminalCodeAnalyzerDO {
         ),
       }
       : undefined;
+    const frameSupportsAnalysis = this.semanticFrameSupportsReason(semanticFrame, result.reason);
     return {
       ...result,
       semanticFrame,
-      shouldAnalyze: result.shouldAnalyze && result.reason !== 'none' && result.confidence >= threshold,
+      shouldAnalyze: result.shouldAnalyze &&
+        result.reason !== 'none' &&
+        result.confidence >= threshold &&
+        frameSupportsAnalysis,
     };
   }
 
+  private semanticFrameSupportsReason(
+    frame: CriminalSemanticPrefilterResult['semanticFrame'],
+    reason: CriminalSemanticPrefilterResult['reason']
+  ): boolean {
+    if (!frame || frame.evidenceSpans.length === 0 || frame.actor === 'third_party') {
+      return false;
+    }
+
+    switch (reason) {
+      case 'threat':
+      case 'sexual_threat':
+        return frame.speechAct === 'threat';
+      case 'incitement':
+        return frame.speechAct === 'incitement';
+      case 'self_incrimination':
+        return frame.speechAct === 'admission';
+      case 'dangerous_instruction':
+        return frame.speechAct === 'instruction';
+      case 'violent_expression':
+        return frame.speechAct === 'fantasy' ||
+          frame.speechAct === 'endorsement' ||
+          frame.speechAct === 'incitement' ||
+          frame.speechAct === 'plan';
+      case 'extremism':
+        return frame.speechAct === 'threat' ||
+          frame.speechAct === 'incitement' ||
+          frame.speechAct === 'instruction' ||
+          frame.speechAct === 'fantasy' ||
+          frame.speechAct === 'endorsement' ||
+          frame.speechAct === 'plan';
+      case 'none':
+      default:
+        return false;
+    }
+  }
+
   private getSemanticPrefilterMinConfidence(): number {
-    return this.getNumberEnv('CRIMINAL_PREFILTER_MIN_CONFIDENCE', 0.55);
+    return this.getNumberEnv('CRIMINAL_PREFILTER_MIN_CONFIDENCE', 0.7);
   }
 
   private buildNoSignalPrefilter(explanation: string): CriminalSemanticPrefilterResult {
