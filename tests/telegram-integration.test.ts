@@ -366,6 +366,60 @@ describe('Telegram Integration Tests', () => {
       const result = getTextMessage(validMessage);
       expect(result).toEqual(validMessage.message);
     });
+
+    it('should preserve Telegram reply context in stored history', async () => {
+      const dayBlockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        success: true,
+        messageCount: 1,
+      }), { status: 200 }));
+      const countersFetch = vi.fn().mockImplementation(async (url: string) => {
+        if (String(url).includes('/inc')) {
+          return new Response(JSON.stringify({ ok: true, sequence: 7 }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      });
+      mockEnv.DAY_BLOCK_MANAGER_DO = {
+        idFromName: vi.fn().mockReturnValue('day-block-id'),
+        get: vi.fn().mockReturnValue({ fetch: dayBlockFetch }),
+      } as any;
+      mockEnv.COUNTERS_DO = {
+        idFromName: vi.fn().mockReturnValue('counter-id'),
+        get: vi.fn().mockReturnValue({ fetch: countersFetch }),
+      } as any;
+      mockEnv.ENABLE_PROFANITY_ANALYSIS = false as any;
+
+      const pending: Promise<any>[] = [];
+      const ctx = { waitUntil: (promise: Promise<any>) => pending.push(promise) };
+      const mockMessage = {
+        message_id: 1201,
+        chat: { id: -1001496674952 },
+        from: { id: 65247408, username: 'thesunwave', is_bot: false },
+        text: 'Только твою маман, но она не жалуется',
+        date: 1789413420,
+        reply_to_message: {
+          message_id: 1200,
+          chat: { id: -1001496674952 },
+          from: { id: 204661056, username: 'visualklik', is_bot: false },
+          text: 'Артур уже всех заебал',
+          date: 1789413410,
+        },
+      };
+
+      await recordMessage(mockMessage, mockEnv, ctx as any);
+      await Promise.all(pending);
+
+      expect(dayBlockFetch).toHaveBeenCalled();
+      const dayBlockInit = dayBlockFetch.mock.calls[0][1] as RequestInit;
+      const storedPayload = JSON.parse(dayBlockInit.body as string);
+      expect(storedPayload.message.replyTo).toEqual({
+        messageId: 1200,
+        userId: 204661056,
+        username: 'visualklik',
+        text: 'Артур уже всех заебал',
+        ts: 1789413410,
+      });
+
+    });
   });
 
   describe('Acknowledgement non-2xx detection', () => {

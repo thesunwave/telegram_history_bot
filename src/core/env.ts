@@ -152,6 +152,15 @@ export interface StoredMessage {
   text: string;
   ts: number;
   messageId?: number;
+  replyTo?: MessageReplyContext;
+}
+
+export interface MessageReplyContext {
+  messageId?: number;
+  userId?: number;
+  username?: string;
+  text?: string;
+  ts?: number;
 }
 
 export interface DayBlock {
@@ -268,6 +277,7 @@ export interface CriminalContextAnalysisInput {
   targetText: string;
   targetTimestamp: number;
   chatId: number;
+  replyTo?: MessageReplyContext;
   contextWindow: CriminalContextWindow;
   messages: CriminalContextMessage[];
   semanticPrefilter?: CriminalSemanticPrefilterResult;
@@ -310,6 +320,7 @@ export interface CriminalAnalysisRequest {
   chatId?: number;
   messageId?: number;
   username?: string;
+  replyTo?: MessageReplyContext;
   day?: string;
   ts?: number;
   sequence?: number;
