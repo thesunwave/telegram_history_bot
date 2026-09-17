@@ -1402,6 +1402,8 @@ export class CriminalCodeAnalyzerDO {
       'Негативный прогноз сам по себе не является угрозой: фразы вроде "скоро не будет вашей школы/компании/образования" без обещания насилия классифицируй как prediction или taunt, а не threat.',
       'Для этого продукта считай значимыми не только угрозы и признания, но и выраженные автором фантазии, планы, одобрение или пожелание конкретного уголовно наказуемого насилия/деяния.',
       'Если автор от себя фантазирует о насилии, одобряет его, предлагает его или планирует его, ставь shouldAnalyze=true; используй speechAct=fantasy|endorsement|incitement|plan по смыслу и reason=violent_expression, если более специальный reason не подходит.',
+      'Не ограничивай уголовный сигнал насилием. Если автор от себя одобряет, предлагает, планирует, желает, инструктирует или признаётся в конкретном потенциально уголовно наказуемом деянии, которое не подходит под более специальный reason, используй reason=other_criminal.',
+      'В частности, reason=other_criminal должен пропускать в юридический анализ одобрение или предложение сексуальных действий с несовершеннолетними, хищения, мошенничества, незаконного оборота наркотиков и иных конкретных деяний. Простое обсуждение закона, новости, чужих действий или абстрактный вопрос без позиции/намерения автора не пропускай.',
       'Если автор только пересказывает чужую угрозу, цитирует новость или использует слово "убить" метафорически/технически, не превращай это в угрозу автора.',
       'Ищи реальные смысловые признаки: угрозы, угрозы сексуального насилия, призывы/одобрение насилия, экстремизм/терроризм, признание в совершенном преступлении, опасные инструкции.',
       'Мат, сексуальный сленг, шутки, бытовые фразы и действия с предметами сами по себе не являются причиной.',
@@ -1418,8 +1420,8 @@ export class CriminalCodeAnalyzerDO {
       'В profanity.words возвращай только точные словоформы мата из target-сообщения и count по ним, не леммы и не базовые формы.',
       'Не включай морально-негативные, религиозные или просто грубые слова, если они не являются русской обсценной лексикой.',
       isBatch
-        ? 'Верни строго JSON: {"items":[{"id":"same id","shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|violent_expression|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|fantasy|endorsement|plan|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}]}'
-        : 'Верни строго JSON: {"shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|violent_expression|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|fantasy|endorsement|plan|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}'
+        ? 'Верни строго JSON: {"items":[{"id":"same id","shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|violent_expression|other_criminal|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|fantasy|endorsement|plan|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}]}'
+        : 'Верни строго JSON: {"shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|violent_expression|other_criminal|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|fantasy|endorsement|plan|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}'
     ].join('\n');
   }
 
@@ -1461,7 +1463,8 @@ export class CriminalCodeAnalyzerDO {
       result.reason === 'self_incrimination' ||
       result.reason === 'extremism' ||
       result.reason === 'dangerous_instruction' ||
-      result.reason === 'violent_expression'
+      result.reason === 'violent_expression' ||
+      result.reason === 'other_criminal'
       ? result.reason
       : 'none';
 
@@ -1590,6 +1593,13 @@ export class CriminalCodeAnalyzerDO {
           frame.speechAct === 'fantasy' ||
           frame.speechAct === 'endorsement' ||
           frame.speechAct === 'plan';
+      case 'other_criminal':
+        return frame.speechAct === 'admission' ||
+          frame.speechAct === 'instruction' ||
+          frame.speechAct === 'fantasy' ||
+          frame.speechAct === 'endorsement' ||
+          frame.speechAct === 'incitement' ||
+          frame.speechAct === 'plan';
       case 'none':
       default:
         return false;
@@ -1698,7 +1708,7 @@ export class CriminalCodeAnalyzerDO {
       .map(message => `${message.relativePosition}:${this.normalizeTextForSemanticCache(message.text)}`)
       .join('\n');
     const hash = await this.hashText(`${normalizedTarget}\nreply:\n${normalizedReply}\ncontext:\n${normalizedContext}`);
-    const version = String((this.env as any).CRIMINAL_PREFILTER_CACHE_VERSION || 'v7')
+    const version = String((this.env as any).CRIMINAL_PREFILTER_CACHE_VERSION || 'v8')
       .replace(/[^a-z0-9_-]+/gi, '_');
     const model = String((this.env as any).CRIMINAL_PREFILTER_MODEL || (this.env as any).LLM_NANO_MODEL || 'default')
       .replace(/[^a-z0-9_.-]+/gi, '_');

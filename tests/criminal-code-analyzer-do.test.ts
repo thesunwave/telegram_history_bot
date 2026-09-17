@@ -872,6 +872,30 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect((analyzer as any).applySemanticPrefilterThreshold(normalized, "я бы его избил").shouldAnalyze).toBe(true);
     });
 
+    it("should pass non-violent criminal endorsements to legal analysis", () => {
+      const targetText = "Лет после 13 уже можно ебать";
+      const normalized = (analyzer as any).normalizeSemanticPrefilterResult({
+        shouldAnalyze: true,
+        reason: "other_criminal",
+        confidence: 0.9,
+        explanation: "author endorses a concrete potentially criminal sexual act",
+        searchQuery: "одобрение сексуальных действий с несовершеннолетним",
+        semanticFrame: {
+          speechAct: "endorsement",
+          actor: "author",
+          action: "одобряет сексуальные действия с несовершеннолетними",
+          targetKind: "person",
+          harmKind: "other",
+          modality: "desired",
+          evidenceSpans: [targetText],
+        },
+      });
+
+      expect(normalized.reason).toBe("other_criminal");
+      expect((analyzer as any).applySemanticPrefilterThreshold(normalized, targetText).shouldAnalyze).toBe(true);
+      expect((analyzer as any).buildSemanticPrefilterSystemPrompt(false)).toContain("сексуальных действий с несовершеннолетними");
+    });
+
     it("should require grounded evidence for the final literal meaning", () => {
       const targetText = "я тебя убью";
       const input = {
@@ -1066,7 +1090,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       const hostileKey = await (analyzer as any).getSemanticPrefilterCacheKey(hostileInput);
 
       expect(bicycleKey).not.toBe(hostileKey);
-      expect(bicycleKey).toContain(":v7:");
+      expect(bicycleKey).toContain(":v8:");
     });
 
     it("should not continue to RAG when semantic prefilter rejects the target", async () => {
