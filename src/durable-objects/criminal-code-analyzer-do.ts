@@ -1502,12 +1502,13 @@ export class CriminalCodeAnalyzerDO {
     const systemPrompt = this.buildSemanticPrefilterSystemPrompt(false);
     const userPayload = JSON.stringify(this.buildSemanticPrefilterPayload(item.input));
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
-    const maxTokens = Math.max(this.getNumberEnv('CRIMINAL_PREFILTER_MAX_TOKENS', 512), 512);
     const startedAt = Date.now();
+    let parsed: any;
+    let raw: string | undefined;
 
     try {
-      const parsed = await this.callQwenChat(apiKey, model, systemPrompt, userInput, maxTokens);
-      const raw = parsed?.choices?.[0]?.message?.content;
+      parsed = await this.callQwenChat(apiKey, model, systemPrompt, userInput, false);
+      raw = parsed?.choices?.[0]?.message?.content;
       if (!raw) {
         throw new Error('Qwen prefilter returned empty content');
       }
@@ -1522,6 +1523,9 @@ export class CriminalCodeAnalyzerDO {
       });
     } catch (error: unknown) {
       this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
+        rawOutput: raw,
+        finishReason: parsed?.choices?.[0]?.finish_reason,
+        usage: this.buildShadowUsage(parsed?.usage, 1),
         error: this.getShadowErrorMessage(error),
       });
     }
@@ -1540,15 +1544,13 @@ export class CriminalCodeAnalyzerDO {
       })),
     });
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
-    const maxTokens = Math.max(
-      this.getNumberEnv('CRIMINAL_PREFILTER_MAX_TOKENS', 512),
-      Math.min(2048, 260 * items.length)
-    );
     const startedAt = Date.now();
+    let parsed: any;
+    let raw: string | undefined;
 
     try {
-      const parsed = await this.callQwenChat(apiKey, model, systemPrompt, userInput, maxTokens);
-      const raw = parsed?.choices?.[0]?.message?.content;
+      parsed = await this.callQwenChat(apiKey, model, systemPrompt, userInput, true);
+      raw = parsed?.choices?.[0]?.message?.content;
       if (!raw) {
         throw new Error('Qwen prefilter batch returned empty content');
       }
@@ -1582,6 +1584,9 @@ export class CriminalCodeAnalyzerDO {
     } catch (error: unknown) {
       for (const item of items) {
         this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
+          rawOutput: raw,
+          finishReason: parsed?.choices?.[0]?.finish_reason,
+          usage: this.buildShadowUsage(parsed?.usage, items.length),
           error: this.getShadowErrorMessage(error),
         });
       }
@@ -1593,7 +1598,7 @@ export class CriminalCodeAnalyzerDO {
     model: string,
     systemPrompt: string,
     userInput: string,
-    maxTokens: number
+    isBatch: boolean
   ): Promise<any> {
     const baseUrl = String(
       (this.env as any).QWEN_SHADOW_BASE_URL ||
@@ -1607,13 +1612,12 @@ export class CriminalCodeAnalyzerDO {
       },
       body: JSON.stringify({
         model,
-        max_tokens: maxTokens,
         temperature: 0,
         // Qwen 3.7 enables thinking by default. The production OpenAI prefilter
         // uses minimal reasoning, so keep the shadow classifier low-latency and
         // closer in inference budget for a cleaner A/B comparison.
         enable_thinking: false,
-        response_format: { type: 'json_object' },
+        response_format: this.buildQwenPrefilterResponseFormat(isBatch),
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userInput },
@@ -1625,6 +1629,112 @@ export class CriminalCodeAnalyzerDO {
       throw new Error(parsed?.error?.message || `Qwen shadow prefilter failed with ${response.status}`);
     }
     return parsed;
+  }
+
+  private buildQwenPrefilterResponseFormat(isBatch: boolean): Record<string, unknown> {
+    const resultProperties = {
+      shouldAnalyze: { type: 'boolean' },
+      reason: {
+        type: 'string',
+        enum: [
+          'threat', 'sexual_threat', 'incitement', 'self_incrimination', 'extremism',
+          'dangerous_instruction', 'violent_expression', 'other_criminal', 'none',
+        ],
+      },
+      confidence: { type: 'number' },
+      explanation: { type: 'string' },
+      searchQuery: { type: 'string' },
+      semanticFrame: {
+        type: 'object',
+        properties: {
+          speechAct: {
+            type: 'string',
+            enum: [
+              'threat', 'prediction', 'taunt', 'admission', 'incitement', 'instruction',
+              'fantasy', 'endorsement', 'plan', 'report', 'quote', 'hypothetical', 'other',
+              'unknown',
+            ],
+          },
+          actor: { type: 'string', enum: ['author', 'third_party', 'unknown'] },
+          action: { type: 'string' },
+          targetKind: {
+            type: 'string',
+            enum: ['person', 'group', 'property', 'institution', 'abstract', 'unknown'],
+          },
+          harmKind: {
+            type: 'string',
+            enum: [
+              'death', 'grievous_bodily_harm', 'bodily_harm', 'sexual_violence',
+              'property_damage', 'coercion', 'other', 'none', 'unknown',
+            ],
+          },
+          modality: {
+            type: 'string',
+            enum: ['intended', 'promised', 'desired', 'predicted', 'hypothetical', 'reported', 'unknown'],
+          },
+          evidenceSpans: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['speechAct', 'actor', 'action', 'targetKind', 'harmKind', 'modality', 'evidenceSpans'],
+        additionalProperties: false,
+      },
+      profanity: {
+        type: 'object',
+        properties: {
+          hasProfanity: { type: 'boolean' },
+          words: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                word: { type: 'string' },
+                count: { type: 'integer' },
+                confidence: { type: 'number' },
+              },
+              required: ['word', 'count', 'confidence'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['hasProfanity', 'words'],
+        additionalProperties: false,
+      },
+    };
+    const resultRequired = [
+      'shouldAnalyze', 'reason', 'confidence', 'explanation', 'searchQuery', 'semanticFrame', 'profanity',
+    ];
+    const resultSchema = {
+      type: 'object',
+      properties: resultProperties,
+      required: resultRequired,
+      additionalProperties: false,
+    };
+    const schema = isBatch
+      ? {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { id: { type: 'string' }, ...resultProperties },
+              required: ['id', ...resultRequired],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['items'],
+        additionalProperties: false,
+      }
+      : resultSchema;
+
+    return {
+      type: 'json_schema',
+      json_schema: {
+        name: isBatch ? 'criminal_prefilter_batch' : 'criminal_prefilter',
+        strict: true,
+        schema,
+      },
+    };
   }
 
   private scheduleShadowInput(

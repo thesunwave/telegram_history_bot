@@ -92,8 +92,13 @@ describe('criminal semantic prefilter shadow evaluation', () => {
       profanity: { hasProfanity: false, words: [] },
     };
 
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const requests: Array<{ url: string; body: any }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      requests.push({
+        url,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
       const output = url.includes('aliyuncs.com') ? qwenOutput : openaiOutput;
       return new Response(JSON.stringify({
         choices: [{ message: { content: JSON.stringify(output) }, finish_reason: 'stop' }],
@@ -151,9 +156,23 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     expect(qwenRecord.parsedOutput.shouldAnalyze).toBe(false);
     expect(openaiRecord.evaluationId).toBe(inputRecord.evaluationId);
     expect(qwenRecord.evaluationId).toBe(inputRecord.evaluationId);
+
+    const qwenRequest = requests.find(request => request.url.includes('aliyuncs.com'))!;
+    expect(qwenRequest.body.max_tokens).toBeUndefined();
+    expect(qwenRequest.body.enable_thinking).toBe(false);
+    expect(qwenRequest.body.response_format.type).toBe('json_schema');
+    expect(qwenRequest.body.response_format.json_schema.strict).toBe(true);
+    expect(qwenRequest.body.response_format.json_schema.schema.additionalProperties).toBe(false);
+    expect(qwenRequest.body.response_format.json_schema.schema.required).toContain('profanity');
+
+    const batchFormat = (analyzer as any).buildQwenPrefilterResponseFormat(true);
+    expect(batchFormat.type).toBe('json_schema');
+    expect(batchFormat.json_schema.strict).toBe(true);
+    expect(batchFormat.json_schema.schema.required).toEqual(['items']);
+    expect(batchFormat.json_schema.schema.properties.items.items.required).toContain('id');
   });
 
-  it('does not fail OpenAI processing when Qwen errors', async () => {
+  it('keeps malformed Qwen JSON as a shadow error without affecting OpenAI', async () => {
     const history = createHistoryKv();
     const pending: Promise<unknown>[] = [];
     const state = {
@@ -185,9 +204,13 @@ describe('criminal semantic prefilter shadow evaluation', () => {
       profanity: { hasProfanity: false, words: [] },
     };
 
+    const malformedQwen = '{"shouldAnalyze":true,"reason":"threat"';
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes('aliyuncs.com')) {
-        throw new Error('Qwen unavailable');
+        return new Response(JSON.stringify({
+          choices: [{ message: { content: malformedQwen }, finish_reason: 'length' }],
+          usage: { prompt_tokens: 100, completion_tokens: 512, total_tokens: 612 },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       return new Response(JSON.stringify({
         choices: [{ message: { content: JSON.stringify(openaiOutput) }, finish_reason: 'stop' }],
@@ -222,6 +245,9 @@ describe('criminal semantic prefilter shadow evaluation', () => {
       .filter(([key]) => key.endsWith(':qwen'))
       .map(([, value]) => JSON.parse(value))[0];
     expect(qwenRecord.status).toBe('error');
-    expect(qwenRecord.error).toBe('Qwen unavailable');
+    expect(qwenRecord.error).toContain('JSON');
+    expect(qwenRecord.rawOutput).toBe(malformedQwen);
+    expect(qwenRecord.finishReason).toBe('length');
+    expect(qwenRecord.usage.totalTokens).toBe(612);
   });
 });
