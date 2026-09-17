@@ -778,6 +778,108 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       color: var(--muted);
       font-size: 10px;
     }
+    .shadowControls {
+      display: flex;
+      align-items: end;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .shadowControls label {
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .shadowSummary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .shadowMetric {
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+    .shadowMetric strong {
+      display: block;
+      margin-bottom: 2px;
+      font-size: 15px;
+    }
+    .shadowMetric span {
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .shadowList {
+      display: grid;
+      gap: 10px;
+    }
+    .shadowCard {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+    .shadowCardHead {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .shadowColumns {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .shadowProvider {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel);
+    }
+    .shadowProvider h3 {
+      margin: 0 0 7px;
+      font-size: 12px;
+    }
+    .shadowProviderLine {
+      margin-top: 4px;
+      overflow-wrap: anywhere;
+    }
+    .shadowCompareLine {
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .shadowRaw {
+      margin-top: 9px;
+    }
+    .shadowRaw summary {
+      cursor: pointer;
+      color: var(--accent-strong);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .shadowRaw pre {
+      max-height: 280px;
+      overflow: auto;
+      margin: 8px 0 0;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 10px;
+    }
+    @media (max-width: 760px) {
+      .shadowColumns { grid-template-columns: 1fr; }
+    }
     .login {
       display: grid;
       gap: 14px;
@@ -1182,6 +1284,30 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           <div class="criminalViolationList" id="criminalViolationList"></div>
         </div>
       </section>
+      <section class="wide" data-block-id="model-shadow">
+        <div class="blockHeader">
+          <div>
+            <h2>OpenAI ↔ Qwen · shadow</h2>
+            <p class="criminalConfidenceNote">Один и тот же вход, два независимых ответа. Совпадение не означает правильность.</p>
+          </div>
+          <div class="blockActions">
+            <button class="secondary sizeToggle" type="button" aria-label="Изменить ширину блока">↔</button>
+            <button class="secondary dragHandle" type="button" aria-label="Перетащить блок">⋮⋮</button>
+          </div>
+        </div>
+        <div class="shadowControls">
+          <label>Окно
+            <select id="shadowDays">
+              <option value="1">24 часа</option>
+              <option value="3" selected>3 дня</option>
+              <option value="7">7 дней</option>
+            </select>
+          </label>
+          <button class="secondary" id="shadowRefresh" type="button">Обновить A/B</button>
+        </div>
+        <div class="shadowSummary" id="shadowSummary"></div>
+        <div class="shadowList" id="shadowComparisons" aria-live="polite"></div>
+      </section>
       <section class="wide" data-block-id="notifications">
         <div class="blockHeader">
           <h2>Автоуведомления</h2>
@@ -1216,6 +1342,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       { id: 'profanity-rate', size: 'wide' },
       { id: 'profanity-words', size: 'normal' },
       { id: 'criminal', size: 'normal' },
+      { id: 'model-shadow', size: 'wide' },
       { id: 'notifications', size: 'wide' }
     ];
     const state = {
@@ -1227,7 +1354,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       currentProfanityRateRows: null,
       criminalDetailsRequestId: 0,
       selectedCriminalUserId: null,
-      loadedCriminalRange: null
+      loadedCriminalRange: null,
+      shadowLoading: false
     };
     const chartInstances = {};
     const labels = {
@@ -1700,6 +1828,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       renderSkeletonRows('profanityRateUsers', 4, 3);
       renderSkeletonRows('profanityWords', 2, 3);
       renderSkeletonRows('criminalUsers', 2, 3);
+      document.getElementById('shadowSummary').innerHTML = '';
+      document.getElementById('shadowComparisons').innerHTML = '<div class="muted">Загрузка A/B результатов...</div>';
       renderNotificationSkeleton();
     }
 
@@ -1746,6 +1876,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       renderProfanityRateRows([]);
       renderRows('profanityWords', [], 'word', 'count');
       renderCriminalRows([]);
+      renderShadowComparisons({ comparisons: [], summary: {} });
       renderNotifications({ enabled: false, notifications: {} }, [], false);
     }
 
@@ -2094,6 +2225,205 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         tbody.append(tr);
       }
       syncCriminalDetailButtons();
+    }
+
+    function appendShadowMetric(container, value, label) {
+      const item = document.createElement('div');
+      item.className = 'shadowMetric';
+      const strong = document.createElement('strong');
+      strong.textContent = value;
+      const caption = document.createElement('span');
+      caption.textContent = label;
+      item.append(strong, caption);
+      container.append(item);
+    }
+
+    function formatShadowRatio(matches, compared) {
+      return compared > 0 ? matches + '/' + compared : '—';
+    }
+
+    function formatShadowWords(result) {
+      const words = Array.isArray(result?.profanity?.words) ? result.profanity.words : [];
+      if (!words.length) return 'нет';
+      return words.map(word => word.word + ' ×' + word.count).join(', ');
+    }
+
+    function appendShadowRaw(parent, title, value) {
+      if (!value) return;
+      const details = document.createElement('details');
+      details.className = 'shadowRaw';
+      const summary = document.createElement('summary');
+      summary.textContent = title;
+      const pre = document.createElement('pre');
+      pre.textContent = value;
+      details.append(summary, pre);
+      parent.append(details);
+    }
+
+    function renderShadowProvider(record, label) {
+      const panel = document.createElement('div');
+      panel.className = 'shadowProvider';
+      const title = document.createElement('h3');
+      title.textContent = label + (record?.model ? ' · ' + record.model : '');
+      panel.append(title);
+
+      if (!record) {
+        const missing = document.createElement('div');
+        missing.className = 'muted';
+        missing.textContent = 'Результат ещё не сохранён';
+        panel.append(missing);
+        return panel;
+      }
+
+      if (record.status !== 'ok' || !record.parsedOutput) {
+        const error = document.createElement('div');
+        error.className = 'shadowProviderLine';
+        error.textContent = 'Ошибка: ' + (record.error || 'неизвестная ошибка');
+        panel.append(error);
+      } else {
+        const crime = document.createElement('div');
+        crime.className = 'shadowProviderLine';
+        crime.textContent = 'Crime: ' + (record.parsedOutput.shouldAnalyze ? 'analyze' : 'skip') +
+          ' · ' + record.parsedOutput.reason +
+          ' · confidence ' + Math.round((Number(record.parsedOutput.confidence) || 0) * 100) + '%';
+        const profanity = document.createElement('div');
+        profanity.className = 'shadowProviderLine';
+        profanity.textContent = 'Profanity: ' +
+          (record.parsedOutput.profanity?.hasProfanity ? 'есть' : 'нет') +
+          ' · ' + formatShadowWords(record.parsedOutput);
+        panel.append(crime, profanity);
+      }
+
+      const timing = document.createElement('div');
+      timing.className = 'shadowProviderLine muted';
+      timing.textContent = 'Latency: ' + record.latencyMs + ' ms' +
+        (record.usage?.totalTokens ? ' · tokens ' + record.usage.totalTokens : '');
+      panel.append(timing);
+      appendShadowRaw(panel, 'Raw output', record.rawOutput);
+      return panel;
+    }
+
+    function shadowMatchLabel(value) {
+      if (value === null || value === undefined) return 'нет пары';
+      return value ? 'совпало' : 'разошлось';
+    }
+
+    function renderShadowComparisons(payload) {
+      const summaryContainer = document.getElementById('shadowSummary');
+      const list = document.getElementById('shadowComparisons');
+      summaryContainer.innerHTML = '';
+      list.innerHTML = '';
+      const summary = payload?.summary || {};
+      appendShadowMetric(summaryContainer, String(summary.completePairs || 0), 'полных пар');
+      appendShadowMetric(
+        summaryContainer,
+        formatShadowRatio(summary.crimeDecisionMatches || 0, summary.crimeDecisionCompared || 0),
+        'crime analyze/skip'
+      );
+      appendShadowMetric(
+        summaryContainer,
+        formatShadowRatio(summary.crimeReasonMatches || 0, summary.crimeReasonCompared || 0),
+        'crime reason'
+      );
+      appendShadowMetric(
+        summaryContainer,
+        formatShadowRatio(summary.profanityPresenceMatches || 0, summary.profanityPresenceCompared || 0),
+        'profanity yes/no'
+      );
+      appendShadowMetric(
+        summaryContainer,
+        formatShadowRatio(summary.profanityWordsMatches || 0, summary.profanityWordsCompared || 0),
+        'profanity words'
+      );
+      appendShadowMetric(
+        summaryContainer,
+        (summary.openaiAverageLatencyMs ?? '—') + ' / ' + (summary.qwenAverageLatencyMs ?? '—') + ' ms',
+        'OpenAI / Qwen latency'
+      );
+
+      const comparisons = Array.isArray(payload?.comparisons) ? payload.comparisons : [];
+      if (!comparisons.length) {
+        const empty = document.createElement('div');
+        empty.className = 'muted';
+        empty.textContent = 'Shadow-данных за выбранное окно пока нет.';
+        list.append(empty);
+        return;
+      }
+
+      for (const comparison of comparisons) {
+        const card = document.createElement('article');
+        card.className = 'shadowCard';
+        const head = document.createElement('div');
+        head.className = 'shadowCardHead';
+        const time = document.createElement('span');
+        time.textContent = new Date(comparison.createdAt).toLocaleString('ru-RU');
+        const id = document.createElement('span');
+        id.textContent = comparison.evaluationId;
+        head.append(time, id);
+
+        const columns = document.createElement('div');
+        columns.className = 'shadowColumns';
+        columns.append(
+          renderShadowProvider(comparison.openai, 'OpenAI'),
+          renderShadowProvider(comparison.qwen, 'Qwen')
+        );
+
+        const match = comparison.comparison || {};
+        const matchLine = document.createElement('div');
+        matchLine.className = 'shadowCompareLine';
+        matchLine.textContent = [
+          'crime decision: ' + shadowMatchLabel(match.crimeDecisionMatch),
+          'crime reason: ' + shadowMatchLabel(match.crimeReasonMatch),
+          'profanity: ' + shadowMatchLabel(match.profanityPresenceMatch),
+          'words: ' + shadowMatchLabel(match.profanityWordsMatch),
+        ].join(' · ');
+
+        const exactInput = [
+          'TARGET:',
+          comparison.input?.targetText || '',
+          '',
+          'SYSTEM:',
+          comparison.input?.systemPrompt || '',
+          '',
+          'USER:',
+          comparison.input?.userInput || '',
+        ].join(String.fromCharCode(10));
+        card.append(head, columns, matchLine);
+        appendShadowRaw(card, 'Exact model input', exactInput);
+        list.append(card);
+      }
+    }
+
+    async function loadShadowComparisons() {
+      if (!state.chatId || state.shadowLoading) return;
+      state.shadowLoading = true;
+      const list = document.getElementById('shadowComparisons');
+      list.innerHTML = '';
+      const loading = document.createElement('div');
+      loading.className = 'muted';
+      loading.textContent = 'Загрузка A/B результатов...';
+      list.append(loading);
+      try {
+        const days = document.getElementById('shadowDays').value || '3';
+        const url = '/admin/api/shadow-evaluations?chatId=' + encodeURIComponent(state.chatId) +
+          '&days=' + encodeURIComponent(days) + '&limit=100';
+        const response = await fetch(url);
+        if (response.status === 401) {
+          redirectToLogin();
+          return;
+        }
+        if (!response.ok) throw new Error('shadow comparison unavailable');
+        renderShadowComparisons(await response.json());
+      } catch (_error) {
+        document.getElementById('shadowSummary').innerHTML = '';
+        list.innerHTML = '';
+        const error = document.createElement('div');
+        error.className = 'muted';
+        error.textContent = 'Не удалось загрузить A/B результаты.';
+        list.append(error);
+      } finally {
+        state.shadowLoading = false;
+      }
     }
 
     function clampTooltipPosition(value, size, viewportSize) {
@@ -2865,6 +3195,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         renderProfanityRateRows(stats.profanity.topRateUsers || []);
         renderRows('profanityWords', stats.profanity.topWords, 'word', 'count');
         renderCriminalRows(stats.criminal.topUsers || []);
+        void loadShadowComparisons();
         renderNotifications(
           notifications.settings,
           notifications.availableTypes,
@@ -2937,6 +3268,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     });
     document.getElementById('statsErrorRetry').addEventListener('click', () => {
       loadDashboard();
+    });
+    document.getElementById('shadowRefresh').addEventListener('click', () => {
+      loadShadowComparisons();
+    });
+    document.getElementById('shadowDays').addEventListener('change', () => {
+      loadShadowComparisons();
     });
     document.getElementById('themeSelect').addEventListener('change', event => {
       const mode = normalizeThemeMode(event.target.value);

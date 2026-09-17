@@ -117,6 +117,11 @@ export interface Env {
   CRIMINAL_PREFILTER_CACHE_VERSION?: string;
   CRIMINAL_PREFILTER_BATCH_ENABLED?: string | boolean;
   CRIMINAL_PREFILTER_BATCH_SIZE?: string | number;
+  SHADOW_EVAL_ENABLED?: string | boolean;
+  SHADOW_EVAL_RETENTION_SECONDS?: string | number;
+  QWEN_SHADOW_BASE_URL?: string;
+  QWEN_SHADOW_MODEL?: string;
+  ALIBABA_API_KEY?: string;
 
   // ========================================
   // 💰 LLM BUDGET CONFIGURATION (ADR-001)

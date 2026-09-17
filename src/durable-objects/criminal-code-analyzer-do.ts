@@ -36,6 +36,13 @@ import {
 import { fetchLastMessagesOptimized } from '../features/history/history-optimized';
 import { sendMessage } from '../core/telegram';
 import { getBudgetTracker } from '../core/llm';
+import {
+  createShadowEvaluationId,
+  storeShadowEvaluationInput,
+  storeShadowEvaluationProviderResult,
+  type ShadowEvaluationProvider,
+  type ShadowEvaluationUsage,
+} from '../features/model-shadow/evaluation-store';
 
 interface QueuedCriminalAnalysisTask {
   text: string;
@@ -77,6 +84,8 @@ interface CriminalPrefilterBatchItem {
   id: string;
   input: CriminalContextAnalysisInput;
   task: QueuedCriminalAnalysisTask;
+  shadowEvaluationId?: string;
+  shadowCreatedAt?: number;
 }
 
 const QUEUE_STORAGE_KEY = 'criminal_analysis_queue';
@@ -1139,8 +1148,15 @@ export class CriminalCodeAnalyzerDO {
       return results;
     }
 
+    const shadowEnabled = this.getBooleanEnv('SHADOW_EVAL_ENABLED', false);
     const misses: CriminalPrefilterBatchItem[] = [];
     for (const item of items) {
+      if (shadowEnabled) {
+        // An A/B sample must contain two fresh calls for the exact same input.
+        // Do not let the production prefilter cache silently replace the OpenAI side.
+        misses.push(item);
+        continue;
+      }
       const cached = await this.getCachedSemanticPrefilter(item.input);
       if (cached) {
         results.set(item.id, cached);
@@ -1165,9 +1181,19 @@ export class CriminalCodeAnalyzerDO {
         }
         return results;
       }
+      const requestItems = shadowEnabled
+        ? misses.map(item => ({
+          ...item,
+          shadowEvaluationId: createShadowEvaluationId(),
+          shadowCreatedAt: Date.now(),
+        }))
+        : misses;
       await this.recordPrefilterRequest();
-      const fetched = await this.callOpenAIPrefilterForItems(misses);
-      for (const item of misses) {
+      if (shadowEnabled) {
+        this.scheduleBackground(this.callQwenShadowPrefilterForItems(requestItems));
+      }
+      const fetched = await this.callOpenAIPrefilterForItems(requestItems);
+      for (const item of requestItems) {
         const fetchedResult = fetched.get(item.id) || this.buildNoSignalPrefilter(
           'model did not return this prefilter item'
         );
@@ -1218,7 +1244,7 @@ export class CriminalCodeAnalyzerDO {
     if (!this.getBooleanEnv('CRIMINAL_PREFILTER_BATCH_ENABLED', true) || items.length <= 1) {
       const results = new Map<string, CriminalSemanticPrefilterResult>();
       for (const item of items) {
-        results.set(item.id, await this.callOpenAIPrefilterSingle(item.input));
+        results.set(item.id, await this.callOpenAIPrefilterSingle(item));
       }
       return results;
     }
@@ -1240,8 +1266,9 @@ export class CriminalCodeAnalyzerDO {
   }
 
   private async callOpenAIPrefilterSingle(
-    input: CriminalContextAnalysisInput
+    item: CriminalPrefilterBatchItem
   ): Promise<CriminalSemanticPrefilterResult> {
+    const input = item.input;
     const apiKey = (this.env as any).OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error('OPENAI_API_KEY is required for criminal semantic prefilter');
@@ -1253,54 +1280,71 @@ export class CriminalCodeAnalyzerDO {
     const systemPrompt = this.buildSemanticPrefilterSystemPrompt(false);
     const userPayload = JSON.stringify(this.buildSemanticPrefilterPayload(input));
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
+    this.scheduleShadowInput(item, systemPrompt, userInput, 1);
+    const startedAt = Date.now();
 
+    try {
       const response = await fetch(
-      isGpt5 ? 'https://api.openai.com/v1/responses' : 'https://api.openai.com/v1/chat/completions',
-      {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(isGpt5
-        ? {
-          model,
-          instructions: systemPrompt,
-          input: [{ role: 'user', content: userInput }],
-          max_output_tokens: maxTokens,
-          reasoning: { effort: 'minimal' },
-          text: {
-            format: { type: 'json_object' },
-            verbosity: 'low'
-          }
+        isGpt5 ? 'https://api.openai.com/v1/responses' : 'https://api.openai.com/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(isGpt5
+            ? {
+              model,
+              instructions: systemPrompt,
+              input: [{ role: 'user', content: userInput }],
+              max_output_tokens: maxTokens,
+              reasoning: { effort: 'minimal' },
+              text: {
+                format: { type: 'json_object' },
+                verbosity: 'low'
+              }
+            }
+            : {
+              model,
+              max_tokens: maxTokens,
+              temperature: 0,
+              response_format: { type: 'json_object' },
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userInput }
+              ]
+            })
         }
-        : {
-          model,
-          max_tokens: maxTokens,
-          temperature: 0,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userInput }
-          ]
-        })
-    });
+      );
 
-    const parsed = await response.json().catch(() => null) as any;
-    if (!response.ok) {
-      throw new Error(parsed?.error?.message || `OpenAI prefilter failed with ${response.status}`);
+      const parsed = await response.json().catch(() => null) as any;
+      if (!response.ok) {
+        throw new Error(parsed?.error?.message || `OpenAI prefilter failed with ${response.status}`);
+      }
+
+      this.recordOpenAIUsage(model, 'criminal_prefilter', parsed?.usage);
+
+      const raw = isGpt5 ? this.extractOpenAIResponsesText(parsed) : parsed?.choices?.[0]?.message?.content;
+      if (!raw) {
+        throw new Error('OpenAI prefilter returned empty content');
+      }
+
+      const jsonMatch = String(raw).match(/\{[\s\S]*\}/);
+      const result = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as Partial<CriminalSemanticPrefilterResult>;
+      const normalized = this.normalizeSemanticPrefilterResult(result);
+      this.scheduleShadowProviderResult(item, 'openai', model, startedAt, {
+        rawOutput: String(raw),
+        parsedOutput: normalized,
+        finishReason: isGpt5 ? parsed?.status : parsed?.choices?.[0]?.finish_reason,
+        usage: this.buildShadowUsage(parsed?.usage, 1),
+      });
+      return normalized;
+    } catch (error: unknown) {
+      this.scheduleShadowProviderResult(item, 'openai', model, startedAt, {
+        error: this.getShadowErrorMessage(error),
+      });
+      throw error;
     }
-
-    this.recordOpenAIUsage(model, 'criminal_prefilter', parsed?.usage);
-
-    const raw = isGpt5 ? this.extractOpenAIResponsesText(parsed) : parsed?.choices?.[0]?.message?.content;
-    if (!raw) {
-      throw new Error('OpenAI prefilter returned empty content');
-    }
-
-    const jsonMatch = String(raw).match(/\{[\s\S]*\}/);
-    const result = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as Partial<CriminalSemanticPrefilterResult>;
-    return this.normalizeSemanticPrefilterResult(result);
   }
 
   private async callOpenAIPrefilterBatchChunk(
@@ -1325,67 +1369,342 @@ export class CriminalCodeAnalyzerDO {
       })),
     });
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
+    for (const item of items) {
+      this.scheduleShadowInput(item, systemPrompt, userInput, items.length);
+    }
+    const startedAt = Date.now();
 
-    const response = await fetch(
-      isGpt5 ? 'https://api.openai.com/v1/responses' : 'https://api.openai.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(isGpt5
-          ? {
-            model,
-            instructions: systemPrompt,
-            input: [{ role: 'user', content: userInput }],
-            max_output_tokens: maxTokens,
-            reasoning: { effort: 'minimal' },
-            text: {
-              format: { type: 'json_object' },
-              verbosity: 'low',
-            },
-          }
-          : {
-            model,
-            max_tokens: maxTokens,
-            temperature: 0,
-            response_format: { type: 'json_object' },
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userInput },
-            ],
-          })
+    try {
+      const response = await fetch(
+        isGpt5 ? 'https://api.openai.com/v1/responses' : 'https://api.openai.com/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(isGpt5
+            ? {
+              model,
+              instructions: systemPrompt,
+              input: [{ role: 'user', content: userInput }],
+              max_output_tokens: maxTokens,
+              reasoning: { effort: 'minimal' },
+              text: {
+                format: { type: 'json_object' },
+                verbosity: 'low',
+              },
+            }
+            : {
+              model,
+              max_tokens: maxTokens,
+              temperature: 0,
+              response_format: { type: 'json_object' },
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userInput },
+              ],
+            })
+        }
+      );
+
+      const parsed = await response.json().catch(() => null) as any;
+      if (!response.ok) {
+        throw new Error(parsed?.error?.message || `OpenAI prefilter batch failed with ${response.status}`);
       }
-    );
 
+      this.recordOpenAIUsage(model, 'criminal_prefilter_batch', parsed?.usage);
+
+      const raw = isGpt5 ? this.extractOpenAIResponsesText(parsed) : parsed?.choices?.[0]?.message?.content;
+      if (!raw) {
+        throw new Error('OpenAI prefilter batch returned empty content');
+      }
+
+      const jsonMatch = String(raw).match(/\{[\s\S]*\}/);
+      const parsedResult = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as any;
+      const resultItems = Array.isArray(parsedResult?.items)
+        ? parsedResult.items
+        : Array.isArray(parsedResult?.results)
+          ? parsedResult.results
+          : [];
+      const results = new Map<string, CriminalSemanticPrefilterResult>();
+      const finishReason = isGpt5 ? parsed?.status : parsed?.choices?.[0]?.finish_reason;
+      const usage = this.buildShadowUsage(parsed?.usage, items.length);
+      for (const item of items) {
+        const rawItem = resultItems.find((resultItem: any) => resultItem?.id === item.id);
+        if (!rawItem) {
+          this.scheduleShadowProviderResult(item, 'openai', model, startedAt, {
+            error: 'Model did not return this prefilter item',
+            finishReason,
+            usage,
+          });
+          continue;
+        }
+        const normalized = this.normalizeSemanticPrefilterResult(rawItem);
+        results.set(item.id, normalized);
+        this.scheduleShadowProviderResult(item, 'openai', model, startedAt, {
+          rawOutput: JSON.stringify(rawItem),
+          parsedOutput: normalized,
+          finishReason,
+          usage,
+        });
+      }
+      return results;
+    } catch (error: unknown) {
+      for (const item of items) {
+        this.scheduleShadowProviderResult(item, 'openai', model, startedAt, {
+          error: this.getShadowErrorMessage(error),
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async callQwenShadowPrefilterForItems(items: CriminalPrefilterBatchItem[]): Promise<void> {
+    if (items.length === 0) {
+      return;
+    }
+
+    const model = (this.env as any).QWEN_SHADOW_MODEL || 'qwen3.7-flash';
+    const apiKey = (this.env as any).ALIBABA_API_KEY;
+    if (!apiKey) {
+      const startedAt = Date.now();
+      for (const item of items) {
+        this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
+          error: 'ALIBABA_API_KEY is not configured',
+        });
+      }
+      return;
+    }
+
+    if (!this.getBooleanEnv('CRIMINAL_PREFILTER_BATCH_ENABLED', true) || items.length <= 1) {
+      for (const item of items) {
+        await this.callQwenShadowPrefilterSingle(item, apiKey, model);
+      }
+      return;
+    }
+
+    const batchSize = Math.round(this.clampNumber(
+      this.getNumberEnv('CRIMINAL_PREFILTER_BATCH_SIZE', 8),
+      2,
+      20
+    ));
+    for (let index = 0; index < items.length; index += batchSize) {
+      await this.callQwenShadowPrefilterBatchChunk(items.slice(index, index + batchSize), apiKey, model);
+    }
+  }
+
+  private async callQwenShadowPrefilterSingle(
+    item: CriminalPrefilterBatchItem,
+    apiKey: string,
+    model: string
+  ): Promise<void> {
+    const systemPrompt = this.buildSemanticPrefilterSystemPrompt(false);
+    const userPayload = JSON.stringify(this.buildSemanticPrefilterPayload(item.input));
+    const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
+    const maxTokens = Math.max(this.getNumberEnv('CRIMINAL_PREFILTER_MAX_TOKENS', 512), 512);
+    const startedAt = Date.now();
+
+    try {
+      const parsed = await this.callQwenChat(apiKey, model, systemPrompt, userInput, maxTokens);
+      const raw = parsed?.choices?.[0]?.message?.content;
+      if (!raw) {
+        throw new Error('Qwen prefilter returned empty content');
+      }
+      const jsonMatch = String(raw).match(/\{[\s\S]*\}/);
+      const result = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as Partial<CriminalSemanticPrefilterResult>;
+      const normalized = this.normalizeSemanticPrefilterResult(result);
+      this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
+        rawOutput: String(raw),
+        parsedOutput: normalized,
+        finishReason: parsed?.choices?.[0]?.finish_reason,
+        usage: this.buildShadowUsage(parsed?.usage, 1),
+      });
+    } catch (error: unknown) {
+      this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
+        error: this.getShadowErrorMessage(error),
+      });
+    }
+  }
+
+  private async callQwenShadowPrefilterBatchChunk(
+    items: CriminalPrefilterBatchItem[],
+    apiKey: string,
+    model: string
+  ): Promise<void> {
+    const systemPrompt = this.buildSemanticPrefilterSystemPrompt(true);
+    const userPayload = JSON.stringify({
+      items: items.map(item => ({
+        id: item.id,
+        ...this.buildSemanticPrefilterPayload(item.input),
+      })),
+    });
+    const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
+    const maxTokens = Math.max(
+      this.getNumberEnv('CRIMINAL_PREFILTER_MAX_TOKENS', 512),
+      Math.min(2048, 260 * items.length)
+    );
+    const startedAt = Date.now();
+
+    try {
+      const parsed = await this.callQwenChat(apiKey, model, systemPrompt, userInput, maxTokens);
+      const raw = parsed?.choices?.[0]?.message?.content;
+      if (!raw) {
+        throw new Error('Qwen prefilter batch returned empty content');
+      }
+      const jsonMatch = String(raw).match(/\{[\s\S]*\}/);
+      const parsedResult = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as any;
+      const resultItems = Array.isArray(parsedResult?.items)
+        ? parsedResult.items
+        : Array.isArray(parsedResult?.results)
+          ? parsedResult.results
+          : [];
+      const finishReason = parsed?.choices?.[0]?.finish_reason;
+      const usage = this.buildShadowUsage(parsed?.usage, items.length);
+
+      for (const item of items) {
+        const rawItem = resultItems.find((resultItem: any) => resultItem?.id === item.id);
+        if (!rawItem) {
+          this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
+            error: 'Model did not return this prefilter item',
+            finishReason,
+            usage,
+          });
+          continue;
+        }
+        this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
+          rawOutput: JSON.stringify(rawItem),
+          parsedOutput: this.normalizeSemanticPrefilterResult(rawItem),
+          finishReason,
+          usage,
+        });
+      }
+    } catch (error: unknown) {
+      for (const item of items) {
+        this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
+          error: this.getShadowErrorMessage(error),
+        });
+      }
+    }
+  }
+
+  private async callQwenChat(
+    apiKey: string,
+    model: string,
+    systemPrompt: string,
+    userInput: string,
+    maxTokens: number
+  ): Promise<any> {
+    const baseUrl = String(
+      (this.env as any).QWEN_SHADOW_BASE_URL ||
+      'https://ws-lhg064f1wayjpiqu.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1'
+    ).replace(/\/+$/, '');
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        temperature: 0,
+        // Qwen 3.7 enables thinking by default. The production OpenAI prefilter
+        // uses minimal reasoning, so keep the shadow classifier low-latency and
+        // closer in inference budget for a cleaner A/B comparison.
+        enable_thinking: false,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userInput },
+        ],
+      }),
+    });
     const parsed = await response.json().catch(() => null) as any;
     if (!response.ok) {
-      throw new Error(parsed?.error?.message || `OpenAI prefilter batch failed with ${response.status}`);
+      throw new Error(parsed?.error?.message || `Qwen shadow prefilter failed with ${response.status}`);
     }
+    return parsed;
+  }
 
-    this.recordOpenAIUsage(model, 'criminal_prefilter_batch', parsed?.usage);
-
-    const raw = isGpt5 ? this.extractOpenAIResponsesText(parsed) : parsed?.choices?.[0]?.message?.content;
-    if (!raw) {
-      throw new Error('OpenAI prefilter batch returned empty content');
+  private scheduleShadowInput(
+    item: CriminalPrefilterBatchItem,
+    systemPrompt: string,
+    userInput: string,
+    batchSize: number
+  ): void {
+    if (!item.shadowEvaluationId || !item.shadowCreatedAt) {
+      return;
     }
+    this.scheduleBackground(storeShadowEvaluationInput(this.env, {
+      evaluationId: item.shadowEvaluationId,
+      feature: 'criminal_prefilter',
+      createdAt: item.shadowCreatedAt,
+      chatId: item.input.chatId,
+      messageId: item.input.targetMessageId,
+      targetText: item.input.targetText,
+      targetUsername: item.input.targetUsername,
+      systemPrompt,
+      userInput,
+      batchItemId: item.id,
+      batchSize,
+    }).catch(() => undefined));
+  }
 
-    const jsonMatch = String(raw).match(/\{[\s\S]*\}/);
-    const parsedResult = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as any;
-    const resultItems = Array.isArray(parsedResult?.items)
-      ? parsedResult.items
-      : Array.isArray(parsedResult?.results)
-        ? parsedResult.results
-        : [];
-    const results = new Map<string, CriminalSemanticPrefilterResult>();
-    for (const item of resultItems) {
-      if (typeof item?.id !== 'string') {
-        continue;
-      }
-      results.set(item.id, this.normalizeSemanticPrefilterResult(item));
+  private scheduleShadowProviderResult(
+    item: CriminalPrefilterBatchItem,
+    provider: ShadowEvaluationProvider,
+    model: string,
+    startedAt: number,
+    result: {
+      rawOutput?: string;
+      parsedOutput?: CriminalSemanticPrefilterResult;
+      finishReason?: string;
+      usage?: ShadowEvaluationUsage;
+      error?: string;
     }
-    return results;
+  ): void {
+    if (!item.shadowEvaluationId || !item.shadowCreatedAt) {
+      return;
+    }
+    this.scheduleBackground(storeShadowEvaluationProviderResult(this.env, {
+      evaluationId: item.shadowEvaluationId,
+      feature: 'criminal_prefilter',
+      chatId: item.input.chatId,
+      provider,
+      model,
+      createdAt: item.shadowCreatedAt,
+      latencyMs: Math.max(0, Date.now() - startedAt),
+      status: result.error ? 'error' : 'ok',
+      rawOutput: result.rawOutput,
+      parsedOutput: result.parsedOutput,
+      finishReason: result.finishReason,
+      usage: result.usage,
+      error: result.error,
+    }).catch(() => undefined));
+  }
+
+  private buildShadowUsage(usage: any, batchSize: number): ShadowEvaluationUsage | undefined {
+    if (!usage) {
+      return undefined;
+    }
+    const promptTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0;
+    const completionTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0;
+    const totalTokens = Number(usage.total_tokens ?? (promptTokens + completionTokens)) || 0;
+    return {
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      scope: 'request',
+      batchSize,
+    };
+  }
+
+  private getShadowErrorMessage(error: unknown): string {
+    if (error instanceof Error && error.message) {
+      return error.message.slice(0, 500);
+    }
+    return 'Unknown provider error';
   }
 
   private buildSemanticPrefilterSystemPrompt(isBatch: boolean): string {
@@ -2683,6 +3002,15 @@ export class CriminalCodeAnalyzerDO {
       return value;
     }
     return String(value).toLowerCase() !== 'false';
+  }
+
+  private scheduleBackground(promise: Promise<unknown>): void {
+    const waitUntil = (this.state as any).waitUntil;
+    if (typeof waitUntil === 'function') {
+      waitUntil.call(this.state, promise);
+      return;
+    }
+    void promise.catch(() => undefined);
   }
 
   private getAdminUserId(): number | null {

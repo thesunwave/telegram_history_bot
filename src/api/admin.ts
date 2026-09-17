@@ -19,6 +19,7 @@ import {
 } from './admin-chats';
 import { getAdminChatStats, parseAdminPeriod, type AdminDateRange } from './admin-stats';
 import { getAdminCriminalViolationDetails } from './admin-criminal';
+import { listShadowEvaluationComparisons } from '../features/model-shadow/evaluation-store';
 import {
   AdminUnavailable,
   HistoricalStatsNotReady,
@@ -384,6 +385,25 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
 
     const details = await getAdminCriminalViolationDetails(env, chatId, userId, period);
     return Response.json(details, { headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  if (url.pathname === `${ADMIN_PATH}/api/shadow-evaluations` && req.method === 'GET') {
+    const chatId = parseChatId(url);
+    if (chatId === null) {
+      return jsonError('chatId is required', 400);
+    }
+
+    const denied = await requireTelegramChatAccess(env, principal, chatId);
+    if (denied) {
+      return denied;
+    }
+
+    const days = Number(url.searchParams.get('days') || 3);
+    const limit = Number(url.searchParams.get('limit') || 500);
+    const result = await listShadowEvaluationComparisons(env, chatId, days, limit);
+    return Response.json({ ok: true, chatId, ...result }, {
+      headers: { 'Cache-Control': 'no-store' },
+    });
   }
 
   if (url.pathname === `${ADMIN_PATH}/api/notifications`) {

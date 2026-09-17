@@ -199,6 +199,11 @@
     "CRIMINAL_PREFILTER_CACHE_VERSION": "v8",
     "CRIMINAL_PREFILTER_BATCH_ENABLED": true,
     "CRIMINAL_PREFILTER_BATCH_SIZE": 8,
+    // OpenAI vs Qwen shadow evaluation. Enable only after ALIBABA_API_KEY is configured as a secret.
+    "SHADOW_EVAL_ENABLED": true,
+    "SHADOW_EVAL_RETENTION_SECONDS": 604800,
+    "QWEN_SHADOW_BASE_URL": "https://ws-lhg064f1wayjpiqu.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+    "QWEN_SHADOW_MODEL": "qwen3.7-flash",
     // ========================================
     // 💰 LLM BUDGET CONFIGURATION (ADR-001)
     // ========================================

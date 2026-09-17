@@ -53,6 +53,24 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('stats.profanity.topRateUsers');
   });
 
+  it('renders side-by-side OpenAI and Qwen shadow evaluation controls', () => {
+    const html = renderAdminHtml({
+      botUsername: 'stats_bot',
+      principal: {
+        type: 'telegram',
+        username: 'admin',
+        telegramId: 123,
+      },
+    });
+
+    expect(html).toContain('data-block-id="model-shadow"');
+    expect(html).toContain('OpenAI ↔ Qwen · shadow');
+    expect(html).toContain('/admin/api/shadow-evaluations?chatId=');
+    expect(html).toContain('Exact model input');
+    expect(html).toContain('Raw output');
+    expect(html).toContain('Совпадение не означает правильность');
+  });
+
   it('renders persisted manual dashboard layout controls', () => {
     const html = renderAdminHtml({
       botUsername: 'stats_bot',

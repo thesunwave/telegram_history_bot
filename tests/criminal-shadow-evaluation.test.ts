@@ -1,0 +1,227 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CriminalCodeAnalyzerDO } from '../src/durable-objects/criminal-code-analyzer-do';
+
+function createHistoryKv() {
+  const values = new Map<string, string>();
+  return {
+    values,
+    get: vi.fn(async () => null),
+    put: vi.fn(async (key: string, value: string) => {
+      values.set(key, value);
+    }),
+    list: vi.fn(async () => ({ keys: [], list_complete: true, cacheStatus: null })),
+  };
+}
+
+async function drainWaitUntil(pending: Promise<unknown>[]): Promise<void> {
+  for (let pass = 0; pass < 10; pass++) {
+    const current = pending.splice(0, pending.length);
+    if (current.length === 0) return;
+    await Promise.all(current);
+  }
+}
+
+describe('criminal semantic prefilter shadow evaluation', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps OpenAI as production truth while Qwen is stored independently', async () => {
+    const history = createHistoryKv();
+    const pending: Promise<unknown>[] = [];
+    const state = {
+      waitUntil: vi.fn((promise: Promise<unknown>) => pending.push(promise)),
+      storage: {
+        get: vi.fn(async () => undefined),
+        put: vi.fn(async () => undefined),
+      },
+    } as any;
+    const counters = {
+      get: vi.fn(async () => null),
+      put: vi.fn(async () => undefined),
+    };
+    const env = {
+      HISTORY: history,
+      COUNTERS: counters,
+      OPENAI_API_KEY: 'openai-test-key',
+      CRIMINAL_PREFILTER_MODEL: 'gpt-4.1-nano',
+      CRIMINAL_PREFILTER_CACHE_ENABLED: false,
+      CRIMINAL_PREFILTER_BATCH_ENABLED: false,
+      CRIMINAL_PREFILTER_MIN_CONFIDENCE: 0.7,
+      SHADOW_EVAL_ENABLED: true,
+      ALIBABA_API_KEY: 'qwen-test-key',
+      QWEN_SHADOW_MODEL: 'qwen3.7-flash',
+      QWEN_SHADOW_BASE_URL: 'https://example.aliyuncs.com/compatible-mode/v1',
+    } as any;
+
+    const openaiOutput = {
+      shouldAnalyze: true,
+      reason: 'threat',
+      confidence: 0.93,
+      explanation: 'direct threat',
+      searchQuery: 'угроза убийством адресату',
+      semanticFrame: {
+        speechAct: 'threat',
+        actor: 'author',
+        action: 'угрожает убийством',
+        targetKind: 'person',
+        harmKind: 'death',
+        modality: 'promised',
+        evidenceSpans: ['я тебя убью'],
+      },
+      profanity: {
+        hasProfanity: true,
+        words: [{ word: 'блядь', count: 1, confidence: 0.98 }],
+      },
+    };
+    const qwenOutput = {
+      shouldAnalyze: false,
+      reason: 'none',
+      confidence: 0.82,
+      explanation: 'shadow disagrees',
+      searchQuery: '',
+      semanticFrame: {
+        speechAct: 'other',
+        actor: 'author',
+        action: '',
+        targetKind: 'unknown',
+        harmKind: 'none',
+        modality: 'unknown',
+        evidenceSpans: [],
+      },
+      profanity: { hasProfanity: false, words: [] },
+    };
+
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const output = url.includes('aliyuncs.com') ? qwenOutput : openaiOutput;
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(output) }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+
+    const analyzer = new CriminalCodeAnalyzerDO(state, env);
+    const targetText = 'я тебя убью, блядь';
+    const item = {
+      id: '0',
+      input: {
+        targetMessageId: 55,
+        targetUserId: 9,
+        targetUsername: 'alice',
+        targetText,
+        targetTimestamp: Math.floor(Date.now() / 1000),
+        chatId: 123,
+        contextWindow: { before: 0, after: 0, totalMessages: 1 },
+        messages: [{
+          messageId: 55,
+          username: 'alice',
+          userId: 9,
+          text: targetText,
+          ts: Math.floor(Date.now() / 1000),
+          relativePosition: 0,
+          isTarget: true,
+        }],
+      },
+      task: {
+        text: targetText,
+        chatId: 123,
+        userId: 9,
+        messageId: 55,
+        username: 'alice',
+        reasons: ['semantic_prefilter'],
+        enqueuedAt: Date.now(),
+      },
+    };
+
+    const result = await (analyzer as any).runSemanticPrefilterBatch([item]);
+    await drainWaitUntil(pending);
+
+    expect(result.get('0').shouldAnalyze).toBe(true);
+    expect(result.get('0').reason).toBe('threat');
+
+    const stored = Array.from(history.values.entries()).map(([key, value]) => [key, JSON.parse(value)] as const);
+    const inputRecord = stored.find(([key]) => key.endsWith(':input'))?.[1];
+    const openaiRecord = stored.find(([key]) => key.endsWith(':openai'))?.[1];
+    const qwenRecord = stored.find(([key]) => key.endsWith(':qwen'))?.[1];
+
+    expect(inputRecord.targetText).toBe(targetText);
+    expect(inputRecord.userInput).toContain(targetText);
+    expect(openaiRecord.parsedOutput.shouldAnalyze).toBe(true);
+    expect(qwenRecord.parsedOutput.shouldAnalyze).toBe(false);
+    expect(openaiRecord.evaluationId).toBe(inputRecord.evaluationId);
+    expect(qwenRecord.evaluationId).toBe(inputRecord.evaluationId);
+  });
+
+  it('does not fail OpenAI processing when Qwen errors', async () => {
+    const history = createHistoryKv();
+    const pending: Promise<unknown>[] = [];
+    const state = {
+      waitUntil: vi.fn((promise: Promise<unknown>) => pending.push(promise)),
+      storage: { get: vi.fn(async () => undefined), put: vi.fn(async () => undefined) },
+    } as any;
+    const env = {
+      HISTORY: history,
+      COUNTERS: { get: vi.fn(async () => null), put: vi.fn(async () => undefined) },
+      OPENAI_API_KEY: 'openai-test-key',
+      CRIMINAL_PREFILTER_MODEL: 'gpt-4.1-nano',
+      CRIMINAL_PREFILTER_CACHE_ENABLED: false,
+      CRIMINAL_PREFILTER_BATCH_ENABLED: false,
+      SHADOW_EVAL_ENABLED: true,
+      ALIBABA_API_KEY: 'qwen-test-key',
+      QWEN_SHADOW_BASE_URL: 'https://example.aliyuncs.com/compatible-mode/v1',
+    } as any;
+    const targetText = 'я тебя убью';
+    const openaiOutput = {
+      shouldAnalyze: true,
+      reason: 'threat',
+      confidence: 0.95,
+      explanation: 'direct threat',
+      searchQuery: 'угроза убийством адресату',
+      semanticFrame: {
+        speechAct: 'threat', actor: 'author', action: 'угрожает убийством', targetKind: 'person',
+        harmKind: 'death', modality: 'promised', evidenceSpans: [targetText],
+      },
+      profanity: { hasProfanity: false, words: [] },
+    };
+
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('aliyuncs.com')) {
+        throw new Error('Qwen unavailable');
+      }
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(openaiOutput) }, finish_reason: 'stop' }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+
+    const analyzer = new CriminalCodeAnalyzerDO(state, env);
+    const result = await (analyzer as any).runSemanticPrefilterBatch([{
+      id: '0',
+      input: {
+        targetMessageId: 1,
+        targetUserId: 2,
+        targetUsername: 'alice',
+        targetText,
+        targetTimestamp: Math.floor(Date.now() / 1000),
+        chatId: 123,
+        contextWindow: { before: 0, after: 0, totalMessages: 1 },
+        messages: [{
+          messageId: 1, username: 'alice', userId: 2, text: targetText,
+          ts: Math.floor(Date.now() / 1000), relativePosition: 0, isTarget: true,
+        }],
+      },
+      task: {
+        text: targetText, chatId: 123, userId: 2, messageId: 1, username: 'alice',
+        reasons: ['semantic_prefilter'], enqueuedAt: Date.now(),
+      },
+    }]);
+    await drainWaitUntil(pending);
+
+    expect(result.get('0').shouldAnalyze).toBe(true);
+    const qwenRecord = Array.from(history.values.entries())
+      .filter(([key]) => key.endsWith(':qwen'))
+      .map(([, value]) => JSON.parse(value))[0];
+    expect(qwenRecord.status).toBe('error');
+    expect(qwenRecord.error).toBe('Qwen unavailable');
+  });
+});
