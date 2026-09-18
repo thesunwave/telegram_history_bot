@@ -53,6 +53,7 @@ describe('criminal semantic prefilter shadow evaluation', () => {
       ALIBABA_API_KEY: 'qwen-test-key',
       QWEN_PREFILTER_MODEL: 'qwen3.7-flash',
       QWEN_PREFILTER_BASE_URL: 'https://example.aliyuncs.com/compatible-mode/v1',
+      QWEN_PREFILTER_PROMPT_VARIANT: 'hybrid_en_v1',
     } as any;
 
     const openaiOutput = {
@@ -156,6 +157,8 @@ describe('criminal semantic prefilter shadow evaluation', () => {
 
     expect(inputRecord.targetText).toBe(targetText);
     expect(inputRecord.userInput).toContain(targetText);
+    expect(inputRecord.systemPrompt).toContain('Classify only the TARGET message.');
+    expect(inputRecord.systemPrompt).toContain('write searchQuery in Russian');
     expect(openaiRecord.parsedOutput.shouldAnalyze).toBe(true);
     expect(qwenRecord.parsedOutput.shouldAnalyze).toBe(false);
     expect(qwenRecord.parsedOutput.profanity).toEqual({ hasProfanity: false, words: [] });
@@ -163,6 +166,10 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     expect(qwenRecord.evaluationId).toBe(inputRecord.evaluationId);
 
     const qwenRequest = requests.find(request => request.url.includes('aliyuncs.com'))!;
+    const openaiRequest = requests.find(request => !request.url.includes('aliyuncs.com'))!;
+    expect(qwenRequest.body.messages[0].content).toContain('You are a fast semantic prefilter');
+    expect(qwenRequest.body.messages[0].content).toContain('признание в тайном хищении чужого имущества');
+    expect(openaiRequest.body.messages[0].content).toContain('Ты быстрый prefilter для Telegram-чата.');
     expect(qwenRequest.body.max_tokens).toBeUndefined();
     expect(qwenRequest.body.enable_thinking).toBe(false);
     expect(qwenRequest.body.response_format.type).toBe('json_schema');

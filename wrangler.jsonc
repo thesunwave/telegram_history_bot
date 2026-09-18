@@ -209,6 +209,8 @@
     "QWEN_PREFILTER_MODEL": "qwen3.7-flash",
     // Keep production Qwen requests item-isolated; batch prompts showed cross-item contamination.
     "QWEN_PREFILTER_BATCH_ENABLED": false,
+    // Experiment: English control instructions with Russian legal/search-query examples.
+    "QWEN_PREFILTER_PROMPT_VARIANT": "hybrid_en_v1",
     // ========================================
     // 💰 LLM BUDGET CONFIGURATION (ADR-001)
     // ========================================

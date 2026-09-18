@@ -1327,7 +1327,9 @@ export class CriminalCodeAnalyzerDO {
     const systemPrompt = this.buildSemanticPrefilterSystemPrompt(false);
     const userPayload = JSON.stringify(this.buildSemanticPrefilterPayload(input));
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
-    this.scheduleShadowInput(item, systemPrompt, userInput, 1);
+    if (this.isProductionPrefilterProvider('openai')) {
+      this.scheduleShadowInput(item, systemPrompt, userInput, 1);
+    }
     const startedAt = Date.now();
 
     try {
@@ -1416,8 +1418,10 @@ export class CriminalCodeAnalyzerDO {
       })),
     });
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
-    for (const item of items) {
-      this.scheduleShadowInput(item, systemPrompt, userInput, items.length);
+    if (this.isProductionPrefilterProvider('openai')) {
+      for (const item of items) {
+        this.scheduleShadowInput(item, systemPrompt, userInput, items.length);
+      }
     }
     const startedAt = Date.now();
 
@@ -1559,9 +1563,15 @@ export class CriminalCodeAnalyzerDO {
     apiKey: string,
     model: string
   ): Promise<CriminalSemanticPrefilterResult> {
-    const systemPrompt = this.buildSemanticPrefilterSystemPrompt(false);
+    const systemPrompt = this.buildSemanticPrefilterSystemPrompt(
+      false,
+      this.getQwenPrefilterPromptVariant()
+    );
     const userPayload = JSON.stringify(this.buildSemanticPrefilterPayload(item.input));
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
+    if (this.isProductionPrefilterProvider('qwen')) {
+      this.scheduleShadowInput(item, systemPrompt, userInput, 1);
+    }
     const startedAt = Date.now();
     let parsed: any;
     let raw: string | undefined;
@@ -1598,7 +1608,10 @@ export class CriminalCodeAnalyzerDO {
     apiKey: string,
     model: string
   ): Promise<Map<string, CriminalSemanticPrefilterResult>> {
-    const systemPrompt = this.buildSemanticPrefilterSystemPrompt(true);
+    const systemPrompt = this.buildSemanticPrefilterSystemPrompt(
+      true,
+      this.getQwenPrefilterPromptVariant()
+    );
     const userPayload = JSON.stringify({
       items: items.map(item => ({
         id: item.id,
@@ -1606,6 +1619,11 @@ export class CriminalCodeAnalyzerDO {
       })),
     });
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
+    if (this.isProductionPrefilterProvider('qwen')) {
+      for (const item of items) {
+        this.scheduleShadowInput(item, systemPrompt, userInput, items.length);
+      }
+    }
     const startedAt = Date.now();
     let parsed: any;
     let raw: string | undefined;
@@ -1886,7 +1904,27 @@ export class CriminalCodeAnalyzerDO {
     return 'Unknown provider error';
   }
 
-  private buildSemanticPrefilterSystemPrompt(isBatch: boolean): string {
+  private isProductionPrefilterProvider(provider: 'openai' | 'qwen'): boolean {
+    return String((this.env as any).CRIMINAL_PREFILTER_PROVIDER || 'openai')
+      .trim()
+      .toLowerCase() === provider;
+  }
+
+  private getQwenPrefilterPromptVariant(): 'ru' | 'hybrid_en_v1' {
+    return String((this.env as any).QWEN_PREFILTER_PROMPT_VARIANT || 'ru')
+      .trim()
+      .toLowerCase() === 'hybrid_en_v1'
+      ? 'hybrid_en_v1'
+      : 'ru';
+  }
+
+  private buildSemanticPrefilterSystemPrompt(
+    isBatch: boolean,
+    variant: 'ru' | 'hybrid_en_v1' = 'ru'
+  ): string {
+    if (variant === 'hybrid_en_v1') {
+      return this.buildHybridEnglishSemanticPrefilterSystemPrompt(isBatch);
+    }
     return [
       'Ты быстрый prefilter для Telegram-чата.',
       'Реши, нужно ли отправлять target-сообщение в дорогой юридический анализ УК РФ.',
@@ -1920,6 +1958,42 @@ export class CriminalCodeAnalyzerDO {
       isBatch
         ? 'Верни строго JSON: {"items":[{"id":"same id","shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|violent_expression|other_criminal|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|fantasy|endorsement|plan|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}]}'
         : 'Верни строго JSON: {"shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|violent_expression|other_criminal|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|fantasy|endorsement|plan|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}'
+    ].join('\n');
+  }
+
+  private buildHybridEnglishSemanticPrefilterSystemPrompt(isBatch: boolean): string {
+    return [
+      'You are a fast semantic prefilter for a Russian-language Telegram chat.',
+      'Decide whether the TARGET message should be sent to expensive legal analysis under the Criminal Code of the Russian Federation (УК РФ).',
+      'Classify only the TARGET message. Neighboring context is provided only to resolve the meaning of TARGET: pronouns, omitted subject/object, slang, ellipsis, and figurative language.',
+      'If replyTo is present, it is the message that TARGET directly replies to. Use it as stronger context than ordinary neighboring messages when resolving short replies, jokes, ellipsis, and pronouns.',
+      'Never transfer a threat, violence, criminal intent, or any other criminal meaning from replyTo or neighboring context onto TARGET.',
+      'If TARGET is only a reply joke, crude or sexual taunt, clarification, denial, report, quote, or neutral discussion without its own criminally relevant act or stance by the author, return shouldAnalyze=false.',
+      'If dangerous meaning exists only in neighboring messages, that is not a reason to analyze TARGET.',
+      'Do not invent a violent act, victim, intent, or criminal plan that TARGET does not express.',
+      'First describe the factual meaning of TARGET in semanticFrame. Only then choose shouldAnalyze and reason.',
+      'Distinguish an act promised or intended by the author from a prediction, taunt, quote, hypothetical, report, or third-party action.',
+      'A negative prediction is not a threat by itself. For example, a statement like "скоро не будет вашей школы" without a promise of violence is prediction/taunt, not threat.',
+      'For this product, pass explicit fantasies, plans, endorsements, wishes, or proposals by the author for a concrete potentially criminal act, not only direct threats or confessions.',
+      'If the author personally fantasizes about, endorses, proposes, wishes, or plans concrete violence, use shouldAnalyze=true and speechAct=fantasy|endorsement|plan|incitement as appropriate; use reason=violent_expression when no more specific reason fits.',
+      'Do not limit criminal signals to violence. If the author personally endorses, proposes, plans, instructs, wishes, or admits a concrete potentially criminal act that has no more specific reason, use reason=other_criminal.',
+      'Simple discussion of a law, news, another person’s conduct, or an abstract question without the author’s own stance or intent should not pass.',
+      'If the author merely reports another person’s threat or uses violent wording metaphorically or technically, do not turn it into a threat by the author.',
+      'Relevant semantic signals include threats, sexual-violence threats, incitement or endorsement of violence, extremism/terrorism, self-incrimination, and dangerous instructions.',
+      'Profanity, sexual slang, jokes, everyday frustration, and actions involving objects are not criminal signals by themselves.',
+      'Conversational threats to harm a person should pass when TARGET itself expresses a promise or intent to beat, injure, kill, rape, or otherwise commit violence.',
+      'semanticFrame.evidenceSpans must contain only exact short quotes from TARGET that support the selected meaning.',
+      'If shouldAnalyze=true, reason must not be none.',
+      'Use reason=sexual_threat only for threats of sexual violence. Use reason=threat for ordinary physical threats without sexual meaning.',
+      'If shouldAnalyze=true, write searchQuery in Russian as a neutral legal search phrase for УК РФ. Do not include an article number and do not quote profanity.',
+      'searchQuery must preserve the speech act and the substance of the conduct instead of reducing every violent statement to a threat.',
+      'Examples of searchQuery: "угроза убийством адресату", "признание в тайном хищении чужого имущества", "призыв к насилию против группы по национальному признаку", "одобрение причинения тяжкого вреда здоровью".',
+      'At the same time, detect Russian obscene profanity in TARGET. Profanity does not affect shouldAnalyze.',
+      'In profanity.words return only exact obscene word forms that literally occur in TARGET, with their counts. Do not return lemmas, normalized forms, or profanity copied from context.',
+      'Do not include merely rude, insulting, religious, sexual, or morally negative words unless they are Russian obscene profanity.',
+      isBatch
+        ? 'Return strict JSON only: {"items":[{"id":"same id","shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|violent_expression|other_criminal|none","confidence":0..1,"explanation":"short","searchQuery":"short Russian phrase or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|fantasy|endorsement|plan|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}]}'
+        : 'Return strict JSON only: {"shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|violent_expression|other_criminal|none","confidence":0..1,"explanation":"short","searchQuery":"short Russian phrase or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|fantasy|endorsement|plan|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}'
     ].join('\n');
   }
 
@@ -2238,8 +2312,9 @@ export class CriminalCodeAnalyzerDO {
       ? (this.env as any).QWEN_PREFILTER_MODEL || (this.env as any).QWEN_SHADOW_MODEL || 'qwen3.7-flash'
       : (this.env as any).CRIMINAL_PREFILTER_MODEL || (this.env as any).LLM_NANO_MODEL || 'default')
       .replace(/[^a-z0-9_.-]+/gi, '_');
+    const promptVariant = provider === 'qwen' ? this.getQwenPrefilterPromptVariant() : 'ru';
     const threshold = String(this.getSemanticPrefilterMinConfidence()).replace(/[^0-9.]+/g, '_');
-    return `criminal_semantic_prefilter:${version}:${provider}:${model}:${threshold}:${hash}`;
+    return `criminal_semantic_prefilter:${version}:${provider}:${model}:${promptVariant}:${threshold}:${hash}`;
   }
 
   private normalizeTextForSemanticCache(text: string): string {

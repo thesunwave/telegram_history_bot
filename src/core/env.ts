@@ -124,6 +124,7 @@ export interface Env {
   QWEN_PREFILTER_BASE_URL?: string;
   QWEN_PREFILTER_MODEL?: string;
   QWEN_PREFILTER_BATCH_ENABLED?: string | boolean;
+  QWEN_PREFILTER_PROMPT_VARIANT?: 'ru' | 'hybrid_en_v1';
   QWEN_SHADOW_BASE_URL?: string;
   QWEN_SHADOW_MODEL?: string;
   ALIBABA_API_KEY?: string;
