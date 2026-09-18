@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { HTMLBuilder, getSeverityEmoji, createSection, createListItem } from '../src/core/html-formatting';
+import { HTMLBuilder } from '../src/core/html-builder';
+import { getSeverityEmoji, createSection, createListItem } from '../src/core/html-utils';
 
 describe('HTML Formatting Integration', () => {
   it('should create a complete violation message using all components', () => {
