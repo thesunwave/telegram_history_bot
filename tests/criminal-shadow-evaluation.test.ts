@@ -26,7 +26,7 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     vi.unstubAllGlobals();
   });
 
-  it('keeps OpenAI as production truth while Qwen is stored independently', async () => {
+  it('uses Qwen as production truth while OpenAI is stored independently', async () => {
     const history = createHistoryKv();
     const pending: Promise<unknown>[] = [];
     const state = {
@@ -45,13 +45,14 @@ describe('criminal semantic prefilter shadow evaluation', () => {
       COUNTERS: counters,
       OPENAI_API_KEY: 'openai-test-key',
       CRIMINAL_PREFILTER_MODEL: 'gpt-4.1-nano',
+      CRIMINAL_PREFILTER_PROVIDER: 'qwen',
       CRIMINAL_PREFILTER_CACHE_ENABLED: false,
       CRIMINAL_PREFILTER_BATCH_ENABLED: false,
       CRIMINAL_PREFILTER_MIN_CONFIDENCE: 0.7,
       SHADOW_EVAL_ENABLED: true,
       ALIBABA_API_KEY: 'qwen-test-key',
-      QWEN_SHADOW_MODEL: 'qwen3.7-flash',
-      QWEN_SHADOW_BASE_URL: 'https://example.aliyuncs.com/compatible-mode/v1',
+      QWEN_PREFILTER_MODEL: 'qwen3.7-flash',
+      QWEN_PREFILTER_BASE_URL: 'https://example.aliyuncs.com/compatible-mode/v1',
     } as any;
 
     const openaiOutput = {
@@ -142,8 +143,8 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     const result = await (analyzer as any).runSemanticPrefilterBatch([item]);
     await drainWaitUntil(pending);
 
-    expect(result.get('0').shouldAnalyze).toBe(true);
-    expect(result.get('0').reason).toBe('threat');
+    expect(result.get('0').shouldAnalyze).toBe(false);
+    expect(result.get('0').reason).toBe('none');
 
     const stored = Array.from(history.values.entries()).map(([key, value]) => [key, JSON.parse(value)] as const);
     const inputRecord = stored.find(([key]) => key.endsWith(':input'))?.[1];
@@ -172,7 +173,7 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     expect(batchFormat.json_schema.schema.properties.items.items.required).toContain('id');
   });
 
-  it('keeps malformed Qwen JSON as a shadow error without affecting OpenAI', async () => {
+  it('falls back to no-signal when production Qwen returns malformed JSON', async () => {
     const history = createHistoryKv();
     const pending: Promise<unknown>[] = [];
     const state = {
@@ -184,11 +185,12 @@ describe('criminal semantic prefilter shadow evaluation', () => {
       COUNTERS: { get: vi.fn(async () => null), put: vi.fn(async () => undefined) },
       OPENAI_API_KEY: 'openai-test-key',
       CRIMINAL_PREFILTER_MODEL: 'gpt-4.1-nano',
+      CRIMINAL_PREFILTER_PROVIDER: 'qwen',
       CRIMINAL_PREFILTER_CACHE_ENABLED: false,
       CRIMINAL_PREFILTER_BATCH_ENABLED: false,
       SHADOW_EVAL_ENABLED: true,
       ALIBABA_API_KEY: 'qwen-test-key',
-      QWEN_SHADOW_BASE_URL: 'https://example.aliyuncs.com/compatible-mode/v1',
+      QWEN_PREFILTER_BASE_URL: 'https://example.aliyuncs.com/compatible-mode/v1',
     } as any;
     const targetText = 'я тебя убью';
     const openaiOutput = {
@@ -240,14 +242,121 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     }]);
     await drainWaitUntil(pending);
 
-    expect(result.get('0').shouldAnalyze).toBe(true);
+    expect(result.get('0').shouldAnalyze).toBe(false);
+    expect(result.get('0').reason).toBe('none');
     const qwenRecord = Array.from(history.values.entries())
       .filter(([key]) => key.endsWith(':qwen'))
+      .map(([, value]) => JSON.parse(value))[0];
+    const openaiRecord = Array.from(history.values.entries())
+      .filter(([key]) => key.endsWith(':openai'))
       .map(([, value]) => JSON.parse(value))[0];
     expect(qwenRecord.status).toBe('error');
     expect(qwenRecord.error).toContain('JSON');
     expect(qwenRecord.rawOutput).toBe(malformedQwen);
     expect(qwenRecord.finishReason).toBe('length');
     expect(qwenRecord.usage.totalTokens).toBe(612);
+    expect(openaiRecord.status).toBe('ok');
+    expect(openaiRecord.parsedOutput.shouldAnalyze).toBe(true);
+  });
+
+  it('retries a missing Qwen batch item as a single request before using the result', async () => {
+    const history = createHistoryKv();
+    const state = {
+      waitUntil: vi.fn(),
+      storage: { get: vi.fn(async () => undefined), put: vi.fn(async () => undefined) },
+    } as any;
+    const env = {
+      HISTORY: history,
+      COUNTERS: { get: vi.fn(async () => null), put: vi.fn(async () => undefined) },
+      CRIMINAL_PREFILTER_PROVIDER: 'qwen',
+      CRIMINAL_PREFILTER_CACHE_ENABLED: false,
+      CRIMINAL_PREFILTER_BATCH_ENABLED: true,
+      CRIMINAL_PREFILTER_BATCH_SIZE: 8,
+      CRIMINAL_PREFILTER_MIN_CONFIDENCE: 0.7,
+      SHADOW_EVAL_ENABLED: false,
+      ALIBABA_API_KEY: 'qwen-test-key',
+      QWEN_PREFILTER_BASE_URL: 'https://example.aliyuncs.com/compatible-mode/v1',
+    } as any;
+    const now = Math.floor(Date.now() / 1000);
+    const makeItem = (id: string, messageId: number, targetText: string) => ({
+      id,
+      input: {
+        targetMessageId: messageId,
+        targetUserId: messageId,
+        targetUsername: `user${id}`,
+        targetText,
+        targetTimestamp: now,
+        chatId: 123,
+        contextWindow: { before: 0, after: 0, totalMessages: 1 },
+        messages: [{
+          messageId,
+          username: `user${id}`,
+          userId: messageId,
+          text: targetText,
+          ts: now,
+          relativePosition: 0,
+          isTarget: true,
+        }],
+      },
+      task: {
+        text: targetText,
+        chatId: 123,
+        userId: messageId,
+        messageId,
+        username: `user${id}`,
+        reasons: ['semantic_prefilter'],
+        enqueuedAt: Date.now(),
+      },
+    });
+    const skipResult = {
+      shouldAnalyze: false,
+      reason: 'none',
+      confidence: 0.95,
+      explanation: 'no signal',
+      searchQuery: '',
+      semanticFrame: {
+        speechAct: 'other', actor: 'author', action: '', targetKind: 'unknown',
+        harmKind: 'none', modality: 'unknown', evidenceSpans: [],
+      },
+      profanity: { hasProfanity: false, words: [] },
+    };
+    const threatResult = {
+      shouldAnalyze: true,
+      reason: 'threat',
+      confidence: 0.95,
+      explanation: 'direct threat',
+      searchQuery: 'угроза убийством адресату',
+      semanticFrame: {
+        speechAct: 'threat', actor: 'author', action: 'угрожает убийством', targetKind: 'person',
+        harmKind: 'death', modality: 'promised', evidenceSpans: ['я тебя убью'],
+      },
+      profanity: { hasProfanity: false, words: [] },
+    };
+    const requestBodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      requestBodies.push(body);
+      const isBatch = body.response_format?.json_schema?.name === 'criminal_prefilter_batch';
+      const content = isBatch
+        ? { items: [{ id: '0', ...skipResult }] }
+        : threatResult;
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(content) }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+
+    const analyzer = new CriminalCodeAnalyzerDO(state, env);
+    const result = await (analyzer as any).runSemanticPrefilterBatch([
+      makeItem('0', 1, 'обычная длинная фраза'),
+      makeItem('1', 2, 'я тебя убью'),
+    ]);
+
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies[0].response_format.json_schema.name).toBe('criminal_prefilter_batch');
+    expect(requestBodies[1].response_format.json_schema.name).toBe('criminal_prefilter');
+    expect(result.get('0').shouldAnalyze).toBe(false);
+    expect(result.get('1').shouldAnalyze).toBe(true);
+    expect(result.get('1').reason).toBe('threat');
   });
 });

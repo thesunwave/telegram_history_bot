@@ -109,6 +109,7 @@ export interface Env {
   CRIMINAL_CONTEXT_BEFORE?: string | number;
   CRIMINAL_CONTEXT_AFTER?: string | number;
   CRIMINAL_AI_PREFILTER_ENABLED?: string | boolean;
+  CRIMINAL_PREFILTER_PROVIDER?: 'openai' | 'qwen';
   CRIMINAL_PREFILTER_MODEL?: string;
   CRIMINAL_PREFILTER_MIN_CONFIDENCE?: string | number;
   CRIMINAL_PREFILTER_MAX_TOKENS?: string | number;
@@ -119,6 +120,8 @@ export interface Env {
   CRIMINAL_PREFILTER_BATCH_SIZE?: string | number;
   SHADOW_EVAL_ENABLED?: string | boolean;
   SHADOW_EVAL_RETENTION_SECONDS?: string | number;
+  QWEN_PREFILTER_BASE_URL?: string;
+  QWEN_PREFILTER_MODEL?: string;
   QWEN_SHADOW_BASE_URL?: string;
   QWEN_SHADOW_MODEL?: string;
   ALIBABA_API_KEY?: string;

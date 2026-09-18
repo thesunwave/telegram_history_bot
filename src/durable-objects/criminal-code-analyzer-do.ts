@@ -1189,10 +1189,18 @@ export class CriminalCodeAnalyzerDO {
         }))
         : misses;
       await this.recordPrefilterRequest();
+      const prefilterProvider = String((this.env as any).CRIMINAL_PREFILTER_PROVIDER || 'openai')
+        .trim()
+        .toLowerCase();
       if (shadowEnabled) {
-        this.scheduleBackground(this.callQwenShadowPrefilterForItems(requestItems));
+        const shadowCall = prefilterProvider === 'qwen'
+          ? this.callOpenAIPrefilterForItems(requestItems).then(() => undefined)
+          : this.callQwenPrefilterForItems(requestItems).then(() => undefined);
+        this.scheduleBackground(shadowCall.catch(() => undefined));
       }
-      const fetched = await this.callOpenAIPrefilterForItems(requestItems);
+      const fetched = prefilterProvider === 'qwen'
+        ? await this.callQwenPrefilterForItems(requestItems)
+        : await this.callOpenAIPrefilterForItems(requestItems);
       for (const item of requestItems) {
         const fetchedResult = fetched.get(item.id) || this.buildNoSignalPrefilter(
           'model did not return this prefilter item'
@@ -1460,28 +1468,27 @@ export class CriminalCodeAnalyzerDO {
     }
   }
 
-  private async callQwenShadowPrefilterForItems(items: CriminalPrefilterBatchItem[]): Promise<void> {
+  private async callQwenPrefilterForItems(
+    items: CriminalPrefilterBatchItem[]
+  ): Promise<Map<string, CriminalSemanticPrefilterResult>> {
+    const results = new Map<string, CriminalSemanticPrefilterResult>();
     if (items.length === 0) {
-      return;
+      return results;
     }
 
-    const model = (this.env as any).QWEN_SHADOW_MODEL || 'qwen3.7-flash';
+    const model = (this.env as any).QWEN_PREFILTER_MODEL ||
+      (this.env as any).QWEN_SHADOW_MODEL ||
+      'qwen3.7-flash';
     const apiKey = (this.env as any).ALIBABA_API_KEY;
     if (!apiKey) {
-      const startedAt = Date.now();
-      for (const item of items) {
-        this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
-          error: 'ALIBABA_API_KEY is not configured',
-        });
-      }
-      return;
+      throw new Error('ALIBABA_API_KEY is required for Qwen criminal semantic prefilter');
     }
 
     if (!this.getBooleanEnv('CRIMINAL_PREFILTER_BATCH_ENABLED', true) || items.length <= 1) {
       for (const item of items) {
-        await this.callQwenShadowPrefilterSingle(item, apiKey, model);
+        results.set(item.id, await this.callQwenPrefilterSingle(item, apiKey, model));
       }
-      return;
+      return results;
     }
 
     const batchSize = Math.round(this.clampNumber(
@@ -1490,15 +1497,20 @@ export class CriminalCodeAnalyzerDO {
       20
     ));
     for (let index = 0; index < items.length; index += batchSize) {
-      await this.callQwenShadowPrefilterBatchChunk(items.slice(index, index + batchSize), apiKey, model);
+      const chunk = items.slice(index, index + batchSize);
+      const chunkResults = await this.callQwenPrefilterBatchChunk(chunk, apiKey, model);
+      for (const [id, result] of chunkResults) {
+        results.set(id, result);
+      }
     }
+    return results;
   }
 
-  private async callQwenShadowPrefilterSingle(
+  private async callQwenPrefilterSingle(
     item: CriminalPrefilterBatchItem,
     apiKey: string,
     model: string
-  ): Promise<void> {
+  ): Promise<CriminalSemanticPrefilterResult> {
     const systemPrompt = this.buildSemanticPrefilterSystemPrompt(false);
     const userPayload = JSON.stringify(this.buildSemanticPrefilterPayload(item.input));
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
@@ -1521,6 +1533,7 @@ export class CriminalCodeAnalyzerDO {
         finishReason: parsed?.choices?.[0]?.finish_reason,
         usage: this.buildShadowUsage(parsed?.usage, 1),
       });
+      return normalized;
     } catch (error: unknown) {
       this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
         rawOutput: raw,
@@ -1528,14 +1541,15 @@ export class CriminalCodeAnalyzerDO {
         usage: this.buildShadowUsage(parsed?.usage, 1),
         error: this.getShadowErrorMessage(error),
       });
+      throw error;
     }
   }
 
-  private async callQwenShadowPrefilterBatchChunk(
+  private async callQwenPrefilterBatchChunk(
     items: CriminalPrefilterBatchItem[],
     apiKey: string,
     model: string
-  ): Promise<void> {
+  ): Promise<Map<string, CriminalSemanticPrefilterResult>> {
     const systemPrompt = this.buildSemanticPrefilterSystemPrompt(true);
     const userPayload = JSON.stringify({
       items: items.map(item => ({
@@ -1547,6 +1561,9 @@ export class CriminalCodeAnalyzerDO {
     const startedAt = Date.now();
     let parsed: any;
     let raw: string | undefined;
+    let resultItems: any[];
+    let finishReason: string | undefined;
+    let usage: ShadowEvaluationUsage | undefined;
 
     try {
       parsed = await this.callQwenChat(apiKey, model, systemPrompt, userInput, true);
@@ -1556,41 +1573,46 @@ export class CriminalCodeAnalyzerDO {
       }
       const jsonMatch = String(raw).match(/\{[\s\S]*\}/);
       const parsedResult = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as any;
-      const resultItems = Array.isArray(parsedResult?.items)
+      resultItems = Array.isArray(parsedResult?.items)
         ? parsedResult.items
         : Array.isArray(parsedResult?.results)
           ? parsedResult.results
           : [];
-      const finishReason = parsed?.choices?.[0]?.finish_reason;
-      const usage = this.buildShadowUsage(parsed?.usage, items.length);
+      finishReason = parsed?.choices?.[0]?.finish_reason;
+      usage = this.buildShadowUsage(parsed?.usage, items.length);
+    } catch (error: unknown) {
+      console.warn('Qwen prefilter batch failed; retrying items individually', {
+        op: 'qwenPrefilterBatchFallback',
+        errorClass: 'Error',
+      });
+      resultItems = [];
+    }
 
-      for (const item of items) {
-        const rawItem = resultItems.find((resultItem: any) => resultItem?.id === item.id);
-        if (!rawItem) {
-          this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
-            error: 'Model did not return this prefilter item',
-            finishReason,
-            usage,
-          });
-          continue;
-        }
+    const results = new Map<string, CriminalSemanticPrefilterResult>();
+    for (const item of items) {
+      const rawItem = resultItems.find((resultItem: any) => resultItem?.id === item.id);
+      if (rawItem) {
+        const normalized = this.normalizeSemanticPrefilterResult(rawItem);
+        results.set(item.id, normalized);
         this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
           rawOutput: JSON.stringify(rawItem),
-          parsedOutput: this.normalizeSemanticPrefilterResult(rawItem),
+          parsedOutput: normalized,
           finishReason,
           usage,
         });
+        continue;
       }
-    } catch (error: unknown) {
-      for (const item of items) {
-        this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
-          rawOutput: raw,
-          finishReason: parsed?.choices?.[0]?.finish_reason,
-          usage: this.buildShadowUsage(parsed?.usage, items.length),
-          error: this.getShadowErrorMessage(error),
-        });
+      try {
+        results.set(item.id, await this.callQwenPrefilterSingle(item, apiKey, model));
+      } catch {
+        // The single-call helper already records the provider error for shadow diagnostics.
       }
     }
+
+    if (results.size === 0) {
+      throw new Error('Qwen prefilter failed for every item in the batch');
+    }
+    return results;
   }
 
   private async callQwenChat(
@@ -1601,6 +1623,7 @@ export class CriminalCodeAnalyzerDO {
     isBatch: boolean
   ): Promise<any> {
     const baseUrl = String(
+      (this.env as any).QWEN_PREFILTER_BASE_URL ||
       (this.env as any).QWEN_SHADOW_BASE_URL ||
       'https://ws-lhg064f1wayjpiqu.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1'
     ).replace(/\/+$/, '');
@@ -1613,9 +1636,7 @@ export class CriminalCodeAnalyzerDO {
       body: JSON.stringify({
         model,
         temperature: 0,
-        // Qwen 3.7 enables thinking by default. The production OpenAI prefilter
-        // uses minimal reasoning, so keep the shadow classifier low-latency and
-        // closer in inference budget for a cleaner A/B comparison.
+        // Qwen 3.7 enables thinking by default; this prefilter should stay low-latency.
         enable_thinking: false,
         response_format: this.buildQwenPrefilterResponseFormat(isBatch),
         messages: [
@@ -1626,7 +1647,7 @@ export class CriminalCodeAnalyzerDO {
     });
     const parsed = await response.json().catch(() => null) as any;
     if (!response.ok) {
-      throw new Error(parsed?.error?.message || `Qwen shadow prefilter failed with ${response.status}`);
+      throw new Error(parsed?.error?.message || `Qwen prefilter failed with ${response.status}`);
     }
     return parsed;
   }
