@@ -90,7 +90,10 @@ describe('criminal semantic prefilter shadow evaluation', () => {
         modality: 'unknown',
         evidenceSpans: [],
       },
-      profanity: { hasProfanity: false, words: [] },
+      profanity: {
+        hasProfanity: true,
+        words: [{ word: 'пизда', count: 1, confidence: 0.99 }],
+      },
     };
 
     const requests: Array<{ url: string; body: any }> = [];
@@ -155,6 +158,7 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     expect(inputRecord.userInput).toContain(targetText);
     expect(openaiRecord.parsedOutput.shouldAnalyze).toBe(true);
     expect(qwenRecord.parsedOutput.shouldAnalyze).toBe(false);
+    expect(qwenRecord.parsedOutput.profanity).toEqual({ hasProfanity: false, words: [] });
     expect(openaiRecord.evaluationId).toBe(inputRecord.evaluationId);
     expect(qwenRecord.evaluationId).toBe(inputRecord.evaluationId);
 
@@ -173,7 +177,7 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     expect(batchFormat.json_schema.schema.properties.items.items.required).toContain('id');
   });
 
-  it('falls back to no-signal when production Qwen returns malformed JSON', async () => {
+  it('falls back to an OpenAI single call when production Qwen returns malformed JSON', async () => {
     const history = createHistoryKv();
     const pending: Promise<unknown>[] = [];
     const state = {
@@ -242,8 +246,8 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     }]);
     await drainWaitUntil(pending);
 
-    expect(result.get('0').shouldAnalyze).toBe(false);
-    expect(result.get('0').reason).toBe('none');
+    expect(result.get('0').shouldAnalyze).toBe(true);
+    expect(result.get('0').reason).toBe('threat');
     const qwenRecord = Array.from(history.values.entries())
       .filter(([key]) => key.endsWith(':qwen'))
       .map(([, value]) => JSON.parse(value))[0];
@@ -259,6 +263,91 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     expect(openaiRecord.parsedOutput.shouldAnalyze).toBe(true);
   });
 
+  it('keeps production Qwen items isolated in single requests even when generic batching is enabled', async () => {
+    const state = {
+      waitUntil: vi.fn(),
+      storage: { get: vi.fn(async () => undefined), put: vi.fn(async () => undefined) },
+    } as any;
+    const env = {
+      HISTORY: createHistoryKv(),
+      COUNTERS: { get: vi.fn(async () => null), put: vi.fn(async () => undefined) },
+      CRIMINAL_PREFILTER_PROVIDER: 'qwen',
+      CRIMINAL_PREFILTER_CACHE_ENABLED: false,
+      CRIMINAL_PREFILTER_BATCH_ENABLED: true,
+      QWEN_PREFILTER_BATCH_ENABLED: false,
+      SHADOW_EVAL_ENABLED: false,
+      ALIBABA_API_KEY: 'qwen-test-key',
+      QWEN_PREFILTER_BASE_URL: 'https://example.aliyuncs.com/compatible-mode/v1',
+    } as any;
+    const now = Math.floor(Date.now() / 1000);
+    const makeItem = (id: string, messageId: number, targetText: string) => ({
+      id,
+      input: {
+        targetMessageId: messageId,
+        targetUserId: messageId,
+        targetUsername: `user${id}`,
+        targetText,
+        targetTimestamp: now,
+        chatId: 123,
+        contextWindow: { before: 0, after: 0, totalMessages: 1 },
+        messages: [{
+          messageId,
+          username: `user${id}`,
+          userId: messageId,
+          text: targetText,
+          ts: now,
+          relativePosition: 0,
+          isTarget: true,
+        }],
+      },
+      task: {
+        text: targetText,
+        chatId: 123,
+        userId: messageId,
+        messageId,
+        username: `user${id}`,
+        reasons: ['semantic_prefilter'],
+        enqueuedAt: Date.now(),
+      },
+    });
+    const skipResult = {
+      shouldAnalyze: false,
+      reason: 'none',
+      confidence: 0.95,
+      explanation: 'no signal',
+      searchQuery: '',
+      semanticFrame: {
+        speechAct: 'other', actor: 'author', action: '', targetKind: 'unknown',
+        harmKind: 'none', modality: 'unknown', evidenceSpans: [],
+      },
+      profanity: { hasProfanity: false, words: [] },
+    };
+    const requestBodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      requestBodies.push(body);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(skipResult) }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+
+    const analyzer = new CriminalCodeAnalyzerDO(state, env);
+    await (analyzer as any).runSemanticPrefilterBatch([
+      makeItem('0', 1, 'first isolated target'),
+      makeItem('1', 2, 'second isolated target'),
+    ]);
+
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies.every(body => body.response_format.json_schema.name === 'criminal_prefilter')).toBe(true);
+    const firstRequest = requestBodies.find(body => body.messages[1].content.includes('first isolated target'));
+    const secondRequest = requestBodies.find(body => body.messages[1].content.includes('second isolated target'));
+    expect(firstRequest).toBeDefined();
+    expect(secondRequest).toBeDefined();
+    expect(firstRequest!.messages[1].content).not.toContain('second isolated target');
+    expect(secondRequest!.messages[1].content).not.toContain('first isolated target');
+  });
+
   it('retries a missing Qwen batch item as a single request before using the result', async () => {
     const history = createHistoryKv();
     const state = {
@@ -271,6 +360,7 @@ describe('criminal semantic prefilter shadow evaluation', () => {
       CRIMINAL_PREFILTER_PROVIDER: 'qwen',
       CRIMINAL_PREFILTER_CACHE_ENABLED: false,
       CRIMINAL_PREFILTER_BATCH_ENABLED: true,
+      QWEN_PREFILTER_BATCH_ENABLED: true,
       CRIMINAL_PREFILTER_BATCH_SIZE: 8,
       CRIMINAL_PREFILTER_MIN_CONFIDENCE: 0.7,
       SHADOW_EVAL_ENABLED: false,

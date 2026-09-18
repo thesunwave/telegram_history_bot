@@ -1093,6 +1093,33 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(bicycleKey).toContain(":v8:");
     });
 
+    it("should scope semantic prefilter cache to the active provider and model", async () => {
+      const input = {
+        targetMessageId: 1301,
+        targetUserId: 67890,
+        targetUsername: "testuser",
+        targetText: "ordinary target text",
+        targetTimestamp: 1000,
+        chatId: 12345,
+        contextWindow: { before: 0, after: 0, totalMessages: 1 },
+        messages: [
+          { username: "testuser", text: "ordinary target text", ts: 1000, relativePosition: 0, isTarget: true },
+        ],
+      };
+
+      mockEnv.CRIMINAL_PREFILTER_PROVIDER = "openai";
+      mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
+      const openaiKey = await (analyzer as any).getSemanticPrefilterCacheKey(input);
+
+      mockEnv.CRIMINAL_PREFILTER_PROVIDER = "qwen";
+      mockEnv.QWEN_PREFILTER_MODEL = "qwen3.7-flash";
+      const qwenKey = await (analyzer as any).getSemanticPrefilterCacheKey(input);
+
+      expect(openaiKey).not.toBe(qwenKey);
+      expect(openaiKey).toContain(":openai:gpt-5-nano:");
+      expect(qwenKey).toContain(":qwen:qwen3.7-flash:");
+    });
+
     it("should not continue to RAG when semantic prefilter rejects the target", async () => {
       const storage = new Map<string, any>();
       mockState.storage = {
@@ -2115,6 +2142,137 @@ describe("CriminalCodeAnalyzerDO", () => {
       }
 
       expect(mockState.storage.setAlarm).toHaveBeenCalledTimes(1);
+    });
+
+    it("should defer a full production queue to an immediate alarm instead of flushing inside enqueue", async () => {
+      const storage = new Map<string, any>();
+      const setAlarm = vi.fn().mockResolvedValue(undefined);
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        getAlarm: vi.fn().mockResolvedValue(null),
+        setAlarm,
+      };
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_QUEUE_ASYNC_FLUSH_ENABLED = true;
+      mockEnv.COUNTERS = {
+        get: vi.fn().mockResolvedValue("0"),
+        put: vi.fn().mockResolvedValue(undefined),
+      };
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+      const before = Date.now();
+
+      const response = await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "обычное достаточно длинное сообщение для проверки асинхронной очереди",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 117,
+          username: "testuser",
+          day: "2026-05-18"
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(response.status).toBe(200);
+      expect(storage.get("criminal_analysis_queue")).toHaveLength(1);
+      expect(mockEnv.COUNTERS.put).not.toHaveBeenCalled();
+      expect(setAlarm).toHaveBeenCalledTimes(1);
+      const alarmAt = setAlarm.mock.calls[0][0] as number;
+      expect(alarmAt).toBeGreaterThanOrEqual(before);
+      expect(alarmAt).toBeLessThanOrEqual(Date.now() + 1000);
+    });
+
+    it("should pull a later queue alarm forward when the queue becomes full", async () => {
+      const storage = new Map<string, any>();
+      const existingAlarm = Date.now() + 30_000;
+      const setAlarm = vi.fn().mockResolvedValue(undefined);
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        getAlarm: vi.fn().mockResolvedValue(existingAlarm),
+        setAlarm,
+      };
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_QUEUE_ASYNC_FLUSH_ENABLED = true;
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "обычное достаточно длинное сообщение для проверки немедленного alarm",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 118,
+          username: "testuser",
+          day: "2026-05-18"
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(setAlarm).toHaveBeenCalledTimes(1);
+      expect(setAlarm.mock.calls[0][0]).toBeLessThan(existingAlarm);
+    });
+
+    it("should drain a burst backlog through immediate alarms without dropping the tail", async () => {
+      const storage = new Map<string, any>();
+      let alarmAt: number | null = null;
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        getAlarm: vi.fn(() => Promise.resolve(alarmAt)),
+        setAlarm: vi.fn((value: number) => {
+          alarmAt = value;
+          return Promise.resolve();
+        }),
+      };
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 5;
+      mockEnv.CRIMINAL_QUEUE_ASYNC_FLUSH_ENABLED = true;
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+      (queueAnalyzer as any).runSemanticPrefilterBatch = vi.fn(async (items: any[]) => new Map(
+        items.map(item => [item.id, {
+          shouldAnalyze: false,
+          reason: 'none',
+          confidence: 1,
+          explanation: 'test skip',
+          searchQuery: '',
+          profanity: { hasProfanity: false, words: [] },
+        }])
+      ));
+
+      for (let index = 0; index < 9; index++) {
+        await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+          method: "POST",
+          body: JSON.stringify({
+            text: `обычное длинное сообщение номер ${index} для burst очереди`,
+            chatId: 12345,
+            userId: 67890,
+            messageId: 200 + index,
+            username: "testuser",
+            day: "2026-05-18"
+          }),
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+
+      expect(storage.get("criminal_analysis_queue")).toHaveLength(9);
+
+      await queueAnalyzer.alarm();
+      expect(storage.get("criminal_analysis_queue")).toHaveLength(4);
+      expect(alarmAt).toBeLessThanOrEqual(Date.now() + 1000);
+
+      await queueAnalyzer.alarm();
+      expect(storage.get("criminal_analysis_queue")).toHaveLength(0);
     });
   });
 

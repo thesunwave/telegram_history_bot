@@ -365,7 +365,11 @@ export class CriminalCodeAnalyzerDO {
 
       const batchSize = this.getNumberEnv('CRIMINAL_QUEUE_BATCH_SIZE', 5);
       if (queue.length >= batchSize) {
-        await this.flushQueue('batch-size');
+        if (this.getBooleanEnv('CRIMINAL_QUEUE_ASYNC_FLUSH_ENABLED', false)) {
+          await this.scheduleQueueAlarm(0);
+        } else {
+          await this.flushQueue('batch-size');
+        }
       } else {
         await this.scheduleQueueAlarm();
       }
@@ -780,7 +784,7 @@ export class CriminalCodeAnalyzerDO {
     }
 
     if (remaining.length > 0) {
-      await this.scheduleQueueAlarm();
+      await this.scheduleQueueAlarm(0);
     }
   }
 
@@ -1192,15 +1196,36 @@ export class CriminalCodeAnalyzerDO {
       const prefilterProvider = String((this.env as any).CRIMINAL_PREFILTER_PROVIDER || 'openai')
         .trim()
         .toLowerCase();
-      if (shadowEnabled) {
-        const shadowCall = prefilterProvider === 'qwen'
-          ? this.callOpenAIPrefilterForItems(requestItems).then(() => undefined)
-          : this.callQwenPrefilterForItems(requestItems).then(() => undefined);
-        this.scheduleBackground(shadowCall.catch(() => undefined));
+      let fetched: Map<string, CriminalSemanticPrefilterResult>;
+      if (prefilterProvider === 'qwen') {
+        fetched = await this.callQwenPrefilterForItems(requestItems);
+        const qwenSucceededItems = requestItems.filter(item => fetched.has(item.id));
+        const qwenFailedItems = requestItems.filter(item => !fetched.has(item.id));
+
+        if (shadowEnabled && qwenSucceededItems.length > 0) {
+          this.scheduleBackground(
+            this.callOpenAIPrefilterSingles(qwenSucceededItems).then(() => undefined).catch(() => undefined)
+          );
+        }
+
+        if (qwenFailedItems.length > 0) {
+          console.warn('Qwen prefilter failed; falling back to OpenAI single calls', {
+            op: 'qwenPrefilterProviderFallback',
+            failedItems: qwenFailedItems.length,
+          });
+          const fallbackResults = await this.callOpenAIPrefilterSingles(qwenFailedItems);
+          for (const [id, result] of fallbackResults) {
+            fetched.set(id, result);
+          }
+        }
+      } else {
+        if (shadowEnabled) {
+          this.scheduleBackground(
+            this.callQwenPrefilterForItems(requestItems).then(() => undefined).catch(() => undefined)
+          );
+        }
+        fetched = await this.callOpenAIPrefilterForItems(requestItems);
       }
-      const fetched = prefilterProvider === 'qwen'
-        ? await this.callQwenPrefilterForItems(requestItems)
-        : await this.callOpenAIPrefilterForItems(requestItems);
       for (const item of requestItems) {
         const fetchedResult = fetched.get(item.id) || this.buildNoSignalPrefilter(
           'model did not return this prefilter item'
@@ -1273,6 +1298,20 @@ export class CriminalCodeAnalyzerDO {
     return results;
   }
 
+  private async callOpenAIPrefilterSingles(
+    items: CriminalPrefilterBatchItem[]
+  ): Promise<Map<string, CriminalSemanticPrefilterResult>> {
+    const results = new Map<string, CriminalSemanticPrefilterResult>();
+    await Promise.all(items.map(async item => {
+      try {
+        results.set(item.id, await this.callOpenAIPrefilterSingle(item));
+      } catch {
+        // The single-call helper records the provider error for shadow diagnostics.
+      }
+    }));
+    return results;
+  }
+
   private async callOpenAIPrefilterSingle(
     item: CriminalPrefilterBatchItem
   ): Promise<CriminalSemanticPrefilterResult> {
@@ -1339,7 +1378,7 @@ export class CriminalCodeAnalyzerDO {
 
       const jsonMatch = String(raw).match(/\{[\s\S]*\}/);
       const result = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as Partial<CriminalSemanticPrefilterResult>;
-      const normalized = this.normalizeSemanticPrefilterResult(result);
+      const normalized = this.normalizeSemanticPrefilterResult(result, item.input.targetText);
       this.scheduleShadowProviderResult(item, 'openai', model, startedAt, {
         rawOutput: String(raw),
         parsedOutput: normalized,
@@ -1448,7 +1487,7 @@ export class CriminalCodeAnalyzerDO {
           });
           continue;
         }
-        const normalized = this.normalizeSemanticPrefilterResult(rawItem);
+        const normalized = this.normalizeSemanticPrefilterResult(rawItem, item.input.targetText);
         results.set(item.id, normalized);
         this.scheduleShadowProviderResult(item, 'openai', model, startedAt, {
           rawOutput: JSON.stringify(rawItem),
@@ -1484,10 +1523,15 @@ export class CriminalCodeAnalyzerDO {
       throw new Error('ALIBABA_API_KEY is required for Qwen criminal semantic prefilter');
     }
 
-    if (!this.getBooleanEnv('CRIMINAL_PREFILTER_BATCH_ENABLED', true) || items.length <= 1) {
-      for (const item of items) {
-        results.set(item.id, await this.callQwenPrefilterSingle(item, apiKey, model));
-      }
+    const batchEnabled = this.getBooleanEnv('QWEN_PREFILTER_BATCH_ENABLED', false);
+    if (!batchEnabled || items.length <= 1) {
+      await Promise.all(items.map(async item => {
+        try {
+          results.set(item.id, await this.callQwenPrefilterSingle(item, apiKey, model));
+        } catch {
+          // Keep failures item-scoped so the production caller can fall back independently.
+        }
+      }));
       return results;
     }
 
@@ -1498,9 +1542,13 @@ export class CriminalCodeAnalyzerDO {
     ));
     for (let index = 0; index < items.length; index += batchSize) {
       const chunk = items.slice(index, index + batchSize);
-      const chunkResults = await this.callQwenPrefilterBatchChunk(chunk, apiKey, model);
-      for (const [id, result] of chunkResults) {
-        results.set(id, result);
+      try {
+        const chunkResults = await this.callQwenPrefilterBatchChunk(chunk, apiKey, model);
+        for (const [id, result] of chunkResults) {
+          results.set(id, result);
+        }
+      } catch {
+        // Batch/single helpers already recorded Qwen errors. Missing ids fall back upstream.
       }
     }
     return results;
@@ -1526,7 +1574,7 @@ export class CriminalCodeAnalyzerDO {
       }
       const jsonMatch = String(raw).match(/\{[\s\S]*\}/);
       const result = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as Partial<CriminalSemanticPrefilterResult>;
-      const normalized = this.normalizeSemanticPrefilterResult(result);
+      const normalized = this.normalizeSemanticPrefilterResult(result, item.input.targetText);
       this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
         rawOutput: String(raw),
         parsedOutput: normalized,
@@ -1592,7 +1640,7 @@ export class CriminalCodeAnalyzerDO {
     for (const item of items) {
       const rawItem = resultItems.find((resultItem: any) => resultItem?.id === item.id);
       if (rawItem) {
-        const normalized = this.normalizeSemanticPrefilterResult(rawItem);
+        const normalized = this.normalizeSemanticPrefilterResult(rawItem, item.input.targetText);
         results.set(item.id, normalized);
         this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
           rawOutput: JSON.stringify(rawItem),
@@ -1905,7 +1953,8 @@ export class CriminalCodeAnalyzerDO {
   }
 
   private normalizeSemanticPrefilterResult(
-    result: Partial<CriminalSemanticPrefilterResult>
+    result: Partial<CriminalSemanticPrefilterResult>,
+    targetText?: string
   ): CriminalSemanticPrefilterResult {
     const reason = result.reason === 'threat' ||
       result.reason === 'sexual_threat' ||
@@ -1918,6 +1967,7 @@ export class CriminalCodeAnalyzerDO {
       ? result.reason
       : 'none';
 
+    const profanity = this.normalizeSemanticPrefilterProfanity((result as any).profanity);
     return {
       shouldAnalyze: Boolean(result.shouldAnalyze),
       reason,
@@ -1925,7 +1975,9 @@ export class CriminalCodeAnalyzerDO {
       explanation: typeof result.explanation === 'string' ? result.explanation.slice(0, 200) : '',
       searchQuery: typeof result.searchQuery === 'string' ? result.searchQuery.slice(0, 300) : '',
       semanticFrame: this.normalizeSemanticFrame((result as any).semanticFrame),
-      profanity: this.normalizeSemanticPrefilterProfanity((result as any).profanity),
+      profanity: targetText
+        ? this.groundSemanticPrefilterProfanity(profanity, targetText)
+        : profanity,
     };
   }
 
@@ -1985,6 +2037,24 @@ export class CriminalCodeAnalyzerDO {
       : [];
     return {
       hasProfanity: Boolean(result?.hasProfanity) && words.length > 0,
+      words,
+    };
+  }
+
+  private groundSemanticPrefilterProfanity(
+    profanity: CriminalSemanticPrefilterResult['profanity'],
+    targetText: string
+  ): CriminalSemanticPrefilterResult['profanity'] {
+    const tokenCounts = countNormalizedProfanityTokens(targetText);
+    const words = (profanity?.words || []).flatMap(word => {
+      const targetCount = tokenCounts.get(word.word) || 0;
+      if (targetCount <= 0) {
+        return [];
+      }
+      return [{ ...word, count: Math.min(word.count, targetCount) }];
+    });
+    return {
+      hasProfanity: words.length > 0,
       words,
     };
   }
@@ -2160,10 +2230,16 @@ export class CriminalCodeAnalyzerDO {
     const hash = await this.hashText(`${normalizedTarget}\nreply:\n${normalizedReply}\ncontext:\n${normalizedContext}`);
     const version = String((this.env as any).CRIMINAL_PREFILTER_CACHE_VERSION || 'v8')
       .replace(/[^a-z0-9_-]+/gi, '_');
-    const model = String((this.env as any).CRIMINAL_PREFILTER_MODEL || (this.env as any).LLM_NANO_MODEL || 'default')
+    const provider = String((this.env as any).CRIMINAL_PREFILTER_PROVIDER || 'openai')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/gi, '_');
+    const model = String(provider === 'qwen'
+      ? (this.env as any).QWEN_PREFILTER_MODEL || (this.env as any).QWEN_SHADOW_MODEL || 'qwen3.7-flash'
+      : (this.env as any).CRIMINAL_PREFILTER_MODEL || (this.env as any).LLM_NANO_MODEL || 'default')
       .replace(/[^a-z0-9_.-]+/gi, '_');
     const threshold = String(this.getSemanticPrefilterMinConfidence()).replace(/[^0-9.]+/g, '_');
-    return `criminal_semantic_prefilter:${version}:${model}:${threshold}:${hash}`;
+    return `criminal_semantic_prefilter:${version}:${provider}:${model}:${threshold}:${hash}`;
   }
 
   private normalizeTextForSemanticCache(text: string): string {
@@ -3167,19 +3243,20 @@ export class CriminalCodeAnalyzerDO {
     await storage.put(QUEUE_STORAGE_KEY, queue);
   }
 
-  private async scheduleQueueAlarm(): Promise<void> {
+  private async scheduleQueueAlarm(delayOverrideMs?: number): Promise<void> {
     const storage = (this.state as any).storage;
     if (!storage?.setAlarm) {
       return;
     }
+    const delay = delayOverrideMs ?? this.getNumberEnv('CRIMINAL_QUEUE_MAX_DELAY_MS', 60000);
+    const targetAlarm = Date.now() + Math.max(0, delay);
     if (storage.getAlarm) {
       const existingAlarm = await storage.getAlarm();
-      if (typeof existingAlarm === 'number' && existingAlarm > Date.now()) {
+      if (typeof existingAlarm === 'number' && existingAlarm > Date.now() && existingAlarm <= targetAlarm) {
         return;
       }
     }
-    const delay = this.getNumberEnv('CRIMINAL_QUEUE_MAX_DELAY_MS', 60000);
-    await storage.setAlarm(Date.now() + delay);
+    await storage.setAlarm(targetAlarm);
   }
 
   private async waitForFinalAnalysisInterval(): Promise<void> {
