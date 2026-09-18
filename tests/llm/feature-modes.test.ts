@@ -34,7 +34,6 @@ function createMockTracker(overLimits: { nano?: boolean; mini?: boolean } = {}):
             return false;
         }),
         getMonthlyData: vi.fn().mockReturnValue({ month: '2025-12', models: {}, features: {}, lastUpdated: Date.now() }),
-        flush: vi.fn().mockResolvedValue(undefined),
     };
 }
 
