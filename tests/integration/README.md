@@ -13,7 +13,6 @@ The integration tests cover the following aspects:
 - **Activity Commands**: `/activity_week`, `/activity_month`, `/activity users week`
 - **Criminal Code Commands**: `/criminal_stats`, `/my_criminal`, `/criminal_top`, `/criminal_reset`
 - **Reset Commands**: `/reset` for counters
-- **Admin Commands**: `/test_race_conditions` (admin-only)
 - **Help Command**: `/help`
 
 ### 2. Message Processing

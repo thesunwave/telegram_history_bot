@@ -86,7 +86,6 @@ describe('Comprehensive E2E Integration Tests', () => {
         expect(helpText).toContain('/criminal_stats');
         expect(helpText).toContain('/activity');
         expect(helpText).not.toContain('/reset');
-        expect(helpText).not.toContain('/test_race_conditions');
         expect(helpText).not.toContain('/auto_notifications');
       });
     });
@@ -258,33 +257,6 @@ describe('Comprehensive E2E Integration Tests', () => {
       });
     });
 
-    describe('Admin Commands', () => {
-      it('should handle /test_race_conditions for admin users', async () => {
-        mockEnv.ADMIN_USER_ID = testUserId.toString();
-        const message = createTestMessage('/test_race_conditions');
-
-        await handleUpdate(message, mockEnv);
-
-        expect(mockSendMessage).toHaveBeenCalledWith(
-          mockEnv,
-          testChatId,
-          'Запуск тестов защиты от race conditions...'
-        );
-      });
-
-      it('should reject /test_race_conditions for non-admin users', async () => {
-        mockEnv.ADMIN_USER_ID = '999999'; // Different user ID
-        const message = createTestMessage('/test_race_conditions');
-
-        await handleUpdate(message, mockEnv);
-
-        expect(mockSendMessage).toHaveBeenCalledWith(
-          mockEnv,
-          testChatId,
-          'Эта команда доступна только администраторам'
-        );
-      });
-    });
   });
 
   describe('Message Processing Tests', () => {

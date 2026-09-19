@@ -132,8 +132,6 @@ describe('Criminal Statistics E2E Integration Tests', () => {
         delete: vi.fn()
       } as any,
       COUNTERS_DO: mockCountersDO,
-      MESSAGE_FETCHER_DO: {} as any,
-      MESSAGE_AGGREGATOR_DO: {} as any,
       DAY_BLOCK_MANAGER_DO: {} as any,
       CRIMINAL_CODE_ANALYZER_DO: mockCriminalAnalyzerDO,
       AI: {},

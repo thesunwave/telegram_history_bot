@@ -101,24 +101,6 @@ export interface SummaryContext {
   requestedMessageCount?: number;
 }
 
-// Message fetching interfaces
-export interface ParallelFetchRequest {
-  chatId: number;
-  start: number;
-  end: number;
-  concurrentFetches: number; // количество параллельных fetch операций
-  batchSize: number;
-}
-
-export interface FetchStatus {
-  sessionId: string;
-  status: "running" | "completed" | "failed";
-  fetchesCompleted: number;
-  totalFetches: number;
-  messagesCollected: number;
-  errors: string[];
-}
-
 // Context optimization interfaces
 export interface ContextOptimizer {
   // Оценивает количество токенов
@@ -158,68 +140,6 @@ export interface DirectProcessor {
 
 export interface HierarchicalProcessor {
   process(messages: TelegramMessage[], env: Env, context?: SummaryContext): Promise<string>;
-}
-
-// Durable Object interfaces
-export interface MessageFetcherDO {
-  // Инициализирует параллельную загрузку с использованием Promise.all()
-  initializeParallelFetch(request: ParallelFetchRequest): Promise<string>; // returns sessionId
-
-  // Получает статус загрузки
-  getFetchStatus(sessionId: string): Promise<FetchStatus>;
-
-  // Получает результаты загрузки
-  getResults(sessionId: string): Promise<TelegramMessage[]>;
-}
-
-export interface MessageAggregatorDO {
-  // Агрегирует сообщения от воркеров
-  aggregateMessages(
-    sessionId: string,
-    messages: TelegramMessage[],
-  ): Promise<void>;
-
-  // Получает агрегированные и отсортированные сообщения
-  getAggregatedMessages(sessionId: string): Promise<TelegramMessage[]>;
-
-  // Очищает данные сессии
-  cleanupSession(sessionId: string): Promise<void>;
-}
-
-// Aggregation session data
-export interface AggregationSession {
-  sessionId: string;
-  chatId: number;
-  status: "running" | "completed" | "failed";
-  startTime: number;
-  endTime?: number;
-  messagesReceived: number;
-  messagesAggregated: number;
-  errors: string[];
-  lastActivity: number;
-}
-
-// Aggregation result interface
-export interface AggregationResult {
-  sessionId: string;
-  status: "running" | "completed" | "failed";
-  messagesAggregated: number;
-  messagesReceived: number;
-  messages: TelegramMessage[];
-  errors: string[];
-  processingTime: number | null;
-}
-
-// Aggregation status interface
-export interface AggregationStatus {
-  sessionId: string;
-  status: "running" | "completed" | "failed";
-  messagesReceived: number;
-  messagesAggregated: number;
-  errors: string[];
-  startTime: number;
-  endTime?: number;
-  lastActivity: number;
 }
 
 // Per-user data interfaces for improved hierarchical processing

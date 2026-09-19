@@ -47,14 +47,6 @@
         "class_name": "CountersDO",
       },
       {
-        "name": "MESSAGE_FETCHER_DO",
-        "class_name": "MessageFetcherDO",
-      },
-      {
-        "name": "MESSAGE_AGGREGATOR_DO",
-        "class_name": "MessageAggregatorDO",
-      },
-      {
         "name": "DAY_BLOCK_MANAGER_DO",
         "class_name": "DayBlockManager",
       },
@@ -266,6 +258,13 @@
       "tag": "v5",
       "new_classes": [
         "CriminalCodeAnalyzerDO"
+      ],
+    },
+    {
+      "tag": "v6",
+      "deleted_classes": [
+        "MessageFetcherDO",
+        "MessageAggregatorDO"
       ],
     },
   ],

@@ -34,8 +34,6 @@ describe("Error Handling Integration Tests", () => {
       HISTORY: history as any,
       COUNTERS: {} as any,
       COUNTERS_DO: {} as any,
-      MESSAGE_FETCHER_DO: {} as any,
-      MESSAGE_AGGREGATOR_DO: {} as any,
       DB: {} as any,
       AI: {} as any,
       TOKEN: "test-token",

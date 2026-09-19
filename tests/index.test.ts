@@ -147,26 +147,6 @@ beforeEach(() => {
   // Mock DB - removed to force KV usage in tests as they populate KV
   env.DB = undefined;
 
-  // Mock MESSAGE_FETCHER_DO
-  env.MESSAGE_FETCHER_DO = {
-    idFromName: vi.fn(() => ({ toString: () => "fetcher-test-id" })),
-    get: vi.fn(() => ({
-      fetch: vi.fn(async (url: string, init?: any) => {
-        return new Response("ok", { status: 200 });
-      }),
-    })),
-  } as any;
-
-  // Mock MESSAGE_AGGREGATOR_DO
-  env.MESSAGE_AGGREGATOR_DO = {
-    idFromName: vi.fn(() => ({ toString: () => "aggregator-test-id" })),
-    get: vi.fn(() => ({
-      fetch: vi.fn(async (url: string, init?: any) => {
-        return new Response("ok", { status: 200 });
-      }),
-    })),
-  } as any;
-
   // Mock CRIMINAL_CODE_ANALYZER_DO (analyze-test route forwards payload)
   env.CRIMINAL_CODE_ANALYZER_DO = {
     idFromName: vi.fn(() => ({ toString: () => "criminal-analyzer-test-id" })),

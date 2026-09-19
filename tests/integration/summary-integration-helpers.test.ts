@@ -39,8 +39,6 @@ const createMockEnv = (overrides: Partial<Env> = {}): Env => ({
   HISTORY: {} as KVNamespace,
   COUNTERS: {} as KVNamespace,
   COUNTERS_DO: {} as DurableObjectNamespace,
-  MESSAGE_FETCHER_DO: {} as DurableObjectNamespace,
-  MESSAGE_AGGREGATOR_DO: {} as DurableObjectNamespace,
   DB: {
     prepare: vi.fn((sql: string) => ({
       bind: vi.fn((...params: any[]) => ({

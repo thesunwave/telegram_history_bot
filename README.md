@@ -34,7 +34,6 @@ Cloudflare Worker that stores Telegram chat messages (7 days in KV), generates s
 - `/activity_month` – activity chart for month
 - `/activity_users_week` – per-user activity for week
 - `/activity_users_month` – per-user activity for month
-- `/test_race_conditions` – race-condition test (admins only)
 - `/help` – show full list
 
 To enable autocomplete, register the commands with **BotFather** via `/setcommands` and provide the list above (one per line).

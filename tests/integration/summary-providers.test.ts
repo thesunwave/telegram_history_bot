@@ -9,8 +9,6 @@ interface Env {
   HISTORY: any;
   COUNTERS: any;
   COUNTERS_DO: any;
-  MESSAGE_FETCHER_DO: any;
-  MESSAGE_AGGREGATOR_DO: any;
   DB: any;
   AI: { run: (model: string, opts: any) => Promise<any> };
   TOKEN: string;
@@ -81,8 +79,6 @@ describe("Summary Providers Integration Tests", () => {
       HISTORY: history,
       COUNTERS: counters,
       COUNTERS_DO: {} as any,
-      MESSAGE_FETCHER_DO: {} as any,
-      MESSAGE_AGGREGATOR_DO: {} as any,
       DB: db,
       AI: { run: vi.fn(async () => ({ response: "Cloudflare AI summary" })) },
       TOKEN: "test-token",
@@ -101,8 +97,6 @@ describe("Summary Providers Integration Tests", () => {
     };
 
     env.COUNTERS_DO = createCountersNamespace(env);
-    env.MESSAGE_FETCHER_DO = {} as any;
-    env.MESSAGE_AGGREGATOR_DO = {} as any;
 
     fetchMock = vi.spyOn(global, "fetch");
   });

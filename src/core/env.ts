@@ -4,8 +4,6 @@ export interface Env {
   HISTORY: import("@cloudflare/workers-types").KVNamespace;
   COUNTERS: import("@cloudflare/workers-types").KVNamespace;
   COUNTERS_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
-  MESSAGE_FETCHER_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
-  MESSAGE_AGGREGATOR_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
   // Added DayBlockManager Durable Object binding
   DAY_BLOCK_MANAGER_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
   CRIMINAL_CODE_ANALYZER_DO: import("@cloudflare/workers-types").DurableObjectNamespace;

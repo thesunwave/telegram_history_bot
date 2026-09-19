@@ -674,37 +674,6 @@ export async function handleUpdate(msg: any, env: Env) {
       const args = sub === 'chart' ? periodArgs : command.args;
       await activityChart(env, chatId, args.length > 0 ? args : ['week']);
     }
-  } else if (command.name === '/test_race_conditions') {
-    // Only allow admins to run race condition tests
-    const userId = msg.from?.id || 0;
-    const isAdmin = userId === parseInt(env.ADMIN_USER_ID || '0'); // Add ADMIN_USER_ID to env
-
-    if (!isAdmin) {
-      await sendMessage(env, chatId, 'Эта команда доступна только администраторам');
-      return;
-    }
-
-    await sendMessage(env, chatId, 'Запуск тестов защиты от race conditions...');
-
-    try {
-      const { runAllRaceConditionTests } = await import('../core/tests/race-condition-tests');
-      const testResults = await runAllRaceConditionTests(env, chatId);
-
-      const summary = testResults.map(result =>
-        `${result.success ? '✅' : '❌'} ${result.testName}: ${result.messagesAdded}/${result.expectedMessages} сообщений, ${result.duplicatesDetected} дубликатов, ${result.errors.length} ошибок`
-      ).join('\n');
-
-      const overallSuccess = testResults.every(r => r.success);
-      const totalDuration = testResults.reduce((sum, r) => sum + r.duration, 0);
-
-      await sendMessage(env, chatId,
-        `Результаты тестов race conditions:\n\n${summary}\n\n` +
-        `${overallSuccess ? '✅ Все тесты пройдены' : '❌ Есть проблемы'}\n` +
-        `Общее время: ${totalDuration}ms`
-      );
-    } catch (error: any) {
-      await sendMessage(env, chatId, `Ошибка при выполнении тестов: ${error.message}`);
-    }
   } else if (command.name === '/criminal_stats') {
     const args = msg.text.split(' ');
     const period = args[1] || 'today';

@@ -63,8 +63,6 @@ describe("Summary End-to-End Tests", () => {
     env.COUNTERS = counters as any;
     env.COUNTERS_DO = createCountersNamespace(env) as any;
     env.DB = db as any;
-    env.MESSAGE_FETCHER_DO = {} as any;
-    env.MESSAGE_AGGREGATOR_DO = {} as any;
 
     fetchMock = vi.spyOn(global, "fetch");
   });

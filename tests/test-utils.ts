@@ -118,8 +118,6 @@ export function createMockEnv(overrides: Partial<Env> = {}): Env {
     HISTORY: createMockKVNamespace(),
     COUNTERS: createMockKVNamespace(),
     COUNTERS_DO: createMockDurableObjectNamespace(),
-    MESSAGE_FETCHER_DO: createMockDurableObjectNamespace(),
-    MESSAGE_AGGREGATOR_DO: createMockDurableObjectNamespace(),
     DAY_BLOCK_MANAGER_DO: createMockDurableObjectNamespace(),
     CRIMINAL_CODE_ANALYZER_DO: createMockDurableObjectNamespace(),
     DB: createMockD1Database(),

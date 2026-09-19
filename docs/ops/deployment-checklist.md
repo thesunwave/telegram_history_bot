@@ -10,7 +10,7 @@
 
 ### ✅ Конфигурация
 - [x] `SUMMARY_OPT_ENABLED` = true в `wrangler.jsonc`
-- [x] Durable Objects настроены (COUNTERS_DO, MESSAGE_FETCHER_DO, MESSAGE_AGGREGATOR_DO, DAY_BLOCK_MANAGER_DO, CRIMINAL_CODE_ANALYZER_DO)
+- [x] Durable Objects настроены (COUNTERS_DO, DAY_BLOCK_MANAGER_DO, CRIMINAL_CODE_ANALYZER_DO)
 - [x] Все необходимые переменные окружения установлены
 
 ## Deployment Steps

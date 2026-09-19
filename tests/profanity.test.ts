@@ -30,8 +30,6 @@ const createMockEnv = (): Env => {
     } as any,
     HISTORY: {} as any,
     COUNTERS_DO: {} as any,
-    MESSAGE_FETCHER_DO: {} as any,
-    MESSAGE_AGGREGATOR_DO: {} as any,
     DAY_BLOCK_MANAGER_DO: {} as any,
     CRIMINAL_CODE_ANALYZER_DO: {} as any,
     DB: {} as any,

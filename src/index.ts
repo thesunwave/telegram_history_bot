@@ -18,8 +18,6 @@ import {
 import { handleUpdate, recordMessage, getTextMessage } from "./api/update";
 import { handleAdminRequest } from "./api/admin";
 import { CountersDO } from "./durable-objects/counters-do";
-import { MessageFetcherDO } from "./durable-objects/message-fetcher-do";
-import { MessageAggregatorDO } from "./durable-objects/message-aggregator-do";
 import { DayBlockManager } from "./durable-objects/day-block-manager";
 import { CriminalCodeAnalyzerDO } from "./durable-objects/criminal-code-analyzer-do";
 import { ProviderInitializer } from "./core/providers/provider-init";
@@ -831,4 +829,4 @@ export default {
   },
 };
 
-export { CountersDO, MessageFetcherDO, MessageAggregatorDO, DayBlockManager, CriminalCodeAnalyzerDO };
+export { CountersDO, DayBlockManager, CriminalCodeAnalyzerDO };

@@ -504,7 +504,6 @@ describe('Telegram Integration Tests', () => {
       expect(helpText).not.toContain('/reset');
       expect(helpText).not.toContain('/criminal_reset');
       expect(helpText).not.toContain('/profanity_reset');
-      expect(helpText).not.toContain('/test_race_conditions');
       expect(helpText).not.toContain('/auto_notifications');
     });
 
