@@ -2297,7 +2297,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const timing = document.createElement('div');
       timing.className = 'shadowProviderLine muted';
       timing.textContent = 'Latency: ' + record.latencyMs + ' ms' +
-        (record.usage?.totalTokens ? ' · tokens ' + record.usage.totalTokens : '');
+        (record.usage?.totalTokens ? ' · tokens ' + record.usage.totalTokens : '') +
+        (record.usage?.cachedTokens ? ' · cache read ' + record.usage.cachedTokens : '') +
+        (record.usage?.cacheCreationTokens ? ' · cache create ' + record.usage.cacheCreationTokens : '');
       panel.append(timing);
       appendShadowRaw(panel, 'Raw output', record.rawOutput);
       return panel;

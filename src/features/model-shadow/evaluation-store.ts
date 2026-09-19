@@ -26,6 +26,8 @@ export interface ShadowEvaluationUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedTokens?: number;
+  cacheCreationTokens?: number;
   scope: 'request';
   batchSize: number;
 }

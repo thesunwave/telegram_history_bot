@@ -1706,7 +1706,14 @@ export class CriminalCodeAnalyzerDO {
         enable_thinking: false,
         response_format: this.buildQwenPrefilterResponseFormat(isBatch),
         messages: [
-          { role: 'system', content: systemPrompt },
+          {
+            role: 'system',
+            content: [{
+              type: 'text',
+              text: systemPrompt,
+              cache_control: { type: 'ephemeral' },
+            }],
+          },
           { role: 'user', content: userInput },
         ],
       }),
@@ -1888,10 +1895,19 @@ export class CriminalCodeAnalyzerDO {
     const promptTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0;
     const completionTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0;
     const totalTokens = Number(usage.total_tokens ?? (promptTokens + completionTokens)) || 0;
+    const promptDetails = usage.prompt_tokens_details ?? {};
+    const cachedTokens = Number(
+      promptDetails.cached_tokens ?? usage.cache_read_input_tokens ?? 0
+    ) || 0;
+    const cacheCreationTokens = Number(
+      promptDetails.cache_creation_input_tokens ?? usage.cache_creation_input_tokens ?? 0
+    ) || 0;
     return {
       promptTokens,
       completionTokens,
       totalTokens,
+      cachedTokens,
+      cacheCreationTokens,
       scope: 'request',
       batchSize,
     };

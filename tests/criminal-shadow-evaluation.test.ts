@@ -107,7 +107,15 @@ describe('criminal semantic prefilter shadow evaluation', () => {
       const output = url.includes('aliyuncs.com') ? qwenOutput : openaiOutput;
       return new Response(JSON.stringify({
         choices: [{ message: { content: JSON.stringify(output) }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 20,
+          total_tokens: 120,
+          prompt_tokens_details: {
+            cached_tokens: url.includes('aliyuncs.com') ? 80 : 0,
+            cache_creation_input_tokens: url.includes('aliyuncs.com') ? 10 : 0,
+          },
+        },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }));
 
@@ -162,13 +170,16 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     expect(openaiRecord.parsedOutput.shouldAnalyze).toBe(true);
     expect(qwenRecord.parsedOutput.shouldAnalyze).toBe(false);
     expect(qwenRecord.parsedOutput.profanity).toEqual({ hasProfanity: false, words: [] });
+    expect(qwenRecord.usage.cachedTokens).toBe(80);
+    expect(qwenRecord.usage.cacheCreationTokens).toBe(10);
     expect(openaiRecord.evaluationId).toBe(inputRecord.evaluationId);
     expect(qwenRecord.evaluationId).toBe(inputRecord.evaluationId);
 
     const qwenRequest = requests.find(request => request.url.includes('aliyuncs.com'))!;
     const openaiRequest = requests.find(request => !request.url.includes('aliyuncs.com'))!;
-    expect(qwenRequest.body.messages[0].content).toContain('You are a fast semantic prefilter');
-    expect(qwenRequest.body.messages[0].content).toContain('признание в тайном хищении чужого имущества');
+    expect(qwenRequest.body.messages[0].content[0].text).toContain('You are a fast semantic prefilter');
+    expect(qwenRequest.body.messages[0].content[0].text).toContain('признание в тайном хищении чужого имущества');
+    expect(qwenRequest.body.messages[0].content[0].cache_control).toEqual({ type: 'ephemeral' });
     expect(openaiRequest.body.messages[0].content).toContain('Ты быстрый prefilter для Telegram-чата.');
     expect(qwenRequest.body.max_tokens).toBeUndefined();
     expect(qwenRequest.body.enable_thinking).toBe(false);
