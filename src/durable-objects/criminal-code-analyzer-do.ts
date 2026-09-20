@@ -12,7 +12,6 @@ import type {
   CriminalContextAnalysisInput,
   CriminalContextMessage,
   CriminalViolation,
-  CriminalViolationStats,
   CriminalAnalysisCache,
   CriminalSemanticPrefilterResult,
   StoredMessage,
