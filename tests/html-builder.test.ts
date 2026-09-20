@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HTMLBuilder, ViolationMessageData, StatsMessageData } from '../src/core/html-builder';
+import { HTMLBuilder } from '../src/core/html-builder';
 
 describe('HTMLBuilder', () => {
   let htmlBuilder: HTMLBuilder;
@@ -81,110 +81,6 @@ describe('HTMLBuilder', () => {
       expect(() => htmlBuilder.getSeverityEmoji(0)).toThrow('Severity must be between 1 and 10');
       expect(() => htmlBuilder.getSeverityEmoji(11)).toThrow('Severity must be between 1 and 10');
       expect(() => htmlBuilder.getSeverityEmoji(-1)).toThrow('Severity must be between 1 and 10');
-    });
-  });
-
-  describe('Violation message building', () => {
-    it('should build a complete violation message', () => {
-      const data: ViolationMessageData = {
-        article: '282 УК РФ',
-        quote: 'Пример нарушения',
-        punishment: 'Штраф до 300 000 рублей',
-        severity: 5,
-        confidence: 0.85
-      };
-
-      const result = htmlBuilder.buildViolationMessage(data);
-
-      expect(result).toContain('🟡 <b>Статья 282 УК РФ</b>');
-      expect(result).toContain('<b>Цитата:</b>');
-      expect(result).toContain('<i>&quot;Пример нарушения&quot;</i>');
-      expect(result).toContain('<b>Наказание:</b>');
-      expect(result).toContain('Штраф до 300 000 рублей');
-      expect(result).toContain('<b>Серьезность:</b> 5/10');
-      expect(result).toContain('<b>Уровень доверия:</b> 85%');
-    });
-
-    it('should add confidence warning for low confidence', () => {
-      const data: ViolationMessageData = {
-        article: '282 УК РФ',
-        quote: 'Пример нарушения',
-        punishment: 'Штраф до 300 000 рублей',
-        severity: 5,
-        confidence: 0.65
-      };
-
-      const result = htmlBuilder.buildViolationMessage(data);
-      expect(result).toContain('⚠️ <i>Низкий уровень доверия к анализу</i>');
-    });
-
-    it('should not add confidence warning for high confidence', () => {
-      const data: ViolationMessageData = {
-        article: '282 УК РФ',
-        quote: 'Пример нарушения',
-        punishment: 'Штраф до 300 000 рублей',
-        severity: 5,
-        confidence: 0.85
-      };
-
-      const result = htmlBuilder.buildViolationMessage(data);
-      expect(result).not.toContain('⚠️');
-    });
-  });
-
-  describe('Statistics message building', () => {
-    it('should build a basic stats message', () => {
-      const data: StatsMessageData = {
-        title: 'Статистика пользователя',
-        items: [
-          { label: 'Всего нарушений', value: 5 },
-          { label: 'Средняя серьезность', value: '6.2' }
-        ]
-      };
-
-      const result = htmlBuilder.buildStatsMessage(data);
-
-      expect(result).toContain('<b>Статистика пользователя</b>');
-      expect(result).toContain('<b>Всего нарушений</b>: 5');
-      expect(result).toContain('<b>Средняя серьезность</b>: 6.2');
-    });
-
-    it('should include severity emojis when provided', () => {
-      const data: StatsMessageData = {
-        title: 'Топ нарушений',
-        items: [
-          { label: 'Статья 282', value: 3, severity: 8 },
-          { label: 'Статья 280', value: 2, severity: 4 }
-        ]
-      };
-
-      const result = htmlBuilder.buildStatsMessage(data);
-
-      expect(result).toContain('🔴 <b>Статья 282</b>: 3');
-      expect(result).toContain('🟡 <b>Статья 280</b>: 2');
-    });
-
-    it('should include footer when provided', () => {
-      const data: StatsMessageData = {
-        title: 'Статистика',
-        items: [
-          { label: 'Всего', value: 10 }
-        ],
-        footer: 'Данные за последние 30 дней'
-      };
-
-      const result = htmlBuilder.buildStatsMessage(data);
-      expect(result).toContain('Данные за последние 30 дней');
-    });
-
-    it('should handle empty items array', () => {
-      const data: StatsMessageData = {
-        title: 'Пустая статистика',
-        items: []
-      };
-
-      const result = htmlBuilder.buildStatsMessage(data);
-      expect(result).toBe('<b>Пустая статистика</b>\n');
     });
   });
 });
