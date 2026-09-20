@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HTMLBuilder, getSeverityEmoji, createSection, createListItem } from '../src/core/html-formatting';
+import { getSeverityEmoji, createSection, createListItem } from '../src/core/html-utils';
 
 describe('HTML Formatting Integration', () => {
   it('should create formatted statistics using utilities', () => {
