@@ -125,20 +125,24 @@ export function getAdminSessionCookieName(): string {
   return ADMIN_SESSION_COOKIE;
 }
 
-function getCookie(req: Request, name: string): string | null {
+function getCookies(req: Request, name: string): string[] {
   const cookieHeader = req.headers.get('Cookie');
   if (!cookieHeader) {
-    return null;
+    return [];
   }
 
+  const values: string[] = [];
   for (const part of cookieHeader.split(';')) {
     const [rawKey, ...rawValue] = part.trim().split('=');
     if (rawKey === name) {
-      return rawValue.join('=') || null;
+      const value = rawValue.join('=');
+      if (value) {
+        values.push(value);
+      }
     }
   }
 
-  return null;
+  return values;
 }
 
 function getSessionSecret(env: Env): string | null {
@@ -187,50 +191,49 @@ export async function authenticateTelegramSession(
   req: Request,
   env: Env,
 ): Promise<AdminPrincipal | null> {
-  const cookie = getCookie(req, ADMIN_SESSION_COOKIE);
-  if (!cookie) {
-    return null;
-  }
-
-  const [encodedPayload, signature] = cookie.split('.');
-  if (!encodedPayload || !signature) {
-    return null;
-  }
-
-  const expectedSignature = await signSessionPayload(env, encodedPayload);
-  if (!expectedSignature || !constantTimeEqual(signature, expectedSignature)) {
-    return null;
-  }
-
-  try {
-    const decoded = new TextDecoder().decode(base64UrlDecode(encodedPayload));
-    const payload = JSON.parse(decoded);
-    const issuedAt = Number(payload.issuedAt);
-    const telegramId = Number(payload.id);
-    if (!Number.isFinite(issuedAt) || !Number.isFinite(telegramId)) {
-      return null;
+  for (const cookie of getCookies(req, ADMIN_SESSION_COOKIE)) {
+    const [encodedPayload, signature] = cookie.split('.');
+    if (!encodedPayload || !signature) {
+      continue;
     }
 
-    const now = Math.floor(Date.now() / 1000);
-    if (now - issuedAt > SESSION_MAX_AGE_SECONDS) {
-      return null;
+    const expectedSignature = await signSessionPayload(env, encodedPayload);
+    if (!expectedSignature || !constantTimeEqual(signature, expectedSignature)) {
+      continue;
     }
 
-    const username = typeof payload.username === 'string' ? payload.username : `id${telegramId}`;
-    const displayName = [payload.firstName, payload.lastName]
-      .filter((value) => typeof value === 'string' && value.trim().length > 0)
-      .join(' ')
-      .trim();
+    try {
+      const decoded = new TextDecoder().decode(base64UrlDecode(encodedPayload));
+      const payload = JSON.parse(decoded);
+      const issuedAt = Number(payload.issuedAt);
+      const telegramId = Number(payload.id);
+      if (!Number.isFinite(issuedAt) || !Number.isFinite(telegramId)) {
+        continue;
+      }
 
-    return {
-      type: 'telegram',
-      username,
-      telegramId,
-      displayName: displayName || username,
-    };
-  } catch {
-    return null;
+      const now = Math.floor(Date.now() / 1000);
+      if (now - issuedAt > SESSION_MAX_AGE_SECONDS) {
+        continue;
+      }
+
+      const username = typeof payload.username === 'string' ? payload.username : `id${telegramId}`;
+      const displayName = [payload.firstName, payload.lastName]
+        .filter((value) => typeof value === 'string' && value.trim().length > 0)
+        .join(' ')
+        .trim();
+
+      return {
+        type: 'telegram',
+        username,
+        telegramId,
+        displayName: displayName || username,
+      };
+    } catch {
+      continue;
+    }
   }
+
+  return null;
 }
 
 export async function verifyTelegramLogin(
