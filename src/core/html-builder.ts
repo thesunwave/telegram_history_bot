@@ -11,7 +11,6 @@ export interface IHTMLBuilder {
   code(text: string): string;
   preformatted(text: string): string;
   escapeHtml(text: string): string;
-  getSeverityEmoji(severity: number): string;
 }
 
 export class HTMLBuilder implements IHTMLBuilder {
@@ -69,22 +68,6 @@ export class HTMLBuilder implements IHTMLBuilder {
    */
   preformatted(text: string): string {
     return `<pre>${this.escapeHtml(text)}</pre>`;
-  }
-
-  /**
-   * Returns emoji indicator based on severity level (1-10)
-   * 🟢 for low severity (1-3)
-   * 🟡 for medium severity (4-6) 
-   * 🔴 for high severity (7-10)
-   */
-  getSeverityEmoji(severity: number): string {
-    if (severity < 1 || severity > 10) {
-      throw new Error('Severity must be between 1 and 10');
-    }
-    
-    if (severity <= 3) return '🟢';
-    if (severity <= 6) return '🟡';
-    return '🔴';
   }
 }
 
