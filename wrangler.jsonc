@@ -194,8 +194,8 @@
     "CRIMINAL_PREFILTER_BATCH_SIZE": 8,
     // Keep /enqueue fast: expensive model work runs from the DO alarm, outside blockConcurrencyWhile.
     "CRIMINAL_QUEUE_ASYNC_FLUSH_ENABLED": true,
-    // Qwen is production truth for the semantic prefilter; OpenAI remains shadow-only for comparison.
-    "SHADOW_EVAL_ENABLED": true,
+    // Qwen is production truth; OpenAI prefilter is only an emergency fallback when Qwen fails.
+    "SHADOW_EVAL_ENABLED": false,
     "SHADOW_EVAL_RETENTION_SECONDS": 604800,
     "QWEN_PREFILTER_BASE_URL": "https://ws-lhg064f1wayjpiqu.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
     "QWEN_PREFILTER_MODEL": "qwen3.7-flash",
