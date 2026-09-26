@@ -56,24 +56,6 @@ export function escapeHtml(text: string): string {
 }
 
 /**
- * Creates a formatted section with title and content
- */
-export function createSection(title: string, content: string): string {
-  return `<b>${escapeHtml(title)}</b>\n${content}`;
-}
-
-/**
- * Creates a formatted list item with optional emoji
- */
-export function createListItem(label: string, value: string | number, emoji?: string): string {
-  const emojiPrefix = emoji ? `${emoji} ` : '';
-  const escapedLabel = escapeHtml(label);
-  const escapedValue = escapeHtml(value.toString());
-  
-  return `${emojiPrefix}<b>${escapedLabel}:</b> ${escapedValue}`;
-}
-
-/**
  * Returns normalized article label for display without duplicates like "Статья Статья 280 УК РФ".
  * It builds a canonical form: "Статья {core} УК РФ" while avoiding duplicate prefixes/suffixes.
  */
