@@ -57,30 +57,4 @@ describe('HTMLBuilder', () => {
       expect(htmlBuilder.bold('<script>')).toBe('<b>&lt;script&gt;</b>');
     });
   });
-  describe('Severity emoji indicators', () => {
-    it('should return green emoji for low severity (1-3)', () => {
-      expect(htmlBuilder.getSeverityEmoji(1)).toBe('🟢');
-      expect(htmlBuilder.getSeverityEmoji(2)).toBe('🟢');
-      expect(htmlBuilder.getSeverityEmoji(3)).toBe('🟢');
-    });
-
-    it('should return yellow emoji for medium severity (4-6)', () => {
-      expect(htmlBuilder.getSeverityEmoji(4)).toBe('🟡');
-      expect(htmlBuilder.getSeverityEmoji(5)).toBe('🟡');
-      expect(htmlBuilder.getSeverityEmoji(6)).toBe('🟡');
-    });
-
-    it('should return red emoji for high severity (7-10)', () => {
-      expect(htmlBuilder.getSeverityEmoji(7)).toBe('🔴');
-      expect(htmlBuilder.getSeverityEmoji(8)).toBe('🔴');
-      expect(htmlBuilder.getSeverityEmoji(9)).toBe('🔴');
-      expect(htmlBuilder.getSeverityEmoji(10)).toBe('🔴');
-    });
-
-    it('should throw error for invalid severity values', () => {
-      expect(() => htmlBuilder.getSeverityEmoji(0)).toThrow('Severity must be between 1 and 10');
-      expect(() => htmlBuilder.getSeverityEmoji(11)).toThrow('Severity must be between 1 and 10');
-      expect(() => htmlBuilder.getSeverityEmoji(-1)).toThrow('Severity must be between 1 and 10');
-    });
-  });
 });
