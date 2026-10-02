@@ -10,7 +10,6 @@ import {
   ChatNotificationSettings,
   NotificationStats,
   ScheduledNotification,
-  NotificationTemplate,
   NotificationContext,
   NotificationResult,
   DEFAULT_NOTIFICATION_SETTINGS
@@ -297,67 +296,6 @@ export function validateScheduledNotification(notification: any): notification i
 
   if (notification.errorMessage !== undefined && typeof notification.errorMessage !== 'string') {
     throw new NotificationValidationError('errorMessage must be a string or undefined', 'errorMessage');
-  }
-
-  return true;
-}
-
-/**
- * Валидация шаблона уведомления
- */
-export function validateNotificationTemplate(template: any): template is NotificationTemplate {
-  if (!template || typeof template !== 'object') {
-    throw new NotificationValidationError('NotificationTemplate must be an object');
-  }
-
-  if (!validateNotificationType(template.type)) {
-    throw new NotificationValidationError('type must be a valid NotificationType', 'type');
-  }
-
-  if (!template.title || typeof template.title !== 'string') {
-    throw new NotificationValidationError('title must be a non-empty string', 'title');
-  }
-
-  if (!template.template || typeof template.template !== 'string') {
-    throw new NotificationValidationError('template must be a non-empty string', 'template');
-  }
-
-  if (!Array.isArray(template.variables)) {
-    throw new NotificationValidationError('variables must be an array', 'variables');
-  }
-
-  for (const variable of template.variables) {
-    if (typeof variable !== 'string') {
-      throw new NotificationValidationError('All variables must be strings', 'variables');
-    }
-  }
-
-  if (!template.description || typeof template.description !== 'string') {
-    throw new NotificationValidationError('description must be a non-empty string', 'description');
-  }
-
-  if (typeof template.defaultEnabled !== 'boolean') {
-    throw new NotificationValidationError('defaultEnabled must be a boolean', 'defaultEnabled');
-  }
-
-  if (!validateNotificationFrequency(template.defaultFrequency)) {
-    throw new NotificationValidationError('defaultFrequency must be a valid NotificationFrequency', 'defaultFrequency');
-  }
-
-  if (template.defaultTime !== undefined) {
-    try {
-      validateNotificationTime(template.defaultTime);
-    } catch (error) {
-      throw new NotificationValidationError(`Invalid defaultTime: ${error.message}`, 'defaultTime');
-    }
-  }
-
-  if (template.minThreshold !== undefined && (typeof template.minThreshold !== 'number' || template.minThreshold < 0)) {
-    throw new NotificationValidationError('minThreshold must be a non-negative number or undefined', 'minThreshold');
-  }
-
-  if (template.maxThreshold !== undefined && (typeof template.maxThreshold !== 'number' || template.maxThreshold < 0)) {
-    throw new NotificationValidationError('maxThreshold must be a non-negative number or undefined', 'maxThreshold');
   }
 
   return true;
