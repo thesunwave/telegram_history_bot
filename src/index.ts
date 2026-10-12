@@ -81,6 +81,8 @@ export default {
   ): Promise<Response> {
     env = await withRuntimeSettings(env);
     const url = new URL(req.url);
+    const isLandingPage = ['/', '/index.html', '/en', '/en/', '/en/index.html']
+      .includes(url.pathname);
 
     if (url.pathname === "/telegram/webhook" && req.method === "POST") {
       const secret = await getWebhookSecret(env);
@@ -95,12 +97,11 @@ export default {
     }
 
     if ((req.method === "GET" || req.method === "HEAD") &&
-      (url.pathname === "/" || url.pathname === "/index.html" ||
-        url.pathname.startsWith("/landing/"))) {
+      (isLandingPage || url.pathname.startsWith("/landing/"))) {
       // The marketing site has its own repository and release lifecycle.
       // Proxy only these paths; keep login, admin and webhook in this Worker.
       if (env.LANDING) return env.LANDING.fetch(req);
-      if (url.pathname === "/" || url.pathname === "/index.html") {
+      if (isLandingPage) {
         const needsSetup = env.TOKEN && !env.TELEGRAM_LOGIN_CLIENT_ID && !env.ADMIN_BASIC_USER;
         return Response.redirect(new URL(needsSetup ? "/admin/setup" : "/admin", req.url), 302);
       }
