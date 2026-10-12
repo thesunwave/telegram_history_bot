@@ -8,6 +8,12 @@ webhook endpoint. A self-hosted fork must replace this account-specific
 Cloudflare configuration with its own bindings (and remove `LANDING` unless
 deploying its own landing Worker).
 
+Public marketing URLs are proxied from the separate landing Worker: `/` is the
+canonical English home, `/ru` is Russian, and `/combot-alternative` is an
+analytics comparison page. The same binding serves `/robots.txt`, `/sitemap.xml`
+and `/landing/*` assets; old `/en` links redirect permanently to `/`. Login,
+admin and Telegram webhook routes stay exclusively in this bot Worker.
+
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/thesunwave/telegram_history_bot)
 
 Use [@stat_history_bot](https://t.me/stat_history_bot?startgroup=true) in a Telegram group
