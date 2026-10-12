@@ -17,6 +17,7 @@ import {
 } from "./features/stats/stats";
 import { handleUpdate, recordMessage, getTextMessage } from "./api/update";
 import { handleAdminRequest } from "./api/admin";
+import { telegramLoginConfig, telegramLoginSession } from "./api/telegram-oidc";
 import { CountersDO } from "./durable-objects/counters-do";
 import { DayBlockManager } from "./durable-objects/day-block-manager";
 import { CriminalCodeAnalyzerDO } from "./durable-objects/criminal-code-analyzer-do";
@@ -66,6 +67,28 @@ export default {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<Response> {
+    const url = new URL(req.url);
+
+    if ((req.method === "GET" || req.method === "HEAD") &&
+      (url.pathname === "/" || url.pathname === "/index.html" ||
+        url.pathname.startsWith("/landing/"))) {
+      // The marketing site has its own repository and release lifecycle.
+      // Proxy only these paths; keep login, admin and webhook in this Worker.
+      if (env.LANDING) return env.LANDING.fetch(req);
+      if (url.pathname === "/" || url.pathname === "/index.html") {
+        return Response.redirect(new URL("/admin", req.url), 302);
+      }
+      return new Response("Not found", { status: 404 });
+    }
+
+    if (url.pathname === "/auth/telegram/config" && req.method === "GET") {
+      return telegramLoginConfig(env);
+    }
+
+    if (url.pathname === "/auth/telegram" && req.method === "POST") {
+      return telegramLoginSession(req, env);
+    }
+
     // Initialize provider on first request if not already initialized
     if (!ProviderInitializer.isProviderInitialized()) {
       try {
@@ -78,8 +101,6 @@ export default {
         // Continue processing - provider will be created on-demand if needed
       }
     }
-
-    const url = new URL(req.url);
 
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
       try {

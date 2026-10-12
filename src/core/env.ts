@@ -1,6 +1,7 @@
 export type ProviderType = "cloudflare" | "openai" | "openai-premium" | "openrouter" | "legal-rag" | "mock";
 
 export interface Env {
+  LANDING?: { fetch(request: Request): Promise<Response> };
   HISTORY: import("@cloudflare/workers-types").KVNamespace;
   COUNTERS: import("@cloudflare/workers-types").KVNamespace;
   COUNTERS_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
@@ -47,6 +48,7 @@ export interface Env {
   ADMIN_BASIC_USER?: string;
   ADMIN_BASIC_PASSWORD?: string;
   TELEGRAM_BOT_USERNAME?: string;
+  TELEGRAM_LOGIN_CLIENT_ID?: string;
   DRY_RUN?: string;
 
   // Optimized summary system configuration

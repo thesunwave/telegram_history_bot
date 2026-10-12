@@ -25,6 +25,7 @@
 		"wrangler": "^4.26.1"
 	},
 	"dependencies": {
-		"dotenv": "^17.2.3"
+		"dotenv": "^17.2.3",
+		"jose": "^6.2.12"
 	}
 }
