@@ -5,6 +5,7 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import type { Env } from '../src/core/env';
 import { authenticateTelegramSession } from '../src/api/admin-auth';
 import { createHmac, createHash } from 'node:crypto';
+import { createMockEnv } from './test-utils';
 
 describe('Telegram OIDC login and admin session', () => {
 
@@ -31,7 +32,7 @@ describe('Telegram OIDC login and admin session', () => {
   });
 
   it('accepts a valid legacy Telegram redirect and exposes the admin session status', async () => {
-    const env = { TOKEN: 'test-bot-token', SECRET: 'test-session-secret' } as Env;
+    const env = createMockEnv({ TOKEN: 'test-bot-token', SECRET: 'test-session-secret' });
     const params = new URLSearchParams({
       id: '123456789',
       auth_date: String(Math.floor(Date.now() / 1000)),
@@ -134,7 +135,7 @@ describe('Telegram OIDC login and admin session', () => {
       .setIssuedAt()
       .setExpirationTime('5m')
       .sign(privateKey);
-    const env = { TELEGRAM_LOGIN_CLIENT_ID: '1234567', SECRET: 'test-secret' } as Env;
+    const env = createMockEnv({ TELEGRAM_LOGIN_CLIENT_ID: '1234567', SECRET: 'test-secret' });
     const request = (cookie: string) => new Request('https://example.com/auth/telegram', {
       method: 'POST',
       headers: { Origin: 'https://example.com', Cookie: cookie, 'Content-Type': 'application/json' },

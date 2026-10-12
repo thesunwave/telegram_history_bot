@@ -8,6 +8,7 @@ import {
   authenticateTelegramSession,
   clearTelegramSessionCookie,
   createTelegramSessionCookie,
+  revokeTelegramSessions,
   unauthorizedAdminResponse,
   verifyTelegramLogin,
   type AdminPrincipal,
@@ -304,6 +305,17 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
         headers: { Allow: 'POST', 'Cache-Control': 'no-store' },
       });
     }
+    const origin = req.headers.get('Origin');
+    const fetchSite = req.headers.get('Sec-Fetch-Site');
+    if ((origin && origin !== url.origin) ||
+        (fetchSite && fetchSite !== 'same-origin') ||
+        (!origin && fetchSite !== 'same-origin')) {
+      return new Response('Forbidden', {
+        status: 403,
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
+    await revokeTelegramSessions(req, env);
     return new Response(null, {
       status: 302,
       headers: {
