@@ -25,7 +25,7 @@ describe('standalone landing service routing', () => {
       expect(result.status).toBe(301);
       expect(result.headers.get('Location')).toBe(origin + '/');
     }
-    expect(fetch).toHaveBeenCalledTimes(9);
+    expect(fetch).toHaveBeenCalledTimes(11);
     const oldEnglish = await worker.fetch(new Request(origin + '/en?utm_source=bookmark'), env, fakeContext);
     expect(oldEnglish.headers.get('Location')).toBe(origin + '/?utm_source=bookmark');
     const head = await worker.fetch(new Request(origin + '/sitemap.xml', { method: 'HEAD' }), env, fakeContext);
