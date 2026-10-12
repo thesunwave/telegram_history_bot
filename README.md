@@ -1,5 +1,13 @@
 # Telegram History Bot
 
+The public landing is maintained and released independently in
+[telegram_history_landing](https://github.com/thesunwave/telegram_history_landing).
+Cloudflare Builds for this bot deploys `wrangler.jsonc` from `main`, including
+the `LANDING` service binding, public hostname, and preserved `workers.dev`
+webhook endpoint. A self-hosted fork must replace this account-specific
+Cloudflare configuration with its own bindings (and remove `LANDING` unless
+deploying its own landing Worker).
+
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/thesunwave/telegram_history_bot)
 
 Use [@stat_history_bot](https://t.me/stat_history_bot?startgroup=true) in a Telegram group

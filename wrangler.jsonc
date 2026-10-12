@@ -27,6 +27,15 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "telegram-history-bot",
   "main": "src/index.ts",
+  // Cloudflare Builds deploys this file on every push to main. Keep the
+  // production site + Telegram webhook triggers and landing binding here.
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "tghistory.thesunwave.space", "custom_domain": true },
+  ],
+  "services": [
+    { "binding": "LANDING", "service": "telegram-history-landing" },
+  ],
   "compatibility_date": "2025-06-10",
   "kv_namespaces": [
     {
@@ -75,6 +84,8 @@
   "vars": {
     "ENVIRONMENT": "production",
     "ADMIN_BASIC_USER": "admin",
+    "TELEGRAM_LOGIN_CLIENT_ID": "7807841637",
+    "TELEGRAM_BOT_USERNAME": "stat_history_bot",
     // Available values: "cloudflare", "openai", "openai-premium", "openrouter", "legal-rag", "mock"
     "SUMMARY_PROVIDER": "openai",
     "PROFANITY_PROVIDER": "openai",
