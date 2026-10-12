@@ -77,7 +77,7 @@ export default {
     }
     const isLandingPage = [
       '/', '/index.html', '/ru', '/ru/', '/ru/index.html',
-      '/combot-alternative', '/robots.txt', '/sitemap.xml',
+      '/combot-alternative', '/ru/combot-alternative', '/ru/combot-alternative/', '/robots.txt', '/sitemap.xml',
     ]
       .includes(url.pathname);
 
