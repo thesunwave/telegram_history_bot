@@ -298,6 +298,12 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
   }
 
   if (url.pathname === `${ADMIN_PATH}/logout`) {
+    if (req.method !== 'POST') {
+      return new Response('Method not allowed', {
+        status: 405,
+        headers: { Allow: 'POST', 'Cache-Control': 'no-store' },
+      });
+    }
     return new Response(null, {
       status: 302,
       headers: {
