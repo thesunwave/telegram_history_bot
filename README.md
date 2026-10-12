@@ -1,5 +1,13 @@
 # Telegram History Bot
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/thesunwave/telegram_history_bot)
+
+Use [@stat_history_bot](https://t.me/stat_history_bot?startgroup=true) in a Telegram group
+or start a separate installation from the public repository with the Cloudflare
+deploy button. The deploy button starts project provisioning; to make your own
+bot operational you must still configure BotFather credentials, required secrets,
+D1 migrations and the Telegram webhook as described below.
+
 Cloudflare Worker that stores Telegram chat messages (7 days in KV), generates summaries, and optionally runs profanity/criminal analysis with notifications. Supports Cloudflare AI and OpenAI providers, and includes an **optimized summary system** with parallel processing, context optimization, and automatic fallback.
 
 ## Features

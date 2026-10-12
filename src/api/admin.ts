@@ -264,7 +264,7 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
   if (url.pathname === ADMIN_PATH || url.pathname === `${ADMIN_PATH}/`) {
     const principal = await authenticateTelegramSession(req, env);
     return new Response(renderAdminHtml({
-      botUsername: await getBotUsername(env),
+      botUsername: principal ? null : await getBotUsername(env),
       principal,
     }), {
       headers: {
@@ -287,6 +287,13 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
         'Set-Cookie': await createTelegramSessionCookie(env, payload),
         'Cache-Control': 'no-store',
       },
+    });
+  }
+
+  if (url.pathname === `${ADMIN_PATH}/session` && req.method === 'GET') {
+    const principal = await authenticateTelegramSession(req, env);
+    return Response.json({ authenticated: principal !== null }, {
+      headers: { 'Cache-Control': 'no-store' },
     });
   }
 
