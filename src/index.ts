@@ -68,14 +68,15 @@ export default {
     ctx: ExecutionContext,
   ): Promise<Response> {
     const url = new URL(req.url);
+    const isLandingPage = ['/', '/index.html', '/en', '/en/', '/en/index.html']
+      .includes(url.pathname);
 
     if ((req.method === "GET" || req.method === "HEAD") &&
-      (url.pathname === "/" || url.pathname === "/index.html" ||
-        url.pathname.startsWith("/landing/"))) {
+      (isLandingPage || url.pathname.startsWith("/landing/"))) {
       // The marketing site has its own repository and release lifecycle.
       // Proxy only these paths; keep login, admin and webhook in this Worker.
       if (env.LANDING) return env.LANDING.fetch(req);
-      if (url.pathname === "/" || url.pathname === "/index.html") {
+      if (isLandingPage) {
         return Response.redirect(new URL("/admin", req.url), 302);
       }
       return new Response("Not found", { status: 404 });
