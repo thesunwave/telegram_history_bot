@@ -31,4 +31,11 @@ describe('standalone landing service routing', () => {
     const image = await worker.fetch(new Request(origin + '/landing/overview.jpg'), env, fakeContext);
     expect(image.status).toBe(404);
   });
+
+  it('routes a fresh one-token installation to its setup wizard', async () => {
+    const env = { TOKEN: 'botfather-token' } as Env;
+    const root = await worker.fetch(new Request(origin + '/'), env, fakeContext);
+    expect(root.status).toBe(302);
+    expect(root.headers.get('Location')).toBe(origin + '/admin/setup');
+  });
 });

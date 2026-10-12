@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS app_settings (
+  scope TEXT PRIMARY KEY,
+  settings_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

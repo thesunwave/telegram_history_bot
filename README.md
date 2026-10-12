@@ -1,5 +1,10 @@
 # Telegram History Bot
 
+> Deployment refactor in progress: the existing production Worker still uses
+> `wrangler.jsonc`, while `wrangler.public.jsonc` is the portable staging
+> template. **Do not switch Cloudflare Builds to the public template yet.**
+> See [release and self-hosting plan](docs/ops/release-and-self-hosting.md).
+
 The public landing is maintained and released independently in
 [telegram_history_landing](https://github.com/thesunwave/telegram_history_landing).
 Cloudflare Builds for this bot deploys `wrangler.jsonc` from `main`, including

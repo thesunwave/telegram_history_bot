@@ -1,0 +1,39 @@
+name: Update from upstream release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Upstream stable release (for example v1.7.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    # This workflow belongs to copies created by Deploy to Cloudflare.
+    # Never open an update PR in the source repository itself.
+    if: github.repository != 'thesunwave/telegram_history_bot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prepare release merge without replacing installation bindings
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: bash scripts/prepare-upstream-update.sh "$RELEASE_TAG"
+      - name: Push update branch and open review PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          git push origin "HEAD:refs/heads/updates/$RELEASE_TAG"
+          gh pr create --base "${{ github.event.repository.default_branch }}" \
+            --head "updates/$RELEASE_TAG" \
+            --title "Update Telegram History Bot to $RELEASE_TAG" \
+            --body "Review upstream changes, new Cloudflare bindings, and D1 migrations before merging. The existing wrangler.jsonc was retained. This PR does not deploy until you merge it."
