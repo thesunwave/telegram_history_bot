@@ -135,6 +135,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       gap: 14px;
       flex-wrap: wrap;
     }
+    .logoutForm { margin: 0; }
+    .logoutButton { min-height: 36px; padding: 0 12px; font-size: 12px; white-space: nowrap; }
+    .logoutButton:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
     h1 {
       margin: 0;
       font-size: 22px;
@@ -996,6 +999,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </select>
         </label>
         <div class="muted" id="sessionLabel"></div>
+        ${options.principal?.type === 'telegram' ? `<form class="logoutForm" action="/admin/logout" method="post">
+          <button type="submit" class="secondary logoutButton">Выйти</button>
+        </form>` : ''}
       </div>
     </div>
   </header>

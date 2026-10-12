@@ -17,6 +17,7 @@ export interface TelegramLoginPayload {
 }
 
 const ADMIN_SESSION_COOKIE = 'tg_admin_session';
+const REVOKED_SESSION_PREFIX = 'admin:revoked-session:';
 const TELEGRAM_AUTH_MAX_AGE_SECONDS = 86400;
 const SESSION_MAX_AGE_SECONDS = 7 * 86400;
 
@@ -166,6 +167,7 @@ export async function createTelegramSessionCookie(env: Env, user: TelegramLoginP
     firstName: user.first_name,
     lastName: user.last_name,
     issuedAt: Math.floor(Date.now() / 1000),
+    sessionId: crypto.randomUUID(),
   };
   const encodedPayload = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
   const signature = await signSessionPayload(env, encodedPayload);
@@ -187,10 +189,15 @@ export function clearTelegramSessionCookie(): string {
   return `${ADMIN_SESSION_COOKIE}=; Path=/admin; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
 
-export async function authenticateTelegramSession(
+async function revocationKey(cookie: string): Promise<string> {
+  return REVOKED_SESSION_PREFIX + bytesToHex(new Uint8Array(await sha256(cookie)));
+}
+
+async function activeTelegramSessions(
   req: Request,
   env: Env,
-): Promise<AdminPrincipal | null> {
+): Promise<Array<{ cookie: string; principal: AdminPrincipal; remainingSeconds: number }>> {
+  const sessions: Array<{ cookie: string; principal: AdminPrincipal; remainingSeconds: number }> = [];
   for (const cookie of getCookies(req, ADMIN_SESSION_COOKIE)) {
     const [encodedPayload, signature] = cookie.split('.');
     if (!encodedPayload || !signature) {
@@ -202,38 +209,64 @@ export async function authenticateTelegramSession(
       continue;
     }
 
+    let payload: Record<string, unknown>;
     try {
-      const decoded = new TextDecoder().decode(base64UrlDecode(encodedPayload));
-      const payload = JSON.parse(decoded);
-      const issuedAt = Number(payload.issuedAt);
-      const telegramId = Number(payload.id);
-      if (!Number.isFinite(issuedAt) || !Number.isFinite(telegramId)) {
-        continue;
-      }
+      payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(encodedPayload)));
+    } catch {
+      continue;
+    }
+    if (!payload || typeof payload !== 'object') {
+      continue;
+    }
+    const issuedAt = Number(payload.issuedAt);
+    const telegramId = Number(payload.id);
+    if (!Number.isFinite(issuedAt) || !Number.isFinite(telegramId)) {
+      continue;
+    }
 
-      const now = Math.floor(Date.now() / 1000);
-      if (now - issuedAt > SESSION_MAX_AGE_SECONDS) {
-        continue;
-      }
+    const now = Math.floor(Date.now() / 1000);
+    if (now - issuedAt > SESSION_MAX_AGE_SECONDS) {
+      continue;
+    }
+    if (await env.HISTORY.get(await revocationKey(cookie)) !== null) {
+      continue;
+    }
 
-      const username = typeof payload.username === 'string' ? payload.username : `id${telegramId}`;
-      const displayName = [payload.firstName, payload.lastName]
-        .filter((value) => typeof value === 'string' && value.trim().length > 0)
-        .join(' ')
-        .trim();
+    const username = typeof payload.username === 'string' ? payload.username : `id${telegramId}`;
+    const displayName = [payload.firstName, payload.lastName]
+      .filter((value) => typeof value === 'string' && value.trim().length > 0)
+      .join(' ')
+      .trim();
 
-      return {
+    sessions.push({
+      cookie,
+      remainingSeconds: SESSION_MAX_AGE_SECONDS - (now - issuedAt),
+      principal: {
         type: 'telegram',
         username,
         telegramId,
         displayName: displayName || username,
-      };
-    } catch {
-      continue;
-    }
+      },
+    });
   }
 
-  return null;
+  return sessions;
+}
+
+export async function authenticateTelegramSession(
+  req: Request,
+  env: Env,
+): Promise<AdminPrincipal | null> {
+  return (await activeTelegramSessions(req, env))[0]?.principal ?? null;
+}
+
+export async function revokeTelegramSessions(req: Request, env: Env): Promise<void> {
+  const sessions = await activeTelegramSessions(req, env);
+  for (const session of sessions) {
+    await env.HISTORY.put(await revocationKey(session.cookie), '1', {
+      expirationTtl: Math.max(60, session.remainingSeconds),
+    });
+  }
 }
 
 export async function verifyTelegramLogin(
