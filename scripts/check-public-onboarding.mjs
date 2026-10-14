@@ -1,17 +1,20 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
-const wrangler = resolve('node_modules/.bin/wrangler');
+const require = createRequire(import.meta.url);
+const wranglerPackagePath = require.resolve('wrangler/package.json');
+const wrangler = resolve(dirname(wranglerPackagePath), require('wrangler/package.json').bin.wrangler);
 const config = 'wrangler.jsonc';
 const token = '123456789:onboarding-dummy-not-a-real-bot';
 const timeoutMs = 90_000;
 
 function runWrangler(args) {
-  return execFileSync(wrangler, args, {
+  return execFileSync(process.execPath, [wrangler, ...args], {
     encoding: 'utf8',
     timeout: 180_000,
     maxBuffer: 4 * 1024 * 1024,
@@ -59,7 +62,7 @@ async function run() {
 
     const port = await freePort();
     const base = 'http://127.0.0.1:' + port;
-    server = spawn(wrangler, ['dev', '--local', '--config', config,
+    server = spawn(process.execPath, [wrangler, 'dev', '--local', '--config', config,
       '--ip', '127.0.0.1', '--port', String(port), '--persist-to', state,
       '--var', 'TOKEN:' + token], { stdio: ['ignore', 'pipe', 'pipe'] });
     for (const stream of [server.stdout, server.stderr]) {

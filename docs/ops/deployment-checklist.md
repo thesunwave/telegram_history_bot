@@ -15,7 +15,8 @@ Wrangler configuration to update the owner's production Worker.
    the BotFather token and verify `databaseReady: true` in the status.
 4. Click **Connect webhook**. Add the bot to your Telegram group and test a
    message or command. Disable Telegram bot privacy with BotFather's
-   `/setprivacy` if you need to collect all group messages.
+   `/setprivacy` if you need to collect all group messages. If the bot was
+   already in the group, remove it and add it again after changing privacy.
 5. Enable AI summaries in the setup page only if desired. Configure OpenAI or
    OpenRouter keys as Cloudflare Secrets, never as plaintext in the dashboard.
 
@@ -31,6 +32,8 @@ Do not run `setup.sh`; it is a deprecated manual provisioning script.
 2. Create a reviewed SemVer release tag.
 3. Use GitHub Actions **Deploy production release** (manual dispatch on
    `main`) with `deploy_to_production=false` for a read-only preflight.
+   Approve the protected `production` environment even for this read-only run;
+   approval unlocks the preflight job but does not deploy the Worker.
 4. Review infrastructure drift and pending production D1 migrations. Before
    applying migrations, create and verify a private production D1 backup.
 5. For a real deploy, dispatch the same tag with
