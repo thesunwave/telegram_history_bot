@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
@@ -125,8 +126,13 @@ async function run() {
     console.log('Fresh-install smoke passed: ' + migrationCount +
       ' migrations, health, setup, owner login, and persisted D1 settings.');
   } finally {
-    if (server?.exitCode === null) server.kill('SIGTERM');
-    rmSync(state, { recursive: true, force: true });
+    if (server && server.exitCode === null && server.signalCode === null) {
+      const stopped = once(server, 'exit');
+      server.kill('SIGTERM');
+      await stopped;
+    }
+    // Windows may keep workerd's SQLite cache files open briefly after exit.
+    rmSync(state, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
   }
 }
 
