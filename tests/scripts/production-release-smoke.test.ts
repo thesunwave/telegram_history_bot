@@ -22,6 +22,14 @@ describe('production deployment guards', () => {
       status: 401,
       headers: { Location: '/admin', 'Cache-Control': 'no-store' },
     }))).toBe(true);
+    expect(isSetupResponse(new Response('Authentication required', {
+      status: 401,
+      headers: { Location: '/admin', 'Cache-Control': 'private, NO-STORE' },
+    }))).toBe(true);
+    expect(isSetupResponse(new Response('Cacheable redirect', {
+      status: 401,
+      headers: { Location: '/admin', 'Cache-Control': 'x-no-store, private' },
+    }))).toBe(false);
     expect(isSetupResponse(new Response('Blocked by edge', {
       status: 401,
     }))).toBe(false);

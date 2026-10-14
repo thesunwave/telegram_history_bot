@@ -11,7 +11,8 @@ export function isSetupResponse(response) {
   // a 401. Accept that explicit auth contract without depending on page copy.
   return response.status === 401 &&
     response.headers.get('location') === '/admin' &&
-    response.headers.get('cache-control')?.includes('no-store') === true;
+    response.headers.get('cache-control')?.split(',')
+      .some(directive => directive.trim().toLowerCase() === 'no-store') === true;
 }
 
 const checks = [
