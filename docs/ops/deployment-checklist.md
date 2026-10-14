@@ -1,132 +1,56 @@
-# 🚀 Deployment Checklist для Оптимизированного Саммарайза
+# Deployment checklist
 
-## Pre-deployment проверки
+This project has **two independent deployment paths**. Never use the public
+Wrangler configuration to update the owner's production Worker.
 
-### ✅ Код готов
-- [x] Все тесты проходят (`npm test`)
-- [x] TypeScript ошибки исправлены
-- [x] Legacy fallback система работает
-- [x] Feature flags настроены
+## New community installation
 
-### ✅ Конфигурация
-- [x] `SUMMARY_OPT_ENABLED` = true в `wrangler.jsonc`
-- [x] Durable Objects настроены (COUNTERS_DO, DAY_BLOCK_MANAGER_DO, CRIMINAL_CODE_ANALYZER_DO)
-- [x] Все необходимые переменные окружения установлены
+1. In your own Cloudflare account, use the
+   [Deploy to Cloudflare button](../../README.md#install-your-own-bot-cloudflare).
+   Enter the BotFather `TOKEN` as a Worker Secret.
+2. Confirm that the deploy command is `npm run deploy`. It uses the portable
+   `wrangler.jsonc`, provisions KV, D1 and Durable Objects, then applies D1
+   migrations. Check that the *entire* command completed successfully.
+3. Open the new Worker URL (redirects to `/admin/setup`), sign in with
+   the BotFather token and verify `databaseReady: true` in the status.
+4. Click **Connect webhook**. Add the bot to your Telegram group and test a
+   message or command. Disable Telegram bot privacy with BotFather's
+   `/setprivacy` if you need to collect all group messages. If the bot was
+   already in the group, remove it and add it again after changing privacy.
+5. Enable AI summaries in the setup page only if desired. Configure OpenAI or
+   OpenRouter keys as Cloudflare Secrets, never as plaintext in the dashboard.
 
-## Deployment Steps
+For an isolated rehearsal, `npm ci && npm run test:onboarding` runs the
+actual Worker and migrations locally with a dummy token. It does not deploy to
+Cloudflare or register a Telegram webhook.
 
-### Шаг 1: Безопасный деплой с отключенной оптимизацией
-```bash
-# Временно отключаем оптимизацию для безопасности
-# 1) В wrangler.jsonc: SUMMARY_OPT_ENABLED=false
-# 2) Деплой
-npx wrangler deploy
-```
+Do not run `setup.sh`; it is a deprecated manual provisioning script.
 
-### Шаг 2: Проверка базовой функциональности
-- Протестируйте обычные команды саммарайза
-- Убедитесь, что legacy система работает корректно
-- Проверьте логи на отсутствие ошибок
+## Owner production
 
-### Шаг 3: Включение оптимизации
-```bash
-# Включаем оптимизированную систему
-# 1) В wrangler.jsonc: SUMMARY_OPT_ENABLED=true
-# 2) Деплой
-npx wrangler deploy
-```
+1. Review and merge a PR into protected `main`. CI must pass.
+2. Create a reviewed SemVer release tag.
+3. Use GitHub Actions **Deploy production release** (manual dispatch on
+   `main`) with `deploy_to_production=false` for a read-only preflight.
+   Approve the protected `production` environment even for this read-only run;
+   approval unlocks the preflight job but does not deploy the Worker.
+4. Review infrastructure drift and pending production D1 migrations. Before
+   applying migrations, create and verify a private production D1 backup.
+5. For a real deploy, dispatch the same tag with
+   `deploy_to_production=true`, confirmation `BUILDS_DISABLED`, and approve
+   the protected `production` environment.
+6. Confirm the GitHub deployment and post-deploy smoke tests, Cloudflare's
+   active Worker version, Telegram webhook delivery and the bot's real commands.
 
-### Шаг 4: Постепенное тестирование
-1. **Малые чаты** (< 100 сообщений) - должны использовать legacy
-2. **Средние чаты** (100-500 сообщений) - первые тесты оптимизации
-3. **Большие чаты** (500+ сообщений) - полная оптимизация
+The owner's Cloudflare Builds auto-deploy must stay **disabled**. Do not run
+`npm run deploy` or plain `wrangler deploy` in the owner's account.
+Production deploys use `wrangler.production.jsonc` only.
 
-## Мониторинг после деплоя
+## Recovery
 
-### Ключевые метрики для отслеживания:
-- Время выполнения саммарайза
-- Количество fallback'ов на legacy систему
-- Ошибки в Durable Objects
-- Использование токенов AI
+Use Cloudflare deployment history to identify the last known-good Worker.
+Rolling back Worker code **does not** roll back D1 schema or new database writes.
+Treat D1 restore as a separate, carefully planned operation.
 
-### Команды для мониторинга:
-```bash
-# Просмотр логов
-wrangler tail
-
-# Просмотр метрик Durable Objects
-wrangler d1 execute summaries --command "SELECT * FROM summaries ORDER BY created_at DESC LIMIT 10"
-```
-
-## Настройка производительности
-
-### Если система работает медленно:
-```bash
-# Уменьшить количество параллельных воркеров
-# В wrangler.jsonc: SUMMARY_OPT_MAX_WORKERS=3
-# Затем деплой
-npx wrangler deploy
-
-# Увеличить размер батча
-# В wrangler.jsonc: SUMMARY_OPT_WORKER_BATCH_SIZE=100
-# Затем деплой
-npx wrangler deploy
-```
-
-### Если много ошибок:
-```bash
-# Увеличить таймауты
-# В wrangler.jsonc: SUMMARY_OPT_WORKER_TIMEOUT=45000
-# Затем деплой
-npx wrangler deploy
-
-# Временно отключить параллельную обработку
-# В wrangler.jsonc: SUMMARY_OPT_PARALLEL_ENABLED=false
-# Затем деплой
-npx wrangler deploy
-```
-
-## Rollback план
-
-### В случае критических проблем:
-```bash
-# Быстрое отключение оптимизации
-# 1) В wrangler.jsonc: SUMMARY_OPT_ENABLED=false
-# 2) Деплой
-npx wrangler deploy
-```
-
-### Полный откат к предыдущей версии:
-```bash
-# Откат к предыдущему деплою
-npx wrangler rollback
-
-# Или деплой стабильной ветки
-git checkout main
-npx wrangler deploy
-```
-
-## Успешные индикаторы
-
-### ✅ Система работает корректно если:
-- Саммарайз генерируется быстрее чем раньше
-- Нет ошибок в логах
-- Пользователи получают качественные сводки
-- Fallback на legacy происходит редко (< 5%)
-
-### ⚠️ Требует внимания если:
-- Много fallback'ов на legacy (> 20%)
-- Увеличилось время ответа
-- Появились новые типы ошибок
-- Жалобы пользователей на качество
-
-### 🚨 Критические проблемы:
-- Саммарайз не работает вообще
-- Массовые ошибки в логах
-- Durable Objects недоступны
-- Превышение лимитов AI провайдера
-
-## Контакты для поддержки
-- Логи: `wrangler tail`
-- Метрики: Cloudflare Dashboard
-- Durable Objects: `wrangler d1 execute`
+For commands, backup requirements, upgrade procedure and safeguards, see
+[Production releases and self-hosting](release-and-self-hosting.md).

@@ -19,6 +19,35 @@ admin and Telegram webhook routes stay exclusively in this bot Worker.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/thesunwave/telegram_history_bot)
 
+## Install your own bot (Cloudflare)
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and copy its token.
+2. Click **Deploy to Cloudflare**, select your own Cloudflare account, and enter
+   the `TOKEN` secret. The source repository is copied into your own GitHub
+   repository; it is not linked to the owner's production account.
+3. Confirm the build/deploy command is **`npm run deploy`** (not just
+   `wrangler deploy`). It provisions the KV, D1 and Durable Objects bindings,
+   then applies the D1 migrations. Verify both deployment and migrations
+   succeeded in the build logs.
+4. Open your new Worker's URL. It redirects to `/admin/setup`. Sign in with
+   the same BotFather token; check that D1 is ready and select
+   **Connect webhook**. This step registers the public Worker URL with Telegram.
+5. Add the bot to your group. To allow it to collect ordinary group messages
+   rather than just commands, disable bot privacy using BotFather's
+   `/setprivacy` and re-add the bot to the group.
+
+The initial install starts with message history and activity statistics;
+AI summaries and advanced analysis are **off**. You can enable AI summaries
+from `/admin/setup` after configuring any required provider key as a
+Cloudflare Secret. Never paste an OpenAI/OpenRouter key into the dashboard.
+
+The first-run flow can be rehearsed locally with a dummy token and no
+production changes using `npm ci && npm run test:onboarding`. The smoke
+test does not register a webhook; its status request may query Telegram's
+`getWebhookInfo` with the dummy token.
+See [the self-hosting guide](docs/ops/release-and-self-hosting.md) for
+upgrades and troubleshooting.
+
 Use [@stat_history_bot](https://t.me/stat_history_bot?startgroup=true) in a Telegram
 group, or deploy an independent copy with the button. Cloudflare creates a new
 repository and provisions its own KV, D1, Durable Objects and Workers AI.
