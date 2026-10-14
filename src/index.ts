@@ -81,7 +81,17 @@ export default {
   ): Promise<Response> {
     env = await withRuntimeSettings(env);
     const url = new URL(req.url);
-    const isLandingPage = ['/', '/index.html', '/en', '/en/', '/en/index.html']
+    const isPublicRead = req.method === "GET" || req.method === "HEAD";
+    const isLegacyEnglish = ['/en', '/en/', '/en/index.html'].includes(url.pathname);
+    if (isPublicRead && isLegacyEnglish) {
+      const canonical = new URL("/", req.url);
+      canonical.search = url.search;
+      return Response.redirect(canonical, 301);
+    }
+    const isLandingPage = [
+      '/', '/index.html', '/ru', '/ru/', '/ru/index.html',
+      '/combot-alternative', '/ru/combot-alternative', '/ru/combot-alternative/', '/robots.txt', '/sitemap.xml',
+    ]
       .includes(url.pathname);
 
     if (url.pathname === "/telegram/webhook" && req.method === "POST") {
@@ -96,7 +106,7 @@ export default {
       return Response.json({});
     }
 
-    if ((req.method === "GET" || req.method === "HEAD") &&
+    if (isPublicRead &&
       (isLandingPage || url.pathname.startsWith("/landing/"))) {
       // The marketing site has its own repository and release lifecycle.
       // Proxy only these paths; keep login, admin and webhook in this Worker.
