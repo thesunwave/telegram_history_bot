@@ -48,16 +48,34 @@ the initial owner setup does not require them.
 
 Tag reviewed commits using SemVer (`vMAJOR.MINOR.PATCH`). Use the GitHub Actions
 `Deploy production release` workflow and enter an existing release tag. Leave
-`deploy_to_production` unchecked for the first **read-only** credential preflight.
-For an actual deployment, check the box, enter `BUILDS_DISABLED`, then approve
-the protected `production` environment. The workflow checks the tag belongs
-to main, runs tests, performs deploy dry-run, verifies Cloudflare access and
-only then deploys using `wrangler.production.jsonc`. It never runs on push.
+`deploy_to_production` unchecked for a **read-only** preflight. The workflow
+first resolves the release tag to a commit SHA, confirms it is on `main` and
+validates its code. It reuses an already successful `main` CI run **only for
+the exact same SHA**; otherwise it runs the full test suite. It always runs
+release-preflight unit tests and a fresh production Wrangler dry-run.
+
+**Only after validation succeeds** does the `release` job request approval
+from the protected `production` Environment. For an actual deployment, check
+the box and enter `BUILDS_DISABLED`, then approve the deployment. The
+post-approval job checks out the **validated SHA**, installs dependencies,
+compares the live Cloudflare KV/D1/DO/Vectorize/service bindings against the
+selected release and lists pending D1 migrations without changing them.
+Infrastructure drift blocks the release. Pending migrations are displayed
+in read-only mode and **block an actual deploy** until applied after backup.
+Only after this check does Wrangler deploy with `wrangler.production.jsonc`.
+It never runs on push. The post-deploy smoke check validates health, public
+landing, Telegram auth config and owner setup; no Telegram messages are sent.
+
+The preflight and smoke scripts are pinned to the workflow commit separately
+from the release commit, so earlier supported release tags can be redeployed
+without silently switching their application code.
 
 D1 migrations are **not** automatically applied to the owner's database by this workflow.
 Before an upgrade that needs schema changes, back up D1, inspect pending migrations,
 apply them deliberately, and have a recovery plan for non-reversible schema changes.
 Cloudflare Secrets are configured in the Worker, not committed to Git.
+For example, migration `0014_app_settings.sql` must be reviewed and applied
+separately. Rollback of Worker code does not roll back D1 schema changes.
 
 ## Community installations and upgrades
 
