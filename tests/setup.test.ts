@@ -95,4 +95,34 @@ describe('owner setup', () => {
     }, cookie), env);
     expect(response.status).toBe(400);
   });
+
+  it('reports an uninitialized D1 even when its binding exists', async () => {
+    const cookie = await ownerCookie();
+    const database = { prepare: vi.fn(() => ({
+      first: vi.fn().mockRejectedValue(new Error('no such table: app_settings')),
+    })) };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ ok: true, result: {} })));
+    const response = await handleSetupRequest(
+      request('/admin/api/setup/status', 'GET', undefined, cookie),
+      { ...env, DB: database } as unknown as Env,
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json() as { databaseReady: boolean; bindings: { database: boolean } };
+    expect(body.bindings.database).toBe(true);
+    expect(body.databaseReady).toBe(false);
+  });
+
+  it('confirms database readiness when the settings table is queryable', async () => {
+    const cookie = await ownerCookie();
+    const database = { prepare: vi.fn(() => ({
+      first: vi.fn().mockResolvedValue(null),
+    })) };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ ok: true, result: {} })));
+    const response = await handleSetupRequest(
+      request('/admin/api/setup/status', 'GET', undefined, cookie),
+      { ...env, DB: database } as unknown as Env,
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json() as { databaseReady: boolean }).databaseReady).toBe(true);
+  });
 });

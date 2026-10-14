@@ -46,7 +46,8 @@ Telegram **Stats Bot** collects messages via webhook, stores them 7 days in Clou
 | Dev server        | `npx wrangler dev --local`                |
 | Unit tests        | `npm test`                                |
 | Deploy            | `npx wrangler deploy`                     |
-| Setup             | `./setup.sh`                              |
+| Fresh install     | Deploy to Cloudflare button in README.md  |
+| Local onboarding test | `npm run test:onboarding`              |
 
 Codex: **always run tests before committing changes**.  
 If tests fail, prefer minimal fixes over large refactors.

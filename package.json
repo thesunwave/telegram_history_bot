@@ -17,6 +17,7 @@
 		"dev": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"test": "vitest run",
+		"test:onboarding": "node scripts/check-public-onboarding.mjs",
 		"test:release-preflight": "vitest run tests/scripts/preflight-production.test.ts",
 		"dev:remote": "wrangler dev --remote --var ENVIRONMENT:development",
 		"dev:polling": "node scripts/local-polling.js",
@@ -24,7 +25,7 @@
 		"backfill:criminal-punishments": "node scripts/fixes/backfill-criminal-punishments.mjs"
 	},
 	"devDependencies": {
-		"@cloudflare/workers-types": "^4.20250810.0",
+		"@cloudflare/workers-types": "^5.20261014.1",
 		"@miniflare/core": "^2.14.4",
 		"@miniflare/d1": "^2.14.4",
 		"@miniflare/kv": "^2.14.4",
@@ -32,7 +33,7 @@
 		"better-sqlite3": "^11.10.0",
 		"typescript": "^5.0.4",
 		"vitest": "^3.2.3",
-		"wrangler": "^4.107.1"
+		"wrangler": "^4.151.0"
 	},
 	"cloudflare": {
 		"bindings": {

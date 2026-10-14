@@ -126,7 +126,7 @@ async function refresh() {
     el('model').value=info.summary.model;
     el('status').textContent=JSON.stringify(info,null,2);
     el('webhook').textContent=info.webhookConfigured?' Подключён':' Не подключён';
-    el('error').textContent='';
+    el('error').textContent=info.databaseReady?'':'D1 не инициализирована. Проверь, что команда npm run deploy завершила все миграции.';
   } catch(error) {
     el('settings').hidden=true; el('login').hidden=false;
   }
@@ -189,13 +189,22 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
   }
   if (route === 'status' && req.method === 'GET') {
     const settings = await resolveRuntimeSettings(env);
+    let databaseReady = false;
+    try {
+      if (env.DB?.prepare) {
+        await env.DB.prepare('SELECT scope FROM app_settings LIMIT 1').first();
+        databaseReady = true;
+      }
+    } catch {
+      // A binding can exist before the initial D1 migrations have run.
+    }
     let webhookConfigured = false;
     try {
       const webhook = await telegramApi(env, 'getWebhookInfo');
       webhookConfigured = Boolean(webhook.url);
     } catch { /* Report only the configured state, never the bot token. */ }
     return Response.json({
-      ok: true, summary: settings.summary, webhookConfigured,
+      ok: true, summary: settings.summary, webhookConfigured, databaseReady,
       bindings: { history: Boolean(env.HISTORY), counters: Boolean(env.COUNTERS),
         database: Boolean(env.DB), workersAi: Boolean(env.AI) },
       providerKeys: { openai: Boolean(env.OPENAI_API_KEY), openrouter: Boolean(env.OPENROUTER_API_KEY) },

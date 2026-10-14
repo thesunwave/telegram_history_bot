@@ -33,6 +33,13 @@ cp .dev.vars.example .dev.vars  # supply the BotFather TOKEN
 npm run dev
 ```
 
+For an isolated end-to-end dry run, `npm run test:onboarding` creates a
+temporary **local** D1 database, applies every migration, boots the actual
+Worker via Wrangler and exercises the owner setup API with a dummy token.
+It does not register a Telegram webhook or provision remote Cloudflare
+resources. The GitHub CI `onboarding` job runs the same check independently
+of the production build.
+
 For an isolated Cloudflare account, `npm run deploy` deploys using
 `wrangler.jsonc` and applies D1 migrations after provisioning. No
 production resource IDs are used. Visit `/admin/setup` (or the Worker's root
@@ -42,6 +49,12 @@ over HTTPS and only a signed, two-hour session cookie is retained by the
 browser. Once deployed, the bot starts with history/activity/stats enabled,
 AI summary, profanity and criminal analysis disabled. OpenAI/OpenRouter keys
 must be configured as Cloudflare Secrets before enabling those providers.
+In the Deploy to Cloudflare setup screen make sure the deploy command is
+`npm run deploy` and check the build log for successful D1 migrations.
+Cloudflare automatically provisions bindings with missing resource IDs,
+but resource IDs are not necessarily committed back to the new GitHub copy.
+Keep the generated bindings when updating and do not repeat resource
+provisioning manually. The historical `setup.sh` is deprecated.
 
 The full dashboard's Telegram OIDC login still requires
 `TELEGRAM_LOGIN_CLIENT_ID` and BotFather domain configuration if enabled;
@@ -99,7 +112,7 @@ The copied repository must allow GitHub Actions to create pull requests and gran
 its `GITHUB_TOKEN` repository write access. There is no unattended upstream update.
 
 For local installations, with a clean Git worktree:
-`bash scripts/prepare-upstream-update.sh v1.7.0`
+`bash scripts/prepare-upstream-update.sh <reviewed-release-tag>`
 
 Neither updater automatically deploys, overwrites installer credentials, or
 applies potentially destructive D1 migrations.
