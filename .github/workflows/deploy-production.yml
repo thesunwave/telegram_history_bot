@@ -1,15 +1,15 @@
 name: Deploy production release
 
-# No pushes, PRs or release creation can trigger a production deployment.
+# Production never deploys on push, merge, or tag creation.
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Existing stable tag, for example v1.7.0"
+        description: "Existing SemVer tag, e.g. v0.1.1"
         required: true
         type: string
       deploy_to_production:
-        description: "Deploy to production after validation (unchecked = read-only preflight)"
+        description: "Deploy after approval (unchecked = read-only preflight)"
         required: true
         default: false
         type: boolean
@@ -20,54 +20,127 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: telegram-history-production
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    if: github.repository == 'thesunwave/telegram_history_bot'
+  validate:
+    if: github.repository == 'thesunwave/telegram_history_bot' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: production
-    timeout-minutes: 30
+    timeout-minutes: 20
+    outputs:
+      release_sha: ${{ steps.release.outputs.sha }}
+      workflow_sha: ${{ steps.release.outputs.workflow_sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Validate and checkout release tag
+      - name: Resolve immutable release commit
+        id: release
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
+          DEPLOY: ${{ inputs.deploy_to_production }}
+          CONFIRMATION: ${{ inputs.confirmation }}
         run: |
           set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo "Production releases must be dispatched from main" >&2; exit 1; }
           [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 1
+          if [[ "$DEPLOY" == true && "$CONFIRMATION" != BUILDS_DISABLED ]]; then
+            echo "Actual deployment requires BUILDS_DISABLED confirmation" >&2
+            exit 1
+          fi
           git fetch --no-tags origin main
-          git show-ref --verify --quiet "refs/tags/$RELEASE_TAG" || exit 1
-          git merge-base --is-ancestor "refs/tags/$RELEASE_TAG^{commit}" origin/main
-          git switch --detach "refs/tags/$RELEASE_TAG"
+          git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"
+          WORKFLOW_SHA="$(git rev-parse HEAD)"
+          SHA="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          git merge-base --is-ancestor "$SHA" origin/main
+          git switch --detach "$SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "workflow_sha=$WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
+          printf 'Release %s resolves to commit %s.\n' "$RELEASE_TAG" "$SHA" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
-      - run: npm run check:production
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.workflow_sha }}
+          path: .release-tools
 
-      - name: Verify Cloudflare production access (read-only)
+      - name: Reuse successful CI for this exact main commit
+        id: previous_ci
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          echo "passed=false" >> "$GITHUB_OUTPUT"
+          # API errors fail closed to a fresh test run.
+          if gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$RELEASE_SHA&event=push&status=success&per_page=30" \
+            | jq -e --arg sha "$RELEASE_SHA" \
+              '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "main" and .event == "push" and .conclusion == "success")] | length > 0' >/dev/null; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo 'Reusing successful main CI for exact release SHA.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Run tests when exact SHA has no successful main CI
+        if: steps.previous_ci.outputs.passed != 'true'
+        run: npm test
+
+      - name: Test release infrastructure checks
+        run: cd .release-tools && ../node_modules/.bin/vitest run tests/scripts/preflight-production.test.ts
+
+      - name: Production build dry-run
+        run: npm run check:production
+
+  release:
+    needs: validate
+    if: github.repository == 'thesunwave/telegram_history_bot' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      # GitHub holds this entire job until production approval. Tests have
+      # already completed, and the exact validated commit is used below.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.release_sha }}
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.workflow_sha }}
+          path: .release-tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify validated commit
+        env:
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+        run: test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+      - run: npm ci
+
+      - name: Read-only Cloudflare bindings and pending D1 migrations
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          test -n "$CLOUDFLARE_ACCOUNT_ID"
-          test -n "$CLOUDFLARE_API_TOKEN"
-          npx wrangler deployments list --name telegram-history-bot
+          DEPLOY_TO_PRODUCTION: ${{ inputs.deploy_to_production }}
+        run: node .release-tools/scripts/preflight-production.mjs
 
-      - name: Deploy the reviewed release
+      - name: Deploy pinned, validated release
         if: inputs.deploy_to_production && inputs.confirmation == 'BUILDS_DISABLED'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run deploy:production
+
+      - name: Smoke-test production routes
+        if: inputs.deploy_to_production && inputs.confirmation == 'BUILDS_DISABLED'
+        run: node .release-tools/scripts/production-release-smoke.mjs

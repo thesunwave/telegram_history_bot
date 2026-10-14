@@ -17,6 +17,7 @@
 		"dev": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"test": "vitest run",
+		"test:release-preflight": "vitest run tests/scripts/preflight-production.test.ts",
 		"dev:remote": "wrangler dev --remote --var ENVIRONMENT:development",
 		"dev:polling": "node scripts/local-polling.js",
 		"ingest:legal-rag": "node scripts/ingest-legal-rag.mjs",
