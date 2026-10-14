@@ -6,13 +6,13 @@
 		"node": ">=22.0.0"
 	},
 	"scripts": {
-		"deploy": "wrangler deploy",
+		"deploy": "wrangler deploy && npm run db:migrate",
 		"deploy:production": "wrangler deploy --config wrangler.production.jsonc",
-		"deploy:public": "wrangler deploy --config wrangler.public.jsonc && npm run db:migrate:public",
-		"db:migrate:public": "wrangler d1 migrations apply DB --remote --config wrangler.public.jsonc",
+		"deploy:public": "npm run deploy",
+		"db:migrate": "wrangler d1 migrations apply DB --remote",
 		"check:production": "wrangler deploy --dry-run --config wrangler.production.jsonc",
-		"check:public": "wrangler deploy --dry-run --config wrangler.public.jsonc",
-		"dev:public": "wrangler dev --config wrangler.public.jsonc",
+		"check:public": "wrangler deploy --dry-run",
+		"dev:public": "wrangler dev",
 		"start": "wrangler dev",
 		"dev": "wrangler dev",
 		"cf-typegen": "wrangler types",

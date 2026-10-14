@@ -1,46 +1,37 @@
-# Release and self-hosting plan
+# Production releases and self-hosting
 
 ## Deployment configurations
 
+- `wrangler.jsonc`: the portable **public installation template**. It has no
+  account-specific resource IDs, custom domain, landing Worker, or advanced flags.
+  Cloudflare provisions new resources for each Deploy to Cloudflare user.
 - `wrangler.production.jsonc`: the owner's **existing** Worker, including its
-  current KV/D1 IDs, routes, landing service, and legacy Durable Object migrations.
-  Do not replace its migration history with the new `exports` syntax.
-- `wrangler.public.jsonc`: an isolated, portable Cloudflare installation with no
-  account-specific IDs. This is a **staging template**, not yet the one-click default.
-- `wrangler.jsonc`: temporarily still the owner's production configuration because
-  **Cloudflare Builds auto-deploys this exact file from main**.
+  KV/D1 IDs, domain, landing binding, Telegram OAuth client, Vectorize and legacy
+  Durable Object migrations. Never replace its migration history with `exports`.
 
-**Do not merge this staged rollout into main until the deployment transition is
-approved.** Even when `wrangler.jsonc` is unchanged, a main-branch push still
-triggers Cloudflare Builds and deploys the new application code.
+The owner's Cloudflare Builds Git-push deployment must remain **disabled**.
+Otherwise a merge to `main` could deploy the public template into the owner's
+existing account. The owner's releases use only the explicitly selected
+`wrangler.production.jsonc` and the manual GitHub Actions workflow.
 
-The cutover to a public default `wrangler.jsonc` must be a separate coordinated change:
+Configure a protected GitHub `production` Environment with required reviewers,
+`CLOUDFLARE_ACCOUNT_ID` as an environment variable, and
+`CLOUDFLARE_API_TOKEN` as an environment secret.
 
-1. Verify the owner deploy workflow and protect the GitHub `production` environment
-   with required reviewers, restricted release tags, and scoped Cloudflare credentials
-   `CLOUDFLARE_ACCOUNT_ID` as an environment variable and
-   `CLOUDFLARE_API_TOKEN` as an environment secret.
-2. Disable the old automatic Cloudflare Builds **deployment** on `main`. Merely changing
-   the GitHub Actions workflow is not sufficient.
-3. Ensure the production config includes *all* bindings from the deployed Worker,
-   including the separate landing Worker and Telegram OAuth client.
-4. Replace the root `wrangler.jsonc` with the portable template, switch `npm run deploy`
-   to the portable config and make it apply D1 migrations for fresh installs.
-5. Smoke-test a separate Cloudflare account (resource provisioning, migrations, webhook,
-   admin bootstrap, Basic mode) before advertising one-click setup as complete.
+**Do not run plain `npm run deploy` in the owner's account.** It is intended
+for portable public installs. Use `npm run deploy:production` only through
+the controlled release process.
 
-Until steps 1–5 are done, the README's deploy button still requires manual configuration.
-
-### Test a new self-hosted installation before cutover
+### Test a new self-hosted installation
 
 ```sh
 npm ci
 cp .dev.vars.example .dev.vars  # supply the BotFather TOKEN
-npm run dev:public
+npm run dev
 ```
 
-For an isolated Cloudflare account, `npm run deploy:public` deploys using
-`wrangler.public.jsonc` and applies D1 migrations after provisioning. No
+For an isolated Cloudflare account, `npm run deploy` deploys using
+`wrangler.jsonc` and applies D1 migrations after provisioning. No
 production resource IDs are used. Visit `/admin/setup` (or the Worker's root
 URL, which redirects there for a fresh install), sign in with the BotFather
 token, and register the Telegram webhook. This bootstrap credential is sent
@@ -53,7 +44,7 @@ The full dashboard's Telegram OIDC login still requires
 `TELEGRAM_LOGIN_CLIENT_ID` and BotFather domain configuration if enabled;
 the initial owner setup does not require them.
 
-## Production releases (after the cutover)
+## Production releases
 
 Tag reviewed commits using SemVer (`vMAJOR.MINOR.PATCH`). Use the GitHub Actions
 `Deploy production release` workflow and enter an existing release tag. Leave
