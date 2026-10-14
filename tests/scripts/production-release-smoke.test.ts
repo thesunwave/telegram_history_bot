@@ -18,6 +18,13 @@ describe('production deployment guards', () => {
     });
     expect(isSetupResponse(valid('<h1>Настройка бота</h1>'))).toBe(true);
     expect(isSetupResponse(valid('<h1>Set up bot</h1>'))).toBe(true);
+    expect(isSetupResponse(new Response('Authentication required', {
+      status: 401,
+      headers: { Location: '/admin', 'Cache-Control': 'no-store' },
+    }))).toBe(true);
+    expect(isSetupResponse(new Response('Blocked by edge', {
+      status: 401,
+    }))).toBe(false);
     expect(isSetupResponse(new Response('missing', {
       status: 404,
       headers: { 'Content-Type': 'text/html' },

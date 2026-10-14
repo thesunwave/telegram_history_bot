@@ -4,8 +4,14 @@ import { fileURLToPath } from 'node:url';
 const BASE = 'https://tghistory.thesunwave.space';
 
 export function isSetupResponse(response) {
-  return response.status === 200 &&
-    response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() === 'text/html';
+  if (response.status === 200) {
+    return response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() === 'text/html';
+  }
+  // Older releases redirect unauthenticated setup visitors to /admin with
+  // a 401. Accept that explicit auth contract without depending on page copy.
+  return response.status === 401 &&
+    response.headers.get('location') === '/admin' &&
+    response.headers.get('cache-control')?.includes('no-store') === true;
 }
 
 const checks = [
