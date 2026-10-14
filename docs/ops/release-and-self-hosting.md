@@ -18,7 +18,8 @@ The cutover to a public default `wrangler.jsonc` must be a separate coordinated 
 
 1. Verify the owner deploy workflow and protect the GitHub `production` environment
    with required reviewers, restricted release tags, and scoped Cloudflare credentials
-   `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN`.
+   `CLOUDFLARE_ACCOUNT_ID` as an environment variable and
+   `CLOUDFLARE_API_TOKEN` as an environment secret.
 2. Disable the old automatic Cloudflare Builds **deployment** on `main`. Merely changing
    the GitHub Actions workflow is not sufficient.
 3. Ensure the production config includes *all* bindings from the deployed Worker,
@@ -55,10 +56,12 @@ the initial owner setup does not require them.
 ## Production releases (after the cutover)
 
 Tag reviewed commits using SemVer (`vMAJOR.MINOR.PATCH`). Use the GitHub Actions
-`Deploy production release` workflow, enter an existing release tag and confirmation
-`BUILDS_DISABLED`, then approve the protected `production` environment.
-The workflow checks the tag belongs to main, runs tests and deploy dry-run, then deploys
-with the explicitly selected `wrangler.production.jsonc`. It never runs on push.
+`Deploy production release` workflow and enter an existing release tag. Leave
+`deploy_to_production` unchecked for the first **read-only** credential preflight.
+For an actual deployment, check the box, enter `BUILDS_DISABLED`, then approve
+the protected `production` environment. The workflow checks the tag belongs
+to main, runs tests, performs deploy dry-run, verifies Cloudflare access and
+only then deploys using `wrangler.production.jsonc`. It never runs on push.
 
 D1 migrations are **not** automatically applied to the owner's database by this workflow.
 Before an upgrade that needs schema changes, back up D1, inspect pending migrations,
