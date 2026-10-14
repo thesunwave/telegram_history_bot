@@ -17,6 +17,9 @@ existing account. The owner's releases use only the explicitly selected
 Configure a protected GitHub `production` Environment with required reviewers,
 `CLOUDFLARE_ACCOUNT_ID` as an environment variable, and
 `CLOUDFLARE_API_TOKEN` as an environment secret.
+Restrict its deployment-branch policy to **`main` only**. Protect `main` with
+required pull requests and the `test` status check; production workflows
+also explicitly reject `workflow_dispatch` calls from non-main refs.
 
 **Do not run plain `npm run deploy` in the owner's account.** It is intended
 for portable public installs. Use `npm run deploy:production` only through

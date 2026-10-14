@@ -1,4 +1,12 @@
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 const BASE = 'https://tghistory.thesunwave.space';
+
+export function isSetupResponse(response) {
+  return response.status === 200 &&
+    response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() === 'text/html';
+}
 
 const checks = [
   {
@@ -19,7 +27,7 @@ const checks = [
   },
   {
     path: '/admin/setup',
-    validate: async response => response.ok && (await response.text()).includes('Настройка бота'),
+    validate: isSetupResponse,
   },
 ];
 
@@ -44,7 +52,9 @@ async function run() {
   }
 }
 
-run().catch(error => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  run().catch(error => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}

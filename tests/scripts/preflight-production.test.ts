@@ -46,6 +46,39 @@ describe('production release preflight', () => {
     expect(compareBindings(expected, deployed)).toContain('NEW_KV: missing from deployed Worker');
   });
 
+  it('fails closed on unrecognized live resources, including R2 and Queues', () => {
+    const live = [
+      ...deployed,
+      { name: 'ASSETS', type: 'r2_bucket', bucket_name: 'old-assets' },
+      { name: 'EVENTS', type: 'queue', queue_name: 'old-events' },
+      { name: 'FUTURE_RESOURCE', type: 'new_cloudflare_binding_type' },
+    ];
+    const issues = compareBindings(configuredBindings(config), live);
+    expect(issues).toContain('ASSETS: deployment would remove resource binding');
+    expect(issues).toContain('EVENTS: deployment would remove resource binding');
+    expect(issues).toContain('FUTURE_RESOURCE: deployment would remove resource binding');
+  });
+
+  it('matches configured R2 and Queue resources by their identities', () => {
+    const configWithResources = {
+      ...config,
+      r2_buckets: [{ binding: 'ASSETS', bucket_name: 'my-assets' }],
+      queues: { producers: [{ binding: 'EVENTS', queue: 'my-events' }] },
+    };
+    const live = [
+      ...deployed,
+      { name: 'ASSETS', type: 'r2_bucket', bucket_name: 'my-assets' },
+      { name: 'EVENTS', type: 'queue', queue_name: 'my-events' },
+      { name: 'RUNTIME_TOGGLE', type: 'json', json: '{}' },
+      { name: 'ENVIRONMENT', type: 'plain_text', text: 'production' },
+    ];
+    expect(compareBindings(configuredBindings(configWithResources), live)).toEqual([]);
+    expect(compareBindings(configuredBindings(configWithResources),
+      live.map(binding => binding.name === 'ASSETS' ?
+        { ...binding, bucket_name: 'wrong-assets' } : binding),
+    )).toContain('ASSETS: bucket_name differs from deployed Worker');
+  });
+
   it('blocks pending D1 migrations and allows previously applied migrations', () => {
     const files = ['0013_existing.sql', '0014_app_settings.sql'];
     expect(pendingMigrations(files, ['0013_existing.sql'])).toEqual(['0014_app_settings.sql']);

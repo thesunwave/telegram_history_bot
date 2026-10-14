@@ -5,10 +5,9 @@ import { resolve } from 'node:path';
 import ts from 'typescript';
 
 const CONFIG_PATH = 'wrangler.production.jsonc';
-const RESOURCE_TYPES = new Set([
-  'kv_namespace', 'd1', 'durable_object_namespace', 'vectorize',
-  'service', 'ai', 'analytics_engine',
-]);
+// Only inert values and Worker Secrets are deliberately excluded from
+// infrastructure drift checks. Unknown live binding types fail closed.
+const NON_RESOURCE_TYPES = new Set(['plain_text', 'json', 'secret_text']);
 
 function wranglerJson(...args) {
   const command = resolve('node_modules/.bin/wrangler');
@@ -38,6 +37,12 @@ export function configuredBindings(config) {
   for (const kv of config.kv_namespaces || []) {
     bindings.push({ name: kv.binding, type: 'kv_namespace', namespace_id: kv.id });
   }
+  for (const bucket of config.r2_buckets || []) {
+    bindings.push({ name: bucket.binding, type: 'r2_bucket', bucket_name: bucket.bucket_name });
+  }
+  for (const queue of config.queues?.producers || []) {
+    bindings.push({ name: queue.binding, type: 'queue', queue_name: queue.queue });
+  }
   for (const db of config.d1_databases || []) {
     bindings.push({ name: db.binding, type: 'd1', database_id: db.database_id });
   }
@@ -58,7 +63,7 @@ export function configuredBindings(config) {
 }
 
 export function compareBindings(expected, deployed) {
-  const actual = new Map(deployed.filter(binding => RESOURCE_TYPES.has(binding.type))
+  const actual = new Map(deployed.filter(binding => !NON_RESOURCE_TYPES.has(binding.type))
     .map(binding => [binding.name, binding]));
   const desired = new Map(expected.map(binding => [binding.name, binding]));
   const mismatches = [];
