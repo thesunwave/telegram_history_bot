@@ -182,6 +182,19 @@ async function waitForAllAsync() {
 }
 
 describe("webhook", () => {
+  it("rejects unauthenticated requests to the tokenless webhook route", async () => {
+    const response = await worker.fetch(
+      new Request("https://bot.example/telegram/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Telegram-Bot-Api-Secret-Token": "wrong" },
+        body: "{}",
+      }),
+      { ...env, SECRET: undefined },
+      ctx,
+    );
+    expect(response.status).toBe(403);
+  });
+
   const adminAuth = `Basic ${btoa("admin:password")}`;
   const telegramUserId = 42;
 
@@ -1506,7 +1519,7 @@ describe("cron", () => {
       noRetry: () => { },
       waitUntil: () => { },
     } as any;
-    await worker.scheduled(event, env, ctx);
+    await worker.scheduled(event, { ...env, ENABLE_SUMMARY: true }, ctx);
     expect(spy).toHaveBeenCalled();
   });
 
@@ -1624,7 +1637,7 @@ describe("cron", () => {
       noRetry: () => { },
       waitUntil: () => { },
     } as any;
-    await worker.scheduled(event, env, ctx);
+    await worker.scheduled(event, { ...env, ENABLE_SUMMARY: true }, ctx);
 
     expect(summarySpy).toHaveBeenCalledTimes(1);
     expect(backfillSpy).not.toHaveBeenCalled();

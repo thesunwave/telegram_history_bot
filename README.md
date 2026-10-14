@@ -1,12 +1,15 @@
 # Telegram History Bot
 
+The root `wrangler.jsonc` is a portable self-hosting template. The owner's
+existing Cloudflare Worker uses the separate `wrangler.production.jsonc` and
+is deployed only from a reviewed GitHub release. See the
+[release and self-hosting guide](docs/ops/release-and-self-hosting.md).
+
 The public landing is maintained and released independently in
 [telegram_history_landing](https://github.com/thesunwave/telegram_history_landing).
-Cloudflare Builds for this bot deploys `wrangler.jsonc` from `main`, including
-the `LANDING` service binding, public hostname, and preserved `workers.dev`
-webhook endpoint. A self-hosted fork must replace this account-specific
-Cloudflare configuration with its own bindings (and remove `LANDING` unless
-deploying its own landing Worker).
+The owner's production config retains the `LANDING` service binding, custom
+domain, and legacy webhook endpoint. Public installations do not require a
+landing Worker or any owner-specific Cloudflare resource IDs.
 
 Public marketing URLs are proxied from the separate landing Worker: `/` is the
 canonical English home, `/ru` is Russian, and `/combot-alternative` is an
@@ -16,11 +19,12 @@ admin and Telegram webhook routes stay exclusively in this bot Worker.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/thesunwave/telegram_history_bot)
 
-Use [@stat_history_bot](https://t.me/stat_history_bot?startgroup=true) in a Telegram group
-or start a separate installation from the public repository with the Cloudflare
-deploy button. The deploy button starts project provisioning; to make your own
-bot operational you must still configure BotFather credentials, required secrets,
-D1 migrations and the Telegram webhook as described below.
+Use [@stat_history_bot](https://t.me/stat_history_bot?startgroup=true) in a Telegram
+group, or deploy an independent copy with the button. Cloudflare creates a new
+repository and provisions its own KV, D1, Durable Objects and Workers AI.
+Provide the `TOKEN` secret from BotFather during setup, then open
+`https://YOUR-WORKER.workers.dev/admin/setup` to connect the Telegram webhook.
+The deploy command applies D1 migrations automatically.
 
 Cloudflare Worker that stores Telegram chat messages (7 days in KV), generates summaries, and optionally runs profanity/criminal analysis with notifications. Supports Cloudflare AI and OpenAI providers, and includes an **optimized summary system** with parallel processing, context optimization, and automatic fallback.
 
@@ -118,32 +122,24 @@ For detailed documentation, see `docs/README.md`.
 
 ## Configuration & Deployment
 
-1. Install dependencies: `npm install`.
+**Cloudflare (recommended):** click Deploy to Cloudflare above, supply the
+BotFather `TOKEN` secret, and complete `/admin/setup` after deployment.
+Only the token is required for Basic mode. OpenAI/OpenRouter API keys are
+optional Cloudflare Secrets; never place their values in Git or D1.
 
-2. Create resources and update `wrangler.jsonc` with their IDs:
-   ```bash
-   ./setup.sh
-   ```
-   This will also run the initial D1 migrations. You can rerun them later with:
-   ```bash
-   npx wrangler d1 migrations apply summaries
-   ```
-3. Set secrets:
-   ```bash
-   wrangler secret put TOKEN
-   wrangler secret put SECRET
-   wrangler secret put OPENAI_API_KEY
-   wrangler secret put OPENAI_PREMIUM_API_KEY
-   ```
-   Providers and models are configured via `wrangler.jsonc`:
-   - `SUMMARY_PROVIDER`, `PROFANITY_PROVIDER`, `CRIMINAL_PROVIDER`
-   - `OPENAI_MODEL` / `OPENAI_PREMIUM_MODEL` / `CLOUDFLARE_MODEL`
-   - Summary prompts: `SUMMARY_SYSTEM`, `SUMMARY_PROMPT`
-   - Tuning: `*_MAX_TOKENS`, `*_TEMPERATURE`, `*_TOP_P`, `*_FREQUENCY_PENALTY`
-4. Deploy with Wrangler:
-   ```bash
-   npm run deploy
-   ```
+**Local development:**
+
+```sh
+npm ci
+cp .dev.vars.example .dev.vars
+# Enter your BotFather TOKEN in .dev.vars (ignored by Git)
+npm run dev
+```
+
+**CLI deployment:** configure `TOKEN` as a Worker Secret, then run
+`npm run deploy` (Wrangler deployment followed by remote D1 migrations).
+The root config is intentionally portable and has no pre-existing resource IDs.
+Your installation's generated IDs must be retained when upgrading.
 
 ## Development
 
@@ -158,11 +154,3 @@ Run `npm install` before `npm test` to ensure dev dependencies like Vitest are a
 ## Docs
 
 See `docs/README.md` for documentation structure and naming rules.
-
-## Setup Script
-
-`setup.sh` creates KV namespaces and the D1 database. Copy the printed IDs into
-`wrangler.jsonc` so the worker can bind to these resources. The cron trigger is
-configured in `wrangler.jsonc` and will be created on deployment. The Durable
-Object for counters is defined in `wrangler.jsonc` and requires no additional
-setup.

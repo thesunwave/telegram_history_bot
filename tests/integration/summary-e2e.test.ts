@@ -566,7 +566,7 @@ describe("Summary End-to-End Tests", () => {
         expect.stringContaining("/sendMessage"),
         expect.objectContaining({
           body: expect.stringContaining(
-            "Нет сообщений для суммаризации в указанном периоде",
+            "В данном периоде содержательных обсуждений не было",
           ),
         }),
       );

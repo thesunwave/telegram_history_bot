@@ -23,6 +23,8 @@ import { DayBlockManager } from "./durable-objects/day-block-manager";
 import { CriminalCodeAnalyzerDO } from "./durable-objects/criminal-code-analyzer-do";
 import { ProviderInitializer } from "./core/providers/provider-init";
 import { Logger } from "./core/logger";
+import { withRuntimeSettings } from "./core/runtime-settings";
+import { getWebhookSecret } from "./core/webhook-secret";
 import {
   BACKFILL_CRON,
   DAILY_SUMMARY_CRON,
@@ -36,6 +38,16 @@ import type {
 } from "@cloudflare/workers-types";
 
 const ADMIN_UNAVAILABLE_ERROR_CODE = "ADMIN_UNAVAILABLE";
+
+function constantTimeEqual(left: string | null, right: string | null): boolean {
+  const a = left || "";
+  const b = right || "";
+  let diff = a.length ^ b.length;
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    diff |= (a.charCodeAt(index) || 0) ^ (b.charCodeAt(index) || 0);
+  }
+  return diff === 0;
+}
 
 function describeError(error: unknown): { name: string } {
   if (error instanceof Error) {
@@ -67,6 +79,7 @@ export default {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<Response> {
+    env = await withRuntimeSettings(env);
     const url = new URL(req.url);
     const isPublicRead = req.method === "GET" || req.method === "HEAD";
     const isLegacyEnglish = ['/en', '/en/', '/en/index.html'].includes(url.pathname);
@@ -81,13 +94,26 @@ export default {
     ]
       .includes(url.pathname);
 
+    if (url.pathname === "/telegram/webhook" && req.method === "POST") {
+      const secret = await getWebhookSecret(env);
+      if (!secret) return new Response("webhook not configured", { status: 503 });
+      if (!constantTimeEqual(req.headers.get("X-Telegram-Bot-Api-Secret-Token"), secret)) {
+        return new Response("forbidden", { status: 403 });
+      }
+      const message = getTextMessage(await req.json());
+      await recordMessage(message, env, ctx);
+      ctx.waitUntil(handleUpdate(message, env));
+      return Response.json({});
+    }
+
     if (isPublicRead &&
       (isLandingPage || url.pathname.startsWith("/landing/"))) {
       // The marketing site has its own repository and release lifecycle.
       // Proxy only these paths; keep login, admin and webhook in this Worker.
       if (env.LANDING) return env.LANDING.fetch(req);
       if (isLandingPage) {
-        return Response.redirect(new URL("/admin", req.url), 302);
+        const needsSetup = env.TOKEN && !env.TELEGRAM_LOGIN_CLIENT_ID && !env.ADMIN_BASIC_USER;
+        return Response.redirect(new URL(needsSetup ? "/admin/setup" : "/admin", req.url), 302);
       }
       return new Response("Not found", { status: 404 });
     }
@@ -809,6 +835,7 @@ export default {
     env: Env,
     _ctx: ExecutionContext,
   ): Promise<void> {
+    env = await withRuntimeSettings(env);
     // Phase 3a: the distinct temporary backfill cron (`* * * * *`) runs ONLY
     // the D1 aggregate backfill and returns before provider initialization,
     // summary, and cleanup. The exact daily cron (`59 23 * * *`) keeps its

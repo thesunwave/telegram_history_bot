@@ -2,8 +2,17 @@
 	"name": "purple-bread-9739",
 	"version": "0.0.0",
 	"private": true,
+	"engines": {
+		"node": ">=22.0.0"
+	},
 	"scripts": {
-		"deploy": "wrangler deploy",
+		"deploy": "wrangler deploy && npm run db:migrate",
+		"deploy:production": "wrangler deploy --config wrangler.production.jsonc",
+		"deploy:public": "npm run deploy",
+		"db:migrate": "wrangler d1 migrations apply DB --remote",
+		"check:production": "wrangler deploy --dry-run --config wrangler.production.jsonc",
+		"check:public": "wrangler deploy --dry-run",
+		"dev:public": "wrangler dev",
 		"start": "wrangler dev",
 		"dev": "wrangler dev",
 		"cf-typegen": "wrangler types",
@@ -22,7 +31,14 @@
 		"better-sqlite3": "^11.10.0",
 		"typescript": "^5.0.4",
 		"vitest": "^3.2.3",
-		"wrangler": "^4.26.1"
+		"wrangler": "^4.107.1"
+	},
+	"cloudflare": {
+		"bindings": {
+			"TOKEN": {
+				"description": "Telegram bot token from BotFather. Stored as a Cloudflare Worker Secret."
+			}
+		}
 	},
 	"dependencies": {
 		"dotenv": "^17.2.3",

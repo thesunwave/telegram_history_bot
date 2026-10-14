@@ -1,0 +1,73 @@
+name: Deploy production release
+
+# No pushes, PRs or release creation can trigger a production deployment.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing stable tag, for example v1.7.0"
+        required: true
+        type: string
+      deploy_to_production:
+        description: "Deploy to production after validation (unchecked = read-only preflight)"
+        required: true
+        default: false
+        type: boolean
+      confirmation:
+        description: "For actual deployment, type BUILDS_DISABLED"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-history-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'thesunwave/telegram_history_bot'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate and checkout release tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 1
+          git fetch --no-tags origin main
+          git show-ref --verify --quiet "refs/tags/$RELEASE_TAG" || exit 1
+          git merge-base --is-ancestor "refs/tags/$RELEASE_TAG^{commit}" origin/main
+          git switch --detach "refs/tags/$RELEASE_TAG"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run check:production
+
+      - name: Verify Cloudflare production access (read-only)
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          npx wrangler deployments list --name telegram-history-bot
+
+      - name: Deploy the reviewed release
+        if: inputs.deploy_to_production && inputs.confirmation == 'BUILDS_DISABLED'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run deploy:production

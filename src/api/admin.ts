@@ -27,6 +27,7 @@ import {
   LiveProgressUnavailable,
 } from '../features/stats/admin-stats-errors';
 import { renderAdminHtml } from './admin-html';
+import { handleSetupRequest } from './setup';
 
 const ADMIN_PATH = '/admin';
 
@@ -260,6 +261,10 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
   const url = new URL(req.url);
   if (url.pathname !== ADMIN_PATH && !url.pathname.startsWith(`${ADMIN_PATH}/`)) {
     return new Response('Not found', { status: 404 });
+  }
+
+  if (url.pathname === '/admin/setup' || url.pathname.startsWith('/admin/api/setup/')) {
+    return handleSetupRequest(req, env);
   }
 
   if (url.pathname === ADMIN_PATH || url.pathname === `${ADMIN_PATH}/`) {

@@ -1,0 +1,2 @@
+# Copy to .dev.vars before running npm run dev:public
+TOKEN=your-botfather-token
