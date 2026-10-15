@@ -22,6 +22,7 @@ import { CountersDO } from "./durable-objects/counters-do";
 import { DayBlockManager } from "./durable-objects/day-block-manager";
 import { CriminalCodeAnalyzerDO } from "./durable-objects/criminal-code-analyzer-do";
 import { ProviderInitializer } from "./core/providers/provider-init";
+import { ACTIVITY_REPORT_CRON, runActivityReportCron } from "./features/notifications/activity-report";
 import { Logger } from "./core/logger";
 import { withRuntimeSettings } from "./core/runtime-settings";
 import { getWebhookSecret } from "./core/webhook-secret";
@@ -851,6 +852,10 @@ export default {
         const { name, code } = backfillErrorInfo(e);
         Logger.error("Daily aggregate backfill failed", { errName: name, errCode: code });
       }
+      return;
+    }
+    if (cron === ACTIVITY_REPORT_CRON) {
+      await runActivityReportCron(env, event.scheduledTime);
       return;
     }
     if (cron !== DAILY_SUMMARY_CRON) {

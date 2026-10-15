@@ -67,6 +67,31 @@ Cloudflare Worker that stores Telegram chat messages (7 days in KV), generates s
 - Optional profanity and criminal-code analysis with notification flows.
 - D1 storage for violation history and summaries.
 - Daily cron job triggers scheduled summaries.
+- **Opt-in daily activity reports:** a separate, lightweight D1-based count of
+  yesterday's messages and active members. Each chat may choose a whole UTC
+  hour (default 18:00); the existing AI daily summary is independent.
+
+### Daily activity notifications
+
+In your Telegram group, a chat administrator can run:
+
+```text
+/auto_notifications enable activity_summary
+/auto_notifications schedule activity_summary 18:00
+/auto_notifications status
+/auto_notifications disable activity_summary
+```
+
+Only `activity_summary` has a working automatic notification delivery path.
+Other notification templates are not yet supported. It is **disabled by default**
+and uses a separate hourly cron `0 * * * *` to send the previous complete UTC
+day's counts. It uses an atomic D1 claim before contacting Telegram, so a
+failed/ambiguous send is **not automatically retried** (to prevent duplicates).
+Legacy activity notification settings without an explicit UTC opt-in do not
+start sending automatically when this version is first deployed.
+The D1 migration `0015_activity_report_delivery.sql` must be applied before
+enabling these notifications. See
+[notification guide](docs/guides/auto-notifications-guide.md).
 
 ## Commands
 

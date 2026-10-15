@@ -227,6 +227,7 @@
   "triggers": {
     "crons": [
       "59 23 * * *",
+      "0 * * * *",
     ],
   },
   "analytics_engine_datasets": [

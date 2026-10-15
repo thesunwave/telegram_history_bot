@@ -26,6 +26,7 @@ import { ProfanityAnalyzer } from '../features/profanity/profanity';
 import { ProviderFactory } from '../core/providers/provider-factory';
 import { NotificationService } from '../core/services/notification-service';
 import { NotificationRepository } from '../core/repositories/notification-repository';
+import { parseActivityReportHour } from '../features/notifications/activity-report';
 import type { NotificationType } from '../core/models/notification-settings';
 import { isTelegramUserChatAdmin, saveAdminChatMeta } from './admin-chats';
 
@@ -59,6 +60,9 @@ export function buildHelpText(env: Env): string {
     `/summary_last <n> – сводка последних N сообщений (по умолчанию 100, макс 1000)${summaryLabel}`,
     '',
     'Активность',
+    `/auto_notifications enable activity_summary – ежедневный отчёт (только админ, UTC)${activityLabel}`,
+    '/auto_notifications schedule activity_summary 18:00 – час отчёта UTC (только админ)',
+    '/auto_notifications disable activity_summary – отключить отчёт (только админ)',
     `/top <n> – топ N активных пользователей за сегодня (по умолчанию 5)${activityLabel}`,
     `/talkers <n> [period] – топ болтунов по словам и словам/сообщение${activityLabel}`,
     `/activity_week – график активности за неделю${activityLabel}`,
@@ -849,7 +853,7 @@ async function handleAutoNotificationsCommand(env: Env, msg: any) {
           await sendMessage(env, chatId, '❌ У вас нет прав для изменения настроек уведомлений');
           return;
         }
-        await handleNotificationSchedule(env, notificationService, chatId, userId, args[1]);
+        await handleNotificationSchedule(env, notificationService, chatId, userId, args[1], args[2]);
         break;
 
       case 'stats':
@@ -867,7 +871,7 @@ async function handleAutoNotificationsCommand(env: Env, msg: any) {
           '• /auto_notifications status – показать настройки\n' +
           '• /auto_notifications enable [type] – включить уведомления\n' +
           '• /auto_notifications disable [type] – отключить уведомления\n' +
-          '• /auto_notifications schedule [type] – настроить расписание\n' +
+          '• /auto_notifications schedule activity_summary HH:00 – час отправки UTC\n' +
           '• /auto_notifications stats [type] – статистика\n' +
           '• /auto_notifications types – список типов уведомлений'
         );
@@ -899,12 +903,15 @@ async function handleNotificationStatus(env: Env, service: NotificationService, 
     return;
   }
 
+  const types = service.getAvailableNotificationTypes();
   const enabledTypes = Object.entries(settings.notifications)
+    .filter(([type]) => types.includes(type as NotificationType))
     .filter(([_, config]) => config.enabled)
     .map(([type, config]) => `• ${getNotificationTypeDisplayName(type as NotificationType)}: ${config.frequency}`)
     .join('\n');
 
   const disabledTypes = Object.entries(settings.notifications)
+    .filter(([type]) => types.includes(type as NotificationType))
     .filter(([_, config]) => !config.enabled)
     .map(([type, _]) => `• ${getNotificationTypeDisplayName(type as NotificationType)}`)
     .join('\n');
@@ -951,9 +958,8 @@ async function handleNotificationEnable(env: Env, service: NotificationService, 
       `✅ Уведомления "${getNotificationTypeDisplayName(type as NotificationType)}" включены`
     );
   } else {
-    // Включаем все уведомления
-    await service.updateChatSettings(chatId.toString(), { enabled: true }, userId);
-    await sendMessage(env, chatId, '✅ Автоматические уведомления включены для чата');
+    await service.enableNotification(chatId.toString(), 'activity_summary', userId);
+    await sendMessage(env, chatId, '✅ Ежедневный отчёт об активности включён (по умолчанию 18:00 UTC)');
   }
 }
 
@@ -986,11 +992,11 @@ async function handleNotificationDisable(env: Env, service: NotificationService,
 /**
  * Настроить расписание уведомлений
  */
-async function handleNotificationSchedule(env: Env, service: NotificationService, chatId: number, userId: string, type?: string) {
+async function handleNotificationSchedule(env: Env, service: NotificationService, chatId: number, userId: string, type?: string, time?: string) {
   if (!type) {
     await sendMessage(env, chatId,
       '❓ Укажите тип уведомлений для настройки расписания\n\n' +
-      'Пример: `/auto_notifications schedule daily_summary`'
+      'Пример: `/auto_notifications schedule activity_summary 18:00` (UTC)'
     );
     return;
   }
@@ -1004,7 +1010,6 @@ async function handleNotificationSchedule(env: Env, service: NotificationService
     return;
   }
 
-  // Пока что показываем текущие настройки
   const settings = await service.getChatSettings(chatId.toString());
   if (!settings) {
     await sendMessage(env, chatId, '❌ Сначала включите уведомления командой `/auto_notifications enable`');
@@ -1012,6 +1017,17 @@ async function handleNotificationSchedule(env: Env, service: NotificationService
   }
 
   const typeSettings = settings.notifications[type as NotificationType];
+  if (time !== undefined) {
+    const hour = parseActivityReportHour(time);
+    if (hour === null) {
+      await sendMessage(env, chatId, '❌ Укажи целый час UTC от 00:00 до 23:00, например 18:00');
+      return;
+    }
+    await service.updateNotificationSettings(chatId.toString(), 'activity_summary',
+      { frequency: 'daily', time: { hour, minute: 0, timezone: 'UTC' } }, userId);
+    await sendMessage(env, chatId, `✅ Время ежедневного отчёта: ${String(hour).padStart(2, '0')}:00 UTC`);
+    return;
+  }
   let message = `⚙️ *Настройки "${getNotificationTypeDisplayName(type as NotificationType)}"*\n\n`;
   message += `📊 Статус: ${typeSettings.enabled ? '✅ Включено' : '❌ Отключено'}\n`;
   message += `⏰ Частота: ${getFrequencyDisplayName(typeSettings.frequency)}\n`;
@@ -1026,7 +1042,7 @@ async function handleNotificationSchedule(env: Env, service: NotificationService
 
   message += `📋 Детали: ${typeSettings.includeDetails ? 'Включены' : 'Отключены'}\n`;
   message += `📊 Макс. элементов: ${typeSettings.maxItemsInReport}\n\n`;
-  message += `💡 Для изменения настроек обратитесь к администратору`;
+  message += `💡 Изменить: /auto_notifications schedule activity_summary 18:00 (UTC)`;
 
   await sendMessage(env, chatId, message);
 }

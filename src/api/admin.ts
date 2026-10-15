@@ -245,6 +245,13 @@ async function handleNotificationPost(
     nextSettings.notifications[type] = {
       ...nextSettings.notifications[type],
       enabled: update.enabled,
+      ...(type === 'activity_summary' && update.enabled
+        ? { frequency: 'daily' as const, time: {
+          hour: nextSettings.notifications.activity_summary.time?.hour ?? 18,
+          minute: 0,
+          timezone: 'UTC'
+        } }
+        : {}),
     };
   }
 
