@@ -1,4 +1,12 @@
-# Telegram History Bot
+# Telegram Group Statistics & Analytics — History Bot
+
+**See who is active in your Telegram group, what people discuss, and when conversation peaks.** History Bot is an open-source Telegram group analytics bot with activity statistics, message/word counts, top members, voice-note stats and optional summaries.
+
+**Try it without deploying anything:** [Add @stat_history_bot to your group](https://t.me/stat_history_bot?startgroup=true) · [See screenshots and features](https://tghistory.thesunwave.space/) · [Compare with Combot](https://tghistory.thesunwave.space/combot-alternative)
+
+Once added, use `/help` to see commands and `/top` or `/activity_week` for group statistics. Statistics build up from messages the bot is allowed to receive; it cannot reconstruct messages sent before it joined. Bot privacy settings may affect which group messages Telegram delivers.
+
+**Prefer full control?** [Deploy your own instance to Cloudflare](https://deploy.workers.cloudflare.com/?url=https://github.com/thesunwave/telegram_history_bot). Self-hosting requires your own Telegram bot token and Cloudflare account; the steps are below. History Bot is primarily a *statistics* tool, not a substitute for moderation or anti-spam bots.
 
 The root `wrangler.jsonc` is a portable self-hosting template. The owner's
 existing Cloudflare Worker uses the separate `wrangler.production.jsonc` and
