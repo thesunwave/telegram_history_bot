@@ -1,10 +1,10 @@
 /**
- * In-memory KV integration test for the stale-id prune fix.
+ * Repository integration test with simulated in-memory KV TTL expiry.
  *
  * Uses a test KVNamespace (backed by MemoryStorage with a controllable clock)
  * to simulate `expirationTtl` semantics while exercising the repository code.
- * Confirms that once the per-notification entry's TTL elapses, `HISTORY.get`
- * returns `null` (the Cloudflare KV contract on expiry) and
+ * Confirms that once the fixture expires the per-notification entry, `HISTORY.get`
+ * returns `null` and
  * `getScheduledNotifications` prunes the id from `scheduled_notifications_list`.
  *
  * NOTE on the clock: MemoryStorage stores per-entry expiration at put time
@@ -54,7 +54,7 @@ async function withClock<T>(nowMs: number, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-describe('NotificationRepository getScheduledNotifications — real-KV TTL expiry (E2E)', () => {
+describe('NotificationRepository getScheduledNotifications — simulated KV TTL expiry', () => {
   let nowMs: number;
   let history: KVNamespace;
   let env: any;
@@ -67,7 +67,7 @@ describe('NotificationRepository getScheduledNotifications — real-KV TTL expir
     env = { HISTORY: history } as any;
   });
 
-  it('prunes an id whose KV entry actually TTL-expires', async () => {
+  it('prunes an id after the fixture simulates KV TTL expiry', async () => {
     const repo = new NotificationRepository(env);
     const id = 'n-1';
     // saveScheduledNotification reads Date.now() to compute the entry's TTL,
@@ -84,7 +84,7 @@ describe('NotificationRepository getScheduledNotifications — real-KV TTL expir
     // Advance the controllable clock 8 days — past the TTL.
     nowMs += 8 * DAY_MS;
 
-    // Real Cloudflare KV contract: after TTL elapses, get returns null.
+    // Simulated KV expiry: after TTL elapses, the fixture returns null.
     expect(await history.get(`scheduled_notification:${id}`)).toBeNull();
     // The list key has a 365-day TTL and is still alive.
     expect(JSON.parse((await history.get('scheduled_notifications_list'))!)).toContain(id);
@@ -95,7 +95,7 @@ describe('NotificationRepository getScheduledNotifications — real-KV TTL expir
     expect(JSON.parse((await history.get('scheduled_notifications_list'))!)).toEqual([]);
   });
 
-  it('prunes one expired id while keeping a still-live id (real TTL cascade)', async () => {
+  it('prunes one simulated expired id while keeping a still-live id', async () => {
     const repo = new NotificationRepository(env);
     // live: scheduled 60s in the future, ttl ~ 7+ days
     // stale: scheduled in the past, ttlSeconds = max(floor(negative)+604800, 86400).

@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 
 interface KVEntry {
-  value: string;
+  value: Uint8Array;
   metadata?: unknown;
   expiration?: number;
 }
@@ -45,10 +45,11 @@ export class KVNamespace {
     const entry = this.liveEntry(key);
     if (!entry) return null;
     const type = typeof options === 'string' ? options : options?.type;
-    if (type === 'json') return JSON.parse(entry.value);
-    if (type === 'arrayBuffer') return new TextEncoder().encode(entry.value).buffer;
-    if (type === 'stream') return new Blob([entry.value]).stream();
-    return entry.value;
+    if (type === 'arrayBuffer') return Uint8Array.from(entry.value).buffer;
+    if (type === 'stream') return new Blob([Uint8Array.from(entry.value).buffer]).stream();
+    const text = new TextDecoder().decode(entry.value);
+    if (type === 'json') return JSON.parse(text);
+    return text;
   }
 
   async getWithMetadata(key: string, options?: string | { type?: string }): Promise<any> {
@@ -61,23 +62,22 @@ export class KVNamespace {
     value: string | ArrayBuffer | ArrayBufferView | ReadableStream,
     options: { expiration?: number; expirationTtl?: number; metadata?: unknown } = {},
   ): Promise<void> {
-    let textValue: string;
+    let bytes: Uint8Array;
     if (typeof value === 'string') {
-      textValue = value;
+      bytes = new TextEncoder().encode(value);
     } else if (value instanceof ArrayBuffer) {
-      textValue = new TextDecoder().decode(value);
+      bytes = Uint8Array.from(new Uint8Array(value));
     } else if (ArrayBuffer.isView(value)) {
-      const bytes = Uint8Array.from(
+      bytes = Uint8Array.from(
         new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
       );
-      textValue = new TextDecoder().decode(bytes);
     } else {
-      textValue = await new Response(value).text();
+      bytes = new Uint8Array(await new Response(value).arrayBuffer());
     }
     const expiration = options.expirationTtl !== undefined
       ? this.now() / 1000 + options.expirationTtl
       : options.expiration;
-    this.storage.entries.set(key, { value: textValue, expiration, metadata: options.metadata });
+    this.storage.entries.set(key, { value: bytes, expiration, metadata: options.metadata });
   }
 
   async delete(key: string): Promise<void> {
@@ -86,19 +86,20 @@ export class KVNamespace {
 
   async list(options: { prefix?: string; limit?: number; cursor?: string } = {}): Promise<any> {
     const { prefix = '', limit = 1000, cursor } = options;
-    const start = cursor ? Number(Buffer.from(cursor, 'base64url').toString()) : 0;
+    const lastKey = cursor ? Buffer.from(cursor, 'base64url').toString('utf8') : undefined;
     const keys = [...this.storage.entries.keys()]
-      .filter((key) => key.startsWith(prefix) && this.liveEntry(key))
+      .filter((key) => key.startsWith(prefix) && (lastKey === undefined || key > lastKey) && this.liveEntry(key))
       .sort();
-    const page = keys.slice(start, start + limit);
-    const complete = start + limit >= keys.length;
+    const page = keys.slice(0, limit);
+    const complete = page.length === keys.length;
     return {
       keys: page.map((name) => {
         const entry = this.storage.entries.get(name)!;
         return { name, expiration: entry.expiration, metadata: entry.metadata };
       }),
       list_complete: complete,
-      cursor: complete ? '' : Buffer.from(String(start + limit)).toString('base64url'),
+      // Anchor pagination to the last key, not an offset that shifts on deletion.
+      cursor: complete ? '' : Buffer.from(page[page.length - 1], 'utf8').toString('base64url'),
     };
   }
 }
