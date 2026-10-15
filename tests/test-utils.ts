@@ -1,7 +1,6 @@
 import worker from "../src/index";
 import { Env, DEFAULT_KV_BATCH_SIZE, DEFAULT_KV_BATCH_DELAY } from "../src/core/env";
-import { KVNamespace } from "@miniflare/kv";
-import { MemoryStorage } from "@miniflare/storage-memory";
+import { KVNamespace, MemoryStorage } from "./helpers/test-storage";
 import type {
   KVNamespace as CloudflareKVNamespace,
   DurableObjectNamespace,

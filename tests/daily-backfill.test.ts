@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MemoryStorage } from '@miniflare/storage-memory';
+import { MemoryStorage } from './helpers/test-storage';
 import type { D1Database } from '@cloudflare/workers-types';
 import {
   BACKFILL_CRON,
@@ -20,7 +20,7 @@ import { getAdminChatStatsFromD1 } from '../src/features/stats/admin-stats-d1';
 
 /**
  * Phase 3a (corrected) backfill tests. Uses a real in-memory SQLite database
- * (via @miniflare/storage-memory MemoryStorage.getSqliteDatabase, backed by
+ * (via the in-memory SQLite test fixture, backed by
  * better-sqlite3) with the actual migration DDL applied (0002, 0009, 0010),
  * and a cursor-capable Map-backed KV mock with prefix listing so page
  * traversal, in-page resume, absolute upserts, the D1 lease, and parity-gated
@@ -30,9 +30,7 @@ import { getAdminChatStatsFromD1 } from '../src/features/stats/admin-stats-d1';
 type Sqlite = Awaited<ReturnType<MemoryStorage['getSqliteDatabase']>>;
 type SQLInputValue = null | number | bigint | string | Uint8Array;
 
-// Pre-warm the better-sqlite3 runtime (fetched lazily by MemoryStorage via
-// npx-import) during module load, so the per-worker first-install cost never
-// stalls the 10s beforeEach hook timeout on a cold CI cache.
+// Initialize SQLite once so native-module startup occurs before the test hooks.
 {
   const warmup = await new MemoryStorage().getSqliteDatabase();
   warmup.close();

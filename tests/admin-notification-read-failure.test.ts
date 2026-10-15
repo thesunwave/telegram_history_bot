@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getPlatformProxy } from "wrangler";
-import { KVNamespace } from "@miniflare/kv";
-import { MemoryStorage } from "@miniflare/storage-memory";
+import { KVNamespace, MemoryStorage } from "./helpers/test-storage";
 import worker from "../src/index";
 import { createTelegramSessionCookie } from "../src/api/admin-auth";
 import { disableConsoleLogging } from "./test-utils";
@@ -34,9 +33,7 @@ beforeEach(() => {
   ctx = { waitUntil: (p: Promise<any>) => tasks.push(p) };
   vi.clearAllMocks();
   vi.restoreAllMocks();
-  // KVNamespace stores data in a private #storage field, so reassigning the
-  // public `.storage` property (the pattern used elsewhere) does NOT clear it.
-  // Use a brand-new namespace per test for real isolation.
+  // Use a brand-new namespace per test for isolation.
   env.HISTORY = new KVNamespace(new MemoryStorage());
   env.COUNTERS = new KVNamespace(new MemoryStorage());
 });

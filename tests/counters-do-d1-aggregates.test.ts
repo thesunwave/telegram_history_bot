@@ -2,14 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MemoryStorage } from '@miniflare/storage-memory';
+import { MemoryStorage } from './helpers/test-storage';
 import type { D1Database } from '@cloudflare/workers-types';
 import { CountersDO } from '../src/durable-objects/counters-do';
 import { isIntegrityClean } from '../src/features/stats/pipeline-progress';
 
 /**
  * Phase 2 dual-write tests. Uses a real in-memory SQLite database (via
- * @miniflare/storage-memory MemoryStorage.getSqliteDatabase, backed by
+ * the in-memory SQLite test fixture, backed by
  * better-sqlite3) with the actual migration DDL applied, so upsert/MAX/CHECK
  * semantics are the real ones. CountersDO is exercised through its public
  * fetch() endpoints with Map-backed KV mocks, mirroring the existing counters
@@ -19,9 +19,7 @@ import { isIntegrityClean } from '../src/features/stats/pipeline-progress';
 type Sqlite = Awaited<ReturnType<MemoryStorage['getSqliteDatabase']>>;
 type SQLInputValue = null | number | bigint | string | Uint8Array;
 
-// Pre-warm the better-sqlite3 runtime (fetched lazily by MemoryStorage via
-// npx-import) during module load, so the per-worker first-install cost never
-// stalls the 10s beforeEach hook timeout on a cold CI cache.
+// Initialize SQLite once so native-module startup occurs before the test hooks.
 {
   const warmup = await new MemoryStorage().getSqliteDatabase();
   warmup.close();

@@ -3,8 +3,7 @@ import { handleUpdate } from '../../src/api/update';
 import { sendMessage } from '../../src/core/telegram';
 import type { Env } from '../../src/core/env';
 import { createMockEnv } from '../test-utils';
-import { KVNamespace } from '@miniflare/kv';
-import { MemoryStorage } from '@miniflare/storage-memory';
+import { KVNamespace, MemoryStorage } from '../helpers/test-storage';
 
 vi.mock('../../src/core/telegram', () => ({
   sendMessage: vi.fn(),

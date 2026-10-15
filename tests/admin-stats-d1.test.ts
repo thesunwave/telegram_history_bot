@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MemoryStorage } from '@miniflare/storage-memory';
+import { MemoryStorage } from './helpers/test-storage';
 import type { D1Database } from '@cloudflare/workers-types';
 import {
   getAdminChatStats,
@@ -21,7 +21,7 @@ import { AdminUnavailable } from '../src/features/stats/admin-stats-errors';
 
 /**
  * D1 reader + selector tests. Uses a real in-memory SQLite database (via
- * @miniflare/storage-memory MemoryStorage.getSqliteDatabase, backed by
+ * the in-memory SQLite test fixture, backed by
  * better-sqlite3) with the actual migration DDL applied, so aggregate read
  * semantics (GROUP BY, SUM, COUNT(CASE ...), LEFT JOIN) are the real ones.
  */
@@ -29,7 +29,7 @@ import { AdminUnavailable } from '../src/features/stats/admin-stats-errors';
 type Sqlite = Awaited<ReturnType<MemoryStorage['getSqliteDatabase']>>;
 type SQLInputValue = null | number | bigint | string | Uint8Array;
 
-// Pre-warm better-sqlite3 (fetched lazily by MemoryStorage via npx-import).
+// Initialize SQLite once before the tests.
 {
   const warmup = await new MemoryStorage().getSqliteDatabase();
   warmup.close();

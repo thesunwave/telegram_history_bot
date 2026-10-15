@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MemoryStorage } from "@miniflare/storage-memory";
+import { MemoryStorage } from "../helpers/test-storage";
 import type { D1Database, ExecutionContext } from "@cloudflare/workers-types";
 import { testWorker } from "../test-utils";
 import { createMockEnv } from "../test-utils";
@@ -11,7 +11,7 @@ import type { Env } from "../../src/core/env";
 /**
  * End-to-end integration test for the legal-RAG ingest pipeline.
  *
- * Uses a real in-memory SQLite database (via @miniflare/storage-memory
+ * Uses a real in-memory SQLite database (via the test fixture's
  * MemoryStorage.getSqliteDatabase, backed by better-sqlite3) with the actual
  * migration 0008_legal_rag_corpus.sql DDL applied, so the D1 SQL
  * (INSERT OR IGNORE, ON CONFLICT upserts, scoped DELETE ... AND document_id
@@ -24,7 +24,7 @@ import type { Env } from "../../src/core/env";
 type Sqlite = Awaited<ReturnType<MemoryStorage["getSqliteDatabase"]>>;
 type SQLInputValue = null | number | bigint | string | Uint8Array;
 
-// Pre-warm better-sqlite3 (fetched lazily by MemoryStorage via npx-import).
+// Initialize SQLite once before the tests.
 {
   const warmup = await new MemoryStorage().getSqliteDatabase();
   warmup.close();

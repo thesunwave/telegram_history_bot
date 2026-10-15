@@ -1,9 +1,8 @@
 /**
- * Real-KV integration test for the stale-id prune fix.
+ * In-memory KV integration test for the stale-id prune fix.
  *
- * Uses @miniflare/kv's real KVNamespace (backed by MemoryStorage with a
- * controllable clock) to drive actual `expirationTtl` semantics — exercising
- * the same code path the production worker hits against real Cloudflare KV.
+ * Uses a test KVNamespace (backed by MemoryStorage with a controllable clock)
+ * to simulate `expirationTtl` semantics while exercising the repository code.
  * Confirms that once the per-notification entry's TTL elapses, `HISTORY.get`
  * returns `null` (the Cloudflare KV contract on expiry) and
  * `getScheduledNotifications` prunes the id from `scheduled_notifications_list`.
@@ -15,8 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { KVNamespace } from '@miniflare/kv';
-import { MemoryStorage } from '@miniflare/storage-memory';
+import { KVNamespace, MemoryStorage } from '../helpers/test-storage';
 import { NotificationRepository } from '../../src/core/repositories/notification-repository';
 import type { ScheduledNotification } from '../../src/core/models/notification-settings';
 

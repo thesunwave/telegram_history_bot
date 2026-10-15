@@ -3,8 +3,7 @@ import { handleUpdate, recordMessage } from '../../src/api/update';
 import { sendMessage } from '../../src/core/telegram';
 import type { Env } from '../../src/core/env';
 import { createMockEnv } from '../test-utils';
-import { KVNamespace } from '@miniflare/kv';
-import { MemoryStorage } from '@miniflare/storage-memory';
+import { KVNamespace, MemoryStorage } from '../helpers/test-storage';
 
 // Mock external dependencies
 vi.mock('../../src/core/telegram', () => ({
@@ -48,7 +47,7 @@ describe('Comprehensive E2E Integration Tests', () => {
     vi.clearAllMocks();
     mockSendMessage = vi.mocked(sendMessage);
 
-    // Create real KV instances for more realistic testing
+    // Create isolated in-memory KV fixtures.
     const history = new KVNamespace(new MemoryStorage());
     const counters = new KVNamespace(new MemoryStorage());
 

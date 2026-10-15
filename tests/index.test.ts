@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getPlatformProxy } from "wrangler";
-import { KVNamespace } from "@miniflare/kv";
-import { MemoryStorage } from "@miniflare/storage-memory";
+import { KVNamespace, MemoryStorage } from "./helpers/test-storage";
 import worker from "../src/index";
 import { createTelegramSessionCookie } from "../src/api/admin-auth";
 import * as adminChatsModule from "../src/api/admin-chats";
@@ -64,9 +63,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.restoreAllMocks();
 
-  // Reset KV storage
-  (env.HISTORY as any).storage = new Map();
-  (env.COUNTERS as any).storage = new Map();
+  // Reset KV storage between tests.
+  (env.HISTORY as KVNamespace).storage.entries.clear();
+  (env.COUNTERS as KVNamespace).storage.entries.clear();
 
   // Mock COUNTERS_DO
   const countersStorage = new Map();

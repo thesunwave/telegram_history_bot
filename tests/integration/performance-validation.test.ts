@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { KVNamespace } from "@miniflare/kv";
-import { MemoryStorage } from "@miniflare/storage-memory";
+import { KVNamespace, MemoryStorage } from "../helpers/test-storage";
 import { fetchMessages, fetchLastMessages } from '../../src/features/history/history';
 import {
   Env,
