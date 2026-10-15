@@ -953,12 +953,12 @@ async function handleNotificationEnable(env: Env, service: NotificationService, 
       return;
     }
 
-    await service.enableNotification(chatId.toString(), type as NotificationType, userId);
+    await service.enableNotification(chatId.toString(), type as NotificationType, userId, true);
     await sendMessage(env, chatId,
       `✅ Уведомления "${getNotificationTypeDisplayName(type as NotificationType)}" включены`
     );
   } else {
-    await service.enableNotification(chatId.toString(), 'activity_summary', userId);
+    await service.enableNotification(chatId.toString(), 'activity_summary', userId, true);
     await sendMessage(env, chatId, '✅ Ежедневный отчёт об активности включён (по умолчанию 18:00 UTC)');
   }
 }
