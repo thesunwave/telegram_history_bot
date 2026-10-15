@@ -1,6 +1,6 @@
 # Telegram Group Statistics & Analytics — History Bot
 
-**See who is active in your Telegram group, what people discuss, and when conversation peaks.** History Bot is a source-available Telegram group analytics bot with activity statistics, message/word counts, top members, voice-note stats and optional summaries.
+**See who is active in your Telegram group, what people discuss, and when conversation peaks.** History Bot is an MIT-licensed open-source Telegram group analytics bot with activity statistics, message/word counts, top members, voice-note stats and optional summaries.
 
 **Try it without deploying anything:** [Add @stat_history_bot to your group](https://t.me/stat_history_bot?startgroup=true) · [See screenshots and features](https://tghistory.thesunwave.space/) · [Compare with Combot](https://tghistory.thesunwave.space/combot-alternative)
 
@@ -191,3 +191,8 @@ Run `npm install` before `npm test` to ensure dev dependencies like Vitest are a
 ## Docs
 
 See `docs/README.md` for documentation structure and naming rules.
+
+## License
+
+History Bot is released under the [MIT License](LICENSE). Copyright © 2026 Artur Malev.
+
