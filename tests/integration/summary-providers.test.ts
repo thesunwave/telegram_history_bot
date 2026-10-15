@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach, afterAll } from "vitest";
 import worker, { CountersDO } from "../../src/index";
-import { createKVBindings } from '../helpers/miniflare-kv';
+import { createKVBindings } from "../helpers/miniflare-kv";
 import type { D1Database } from "@cloudflare/workers-types";
 import { ProviderInitializer } from "../../src/core/providers/provider-init";
 
@@ -102,9 +102,26 @@ describe("Summary Providers Integration Tests", () => {
   });
 
   afterEach(async () => {
-    vi.restoreAllMocks();
     await Promise.allSettled(tasks);
+    vi.restoreAllMocks();
     await bindings.mf.dispose();
+  });
+
+  describe("waitUntil teardown", () => {
+    let fetchWasMockedDuringTask = false;
+
+    it("keeps the fetch mock installed until pending work finishes", () => {
+      ctx.waitUntil(new Promise<void>((resolve) => {
+        setTimeout(() => {
+          fetchWasMockedDuringTask = global.fetch === fetchMock;
+          resolve();
+        }, 0);
+      }));
+    });
+
+    afterAll(() => {
+      expect(fetchWasMockedDuringTask).toBe(true);
+    });
   });
 
   describe("Complete summarization flow with both providers", () => {

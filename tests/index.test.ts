@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { getPlatformProxy } from "wrangler";
-import { createKVBindings, spyableKVBinding } from './helpers/miniflare-kv';
+import { createKVBindings, spyableKVBinding } from "./helpers/miniflare-kv";
 import worker from "../src/index";
 import { createTelegramSessionCookie } from "../src/api/admin-auth";
 import * as adminChatsModule from "../src/api/admin-chats";

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import Database from 'better-sqlite3';
+import Database from "better-sqlite3";
 import type { D1Database, ExecutionContext } from "@cloudflare/workers-types";
 import { testWorker } from "../test-utils";
 import { createMockEnv } from "../test-utils";
@@ -91,7 +91,7 @@ class FakeD1Database {
 }
 
 async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database }> {
-  const sqlite = new Database(':memory:');
+  const sqlite = new Database(":memory:");
   const migrationsDir = fileURLToPath(new URL("../../migrations/", import.meta.url));
   const sql = readFileSync(join(migrationsDir, "0008_legal_rag_corpus.sql"), "utf8");
   for (const statement of sql.split(";")) {
