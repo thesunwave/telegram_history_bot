@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import worker, { CountersDO } from "../../src/index";
-import { KVNamespace } from "@miniflare/kv";
-import { MemoryStorage } from "@miniflare/storage-memory";
-import { D1Database } from "@miniflare/d1";
+import { createKVBindings, spyableKVBinding } from '../helpers/miniflare-kv';
+import type { D1Database } from "@cloudflare/workers-types";
 import { ProviderInitializer } from "../../src/core/providers/provider-init";
 import { Env } from '../../src/core/env';
 import { createMockEnv } from "../test-utils";
@@ -40,6 +39,7 @@ describe("Summary End-to-End Tests", () => {
   let tasks: Promise<any>[];
   let fetchMock: any;
   let apiRequestCount: number;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 
   beforeEach(async () => {
     tasks = [];
@@ -47,8 +47,8 @@ describe("Summary End-to-End Tests", () => {
     ProviderInitializer.reset();
     apiRequestCount = 0;
 
-    const history = new KVNamespace(new MemoryStorage());
-    const counters = new KVNamespace(new MemoryStorage());
+    bindings = await createKVBindings();
+    const { history, counters } = bindings;
     const db = {
       prepare: vi.fn(() => ({
         bind: () => ({
@@ -59,20 +59,28 @@ describe("Summary End-to-End Tests", () => {
     } as unknown as D1Database;
 
     env = createMockEnv();
-    env.HISTORY = history as any;
+    env.HISTORY = spyableKVBinding(history as any);
     env.COUNTERS = counters as any;
     env.COUNTERS_DO = createCountersNamespace(env) as any;
     env.DB = db as any;
+    // Summary tests do not exercise counters or background analysis.
+    env.ENABLE_ACTIVITY_TRACKING = 'false';
+    env.ENABLE_PROFANITY_ANALYSIS = 'false';
+    env.ENABLE_CRIMINAL_ANALYSIS = 'false';
 
     fetchMock = vi.spyOn(global, "fetch");
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    await Promise.allSettled(tasks);
+    await bindings.mf.dispose();
   });
 
   /**
-   * Helper function to create and store a large number of messages for testing
+   * Seed summary input directly into real Miniflare KV. Webhook ingestion has
+   * its own tests; routing thousands of setup messages through the webhook
+   * obscures summary timing with unrelated work and background tasks.
    */
   async function setupLargeMessageSet(
     messageCount: number,
@@ -82,35 +90,28 @@ describe("Summary End-to-End Tests", () => {
     const dayInSeconds = 86400;
     const startTime = now - daysSpread * dayInSeconds;
 
+    const pending: Promise<void>[] = [];
     for (let i = 0; i < messageCount; i++) {
-      // Spread messages across the time period
       const messageTime =
         startTime + Math.floor((i / messageCount) * daysSpread * dayInSeconds);
-
-      const message = {
-        message: {
-          message_id: i + 1,
-          text: `Test message ${i + 1} with some content to make it realistic. This message contains enough text to simulate real chat messages.`,
-          chat: { id: 1 },
-          from: { id: 2 + (i % 10), username: `user${(i % 10) + 1}` },
-          date: messageTime,
-        },
+      const userId = 2 + (i % 10);
+      const key = `msg:1:${messageTime}:${i + 1}`;
+      const stored = {
+        chat: 1,
+        user: userId,
+        username: `user${(i % 10) + 1}`,
+        text: `Test message ${i + 1} with some content to make it realistic. This message contains enough text to simulate real chat messages.`,
+        ts: messageTime,
+        messageId: i + 1,
       };
-
-      const req = new Request("http://localhost/tg/test-token/webhook", {
-        method: "POST",
-        headers: {
-          "X-Telegram-Bot-Api-Secret-Token": "test-secret",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(message),
-      });
-
-      await worker.fetch(req, env, ctx);
+      pending.push(env.HISTORY.put(key, JSON.stringify(stored), { expirationTtl: 7 * dayInSeconds }));
+      if (pending.length === 50) {
+        await Promise.all(pending);
+        pending.length = 0;
+      }
     }
 
-    await Promise.all(tasks);
-    tasks = [];
+    await Promise.all(pending);
   }
 
   /**

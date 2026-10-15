@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MemoryStorage } from '@miniflare/storage-memory';
+import Database from 'better-sqlite3';
 import type { D1Database } from '@cloudflare/workers-types';
 import {
   BACKFILL_CRON,
@@ -20,23 +20,15 @@ import { getAdminChatStatsFromD1 } from '../src/features/stats/admin-stats-d1';
 
 /**
  * Phase 3a (corrected) backfill tests. Uses a real in-memory SQLite database
- * (via @miniflare/storage-memory MemoryStorage.getSqliteDatabase, backed by
- * better-sqlite3) with the actual migration DDL applied (0002, 0009, 0010),
+ * (via better-sqlite3) with the actual migration DDL applied (0002, 0009, 0010),
  * and a cursor-capable Map-backed KV mock with prefix listing so page
  * traversal, in-page resume, absolute upserts, the D1 lease, and parity-gated
  * coverage all run against realistic primitives.
  */
 
-type Sqlite = Awaited<ReturnType<MemoryStorage['getSqliteDatabase']>>;
+type Sqlite = Database.Database;
 type SQLInputValue = null | number | bigint | string | Uint8Array;
 
-// Pre-warm the better-sqlite3 runtime (fetched lazily by MemoryStorage via
-// npx-import) during module load, so the per-worker first-install cost never
-// stalls the 10s beforeEach hook timeout on a cold CI cache.
-{
-  const warmup = await new MemoryStorage().getSqliteDatabase();
-  warmup.close();
-}
 
 const NOW = new Date('2026-08-28T10:00:00.000Z');
 const CUTOFF_DAY = '2026-08-28';
@@ -137,7 +129,7 @@ class FakeD1Database {
 }
 
 async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database }> {
-  const sqlite = await new MemoryStorage().getSqliteDatabase();
+  const sqlite = new Database(':memory:');
   const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url));
   for (const file of [
     '0002_activity.sql',

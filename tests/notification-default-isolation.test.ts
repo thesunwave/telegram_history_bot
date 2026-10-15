@@ -10,7 +10,7 @@
  * в том же Cloudflare Workers isolate.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NotificationService } from '../src/core/services/notification-service';
 import { NotificationRepository } from '../src/core/repositories/notification-repository';
 import {
@@ -28,6 +28,7 @@ import type {
 } from '../src/core/models/notification-settings';
 import type { Env } from '../src/core/env';
 import { createMockEnv } from './test-utils';
+import { createKVBindings } from './helpers/miniflare-kv';
 
 vi.mock('../src/core/telegram', () => ({
   sendMessage: vi.fn().mockResolvedValue('123')
@@ -329,12 +330,18 @@ describe('Manifestation 2 — санитизатор на чтении не др
   let env: Env;
   let repo: NotificationRepository;
   let service: NotificationService;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     resetDefaultSingleton();
-    env = createMockEnv();
+    bindings = await createKVBindings();
+    env = createMockEnv({ HISTORY: bindings.history as any });
     repo = new NotificationRepository(env);
     service = new NotificationService(env, repo);
+  });
+
+  afterEach(async () => {
+    await bindings.mf.dispose();
   });
 
   it('чтение существующего чата через реальный репозиторий не дрейфит дефолт', async () => {
@@ -429,12 +436,18 @@ describe('User-facing first-use вектор (bug-repro4) — chatB не нас�
   let env: Env;
   let repo: NotificationRepository;
   let service: NotificationService;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     resetDefaultSingleton();
-    env = createMockEnv();
+    bindings = await createKVBindings();
+    env = createMockEnv({ HISTORY: bindings.history as any });
     repo = new NotificationRepository(env);
     service = new NotificationService(env, repo);
+  });
+
+  afterEach(async () => {
+    await bindings.mf.dispose();
   });
 
   it('chatB /enable profanity_reports не получает criminal_reports.enabled=true', async () => {

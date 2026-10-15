@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { KVNamespace } from "@miniflare/kv";
-import { MemoryStorage } from "@miniflare/storage-memory";
+import { createKVBindings } from '../helpers/miniflare-kv';
 import { summariseChat, summariseChatMessages } from '../../src/features/summary/summary';
 import { sendMessage } from '../../src/core/telegram';
 import { fetchMessages, fetchLastMessages } from '../../src/features/history/history';
@@ -24,11 +23,13 @@ const mockProviderInitializer = vi.mocked(ProviderInitializer);
 
 describe("Error Handling Integration Tests", () => {
   let env: Env;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
 
-    const history = new KVNamespace(new MemoryStorage());
+    bindings = await createKVBindings();
+    const { history } = bindings;
 
     env = {
       HISTORY: history as any,
@@ -58,8 +59,9 @@ describe("Error Handling Integration Tests", () => {
     mockSendMessage.mockResolvedValue(undefined);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    await bindings.mf.dispose();
   });
 
   describe("API Limit Error Handling", () => {

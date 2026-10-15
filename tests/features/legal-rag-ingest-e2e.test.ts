@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MemoryStorage } from "@miniflare/storage-memory";
+import Database from "better-sqlite3";
 import type { D1Database, ExecutionContext } from "@cloudflare/workers-types";
 import { testWorker } from "../test-utils";
 import { createMockEnv } from "../test-utils";
@@ -11,8 +11,7 @@ import type { Env } from "../../src/core/env";
 /**
  * End-to-end integration test for the legal-RAG ingest pipeline.
  *
- * Uses a real in-memory SQLite database (via @miniflare/storage-memory
- * MemoryStorage.getSqliteDatabase, backed by better-sqlite3) with the actual
+ * Uses a real in-memory SQLite database (via better-sqlite3) with the actual
  * migration 0008_legal_rag_corpus.sql DDL applied, so the D1 SQL
  * (INSERT OR IGNORE, ON CONFLICT upserts, scoped DELETE ... AND document_id
  * != ?, SELECT vector_id) runs against real SQLite. Calls the real
@@ -21,14 +20,9 @@ import type { Env } from "../../src/core/env";
  * (Workers AI, Vectorize) are mocked — D1 is real.
  */
 
-type Sqlite = Awaited<ReturnType<MemoryStorage["getSqliteDatabase"]>>;
+type Sqlite = Database.Database;
 type SQLInputValue = null | number | bigint | string | Uint8Array;
 
-// Pre-warm better-sqlite3 (fetched lazily by MemoryStorage via npx-import).
-{
-  const warmup = await new MemoryStorage().getSqliteDatabase();
-  warmup.close();
-}
 
 class FakeD1Statement {
   constructor(
@@ -97,7 +91,7 @@ class FakeD1Database {
 }
 
 async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database }> {
-  const sqlite = await new MemoryStorage().getSqliteDatabase();
+  const sqlite = new Database(":memory:");
   const migrationsDir = fileURLToPath(new URL("../../migrations/", import.meta.url));
   const sql = readFileSync(join(migrationsDir, "0008_legal_rag_corpus.sql"), "utf8");
   for (const statement of sql.split(";")) {

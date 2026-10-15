@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach, afterAll } from "vitest";
 import worker, { CountersDO } from "../../src/index";
-import { KVNamespace } from "@miniflare/kv";
-import { MemoryStorage } from "@miniflare/storage-memory";
-import { D1Database } from "@miniflare/d1";
+import { createKVBindings } from "../helpers/miniflare-kv";
+import type { D1Database } from "@cloudflare/workers-types";
 import { ProviderInitializer } from "../../src/core/providers/provider-init";
 
 interface Env {
@@ -58,14 +57,15 @@ describe("Summary Providers Integration Tests", () => {
   let ctx: any;
   let tasks: Promise<any>[];
   let fetchMock: any;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 
   beforeEach(async () => {
     tasks = [];
     ctx = { waitUntil: (p: Promise<any>) => tasks.push(p) };
     ProviderInitializer.reset();
 
-    const history = new KVNamespace(new MemoryStorage());
-    const counters = new KVNamespace(new MemoryStorage());
+    bindings = await createKVBindings();
+    const { history, counters } = bindings;
     const db = {
       prepare: vi.fn(() => ({
         bind: () => ({
@@ -101,8 +101,27 @@ describe("Summary Providers Integration Tests", () => {
     fetchMock = vi.spyOn(global, "fetch");
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.allSettled(tasks);
     vi.restoreAllMocks();
+    await bindings.mf.dispose();
+  });
+
+  describe("waitUntil teardown", () => {
+    let fetchWasMockedDuringTask = false;
+
+    it("keeps the fetch mock installed until pending work finishes", () => {
+      ctx.waitUntil(new Promise<void>((resolve) => {
+        setTimeout(() => {
+          fetchWasMockedDuringTask = global.fetch === fetchMock;
+          resolve();
+        }, 0);
+      }));
+    });
+
+    afterAll(() => {
+      expect(fetchWasMockedDuringTask).toBe(true);
+    });
   });
 
   describe("Complete summarization flow with both providers", () => {

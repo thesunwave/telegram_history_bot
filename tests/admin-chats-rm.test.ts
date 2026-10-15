@@ -26,7 +26,7 @@
  *     graceful degradation.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   isTelegramUserInChat,
   isTelegramUserChatAdmin,
@@ -38,6 +38,7 @@ import { createTelegramSessionCookie } from '../src/api/admin-auth';
 import { handleUpdate } from '../src/api/update';
 import worker from '../src/index';
 import { createMockEnv, disableConsoleLogging } from './test-utils';
+import { createKVBindings } from './helpers/miniflare-kv';
 
 vi.mock('../src/core/telegram', () => ({
   sendMessage: vi.fn().mockResolvedValue('123'),
@@ -54,18 +55,26 @@ vi.mock('../src/core/logger', () => ({
 }));
 
 let env: ReturnType<typeof createMockEnv>;
+let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 const ctx: any = { waitUntil: () => {} };
 
-beforeEach(() => {
+beforeEach(async () => {
   disableConsoleLogging();
   vi.clearAllMocks();
   vi.restoreAllMocks();
+  bindings = await createKVBindings();
   env = createMockEnv({
+    HISTORY: bindings.history as any,
+    COUNTERS: bindings.counters as any,
     TOKEN: 't',
     SECRET: 's',
     TELEGRAM_BOT_USERNAME: 'test_bot',
     DEBUG_LOGS: 'false',
   });
+});
+
+afterEach(async () => {
+  await bindings.mf.dispose();
 });
 
 async function adminSessionCookie(userId = 42): Promise<string> {

@@ -26,11 +26,9 @@
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^5.20261014.1",
-		"@miniflare/core": "^2.14.4",
-		"@miniflare/d1": "^2.14.4",
-		"@miniflare/kv": "^2.14.4",
-		"@miniflare/storage-memory": "^2.14.4",
+		"@types/better-sqlite3": "^9.6.0",
 		"better-sqlite3": "^11.10.0",
+		"miniflare": "^4.20260730.0",
 		"typescript": "^5.0.4",
 		"vitest": "^3.2.3",
 		"wrangler": "^4.151.0"

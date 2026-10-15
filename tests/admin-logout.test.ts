@@ -1,11 +1,30 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { createTelegramSessionCookie } from '../src/api/admin-auth';
 import { handleAdminRequest } from '../src/api/admin';
 import { createMockEnv } from './test-utils';
+import { createKVBindings, spyableKVBinding } from './helpers/miniflare-kv';
 
 describe('admin logout', () => {
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
+
+  beforeEach(async () => {
+    bindings = await createKVBindings();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await bindings.mf.dispose();
+  });
+
+  function createEnv() {
+    return createMockEnv({
+      HISTORY: spyableKVBinding(bindings.history as any),
+      COUNTERS: bindings.counters as any,
+    });
+  }
+
   it('clears the browser session and returns to the login page', async () => {
-    const env = createMockEnv();
+    const env = createEnv();
     const cookie = await createTelegramSessionCookie(env, {
       id: 42,
       first_name: 'Admin',
@@ -45,7 +64,7 @@ describe('admin logout', () => {
   });
 
   it('does not allow GET to log out a session', async () => {
-    const env = createMockEnv();
+    const env = createEnv();
     const cookie = await createTelegramSessionCookie(env, {
       id: 42,
       auth_date: Math.floor(Date.now() / 1000),
@@ -71,7 +90,7 @@ describe('admin logout', () => {
     { Origin: 'https://sub.example.com', 'Sec-Fetch-Site': 'same-site' },
     {},
   ])('does not clear the cookie for untrusted POST headers %o', async headers => {
-    const env = createMockEnv();
+    const env = createEnv();
     const cookie = await createTelegramSessionCookie(env, {
       id: 42,
       auth_date: Math.floor(Date.now() / 1000),
@@ -94,14 +113,14 @@ describe('admin logout', () => {
     const response = await handleAdminRequest(new Request('https://example.com/admin/logout', {
       method: 'POST',
       headers: { Origin: 'https://evil.example', 'Sec-Fetch-Site': 'cross-site' },
-    }), createMockEnv());
+    }), createEnv());
 
     expect(response.status).toBe(403);
     expect(response.headers.has('Set-Cookie')).toBe(false);
   });
 
   it('accepts same-origin Sec-Fetch-Site when Origin is absent', async () => {
-    const env = createMockEnv();
+    const env = createEnv();
     const cookie = await createTelegramSessionCookie(env, {
       id: 42,
       auth_date: Math.floor(Date.now() / 1000),
@@ -116,7 +135,7 @@ describe('admin logout', () => {
   });
 
   it('keeps a separate session alive when another one is logged out', async () => {
-    const env = createMockEnv();
+    const env = createEnv();
     const user = { id: 42, auth_date: Math.floor(Date.now() / 1000) };
     const first = (await createTelegramSessionCookie(env, user)).split(';', 1)[0];
     const second = (await createTelegramSessionCookie(env, user)).split(';', 1)[0];
@@ -137,7 +156,7 @@ describe('admin logout', () => {
   });
 
   it('revokes every valid same-name cookie included in the logout request', async () => {
-    const env = createMockEnv();
+    const env = createEnv();
     const user = { id: 42, auth_date: Math.floor(Date.now() / 1000) };
     const first = (await createTelegramSessionCookie(env, user)).split(';', 1)[0];
     const second = (await createTelegramSessionCookie(env, user)).split(';', 1)[0];
@@ -156,7 +175,7 @@ describe('admin logout', () => {
   });
 
   it('does not finish logout if revocation cannot be persisted', async () => {
-    const env = createMockEnv();
+    const env = createEnv();
     const cookie = (await createTelegramSessionCookie(env, {
       id: 42,
       auth_date: Math.floor(Date.now() / 1000),
@@ -169,7 +188,7 @@ describe('admin logout', () => {
   });
 
   it('does not authenticate if revocation status cannot be checked', async () => {
-    const env = createMockEnv();
+    const env = createEnv();
     const cookie = (await createTelegramSessionCookie(env, {
       id: 42,
       auth_date: Math.floor(Date.now() / 1000),

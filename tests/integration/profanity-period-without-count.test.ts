@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { handleUpdate } from '../../src/api/update';
 import { sendMessage } from '../../src/core/telegram';
 import type { Env } from '../../src/core/env';
 import { createMockEnv } from '../test-utils';
-import { KVNamespace } from '@miniflare/kv';
-import { MemoryStorage } from '@miniflare/storage-memory';
+import { createKVBindings } from '../helpers/miniflare-kv';
 
 vi.mock('../../src/core/telegram', () => ({
   sendMessage: vi.fn(),
@@ -39,6 +38,7 @@ const NO_WORDS = 'Нет данных о матерных словах';
 describe('profanity commands — period without count (regression)', () => {
   let mockEnv: Env;
   let mockSendMessage: any;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
   const testChatId = -100123456789;
   const today = new Date().toISOString().slice(0, 10);
 
@@ -48,13 +48,18 @@ describe('profanity commands — period without count (regression)', () => {
     return date.toISOString().slice(0, 10);
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     mockSendMessage = vi.mocked(sendMessage);
+    bindings = await createKVBindings();
     mockEnv = createMockEnv({
-      HISTORY: new KVNamespace(new MemoryStorage()) as any,
-      COUNTERS: new KVNamespace(new MemoryStorage()) as any,
+      HISTORY: bindings.history as any,
+      COUNTERS: bindings.counters as any,
     });
+  });
+
+  afterEach(async () => {
+    await bindings.mf.dispose();
   });
 
   function createMessage(text: string, userId = 123456, username = 'alice') {
