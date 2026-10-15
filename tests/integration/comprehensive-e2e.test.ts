@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { handleUpdate, recordMessage } from '../../src/api/update';
 import { sendMessage } from '../../src/core/telegram';
 import type { Env } from '../../src/core/env';
 import { createMockEnv } from '../test-utils';
-import { KVNamespace, MemoryStorage } from '../helpers/test-storage';
+import { createKVBindings } from '../helpers/miniflare-kv';
 
 // Mock external dependencies
 vi.mock('../../src/core/telegram', () => ({
@@ -38,23 +38,27 @@ vi.mock('../../src/env', async () => {
 
 describe('Comprehensive E2E Integration Tests', () => {
   let mockEnv: Env;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
   let mockSendMessage: any;
   const testChatId = -100123456789;
   const testUserId = 123456;
   const testUsername = 'testuser';
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     mockSendMessage = vi.mocked(sendMessage);
 
-    // Create isolated in-memory KV fixtures.
-    const history = new KVNamespace(new MemoryStorage());
-    const counters = new KVNamespace(new MemoryStorage());
+    bindings = await createKVBindings();
+    const { history, counters } = bindings;
 
     mockEnv = createMockEnv({
       HISTORY: history as any,
       COUNTERS: counters as any
     });
+  });
+
+  afterEach(async () => {
+    await bindings.mf.dispose();
   });
 
   function createTestMessage(text: string, userId = testUserId, username = testUsername) {

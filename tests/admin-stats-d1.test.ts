@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MemoryStorage } from './helpers/test-storage';
+import Database from 'better-sqlite3';
 import type { D1Database } from '@cloudflare/workers-types';
 import {
   getAdminChatStats,
@@ -21,19 +21,13 @@ import { AdminUnavailable } from '../src/features/stats/admin-stats-errors';
 
 /**
  * D1 reader + selector tests. Uses a real in-memory SQLite database (via
- * the in-memory SQLite test fixture, backed by
  * better-sqlite3) with the actual migration DDL applied, so aggregate read
  * semantics (GROUP BY, SUM, COUNT(CASE ...), LEFT JOIN) are the real ones.
  */
 
-type Sqlite = Awaited<ReturnType<MemoryStorage['getSqliteDatabase']>>;
+type Sqlite = Database.Database;
 type SQLInputValue = null | number | bigint | string | Uint8Array;
 
-// Initialize SQLite once before the tests.
-{
-  const warmup = await new MemoryStorage().getSqliteDatabase();
-  warmup.close();
-}
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -135,7 +129,7 @@ class FakeD1Database {
 }
 
 async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database }> {
-  const sqlite = await new MemoryStorage().getSqliteDatabase();
+  const sqlite = new Database(':memory:');
   const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url));
   for (const file of [
     '0002_activity.sql',

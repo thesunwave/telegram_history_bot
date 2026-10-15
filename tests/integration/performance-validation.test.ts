@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { KVNamespace, MemoryStorage } from "../helpers/test-storage";
+import { createKVBindings, spyableKVBinding } from '../helpers/miniflare-kv';
+import type { KVNamespace } from '@cloudflare/workers-types';
 import { fetchMessages, fetchLastMessages } from '../../src/features/history/history';
 import {
   Env,
@@ -28,10 +29,12 @@ interface BatchSizeTestResult {
 describe("Performance Validation and Optimization", () => {
   let env: Env;
   let history: KVNamespace;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
   let apiRequestCounter: number;
 
   beforeEach(async () => {
-    history = new KVNamespace(new MemoryStorage());
+    bindings = await createKVBindings();
+    history = spyableKVBinding(bindings.history as unknown as KVNamespace);
     apiRequestCounter = 0;
 
     env = createMockEnv({
@@ -53,8 +56,9 @@ describe("Performance Validation and Optimization", () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    await bindings.mf.dispose();
   });
 
   // Helper function to create test messages

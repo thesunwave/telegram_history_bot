@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { getPlatformProxy } from "wrangler";
-import { KVNamespace, MemoryStorage } from "./helpers/test-storage";
+import { createKVBindings, spyableKVBinding } from './helpers/miniflare-kv';
 import worker from "../src/index";
 import { createTelegramSessionCookie } from "../src/api/admin-auth";
 import * as adminChatsModule from "../src/api/admin-chats";
@@ -9,10 +9,7 @@ import { disableConsoleLogging } from "./test-utils";
 
 vi.mock("wrangler", () => ({
   getPlatformProxy: async () => ({
-    env: {
-      HISTORY: new KVNamespace(new MemoryStorage()),
-      COUNTERS: new KVNamespace(new MemoryStorage()),
-    },
+    env: {},
   }),
 }));
 
@@ -53,8 +50,14 @@ env.AI = {
 
 let tasks: Promise<any>[] = [];
 let ctx: any;
+let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 
-beforeEach(() => {
+afterEach(async () => {
+  await Promise.allSettled(tasks);
+  await bindings.mf.dispose();
+});
+
+beforeEach(async () => {
   // Disable console logging to prevent infinite recursion
   disableConsoleLogging();
 
@@ -63,9 +66,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.restoreAllMocks();
 
-  // Reset KV storage between tests.
-  (env.HISTORY as KVNamespace).storage.entries.clear();
-  (env.COUNTERS as KVNamespace).storage.entries.clear();
+  bindings = await createKVBindings();
+  env.HISTORY = bindings.history;
+  env.COUNTERS = spyableKVBinding(bindings.counters as any);
 
   // Mock COUNTERS_DO
   const countersStorage = new Map();

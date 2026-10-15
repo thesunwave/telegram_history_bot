@@ -1,16 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { getPlatformProxy } from "wrangler";
-import { KVNamespace, MemoryStorage } from "./helpers/test-storage";
+import { createKVBindings } from './helpers/miniflare-kv';
 import worker from "../src/index";
 import { createTelegramSessionCookie } from "../src/api/admin-auth";
 import { disableConsoleLogging } from "./test-utils";
 
 vi.mock("wrangler", () => ({
   getPlatformProxy: async () => ({
-    env: {
-      HISTORY: new KVNamespace(new MemoryStorage()),
-      COUNTERS: new KVNamespace(new MemoryStorage()),
-    },
+    env: {},
   }),
 }));
 
@@ -27,15 +24,21 @@ env.AI = { run: vi.fn().mockResolvedValue({ response: "x" }) };
 
 let tasks: Promise<any>[] = [];
 let ctx: any;
-beforeEach(() => {
+let bindings: Awaited<ReturnType<typeof createKVBindings>>;
+beforeEach(async () => {
   disableConsoleLogging();
   tasks = [];
   ctx = { waitUntil: (p: Promise<any>) => tasks.push(p) };
   vi.clearAllMocks();
   vi.restoreAllMocks();
-  // Use a brand-new namespace per test for isolation.
-  env.HISTORY = new KVNamespace(new MemoryStorage());
-  env.COUNTERS = new KVNamespace(new MemoryStorage());
+  bindings = await createKVBindings();
+  env.HISTORY = bindings.history;
+  env.COUNTERS = bindings.counters;
+});
+
+afterEach(async () => {
+  await Promise.allSettled(tasks);
+  await bindings.mf.dispose();
 });
 
 const telegramUserId = 42;

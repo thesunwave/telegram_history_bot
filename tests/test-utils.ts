@@ -1,6 +1,5 @@
 import worker from "../src/index";
 import { Env, DEFAULT_KV_BATCH_SIZE, DEFAULT_KV_BATCH_DELAY } from "../src/core/env";
-import { KVNamespace, MemoryStorage } from "./helpers/test-storage";
 import type {
   KVNamespace as CloudflareKVNamespace,
   DurableObjectNamespace,
@@ -16,19 +15,16 @@ export const testWorker = {
 };
 
 /**
- * Creates a mock KVNamespace with proper typing
+ * Minimal no-op KV stub for unit tests that do not exercise KV behavior.
+ * Integration tests use real KV bindings from Miniflare.
  */
 export function createMockKVNamespace(): CloudflareKVNamespace {
-  const realKV = new KVNamespace(new MemoryStorage());
-  
   return {
-    get: vi.fn().mockImplementation((key: string, options?: any) => realKV.get(key, options)),
-    put: vi.fn().mockImplementation((key: string, value: string | ArrayBuffer | ArrayBufferView | ReadableStream, options?: any) => 
-      realKV.put(key, value, options)
-    ),
-    delete: vi.fn().mockImplementation((key: string) => realKV.delete(key)),
-    list: vi.fn().mockImplementation((options?: any) => realKV.list(options)),
-    getWithMetadata: vi.fn().mockImplementation((key: string, options?: any) => realKV.getWithMetadata(key, options)),
+    get: vi.fn().mockResolvedValue(null),
+    put: vi.fn().mockResolvedValue(undefined),
+    delete: vi.fn().mockResolvedValue(undefined),
+    list: vi.fn().mockResolvedValue({ keys: [], list_complete: true, cursor: '' }),
+    getWithMetadata: vi.fn().mockResolvedValue({ value: null, metadata: null }),
   } as CloudflareKVNamespace;
 }
 

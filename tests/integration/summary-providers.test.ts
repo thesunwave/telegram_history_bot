@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import worker, { CountersDO } from "../../src/index";
-import { KVNamespace, MemoryStorage } from "../helpers/test-storage";
+import { createKVBindings } from '../helpers/miniflare-kv';
 import type { D1Database } from "@cloudflare/workers-types";
 import { ProviderInitializer } from "../../src/core/providers/provider-init";
 
@@ -57,14 +57,15 @@ describe("Summary Providers Integration Tests", () => {
   let ctx: any;
   let tasks: Promise<any>[];
   let fetchMock: any;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 
   beforeEach(async () => {
     tasks = [];
     ctx = { waitUntil: (p: Promise<any>) => tasks.push(p) };
     ProviderInitializer.reset();
 
-    const history = new KVNamespace(new MemoryStorage());
-    const counters = new KVNamespace(new MemoryStorage());
+    bindings = await createKVBindings();
+    const { history, counters } = bindings;
     const db = {
       prepare: vi.fn(() => ({
         bind: () => ({
@@ -100,8 +101,10 @@ describe("Summary Providers Integration Tests", () => {
     fetchMock = vi.spyOn(global, "fetch");
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    await Promise.allSettled(tasks);
+    await bindings.mf.dispose();
   });
 
   describe("Complete summarization flow with both providers", () => {
