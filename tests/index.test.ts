@@ -197,6 +197,22 @@ describe("webhook", () => {
     expect(response.status).toBe(403);
   });
 
+  it("rejects forged legacy webhooks even with ENVIRONMENT=development", async () => {
+    const developmentEnv = { ...env, ENVIRONMENT: "development" };
+    const request = (token: string, secret: string | undefined) => new Request(
+      `https://bot.example/tg/${token}/webhook`, {
+        method: "POST",
+        headers: secret ? { "X-Telegram-Bot-Api-Secret-Token": secret } : {},
+        body: "{}",
+      },
+    );
+
+    expect((await worker.fetch(request("wrong", "s"), developmentEnv, ctx)).status).toBe(403);
+    expect((await worker.fetch(request("t", "wrong"), developmentEnv, ctx)).status).toBe(403);
+    expect((await worker.fetch(request("t", undefined), developmentEnv, ctx)).status).toBe(403);
+    expect((await worker.fetch(request("t", "s"), { ...env, SECRET: undefined }, ctx)).status).toBe(403);
+  });
+
   const adminAuth = `Basic ${btoa("admin:password")}`;
   const telegramUserId = 42;
 

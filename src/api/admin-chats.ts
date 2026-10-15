@@ -55,8 +55,7 @@ export async function saveAdminChatMeta(env: Env, chat: any, seenAt: number): Pr
     await env.HISTORY.put(`${CHAT_META_PREFIX}${chatId}`, JSON.stringify(meta));
   } catch (error: any) {
     Logger.error('Failed to save admin chat metadata', {
-      chatId,
-      error: error.message || String(error),
+      errorName: error instanceof Error ? error.name : 'UnknownError',
     });
   }
 }

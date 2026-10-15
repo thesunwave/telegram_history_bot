@@ -1881,8 +1881,11 @@ export async function cleanupOldData(
           })
             .then(r => r.json())
             .then((d: any) => d.deleted ? 1 : 0)
-            .catch(e => {
-              console.error(`[Cleanup] Failed to clean DO ${name}:`, e);
+            .catch((e: unknown) => {
+              // Neither chat identifiers nor raw provider errors belong in logs.
+              console.error('[Cleanup] Failed to clean DO', {
+                errorName: e instanceof Error ? e.name : 'UnknownError'
+              });
               return 0;
             })
         );

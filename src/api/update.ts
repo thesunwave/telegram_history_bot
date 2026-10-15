@@ -234,10 +234,17 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   // msg: KV path, which summary fetches can read. Other test sentinels must
   // keep the normal DayBlock-first path.
   const key = `msg:${chatId}:${ts}:${msg.message_id}`;
-  if (env.TOKEN === 'test-token') {
+  const configuredDays = Number(env.RAW_MESSAGE_RETENTION_DAYS ?? 7);
+  const retentionDays = Number.isFinite(configuredDays) && configuredDays > 0 ? Math.ceil(configuredDays) : 7;
+  const expiration = ts + retentionDays * DAY;
+  const rawExpired = !Number.isInteger(ts) || expiration <= Math.floor(Date.now() / 1000) + 60;
+  if (rawExpired) {
+    // Delayed updates must not resurrect already-expired messages in any store.
+    Logger.debug(env, 'recordMessage: raw message already expired');
+  } else if (env.TOKEN === 'test-token') {
     try {
       await env.HISTORY.put(key, JSON.stringify(stored), {
-        expirationTtl: 7 * DAY,
+        expiration,
       });
       Logger.debug(env, 'recordMessage: individual save successful (test env)', { op: 'fallback' });
     } catch {
@@ -263,7 +270,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       // Fallback to individual message storage for reliability
       try {
         await env.HISTORY.put(key, JSON.stringify(stored), {
-          expirationTtl: 7 * DAY,
+          expiration,
         });
         Logger.debug(env, 'recordMessage: fallback individual save successful', { op: 'fallback' });
       } catch {

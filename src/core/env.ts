@@ -39,6 +39,7 @@ export interface Env {
   OPENROUTER_REFERER?: string;
   OPENROUTER_TITLE?: string;
   DEBUG_LOGS?: string;
+  RAW_MESSAGE_RETENTION_DAYS?: string | number;
   KV_BATCH_SIZE?: number;
   KV_BATCH_DELAY?: number;
   LARGE_DATASET_BATCH_SIZE?: number;

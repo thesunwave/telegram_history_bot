@@ -55,13 +55,13 @@ export class DayBlockManager {
 
       return new Response('Not Found', { status: 404 });
     } catch (error: any) {
+      // Exceptions can contain message bodies and chat IDs. Keep both
+      // logs and the HTTP response free of request data.
       Logger.error('DayBlockManager: request failed', {
-        error: error.message || String(error),
-        stack: error.stack,
-        url: request.url,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
         method: request.method
       });
-      return new Response(JSON.stringify({ error: error.message }), {
+      return new Response(JSON.stringify({ error: 'Internal server error' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -179,9 +179,7 @@ export class DayBlockManager {
 
     } catch (error: any) {
       Logger.error('DayBlockManager: add message failed', {
-        chat: message.chat.toString(LOG_ID_RADIX),
-        error: error.message || String(error),
-        stack: error.stack
+        errorName: error instanceof Error ? error.name : 'UnknownError'
       });
       throw error;
     }
@@ -239,9 +237,7 @@ export class DayBlockManager {
 
     } catch (error: any) {
       Logger.error('DayBlockManager: get block failed', {
-        chat: chatId.toString(LOG_ID_RADIX),
-        date,
-        error: error.message || String(error)
+        errorName: error instanceof Error ? error.name : 'UnknownError'
       });
       throw error;
     }
@@ -258,7 +254,7 @@ export class DayBlockManager {
       return 1;
     } catch (error: any) {
       Logger.error('DayBlockManager: cleanup failed', {
-        error: error.message
+        errorName: error instanceof Error ? error.name : 'UnknownError'
       });
       throw error;
     }
@@ -396,22 +392,32 @@ export class DayBlockManager {
     return hashText(payload);
   }
 
+  private retentionExpiry(date: string): number {
+    const configured = Number(this.env.RAW_MESSAGE_RETENTION_DAYS ?? 7);
+    const days = Number.isFinite(configured) && configured > 0 ? Math.ceil(configured) : 7;
+    return Date.parse(`${date}T00:00:00.000Z`) + days * DAY * 1000;
+  }
+
   private async backupToKV(blockId: string, meta: DayBlockMeta, affectedStartShard: number, affectedEndShard: number): Promise<void> {
+    // Do not refresh a whole day's TTL on every new message. All KV shards
+    // must expire at the same fixed deadline as their Durable Object.
+    const expiry = this.retentionExpiry(meta.date);
+    if (expiry <= Date.now() + 60_000) return;
+    const options = { expiration: Math.floor(expiry / 1000) };
     try {
       // Save meta
-      await this.env.HISTORY.put(this.kvMetaKey(blockId), JSON.stringify(meta), { expirationTtl: 7 * DAY });
+      await this.env.HISTORY.put(this.kvMetaKey(blockId), JSON.stringify(meta), options);
       // Save shards
       const promises: Promise<any>[] = [];
       for (let i = affectedStartShard; i <= affectedEndShard; i++) {
         const shard = await this.loadShard(blockId, i);
         if (!shard) continue;
-        promises.push(this.env.HISTORY.put(this.kvShardKey(blockId, i), JSON.stringify(shard), { expirationTtl: 7 * DAY }));
+        promises.push(this.env.HISTORY.put(this.kvShardKey(blockId, i), JSON.stringify(shard), options));
       }
       await Promise.all(promises);
     } catch (kvError: any) {
       Logger.error('DayBlockManager: KV backup failed', {
-        blockId,
-        error: kvError.message
+        errorName: kvError instanceof Error ? kvError.name : 'UnknownError'
       });
       // Do not fail operation on KV errors
     }
@@ -426,11 +432,7 @@ export class DayBlockManager {
       return;
     }
 
-    const rawRetentionDays = Number(this.env.RAW_MESSAGE_RETENTION_DAYS ?? 7);
-    const retentionDays = Number.isFinite(rawRetentionDays) && rawRetentionDays > 0
-      ? Math.ceil(rawRetentionDays)
-      : 7;
-    const deleteAt = Date.parse(`${date}T00:00:00.000Z`) + (retentionDays + 1) * DAY * 1000;
+    const deleteAt = this.retentionExpiry(date);
     const existingAlarm = await this.storage.getAlarm?.();
 
     if (!existingAlarm || existingAlarm > deleteAt) {

@@ -228,7 +228,7 @@ export class OpenAIProvider implements AIProvider {
       } catch (error) {
         // Log but don't fail - usage tracking is not critical
         Logger.warn('Failed to record usage', {
-          error: error instanceof Error ? error.message : String(error),
+          errorName: error instanceof Error ? error.name : 'UnknownError',
           model,
           feature,
         });
@@ -745,7 +745,7 @@ export class OpenAIProvider implements AIProvider {
       if (!response || response.trim() === '') {
         Logger.warn('OpenAI profanity analysis: empty response received (likely content filtered)', {
           provider: 'openai',
-          rawResponse: response
+          responseLength: typeof response === 'string' ? response.length : 0
         });
 
         // Empty response likely means profanity was detected and filtered
@@ -797,8 +797,8 @@ export class OpenAIProvider implements AIProvider {
     } catch (error) {
       Logger.error('OpenAI profanity analysis: response parsing failed', {
         provider: 'openai',
-        rawResponse: response,
-        error: error instanceof Error ? error.message : String(error)
+        responseLength: typeof response === 'string' ? response.length : 0,
+        errorName: error instanceof Error ? error.name : 'UnknownError'
       });
 
       // If parsing failed and response is empty, assume profanity was filtered
@@ -972,7 +972,7 @@ export class OpenAIProvider implements AIProvider {
       if (!response || response.trim() === '') {
         Logger.warn('OpenAI criminal code analysis: empty response received (likely content filtered)', {
           provider: 'openai',
-          rawResponse: response
+          responseLength: typeof response === 'string' ? response.length : 0
         });
 
         return {
@@ -1028,8 +1028,8 @@ export class OpenAIProvider implements AIProvider {
     } catch (error) {
       Logger.error('OpenAI criminal code analysis: response parsing failed', {
         provider: 'openai',
-        rawResponse: response,
-        error: error instanceof Error ? error.message : String(error)
+        responseLength: typeof response === 'string' ? response.length : 0,
+        errorName: error instanceof Error ? error.name : 'UnknownError'
       });
 
       // Return safe fallback on parsing errors
