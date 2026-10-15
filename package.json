@@ -2,6 +2,7 @@
 	"name": "purple-bread-9739",
 	"version": "0.0.0",
 	"private": true,
+	"license": "MIT",
 	"engines": {
 		"node": ">=22.0.0"
 	},
