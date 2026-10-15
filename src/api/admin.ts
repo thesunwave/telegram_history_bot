@@ -238,7 +238,7 @@ async function handleNotificationPost(
   };
 
   for (const [type, update] of Object.entries(payload.notifications || {})) {
-    if (!isNotificationType(type, availableTypes) || typeof update?.enabled !== 'boolean') {
+    if (!isNotificationType(type, Object.keys(currentSettings.notifications) as NotificationType[]) || typeof update?.enabled !== 'boolean') {
       continue;
     }
 
