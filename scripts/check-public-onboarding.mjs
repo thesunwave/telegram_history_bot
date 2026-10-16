@@ -103,24 +103,36 @@ async function run() {
     assert.equal(status.status, 200);
     const first = await status.json();
     assert.equal(first.summary.enabled, false);
+    assert.equal(first.storageMode, 'unconfigured');
+    assert.equal(first.features.activityTrackingEnabled, true);
+    assert.equal(first.features.criminalEnabled, false);
+    // Fresh installs cannot connect Telegram without explicitly choosing storage.
+    const blockedWebhook = await fetch(base + '/admin/api/setup/webhook', {
+      method: 'POST', headers: { ...headers, Origin: base },
+    });
+    assert.equal(blockedWebhook.status, 409);
     assert.equal(first.advanced.criminal, false);
     assert.equal(first.bindings.database, true);
     assert.equal(first.databaseReady, true);
 
-    const save = await fetch(base + '/admin/api/setup/summary', {
+    const save = await fetch(base + '/admin/api/setup/settings', {
       method: 'PATCH',
       headers: { ...headers, Origin: base, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: false, provider: 'cloudflare', model: 'smoke-test-model' }),
+      body: JSON.stringify({ storageMode: 'stats_only', activityTrackingEnabled: true,
+        profanityEnabled: false, criminalEnabled: false,
+        summary: { enabled: false, provider: 'cloudflare', model: 'smoke-test-model' } }),
     });
     assert.equal(save.status, 200);
-    assert.equal((await fetch(statusUrl, { headers }).then(r => r.json())).summary.model,
-      'smoke-test-model');
+    const updated = await fetch(statusUrl, { headers }).then(r => r.json());
+    assert.equal(updated.summary.model, 'smoke-test-model');
+    assert.equal(updated.storageMode, 'stats_only');
 
-    // Read the persisted row directly, not just the Worker's 30-second settings cache.
+    // Read persisted settings directly rather than trusting the Worker's cache.
     const persisted = runWrangler(['d1', 'execute', 'DB', ...local, '--json',
       '--command', "SELECT settings_json FROM app_settings WHERE scope = 'global'"]);
-    assert.equal(JSON.parse(JSON.parse(persisted)[0].results[0].settings_json).summary.model,
-      'smoke-test-model');
+    const storedSettings = JSON.parse(JSON.parse(persisted)[0].results[0].settings_json);
+    assert.equal(storedSettings.summary.model, 'smoke-test-model');
+    assert.equal(storedSettings.storageMode, 'stats_only');
 
     console.log('Fresh-install smoke passed: ' + migrationCount +
       ' migrations, health, setup, owner login, and persisted D1 settings.');

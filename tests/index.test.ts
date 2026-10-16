@@ -213,6 +213,18 @@ describe("webhook", () => {
     expect((await worker.fetch(request("t", "s"), { ...env, SECRET: undefined }, ctx)).status).toBe(403);
   });
 
+  it('rejects incoming webhook updates on public installs before the storage decision', async () => {
+    const publicEnv = { ...env, REQUIRE_EXPLICIT_STORAGE_CHOICE: true };
+    const response = await worker.fetch(new Request('https://bot.example/telegram/webhook', {
+      method: 'POST',
+      headers: { 'X-Telegram-Bot-Api-Secret-Token': 's', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: { message_id: 1, text: 'Sensitive text',
+        chat: { id: 1 }, from: { id: 2 }, date: Math.floor(Date.now() / 1000) } }),
+    }), publicEnv, ctx);
+    expect(response.status).toBe(503);
+    expect(await env.HISTORY.list({ prefix: 'msg:' })).toMatchObject({ keys: [] });
+  });
+
   const adminAuth = `Basic ${btoa("admin:password")}`;
   const telegramUserId = 42;
 
@@ -870,6 +882,7 @@ describe("webhook", () => {
     const fetchMock = vi
       .spyOn(global, "fetch")
       .mockResolvedValue(new Response(null, { status: 200 }));
+    const summaryEnv = { ...env, ENABLE_SUMMARY: true };
     const aiSpy = env.AI.run as vi.Mock;
     aiSpy.mockClear();
 
@@ -897,7 +910,7 @@ describe("webhook", () => {
     });
     const commandOnlyResponse = await worker.fetch(
       commandOnlyRequest,
-      env,
+      summaryEnv,
       ctx,
     );
     expect(commandOnlyResponse.status).toBe(200);
@@ -920,7 +933,7 @@ describe("webhook", () => {
       },
       body: JSON.stringify(summaryCommand),
     });
-    const summaryResponse = await worker.fetch(summaryRequest, env, ctx);
+    const summaryResponse = await worker.fetch(summaryRequest, summaryEnv, ctx);
     expect(summaryResponse.status).toBe(200);
     await waitForAllAsync();
 

@@ -4,6 +4,7 @@ import {
   resetRuntimeSettingsCache,
   resolveRuntimeSettings,
   saveSummaryRuntimeSettings,
+  saveRuntimeSettings,
   withRuntimeSettings,
 } from '../src/core/runtime-settings';
 
@@ -120,5 +121,62 @@ describe('runtime settings', () => {
       provider: 'openai',
       model: 'gpt-5-nano',
     })).rejects.toThrow('OPENAI_API_KEY');
+  });
+
+  it('requires an explicit choice on portable fresh installs', async () => {
+    const settings = await resolveRuntimeSettings(makeEnv({ REQUIRE_EXPLICIT_STORAGE_CHOICE: true }));
+    expect(settings.storageMode).toBe('unconfigured');
+  });
+
+  it('persists the explicit mode and feature toggles and passes them to processing', async () => {
+    const db = makeSettingsDb();
+    const env = makeEnv({ DB: db as any, REQUIRE_EXPLICIT_STORAGE_CHOICE: true });
+    const saved = await saveRuntimeSettings(env, {
+      storageMode: 'stats_only', activityTrackingEnabled: true,
+      profanityEnabled: true, criminalEnabled: false,
+      summary: { enabled: false, provider: 'cloudflare', model: '@cf/test/model' },
+    });
+    expect(saved.storageMode).toBe('stats_only');
+    expect(saved.profanityEnabled).toBe(true);
+    expect((await withRuntimeSettings(env)).RAW_MESSAGE_STORAGE_MODE).toBe('stats_only');
+    expect((await withRuntimeSettings(env)).ENABLE_PROFANITY_ANALYSIS).toBe(true);
+    expect(JSON.parse(db.read() || '{}')).toMatchObject({
+      storageMode: 'stats_only', profanityEnabled: true, activityTrackingEnabled: true,
+    });
+    // Old summary-only updates must keep the selected mode and other features.
+    await saveSummaryRuntimeSettings(env, { enabled: false, model: '@cf/other/model' });
+    expect(JSON.parse(db.read() || '{}')).toMatchObject({
+      storageMode: 'stats_only', profanityEnabled: true, summary: { enabled: false },
+    });
+    await expect(saveSummaryRuntimeSettings(env, { enabled: true })).rejects.toThrow('require message history');
+  });
+
+  it('refuses configurations that require raw history when none is saved', async () => {
+    const db = makeSettingsDb();
+    const env = makeEnv({ DB: db as any });
+    await expect(saveRuntimeSettings(env, {
+      storageMode: 'stats_only', activityTrackingEnabled: true,
+      profanityEnabled: false, criminalEnabled: true,
+      summary: { enabled: false, provider: 'cloudflare', model: '@cf/model' },
+    })).rejects.toThrow('require message history');
+    await expect(saveRuntimeSettings(env, {
+      storageMode: 'stats_only', activityTrackingEnabled: true,
+      profanityEnabled: false, criminalEnabled: false,
+      summary: { enabled: true, provider: 'cloudflare', model: '@cf/model' },
+    })).rejects.toThrow('require message history');
+    expect(db.read()).toBeNull();
+  });
+
+  it('applies persisted toggles over enabled production environment flags', async () => {
+    const db = makeSettingsDb(JSON.stringify({ version: 1, storageMode: 'stats_only',
+      activityTrackingEnabled: false, criminalEnabled: true, profanityEnabled: false,
+      summary: { enabled: true, provider: 'cloudflare' } }));
+    const env = makeEnv({ DB: db as any, ENABLE_SUMMARY: true, ENABLE_CRIMINAL_ANALYSIS: true,
+      ENABLE_ACTIVITY_TRACKING: true, ENABLE_PROFANITY_ANALYSIS: true });
+    const runtimeEnv = await withRuntimeSettings(env);
+    expect(runtimeEnv.ENABLE_SUMMARY).toBe(false);
+    expect(runtimeEnv.ENABLE_CRIMINAL_ANALYSIS).toBe(false);
+    expect(runtimeEnv.ENABLE_ACTIVITY_TRACKING).toBe(false);
+    expect(runtimeEnv.ENABLE_PROFANITY_ANALYSIS).toBe(false);
   });
 });

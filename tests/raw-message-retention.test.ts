@@ -39,4 +39,14 @@ describe('fallback raw message retention', () => {
     await recordMessage(message(ts), env);
     expect(put.mock.calls.filter(([key]) => key.startsWith('msg:'))).toHaveLength(0);
   });
+
+  it('never writes raw messages to KV or a day-block when stats-only is selected', async () => {
+    const { env, put } = makeEnv();
+    env.RAW_MESSAGE_STORAGE_MODE = 'stats_only';
+    env.DAY_BLOCK_MANAGER_DO = { idFromName: vi.fn(), get: vi.fn() };
+    await recordMessage(message(Math.floor(Date.now() / 1000)), env);
+    expect(put.mock.calls.filter(([key]) => key.startsWith('msg:') || key.startsWith('msg_day:'))).toHaveLength(0);
+    expect(env.DAY_BLOCK_MANAGER_DO.get).not.toHaveBeenCalled();
+    expect(put.mock.calls.some(([key]) => key.startsWith('admin_chat:'))).toBe(true);
+  });
 });

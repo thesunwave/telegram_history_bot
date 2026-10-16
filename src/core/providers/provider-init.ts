@@ -8,6 +8,16 @@ import { ProviderFactory } from "./provider-factory";
 export class ProviderInitializer {
   private static instance: AIProvider | null = null;
   private static isInitialized = false;
+  private static currentConfig: string | null = null;
+
+  private static configKey(env: Env): string {
+    const provider = env.SUMMARY_PROVIDER || 'cloudflare';
+    const model = provider === 'openai' ? env.OPENAI_MODEL
+      : provider === 'openai-premium' ? (env as any).OPENAI_PREMIUM_MODEL
+      : provider === 'openrouter' ? env.OPENROUTER_MODEL
+      : env.CLOUDFLARE_MODEL || env.SUMMARY_MODEL;
+    return JSON.stringify([provider, model]);
+  }
 
   /**
    * Initialize and validate the AI provider on application startup
@@ -40,6 +50,7 @@ export class ProviderInitializer {
       // Cache the initialized provider
       this.instance = provider;
       this.isInitialized = true;
+      this.currentConfig = this.configKey(env);
 
       console.log("Provider initialization completed", {
         provider: providerInfo.name,
@@ -73,13 +84,17 @@ export class ProviderInitializer {
    * @throws Error if provider is not initialized
    */
   static getProvider(env: Env): AIProvider {
-    if (!this.isInitialized || !this.instance) {
-      console.warn("Provider not initialized, performing lazy initialization");
+    const newConfig = this.configKey(env);
+    if (!this.isInitialized || !this.instance || this.currentConfig !== newConfig) {
+      if (!this.isInitialized || !this.instance) {
+        console.warn("Provider not initialized, performing lazy initialization");
+      }
       // For backward compatibility, create provider on-demand
       // This should ideally not happen if proper initialization is done
       this.instance = ProviderFactory.createProvider(env, 'summary');
       this.instance.validateConfig();
       this.isInitialized = true;
+      this.currentConfig = newConfig;
       return this.instance;
     }
 
@@ -100,6 +115,7 @@ export class ProviderInitializer {
   static reset(): void {
     this.instance = null;
     this.isInitialized = false;
+    this.currentConfig = null;
   }
 
   /**

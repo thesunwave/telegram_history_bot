@@ -5,6 +5,7 @@
   "compatibility_date": "2026-10-10",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  "vars": { "REQUIRE_EXPLICIT_STORAGE_CHOICE": true },
 
   // Portable resources: Cloudflare provisions these for each new account.
   "kv_namespaces": [

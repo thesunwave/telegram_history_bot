@@ -125,4 +125,45 @@ describe('owner setup', () => {
     expect(response.status).toBe(200);
     expect((await response.json() as { databaseReady: boolean }).databaseReady).toBe(true);
   });
+
+  it('requires an explicit storage decision for a fresh public install', async () => {
+    let value: string | null = null;
+    const database = { prepare: vi.fn((sql: string) => ({
+      first: vi.fn(async () => sql.includes('settings_json') && value ? { settings_json: value } : null),
+      bind: vi.fn((...args: unknown[]) => ({
+        first: vi.fn(async () => sql.includes('settings_json') && value ? { settings_json: value } : null),
+        run: vi.fn(async () => { value = String(args[1]); return { success: true }; }),
+      })),
+    })) };
+    const portable = { ...env, DB: database, REQUIRE_EXPLICIT_STORAGE_CHOICE: true } as unknown as Env;
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, result: {} })));
+    const cookie = await ownerCookie();
+
+    const status = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie), portable);
+    expect((await status.json() as any).storageMode).toBe('unconfigured');
+    expect((await handleSetupRequest(request('/admin/api/setup/webhook', 'POST', undefined, cookie), portable)).status)
+      .toBe(409);
+    expect((await handleSetupRequest(request('/admin/api/setup/settings', 'PATCH', {
+      storageMode: 'stats_only', activityTrackingEnabled: true,
+      profanityEnabled: false, criminalEnabled: false,
+      summary: { enabled: false, provider: 'cloudflare', model: '@cf/model' },
+    }), portable)).status).toBe(401);
+
+    const payload = { storageMode: 'stats_only', activityTrackingEnabled: true,
+      profanityEnabled: false, criminalEnabled: false,
+      summary: { enabled: false, provider: 'cloudflare', model: '@cf/model' } };
+    expect((await handleSetupRequest(request('/admin/api/setup/settings', 'PATCH', payload,
+      cookie, 'https://evil.example'), portable)).status).toBe(403);
+    expect((await handleSetupRequest(request('/admin/api/setup/settings', 'PATCH', {
+      ...payload, criminalEnabled: true,
+    }, cookie), portable)).status).toBe(400);
+    expect(value).toBeNull();
+    expect((await handleSetupRequest(request('/admin/api/setup/settings', 'PATCH', payload, cookie), portable)).status)
+      .toBe(200);
+    const updated = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie), portable);
+    expect((await updated.json() as any).storageMode).toBe('stats_only');
+    expect((await handleSetupRequest(request('/admin/api/setup/webhook', 'POST', undefined, cookie), portable)).status)
+      .toBe(200);
+    expect(value).toContain('stats_only');
+  });
 });

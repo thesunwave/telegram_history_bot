@@ -213,6 +213,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   const videoNoteDurationSeconds = Number.isInteger(msg.video_note?.duration)
     ? msg.video_note.duration
     : 0;
+  if (env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured') return;
   await saveAdminChatMeta(env, msg.chat, ts);
   const stored = {
     chat: chatId,
@@ -238,7 +239,9 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   const retentionDays = Number.isFinite(configuredDays) && configuredDays > 0 ? Math.ceil(configuredDays) : 7;
   const expiration = ts + retentionDays * DAY;
   const rawExpired = !Number.isInteger(ts) || expiration <= Math.floor(Date.now() / 1000) + 60;
-  if (rawExpired) {
+  if (env.RAW_MESSAGE_STORAGE_MODE === 'stats_only') {
+    Logger.debug(env, 'recordMessage: raw history storage disabled');
+  } else if (rawExpired) {
     // Delayed updates must not resurrect already-expired messages in any store.
     Logger.debug(env, 'recordMessage: raw message already expired');
   } else if (env.TOKEN === 'test-token') {
@@ -589,6 +592,34 @@ export async function handleUpdate(msg: any, env: Env) {
   const ts = msg.date;
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
   const command = parseActivityCommand(msg.text);
+  const summaryCommands = ['/summary', '/summary_last'];
+  const activityCommands = ['/top', '/talkers', '/top_talkers', '/activity_week',
+    '/activity_month', '/activity_users_week', '/activity_users_month', '/activity_hours', '/activity'];
+  const profanityCommands = ['/profanity_top', '/profanity_words', '/my_profanity',
+    '/profanity_chart_week', '/profanity_chart_month', '/profanity_rate', '/profanity_rate_chart'];
+  const criminalCommands = ['/criminal_stats', '/my_criminal', '/criminal_top', '/criminal_backfill'];
+  if (summaryCommands.includes(command.name) &&
+      (env.ENABLE_SUMMARY === false || env.ENABLE_SUMMARY === 'false' ||
+       env.RAW_MESSAGE_STORAGE_MODE === 'stats_only')) {
+    await sendMessage(env, chatId, 'AI-сводки отключены в настройках бота');
+    return;
+  }
+  if (activityCommands.includes(command.name) &&
+      (env.ENABLE_ACTIVITY_TRACKING === false || env.ENABLE_ACTIVITY_TRACKING === 'false')) {
+    await sendMessage(env, chatId, 'Статистика активности отключена в настройках бота');
+    return;
+  }
+  if (profanityCommands.includes(command.name) &&
+      (env.ENABLE_PROFANITY_ANALYSIS === false || env.ENABLE_PROFANITY_ANALYSIS === 'false')) {
+    await sendMessage(env, chatId, 'Анализ мата отключён в настройках бота');
+    return;
+  }
+  if (criminalCommands.includes(command.name) &&
+      (env.ENABLE_CRIMINAL_ANALYSIS === false || env.ENABLE_CRIMINAL_ANALYSIS === 'false' ||
+       env.RAW_MESSAGE_STORAGE_MODE === 'stats_only')) {
+    await sendMessage(env, chatId, 'Уголовный анализ отключён в настройках бота');
+    return;
+  }
   if (command.name === '/summary_last') {
     const n = parseInt(msg.text.split(' ')[1] || '100', 10);
     const count = Math.min(n, MAX_LAST_MESSAGES);

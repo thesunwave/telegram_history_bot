@@ -100,6 +100,9 @@ export default {
       if (!constantTimeEqual(req.headers.get("X-Telegram-Bot-Api-Secret-Token"), secret)) {
         return new Response("forbidden", { status: 403 });
       }
+      if (env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured') {
+        return new Response('Choose message storage in /admin/setup before connecting the bot', { status: 503 });
+      }
       const message = getTextMessage(await req.json());
       await recordMessage(message, env, ctx);
       ctx.waitUntil(handleUpdate(message, env));
@@ -313,6 +316,9 @@ export default {
         return new Response("forbidden", { status: 403 });
       }
 
+      if (env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured') {
+        return new Response('Choose message storage in /admin/setup before connecting the bot', { status: 503 });
+      }
       const update = await req.json();
       Logger.debug(env, "webhook received", {
         updateType: (update as any).message ? "message" : "other",

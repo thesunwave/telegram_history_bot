@@ -1,7 +1,7 @@
 import type { Env } from '../core/env';
 import { authenticateTelegramSession } from './admin-auth';
 import { ProviderInitializer } from '../core/providers/provider-init';
-import { resolveRuntimeSettings, saveSummaryRuntimeSettings } from '../core/runtime-settings';
+import { resolveRuntimeSettings, saveSummaryRuntimeSettings, saveRuntimeSettings } from '../core/runtime-settings';
 import { getWebhookSecret } from '../core/webhook-secret';
 
 const SESSION_COOKIE = 'tg_setup_session';
@@ -93,16 +93,25 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}
 <form id="loginForm"><label>BotFather TOKEN <input id="token" type="password" required autocomplete="off"></label>
 <button>Войти</button></form></section>
 <div id="settings" hidden>
-<section><h2>Telegram webhook</h2>
-<p>Настройка подключает текущий Worker к Telegram.</p>
-<button id="connect">Подключить webhook</button><span id="webhook"></span></section>
-<section><h2>AI-сводки</h2>
-<label><input id="enabled" type="checkbox"> Включить сводки</label>
-<label>Провайдер <select id="provider"><option value="cloudflare">Workers AI</option>
+<section><h2>1. Как хранить сообщения?</h2>
+<p>Выбери, какие данные бот может сохранять. Решение можно изменить позже.</p>
+<label><input type="radio" name="storageMode" value="stats_only"> <b>Только статистика</b> — текст сообщений не сохраняется. Бот считает сообщения, слова и активность участников.</label>
+<label><input type="radio" name="storageMode" value="history"> <b>История сообщений + статистика</b> — исходные сообщения временно хранятся в твоих Cloudflare KV/DO; доступны сводки и контекстный анализ.</label>
+<small>В обоих вариантах хранятся счётчики, ID пользователей и метаданные чатов. Смена режима не удаляет уже сохранённую историю; она истекает по сроку хранения. Telegram и Cloudflare всё равно обрабатывают входящие сообщения.</small></section>
+<section><h2>2. Включить функции</h2>
+<label><input id="activity" type="checkbox"> Статистика активности и топы участников</label>
+<label><input id="profanity" type="checkbox"> Анализ мата при получении сообщений</label>
+<small>Для анализа мата текст может отправляться AI-провайдеру, даже в режиме без хранения. Провайдер определяется PROFANITY_PROVIDER, а без него — провайдером сводок. Результаты анализа (например, найденные слова) могут храниться отдельно.</small>
+<label><input id="criminal" type="checkbox"> Контекстный анализ уголовных нарушений (требует истории)</label>
+<label><input id="enabled" type="checkbox"> AI-сводки (требуют истории)</label>
+<label>AI-провайдер для сводок <select id="provider"><option value="cloudflare">Workers AI</option>
 <option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option></select></label>
 <label>Модель <input id="model" type="text" maxlength="150"></label>
 <small>OpenAI/OpenRouter API-ключи добавляй как Cloudflare Secrets, не через эту страницу.</small>
-<p><button id="save">Сохранить</button></p></section>
+<p id="storageWarning" role="status"></p><p><button id="save">Сохранить настройки</button></p></section>
+<section><h2>3. Telegram webhook</h2>
+<p>Подключай бот только после того, как сохранишь выбранный режим хранения.</p>
+<button id="connect">Подключить webhook</button><span id="webhook"></span></section>
 <section><h2>Статус</h2><pre id="status"></pre>
 <button id="logout">Выйти из настройки</button></section>
 </div><p id="error" role="alert"></p>
@@ -117,16 +126,42 @@ async function api(path, method='GET', body) {
   if (!response.ok) throw Error(json.error || 'Request failed ('+response.status+')');
   return json;
 }
+function selectedStorageMode() {
+  return document.querySelector('input[name="storageMode"]:checked')?.value || null;
+}
+function refreshDependencies() {
+  const history = selectedStorageMode() === 'history';
+  for (const id of ['enabled', 'criminal']) {
+    el(id).disabled = !history;
+    if (!history) el(id).checked = false;
+  }
+  el('storageWarning').textContent = history
+    ? 'Сырой текст будет сохраняться на выбранный срок. Внешние AI-провайдеры получают данные только при включении соответствующих функций.'
+    : 'Без истории AI-сводки, контекстный уголовный анализ и backfill недоступны.';
+}
+for (const option of document.querySelectorAll('input[name="storageMode"]')) {
+  option.onchange = refreshDependencies;
+}
 async function refresh() {
   try {
     const info = await api('status');
     el('login').hidden=true; el('settings').hidden=false;
+    for (const option of document.querySelectorAll('input[name="storageMode"]')) {
+      option.checked = option.value === info.storageMode;
+    }
+    el('activity').checked=info.features.activityTrackingEnabled;
+    el('profanity').checked=info.features.profanityEnabled;
+    el('criminal').checked=info.features.criminalEnabled;
     el('enabled').checked=info.summary.enabled;
     el('provider').value=info.summary.provider;
     el('model').value=info.summary.model;
+    refreshDependencies();
     el('status').textContent=JSON.stringify(info,null,2);
     el('webhook').textContent=info.webhookConfigured?' Подключён':' Не подключён';
-    el('error').textContent=info.databaseReady?'':'D1 не инициализирована. Проверь, что команда npm run deploy завершила все миграции.';
+    el('connect').disabled=!info.databaseReady || info.storageMode==='unconfigured';
+    el('error').textContent=info.databaseReady
+      ? info.storageMode==='unconfigured' ? 'Сначала выбери режим хранения и нажми «Сохранить настройки».' : ''
+      : 'D1 не инициализирована. Проверь, что команда npm run deploy завершила все миграции.';
   } catch(error) {
     el('settings').hidden=true; el('login').hidden=false;
   }
@@ -144,9 +179,18 @@ el('connect').onclick=async ()=>{
 };
 el('provider').onchange=()=>{el('model').value='';};
 el('save').onclick=async ()=>{
-  try { await api('summary','PATCH',{enabled:el('enabled').checked,
-    provider:el('provider').value,model:el('model').value}); await refresh(); }
-  catch(error) {el('error').textContent=error.message;}
+  try {
+    const storageMode = selectedStorageMode();
+    if (!storageMode) throw Error('Выбери режим хранения сообщений.');
+    await api('settings','PATCH',{
+      storageMode,
+      activityTrackingEnabled:el('activity').checked,
+      profanityEnabled:el('profanity').checked,
+      criminalEnabled:el('criminal').checked,
+      summary:{enabled:el('enabled').checked, provider:el('provider').value, model:el('model').value}
+    });
+    await refresh();
+  } catch(error) { el('error').textContent=error.message; }
 };
 el('logout').onclick=async ()=>{await api('logout','POST');await refresh();};
 refresh();
@@ -205,6 +249,12 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
     } catch { /* Report only the configured state, never the bot token. */ }
     return Response.json({
       ok: true, summary: settings.summary, webhookConfigured, databaseReady,
+      storageMode: settings.storageMode,
+      features: {
+        activityTrackingEnabled: settings.activityTrackingEnabled,
+        profanityEnabled: settings.profanityEnabled,
+        criminalEnabled: settings.criminalEnabled,
+      },
       bindings: { history: Boolean(env.HISTORY), counters: Boolean(env.COUNTERS),
         database: Boolean(env.DB), workersAi: Boolean(env.AI) },
       providerKeys: { openai: Boolean(env.OPENAI_API_KEY), openrouter: Boolean(env.OPENROUTER_API_KEY) },
@@ -212,6 +262,9 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
     }, { headers: { 'Cache-Control': 'no-store' } });
   }
   if (route === 'webhook' && req.method === 'POST') {
+    if ((await resolveRuntimeSettings(env)).storageMode === 'unconfigured') {
+      return errorResponse('Choose and save a storage mode before connecting Telegram', 409);
+    }
     const secret = await getWebhookSecret(env);
     if (!secret) return errorResponse('Webhook secret not configured', 400);
     try {
@@ -223,6 +276,19 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
       return Response.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
     } catch {
       return errorResponse('Telegram rejected webhook registration', 502);
+    }
+  }
+  if (route === 'settings' && req.method === 'PATCH') {
+    const input = await req.json().catch(() => null) as Record<string, unknown> | null;
+    if (!input || !input.summary || typeof input.summary !== 'object') {
+      return errorResponse('Invalid bot settings', 400);
+    }
+    try {
+      const settings = await saveRuntimeSettings(env, input as any);
+      ProviderInitializer.reset();
+      return Response.json({ ok: true, settings }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch (error) {
+      return errorResponse(error instanceof Error ? error.message : 'Unable to save settings', 400);
     }
   }
   if (route === 'summary' && req.method === 'PATCH') {

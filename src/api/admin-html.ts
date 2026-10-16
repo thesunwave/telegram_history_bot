@@ -991,6 +991,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     <div class="wrap topbar">
       <h1>Telegram Stats Admin</h1>
       <div class="topbarRight">
+        <a href="/admin/setup" style="color:inherit;text-decoration:underline;white-space:nowrap" title="Настройки всего экземпляра бота, доступные владельцу">Настройки бота</a>
         <label class="themeControl">Тема
           <select id="themeSelect" aria-label="Тема оформления">
             <option value="system">Система</option>

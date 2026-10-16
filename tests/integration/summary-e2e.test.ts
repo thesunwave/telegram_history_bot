@@ -59,6 +59,7 @@ describe("Summary End-to-End Tests", () => {
     } as unknown as D1Database;
 
     env = createMockEnv();
+    env.ENABLE_SUMMARY = true;
     env.HISTORY = spyableKVBinding(history as any);
     env.COUNTERS = counters as any;
     env.COUNTERS_DO = createCountersNamespace(env) as any;
