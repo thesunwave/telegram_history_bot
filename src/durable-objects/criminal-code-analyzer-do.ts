@@ -144,10 +144,16 @@ export class CriminalCodeAnalyzerDO {
 
   async fetch(request: Request): Promise<Response> {
     try {
-      await this.initialize();
-
       const url = new URL(request.url);
       const path = url.pathname;
+      // These routes can process message text even after the webhook is disabled.
+      // Check durable owner settings before accepting any new analysis input.
+      if (request.method === 'POST' &&
+          ['/analyze', '/enqueue', '/diagnose', '/batch-analyze'].includes(path)) {
+        const enabled = await this.isAnalysisAllowed();
+        if (!enabled) return Response.json({ error: 'Criminal analysis disabled' }, { status: 409 });
+      }
+      await this.initialize();
 
       // 🔍 Single message analysis
       if (path === '/analyze' && request.method === 'POST') {
@@ -319,18 +325,20 @@ export class CriminalCodeAnalyzerDO {
           enqueuedAt: Date.now(),
           localProfanity,
         };
+        // Evaluate consent once per message; a disabled feature must not update counters.
+        const profanityEnabled = await this.isProfanityAnalysisEnabled();
         // Independent terminal outcomes: profanity propagation identity must not block criminal ack.
         try {
           const profResult = await this.recordProfanityCountersFromAnalysis({
             task,
             semanticPrefilter: undefined,
             sequence,
+            profanityEnabled,
           });
           if (profResult) {
             // completed via profanity increment handled inside; ack via that path
           } else {
-            const profanityGloballyDisabled = !this.getBooleanEnv('ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER', false);
-            await this.ackProfanityOutcome(task, profanityGloballyDisabled ? 'skipped' : 'zero');
+            await this.ackProfanityOutcome(task, profanityEnabled ? 'zero' : 'skipped');
           }
         } catch {
           await this.ackProfanityOutcome(task, 'failed');
@@ -642,6 +650,17 @@ export class CriminalCodeAnalyzerDO {
     if (queue.length === 0) {
       return;
     }
+    // An alarm might fire after the owner has switched to Stats Only or
+    // disabled criminal analysis. Drop pending message text instead of sending
+    // it to an AI provider; terminal acks keep counters from stalling.
+    if (!(await this.isAnalysisAllowed())) {
+      await this.saveQueue([]);
+      for (const task of queue) {
+        await this.ackCriminalOutcome(task, 'skipped');
+        await this.ackProfanityOutcome(task, 'skipped');
+      }
+      return;
+    }
 
     const batchSize = this.getNumberEnv('CRIMINAL_QUEUE_BATCH_SIZE', 5);
     const batch = queue.slice(0, batchSize);
@@ -670,8 +689,11 @@ export class CriminalCodeAnalyzerDO {
       // success/failure must never block criminal completed/zero/skipped/failed.
       let profanityResult: { words: Array<{ word: string; count: number }>; count: number } | null = null;
       let profanityError: unknown = null;
+      const profanityEnabled = await this.isProfanityAnalysisEnabled();
       try {
-        profanityResult = await this.recordProfanityCountersFromAnalysis({ task, semanticPrefilter, sequence: task.sequence });
+        profanityResult = await this.recordProfanityCountersFromAnalysis({
+          task, semanticPrefilter, sequence: task.sequence, profanityEnabled,
+        });
       } catch (e: unknown) {
         profanityError = e;
       }
@@ -689,8 +711,7 @@ export class CriminalCodeAnalyzerDO {
         // acked as failed above (a missing identity is not evidence of zero profanity).
         // We distinguish: if profanity feature disabled, we still want terminal (skipped vs zero convention).
         // For criminal prefilter path, disabled profanity is not per-message but global; treat as skipped.
-        const profanityGloballyDisabled = !this.getBooleanEnv('ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER', false);
-        if (profanityGloballyDisabled) {
+        if (!profanityEnabled) {
           await this.ackProfanityOutcome(task, 'skipped');
         } else {
           await this.ackProfanityOutcome(task, 'zero');
@@ -1008,15 +1029,36 @@ export class CriminalCodeAnalyzerDO {
     }
   }
 
+  private async isProfanityAnalysisEnabled(): Promise<boolean> {
+    if (!this.getBooleanEnv('ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER', false)) return false;
+    if (!this.env.DB?.prepare) return true;
+    try {
+      const row = await this.env.DB.prepare('SELECT settings_json FROM app_settings WHERE scope = ?')
+        .bind('global').first() as { settings_json?: string } | null;
+      if (!row?.settings_json) return this.env.REQUIRE_EXPLICIT_STORAGE_CHOICE !== true &&
+        this.env.REQUIRE_EXPLICIT_STORAGE_CHOICE !== 'true';
+      const policy = JSON.parse(row.settings_json) as Record<string, unknown>;
+      if (policy.version !== 1) return false;
+      // Old settings rows only contain summary settings. Respect the existing
+      // deployment-level switch instead of interpreting an absent field as opt-in.
+      return typeof policy.profanityEnabled === 'boolean'
+        ? policy.profanityEnabled
+        : this.getBooleanEnv('ENABLE_PROFANITY_ANALYSIS', false);
+    } catch {
+      // Unknown consent state: do not write derived profanity data.
+      return false;
+    }
+  }
+
   private async recordProfanityCountersFromAnalysis(input: {
     task: QueuedCriminalAnalysisTask;
     semanticPrefilter?: CriminalSemanticPrefilterResult;
     sequence?: number;
+    profanityEnabled: boolean;
   }): Promise<{ words: Array<{ word: string; count: number }>; count: number } | null> {
-    if (!this.getBooleanEnv('ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER', false)) {
+    if (!input.profanityEnabled) {
       return null;
     }
-
 
     if (input.task.userId === undefined || !input.task.day) {
       console.warn('Profanity counters skipped because task identity incomplete', {
@@ -3314,6 +3356,29 @@ export class CriminalCodeAnalyzerDO {
     const raw = (this.env as any).ADMIN_USER_ID;
     const parsed = typeof raw === 'number' ? raw : parseInt(String(raw ?? ''), 10);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private async isAnalysisAllowed(): Promise<boolean> {
+    if (!this.env.DB?.prepare) {
+      return this.env.REQUIRE_EXPLICIT_STORAGE_CHOICE !== true &&
+        this.env.REQUIRE_EXPLICIT_STORAGE_CHOICE !== 'true';
+    }
+    // A failed D1 read must not silently opt a configured bot back into AI.
+    const row = await this.env.DB.prepare('SELECT settings_json FROM app_settings WHERE scope = ?')
+      .bind('global').first() as { settings_json?: string } | null;
+    if (!row?.settings_json) {
+      // Older deployments did not have an owner policy; preserve their flags.
+      return this.env.REQUIRE_EXPLICIT_STORAGE_CHOICE !== true &&
+        this.env.REQUIRE_EXPLICIT_STORAGE_CHOICE !== 'true';
+    }
+    let policy: Record<string, unknown>;
+    try {
+      policy = JSON.parse(row.settings_json);
+    } catch {
+      return false;
+    }
+    return policy.version === 1 && policy.storageMode !== 'stats_only' &&
+      policy.criminalEnabled !== false;
   }
 
   private async loadQueue(): Promise<QueuedCriminalAnalysisTask[]> {

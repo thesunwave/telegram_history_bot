@@ -17,6 +17,7 @@ interface Env {
   SUMMARY_SYSTEM?: string;
   SUMMARY_CHUNK_SIZE?: number;
   SUMMARY_PROVIDER?: "cloudflare" | "openai";
+  ENABLE_SUMMARY?: boolean;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   SUMMARY_MAX_TOKENS?: number;
@@ -71,6 +72,8 @@ describe("Summary Providers Integration Tests", () => {
         bind: () => ({
           run: vi.fn(),
           all: vi.fn(async () => ({ results: [] })),
+          // Emulate the production D1 settings lookup on each webhook.
+          first: vi.fn(async () => null),
         }),
       })),
     } as unknown as D1Database;
@@ -88,6 +91,7 @@ describe("Summary Providers Integration Tests", () => {
       SUMMARY_SYSTEM: "You are a helpful assistant",
       SUMMARY_CHUNK_SIZE: undefined,
       SUMMARY_PROVIDER: undefined,
+      ENABLE_SUMMARY: true,
       OPENAI_API_KEY: undefined,
       OPENAI_MODEL: undefined,
       SUMMARY_MAX_TOKENS: 400,

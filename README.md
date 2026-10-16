@@ -38,15 +38,32 @@ admin and Telegram webhook routes stay exclusively in this bot Worker.
    then applies the D1 migrations. Verify both deployment and migrations
    succeeded in the build logs.
 4. Open your new Worker's URL. It redirects to `/admin/setup`. Sign in with
-   the same BotFather token; check that D1 is ready and select
+   the same BotFather token and verify that D1 is ready. **Choose and save your
+   storage mode**, then enable any features you want before selecting
    **Connect webhook**. This step registers the public Worker URL with Telegram.
 5. Add the bot to your group. To allow it to collect ordinary group messages
    rather than just commands, disable bot privacy using BotFather's
    `/setprivacy` and re-add the bot to the group.
 
-The initial install starts with message history and activity statistics;
-AI summaries and advanced analysis are **off**. You can enable AI summaries
-from `/admin/setup` after configuring any required provider key as a
+New installations **require an explicit storage decision** before Telegram is connected:
+- **Statistics only:** count messages, words, media and activity without saving
+  the raw text of chats in the bot's message-history KV/DO storage. Chat/user
+  identifiers, group metadata and (when activity tracking is enabled) counts
+  still persist. This does not control
+  Telegram/Cloudflare platform logs or optional external AI providers.
+  AI summaries, contextual criminal analysis, and their history-dependent
+  commands are unavailable in this mode.
+- **Message history + statistics:** save raw messages temporarily in your Cloudflare
+  Durable Objects/KV (seven-day date-based retention by default) to allow
+  AI summaries, context analysis and replay.
+
+The owner can turn activity statistics, profanity analysis, criminal analysis and
+AI summaries on/off in `/admin/setup`; AI-dependent features may transmit content
+to their configured model provider. All advanced analyses initially start off.
+Switching to stats-only stops **new raw message writes**, but does not purge
+previously stored messages; they age out under their retention policy. This page
+controls the entire self-hosted bot instance, not individual Telegram groups.
+You can enable AI summaries after configuring any required provider key as a
 Cloudflare Secret. Never paste an OpenAI/OpenRouter key into the dashboard.
 
 The first-run flow can be rehearsed locally with a dummy token and no
@@ -68,7 +85,9 @@ Cloudflare Worker that stores Telegram chat messages (7 days in KV), generates s
 ## Features
 
 - Webhook for receiving Telegram updates.
-- Stores messages in KV with 7-day TTL (daily blocks + fallback single-message storage).
+- Optional message history in Durable Objects/KV, with seven-day default
+  retention (daily blocks + fallback single-message storage). Stats Only does
+  not write raw messages to those stores.
 - Per-user counters via Durable Objects and KV.
 - **🚀 Optimized Summary System** with parallel processing and context management.
 - **🛡️ Automatic fallback** to legacy summarization on errors.

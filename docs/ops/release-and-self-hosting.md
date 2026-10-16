@@ -46,8 +46,19 @@ production resource IDs are used. Visit `/admin/setup` (or the Worker's root
 URL, which redirects there for a fresh install), sign in with the BotFather
 token, and register the Telegram webhook. This bootstrap credential is sent
 over HTTPS and only a signed, two-hour session cookie is retained by the
-browser. Once deployed, the bot starts with history/activity/stats enabled,
-AI summary, profanity and criminal analysis disabled. OpenAI/OpenRouter keys
+browser. On new portable installs the owner must explicitly select either statistics-only
+(no new raw message text storage) or history + statistics before connecting the
+Telegram webhook. Activity stats are enabled initially, while AI summary,
+profanity and criminal analysis are disabled. The owner can configure all four
+features in `/admin/setup` when their dependencies and AI credentials are available. Without message history, summaries and
+contextual criminal analysis cannot be enabled. Switching modes does not delete
+previously captured data and does not affect persistent user statistics/metadata.
+Statistics-only is **not** a no-processing guarantee: if an operator enables
+profanity analysis, message text can still be sent to the selected external AI
+provider, while extracted matches and provider/platform logs may be retained.
+Telegram and Cloudflare process incoming webhook traffic in either mode.
+Existing production installations preserve their configured storage behaviour
+until an owner changes it. OpenAI/OpenRouter keys
 must be configured as Cloudflare Secrets before enabling those providers.
 In the Deploy to Cloudflare setup screen make sure the deploy command is
 `npm run deploy` and check the build log for successful D1 migrations.

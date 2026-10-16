@@ -79,8 +79,16 @@ export default {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<Response> {
-    env = await withRuntimeSettings(env);
     const url = new URL(req.url);
+    // Privacy-sensitive ingestion must use the current persisted policy, not a
+    // potentially stale isolate cache. On D1 failure, reject and let Telegram retry.
+    const isWebhook = req.method === 'POST' &&
+      (url.pathname === '/telegram/webhook' || /^\/tg\/[^/]+\/webhook$/.test(url.pathname));
+    try {
+      env = await withRuntimeSettings(env, isWebhook);
+    } catch {
+      return new Response('Bot settings temporarily unavailable', { status: 503 });
+    }
     const isPublicRead = req.method === "GET" || req.method === "HEAD";
     const isLegacyEnglish = ['/en', '/en/', '/en/index.html'].includes(url.pathname);
     if (isPublicRead && isLegacyEnglish) {
@@ -99,6 +107,9 @@ export default {
       if (!secret) return new Response("webhook not configured", { status: 503 });
       if (!constantTimeEqual(req.headers.get("X-Telegram-Bot-Api-Secret-Token"), secret)) {
         return new Response("forbidden", { status: 403 });
+      }
+      if (env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured') {
+        return new Response('Choose message storage in /admin/setup before connecting the bot', { status: 503 });
       }
       const message = getTextMessage(await req.json());
       await recordMessage(message, env, ctx);
@@ -313,6 +324,9 @@ export default {
         return new Response("forbidden", { status: 403 });
       }
 
+      if (env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured') {
+        return new Response('Choose message storage in /admin/setup before connecting the bot', { status: 503 });
+      }
       const update = await req.json();
       Logger.debug(env, "webhook received", {
         updateType: (update as any).message ? "message" : "other",

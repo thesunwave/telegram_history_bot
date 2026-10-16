@@ -165,6 +165,112 @@ describe("CriminalCodeAnalyzerDO", () => {
     });
   });
 
+  it('does not increment profanity via criminal prefilter when the owner disables profanity', async () => {
+    mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = true;
+    mockEnv.DB.prepare = vi.fn(() => ({
+      bind: vi.fn(() => ({ first: vi.fn(async () => ({ settings_json: JSON.stringify({
+        version: 1, storageMode: 'history', criminalEnabled: true, profanityEnabled: false,
+      }) })) })),
+    }));
+    const counterFetch = vi.fn(async () => new Response('ok', { status: 200 }));
+    mockEnv.COUNTERS_DO = {
+      idFromName: vi.fn().mockReturnValue('test-id'),
+      get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+    };
+    const instance = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+    const response = await instance.fetch(new Request('https://do/enqueue', {
+      method: 'POST',
+      body: JSON.stringify({ text: 'хуй', chatId: 12345, userId: 67890,
+        messageId: 123, day: '2026-10-16', sequence: 1 }),
+    }));
+    expect(response.status).toBe(200);
+    const paths = counterFetch.mock.calls.map(([url]) => new URL(String(url)).pathname);
+    expect(paths).not.toContain('/profanity');
+  });
+
+  it('honors the legacy deployment profanity flag when a saved settings row lacks its toggle', async () => {
+    mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = true;
+    mockEnv.ENABLE_PROFANITY_ANALYSIS = false;
+    const first = vi.fn(async () => ({ settings_json: JSON.stringify({
+      version: 1, summary: { enabled: false, provider: 'cloudflare' },
+    }) }));
+    mockEnv.DB.prepare = vi.fn(() => ({ bind: vi.fn(() => ({ first })) }));
+    const counterFetch = vi.fn(async () => new Response('ok', { status: 200 }));
+    mockEnv.COUNTERS_DO = {
+      idFromName: vi.fn().mockReturnValue('test-id'),
+      get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+    };
+    const instance = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+    const response = await instance.fetch(new Request('https://do/enqueue', {
+      method: 'POST', body: JSON.stringify({ text: 'хуй', chatId: 12345,
+        userId: 67890, messageId: 234, day: '2026-10-16', sequence: 2 }),
+    }));
+    expect(response.status).toBe(200);
+    const events = counterFetch.mock.calls.map(([url, options]) => ({
+      path: new URL(String(url)).pathname,
+      body: JSON.parse((options as RequestInit).body as string),
+    }));
+    expect(events.some(({ path }) => path === '/profanity')).toBe(false);
+    expect(events.some(({ path, body }) => path === '/ack' &&
+      body.category === 'profanity' && body.outcome === 'skipped')).toBe(true);
+    expect(first).toHaveBeenCalledTimes(2); // analyzer gate + one profanity decision
+  });
+
+  it('reads profanity consent only once when a non-profane message produces zero', async () => {
+    mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = true;
+    const first = vi.fn(async () => ({ settings_json: JSON.stringify({
+      version: 1, storageMode: 'history', criminalEnabled: true, profanityEnabled: true,
+    }) }));
+    mockEnv.DB.prepare = vi.fn(() => ({ bind: vi.fn(() => ({ first })) }));
+    const counterFetch = vi.fn(async () => new Response('ok', { status: 200 }));
+    mockEnv.COUNTERS_DO = {
+      idFromName: vi.fn().mockReturnValue('test-id'),
+      get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+    };
+    const instance = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+    const response = await instance.fetch(new Request('https://do/enqueue', {
+      method: 'POST', body: JSON.stringify({ text: 'привет', chatId: 12345,
+        userId: 67890, messageId: 235, day: '2026-10-16', sequence: 3 }),
+    }));
+    expect(response.status).toBe(200);
+    const events = counterFetch.mock.calls.map(([url, options]) => ({
+      path: new URL(String(url)).pathname,
+      body: JSON.parse((options as RequestInit).body as string),
+    }));
+    expect(events.some(({ path, body }) => path === '/ack' &&
+      body.category === 'profanity' && body.outcome === 'zero')).toBe(true);
+    expect(first).toHaveBeenCalledTimes(2); // analyzer gate + one profanity decision
+  });
+
+  it('drops queued message text when owner disables criminal analysis before the alarm', async () => {
+    const queue = [{
+      text: 'PRIVATE_SENTINEL', chatId: 12345, messageId: 991,
+      userId: 55, day: '2026-10-16', sequence: 4, ts: 1792100000,
+      enqueuedAt: Date.now(), reasons: ['semantic_prefilter'],
+    }];
+    const storage = new Map<string, any>([['criminal_analysis_queue', queue]]);
+    mockState.storage = {
+      get: vi.fn(async (key: string) => storage.get(key)),
+      put: vi.fn(async (key: string, value: unknown) => { storage.set(key, value); }),
+      setAlarm: vi.fn(async () => {}),
+    };
+    mockEnv.DB.prepare = vi.fn(() => ({
+      bind: vi.fn(() => ({ first: vi.fn(async () => ({
+        settings_json: JSON.stringify({ version: 1, storageMode: 'stats_only', criminalEnabled: false }),
+      })) })),
+    }));
+    const instance = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+    const pref = vi.spyOn(instance as any, 'runSemanticPrefilterBatch');
+    await instance.alarm();
+    expect(storage.get('criminal_analysis_queue')).toEqual([]);
+    expect(pref).not.toHaveBeenCalled();
+    expect(mockEnv.COUNTERS_DO.get).toHaveBeenCalled();
+    const response = await instance.fetch(new Request('https://do/enqueue', {
+      method: 'POST', body: JSON.stringify(queue[0]),
+    }));
+    expect(response.status).toBe(409);
+  });
+
   describe("analyze endpoint", () => {
     it("should analyze text for criminal code violations", async () => {
       const requestBody = {
