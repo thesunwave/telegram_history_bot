@@ -47,7 +47,9 @@ admin and Telegram webhook routes stay exclusively in this bot Worker.
 
 New installations **require an explicit storage decision** before Telegram is connected:
 - **Statistics only:** count messages, words, media and activity without saving
-  the text of chats. Chat/user identifiers, counts and group metadata still persist.
+  the raw text of chats in the bot's message-history KV/DO storage. Chat/user
+  identifiers, counts and group metadata still persist. This does not control
+  Telegram/Cloudflare platform logs or optional external AI providers.
   AI summaries and contextual criminal analysis are unavailable in this mode.
 - **Message history + statistics:** save raw messages temporarily in your Cloudflare
   Durable Objects/KV (seven-day date-based retention by default) to allow
