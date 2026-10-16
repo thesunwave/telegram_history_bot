@@ -325,18 +325,20 @@ export class CriminalCodeAnalyzerDO {
           enqueuedAt: Date.now(),
           localProfanity,
         };
+        // Evaluate consent once per message; a disabled feature must not update counters.
+        const profanityEnabled = await this.isProfanityAnalysisEnabled();
         // Independent terminal outcomes: profanity propagation identity must not block criminal ack.
         try {
           const profResult = await this.recordProfanityCountersFromAnalysis({
             task,
             semanticPrefilter: undefined,
             sequence,
+            profanityEnabled,
           });
           if (profResult) {
             // completed via profanity increment handled inside; ack via that path
           } else {
-            const profanityGloballyDisabled = !(await this.isProfanityAnalysisEnabled());
-            await this.ackProfanityOutcome(task, profanityGloballyDisabled ? 'skipped' : 'zero');
+            await this.ackProfanityOutcome(task, profanityEnabled ? 'zero' : 'skipped');
           }
         } catch {
           await this.ackProfanityOutcome(task, 'failed');
@@ -687,8 +689,11 @@ export class CriminalCodeAnalyzerDO {
       // success/failure must never block criminal completed/zero/skipped/failed.
       let profanityResult: { words: Array<{ word: string; count: number }>; count: number } | null = null;
       let profanityError: unknown = null;
+      const profanityEnabled = await this.isProfanityAnalysisEnabled();
       try {
-        profanityResult = await this.recordProfanityCountersFromAnalysis({ task, semanticPrefilter, sequence: task.sequence });
+        profanityResult = await this.recordProfanityCountersFromAnalysis({
+          task, semanticPrefilter, sequence: task.sequence, profanityEnabled,
+        });
       } catch (e: unknown) {
         profanityError = e;
       }
@@ -706,8 +711,7 @@ export class CriminalCodeAnalyzerDO {
         // acked as failed above (a missing identity is not evidence of zero profanity).
         // We distinguish: if profanity feature disabled, we still want terminal (skipped vs zero convention).
         // For criminal prefilter path, disabled profanity is not per-message but global; treat as skipped.
-        const profanityGloballyDisabled = !(await this.isProfanityAnalysisEnabled());
-        if (profanityGloballyDisabled) {
+        if (!profanityEnabled) {
           await this.ackProfanityOutcome(task, 'skipped');
         } else {
           await this.ackProfanityOutcome(task, 'zero');
@@ -1034,7 +1038,12 @@ export class CriminalCodeAnalyzerDO {
       if (!row?.settings_json) return this.env.REQUIRE_EXPLICIT_STORAGE_CHOICE !== true &&
         this.env.REQUIRE_EXPLICIT_STORAGE_CHOICE !== 'true';
       const policy = JSON.parse(row.settings_json) as Record<string, unknown>;
-      return policy.version === 1 && policy.profanityEnabled !== false;
+      if (policy.version !== 1) return false;
+      // Old settings rows only contain summary settings. Respect the existing
+      // deployment-level switch instead of interpreting an absent field as opt-in.
+      return typeof policy.profanityEnabled === 'boolean'
+        ? policy.profanityEnabled
+        : this.getBooleanEnv('ENABLE_PROFANITY_ANALYSIS', false);
     } catch {
       // Unknown consent state: do not write derived profanity data.
       return false;
@@ -1045,8 +1054,9 @@ export class CriminalCodeAnalyzerDO {
     task: QueuedCriminalAnalysisTask;
     semanticPrefilter?: CriminalSemanticPrefilterResult;
     sequence?: number;
+    profanityEnabled: boolean;
   }): Promise<{ words: Array<{ word: string; count: number }>; count: number } | null> {
-    if (!(await this.isProfanityAnalysisEnabled())) {
+    if (!input.profanityEnabled) {
       return null;
     }
 
