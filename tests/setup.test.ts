@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../src/core/env';
 import { handleSetupRequest } from '../src/api/setup';
+import { createTelegramSessionCookie } from '../src/api/admin-auth';
 import { getWebhookSecret } from '../src/core/webhook-secret';
 import { resetRuntimeSettingsCache } from '../src/core/runtime-settings';
 
@@ -52,6 +53,64 @@ describe('owner setup', () => {
       enabled: true, provider: 'cloudflare', model: 'test',
     }), env);
     expect(update.status).toBe(401);
+  });
+
+  it('reuses existing instance Basic Auth for owner settings without the BotFather token', async () => {
+    const basicEnv = { ...env, ADMIN_BASIC_USER: 'admin', ADMIN_BASIC_PASSWORD: 'owner-password' };
+    const authorization = 'Basic ' + btoa('admin:owner-password');
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, result: {} })));
+
+    const loginPage = await handleSetupRequest(request('/admin/setup'), basicEnv);
+    expect(await loginPage.text()).toContain('/admin/setup?auth=basic');
+    const prompt = await handleSetupRequest(request('/admin/setup?auth=basic'), basicEnv);
+    expect(prompt.status).toBe(401);
+    expect(prompt.headers.get('WWW-Authenticate')).toContain('Basic realm=');
+    const challengeResponse = await handleSetupRequest(new Request(origin + '/admin/setup?auth=basic', {
+      headers: { Authorization: authorization },
+    }), basicEnv);
+    expect(challengeResponse.status).toBe(200);
+    expect(challengeResponse.headers.get('Cache-Control')).toBe('no-store');
+
+    const status = await handleSetupRequest(new Request(origin + '/admin/api/setup/status', {
+      headers: { Authorization: authorization },
+    }), basicEnv);
+    expect(status.status).toBe(200);
+    expect((await status.json() as { authMethod: string }).authMethod).toBe('basic');
+    const denied = await handleSetupRequest(new Request(origin + '/admin/api/setup/status', {
+      headers: { Authorization: 'Basic ' + btoa('admin:wrong') },
+    }), basicEnv);
+    expect(denied.status).toBe(401);
+
+    const settingsRequest = (requestOrigin: string) => new Request(origin + '/admin/api/setup/settings', {
+      method: 'PATCH', headers: { Authorization: authorization, Origin: requestOrigin,
+        'Content-Type': 'application/json' },
+      body: JSON.stringify({ not: 'settings' }),
+    });
+    expect((await handleSetupRequest(settingsRequest('https://evil.example'), basicEnv)).status)
+      .toBe(403);
+    // Auth is accepted for writes, but invalid configuration is still rejected.
+    expect((await handleSetupRequest(settingsRequest(origin), basicEnv)).status).toBe(400);
+  });
+
+  it('reuses the designated Telegram owner session, never a group admin session', async () => {
+    const ownerEnv = { ...env, ADMIN_USER_ID: '42', HISTORY: {
+      get: vi.fn(async () => null),
+    } } as unknown as Env;
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, result: {} })));
+    const cookie = (await createTelegramSessionCookie(ownerEnv, {
+      id: 42, auth_date: Math.floor(Date.now() / 1000),
+    })).split(';')[0];
+    const ownerStatus = await handleSetupRequest(request('/admin/api/setup/status', 'GET',
+      undefined, cookie), ownerEnv);
+    expect(ownerStatus.status).toBe(200);
+    expect((await ownerStatus.json() as { authMethod: string }).authMethod).toBe('telegram');
+    const groupAdminCookie = (await createTelegramSessionCookie(ownerEnv, {
+      id: 43, auth_date: Math.floor(Date.now() / 1000),
+    })).split(';')[0];
+    expect((await handleSetupRequest(request('/admin/api/setup/status', 'GET',
+      undefined, groupAdminCookie), ownerEnv)).status).toBe(401);
+    expect((await handleSetupRequest(request('/admin/api/setup/status', 'GET',
+      undefined, cookie), { ...ownerEnv, ADMIN_USER_ID: undefined })).status).toBe(401);
   });
 
   it('never accepts the wrong token or a cross-origin login', async () => {

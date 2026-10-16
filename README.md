@@ -63,6 +63,11 @@ to their configured model provider. All advanced analyses initially start off.
 Switching to stats-only stops **new raw message writes**, but does not purge
 previously stored messages; they age out under their retention policy. This page
 controls the entire self-hosted bot instance, not individual Telegram groups.
+On existing deployments, the owner can open `/admin/setup` using the existing
+admin Basic Auth credentials (`ADMIN_BASIC_USER` / `ADMIN_BASIC_PASSWORD`), or
+an existing Telegram admin session when `ADMIN_USER_ID` matches the signed-in
+Telegram account. BotFather token login remains a bootstrap fallback. Ordinary
+Telegram group admins cannot change the instance-wide settings.
 You can enable AI summaries after configuring any required provider key as a
 Cloudflare Secret. Never paste an OpenAI/OpenRouter key into the dashboard.
 

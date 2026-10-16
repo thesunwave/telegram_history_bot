@@ -48,7 +48,10 @@ token, and register the Telegram webhook. This bootstrap credential is sent
 over HTTPS and only a signed, two-hour session cookie is retained by the
 browser. On new portable installs the owner must explicitly select either statistics-only
 (no new raw message text storage) or history + statistics before connecting the
-Telegram webhook. Activity stats are enabled initially, while AI summary,
+Telegram webhook. Existing installations can reuse admin Basic Auth at
+`/admin/setup?auth=basic`, or a Telegram session for the explicitly configured
+`ADMIN_USER_ID`; a Telegram group-admin session alone is not sufficient.
+Activity stats are enabled initially, while AI summary,
 profanity and criminal analysis are disabled. The owner can configure all four
 features in `/admin/setup` when their dependencies and AI credentials are available. Without message history, summaries and
 contextual criminal analysis cannot be enabled. Switching modes does not delete

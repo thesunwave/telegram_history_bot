@@ -1,5 +1,5 @@
 import type { Env } from '../core/env';
-import { authenticateTelegramSession } from './admin-auth';
+import { authenticateAdmin, authenticateTelegramSession } from './admin-auth';
 import { ProviderInitializer } from '../core/providers/provider-init';
 import { resolveRuntimeSettings, saveSummaryRuntimeSettings, saveRuntimeSettings } from '../core/runtime-settings';
 import { getWebhookSecret } from '../core/webhook-secret';
@@ -29,24 +29,29 @@ async function signTimestamp(env: Env, timestamp: string): Promise<string> {
   return [...new Uint8Array(signature)].map(value => value.toString(16).padStart(2, '0')).join('');
 }
 
-async function isSetupOwner(req: Request, env: Env): Promise<boolean> {
+type OwnerAuthMethod = 'telegram' | 'basic' | 'token';
+
+async function setupOwnerAuth(req: Request, env: Env): Promise<OwnerAuthMethod | null> {
+  // Basic Auth is already a privileged, instance-wide admin credential.
+  // Telegram group membership alone must never grant owner access.
+  if (authenticateAdmin(req, env)) return 'basic';
   const ownerId = env.ADMIN_USER_ID?.trim();
   if (ownerId && /^[1-9][0-9]*$/.test(ownerId)) {
     const principal = await authenticateTelegramSession(req, env);
-    if (principal?.telegramId && String(principal.telegramId) === ownerId) return true;
+    if (principal?.telegramId && String(principal.telegramId) === ownerId) return 'telegram';
   }
-  if (!env.TOKEN) return false;
+  if (!env.TOKEN) return null;
   const matching = (req.headers.get('Cookie') || '').split(';').map(item => item.trim())
     .filter(item => item.startsWith(SESSION_COOKIE + '='));
-  if (matching.length !== 1) return false;
+  if (matching.length !== 1) return null;
   const cookie = matching[0].slice(SESSION_COOKIE.length + 1);
   const pieces = cookie.split('.');
   if (pieces.length !== 2 || !/^[0-9]{10}$/.test(pieces[0]) ||
-    !/^[0-9a-f]{64}$/.test(pieces[1])) return false;
+    !/^[0-9a-f]{64}$/.test(pieces[1])) return null;
   const issuedAt = Number(pieces[0]);
   const now = Math.floor(Date.now() / 1000);
-  if (issuedAt > now || now - issuedAt > SESSION_SECONDS) return false;
-  return constantTimeEqual(pieces[1], await signTimestamp(env, pieces[0]));
+  if (issuedAt > now || now - issuedAt > SESSION_SECONDS) return null;
+  return constantTimeEqual(pieces[1], await signTimestamp(env, pieces[0])) ? 'token' : null;
 }
 
 function setupCookie(value: string, maxAge: number): string {
@@ -72,7 +77,7 @@ async function telegramApi(env: Env, method: string, args?: Record<string, unkno
   return body.result || {};
 }
 
-function renderSetupHtml(): string {
+function renderSetupHtml(basicAuthEnabled: boolean): string {
   return `<!doctype html>
 <html lang="ru">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -88,8 +93,11 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}
 <body>
 <p><a href="/admin">← Админка</a></p><h1>Настройка бота</h1>
 <section id="login"><h2>Доступ владельца</h2>
-<p>Для первого входа используй токен из BotFather. Он не сохраняется в браузере или D1.
-Сессия действует два часа.</p>
+<p>Если ты вошёл в админку как владелец, настройки откроются автоматически.
+Для входа через Telegram должен быть задан ADMIN_USER_ID владельца.</p>
+${basicAuthEnabled ? '<p><a href="/admin/setup?auth=basic">Войти с логином и паролем админки</a></p>' : ''}
+<p>Для первоначальной самостоятельной установки можно использовать BotFather-токен.
+Он не сохраняется в браузере или D1; такая сессия действует два часа.</p>
 <form id="loginForm"><label>BotFather TOKEN <input id="token" type="password" required autocomplete="off"></label>
 <button>Войти</button></form></section>
 <div id="settings" hidden>
@@ -123,7 +131,7 @@ async function api(path, method='GET', body) {
     body:body===undefined?undefined:JSON.stringify(body)
   });
   const json = await response.json().catch(()=>({error:'Request failed'}));
-  if (!response.ok) throw Error(json.error || 'Request failed ('+response.status+')');
+  if (!response.ok) { const error = Error(json.error || 'Request failed ('+response.status+')'); error.status=response.status; throw error; }
   return json;
 }
 function selectedStorageMode() {
@@ -146,6 +154,7 @@ async function refresh() {
   try {
     const info = await api('status');
     el('login').hidden=true; el('settings').hidden=false;
+    el('logout').hidden=info.authMethod!=='token';
     for (const option of document.querySelectorAll('input[name="storageMode"]')) {
       option.checked = option.value === info.storageMode;
     }
@@ -163,7 +172,11 @@ async function refresh() {
       ? info.storageMode==='unconfigured' ? 'Сначала выбери режим хранения и нажми «Сохранить настройки».' : ''
       : 'D1 не инициализирована. Проверь, что команда npm run deploy завершила все миграции.';
   } catch(error) {
-    el('settings').hidden=true; el('login').hidden=false;
+    if (error.status===401) {
+      el('settings').hidden=true; el('login').hidden=false; el('error').textContent='';
+    } else {
+      el('error').textContent=error.message;
+    }
   }
 }
 el('loginForm').onsubmit=async event=>{
@@ -200,7 +213,19 @@ refresh();
 export async function handleSetupRequest(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   if (url.pathname === '/admin/setup' && req.method === 'GET') {
-    return new Response(renderSetupHtml(), { headers: {
+    const basicAuthEnabled = Boolean(env.ADMIN_BASIC_USER && env.ADMIN_BASIC_PASSWORD);
+    // Explicit browser Basic Auth entry for existing owner installations;
+    // normal visits still show bootstrap instructions when unauthenticated.
+    if (url.searchParams.get('auth') === 'basic') {
+      if (!basicAuthEnabled) return new Response('Not found', { status: 404 });
+      if (!authenticateAdmin(req, env)) {
+        return new Response('Owner authentication required', { status: 401, headers: {
+          'WWW-Authenticate': 'Basic realm="Telegram History owner", charset="UTF-8"',
+          'Cache-Control': 'no-store',
+        } });
+      }
+    }
+    return new Response(renderSetupHtml(basicAuthEnabled), { headers: {
       'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store',
     } });
   }
@@ -224,7 +249,8 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
     } });
   }
 
-  if (!await isSetupOwner(req, env)) return errorResponse('Owner authentication required', 401);
+  const ownerAuth = await setupOwnerAuth(req, env);
+  if (!ownerAuth) return errorResponse('Owner authentication required', 401);
 
   if (route === 'logout' && req.method === 'POST') {
     return Response.json({ ok: true }, { headers: {
@@ -248,7 +274,7 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
       webhookConfigured = Boolean(webhook.url);
     } catch { /* Report only the configured state, never the bot token. */ }
     return Response.json({
-      ok: true, summary: settings.summary, webhookConfigured, databaseReady,
+      ok: true, authMethod: ownerAuth, summary: settings.summary, webhookConfigured, databaseReady,
       storageMode: settings.storageMode,
       features: {
         activityTrackingEnabled: settings.activityTrackingEnabled,
