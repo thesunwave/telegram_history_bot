@@ -48,7 +48,8 @@ admin and Telegram webhook routes stay exclusively in this bot Worker.
 New installations **require an explicit storage decision** before Telegram is connected:
 - **Statistics only:** count messages, words, media and activity without saving
   the raw text of chats in the bot's message-history KV/DO storage. Chat/user
-  identifiers, counts and group metadata still persist. This does not control
+  identifiers, group metadata and (when activity tracking is enabled) counts
+  still persist. This does not control
   Telegram/Cloudflare platform logs or optional external AI providers.
   AI summaries, contextual criminal analysis, and their history-dependent
   commands are unavailable in this mode.
@@ -84,7 +85,9 @@ Cloudflare Worker that stores Telegram chat messages (7 days in KV), generates s
 ## Features
 
 - Webhook for receiving Telegram updates.
-- Stores messages in KV with 7-day TTL (daily blocks + fallback single-message storage).
+- Optional message history in Durable Objects/KV, with seven-day default
+  retention (daily blocks + fallback single-message storage). Stats Only does
+  not write raw messages to those stores.
 - Per-user counters via Durable Objects and KV.
 - **🚀 Optimized Summary System** with parallel processing and context management.
 - **🛡️ Automatic fallback** to legacy summarization on errors.

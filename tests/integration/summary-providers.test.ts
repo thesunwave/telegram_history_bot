@@ -72,6 +72,8 @@ describe("Summary Providers Integration Tests", () => {
         bind: () => ({
           run: vi.fn(),
           all: vi.fn(async () => ({ results: [] })),
+          // Emulate the production D1 settings lookup on each webhook.
+          first: vi.fn(async () => null),
         }),
       })),
     } as unknown as D1Database;

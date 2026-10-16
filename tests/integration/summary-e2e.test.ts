@@ -54,6 +54,8 @@ describe("Summary End-to-End Tests", () => {
         bind: () => ({
           run: vi.fn(),
           all: vi.fn(async () => ({ results: [] })),
+          // Emulate the production D1 settings lookup on each webhook.
+          first: vi.fn(async () => null),
         }),
       })),
     } as unknown as D1Database;
@@ -73,8 +75,8 @@ describe("Summary End-to-End Tests", () => {
   });
 
   afterEach(async () => {
-    vi.restoreAllMocks();
     await Promise.allSettled(tasks);
+    vi.restoreAllMocks();
     await bindings.mf.dispose();
   });
 

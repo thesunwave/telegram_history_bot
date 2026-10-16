@@ -158,7 +158,7 @@ async function refresh() {
     refreshDependencies();
     el('status').textContent=JSON.stringify(info,null,2);
     el('webhook').textContent=info.webhookConfigured?' Подключён':' Не подключён';
-    el('connect').disabled=!info.databaseReady || info.storageMode==='unconfigured';
+    el('connect').disabled=info.storageMode==='unconfigured';
     el('error').textContent=info.databaseReady
       ? info.storageMode==='unconfigured' ? 'Сначала выбери режим хранения и нажми «Сохранить настройки».' : ''
       : 'D1 не инициализирована. Проверь, что команда npm run deploy завершила все миграции.';

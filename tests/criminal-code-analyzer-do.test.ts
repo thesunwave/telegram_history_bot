@@ -165,6 +165,29 @@ describe("CriminalCodeAnalyzerDO", () => {
     });
   });
 
+  it('does not increment profanity via criminal prefilter when the owner disables profanity', async () => {
+    mockEnv.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER = true;
+    mockEnv.DB.prepare = vi.fn(() => ({
+      bind: vi.fn(() => ({ first: vi.fn(async () => ({ settings_json: JSON.stringify({
+        version: 1, storageMode: 'history', criminalEnabled: true, profanityEnabled: false,
+      }) })) })),
+    }));
+    const counterFetch = vi.fn(async () => new Response('ok', { status: 200 }));
+    mockEnv.COUNTERS_DO = {
+      idFromName: vi.fn().mockReturnValue('test-id'),
+      get: vi.fn().mockReturnValue({ fetch: counterFetch }),
+    };
+    const instance = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+    const response = await instance.fetch(new Request('https://do/enqueue', {
+      method: 'POST',
+      body: JSON.stringify({ text: 'хуй', chatId: 12345, userId: 67890,
+        messageId: 123, day: '2026-10-16', sequence: 1 }),
+    }));
+    expect(response.status).toBe(200);
+    const paths = counterFetch.mock.calls.map(([url]) => new URL(String(url)).pathname);
+    expect(paths).not.toContain('/profanity');
+  });
+
   it('drops queued message text when owner disables criminal analysis before the alarm', async () => {
     const queue = [{
       text: 'PRIVATE_SENTINEL', chatId: 12345, messageId: 991,

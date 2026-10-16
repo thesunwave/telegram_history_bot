@@ -49,8 +49,8 @@ over HTTPS and only a signed, two-hour session cookie is retained by the
 browser. On new portable installs the owner must explicitly select either statistics-only
 (no new raw message text storage) or history + statistics before connecting the
 Telegram webhook. Activity stats are enabled initially, while AI summary,
-profanity and criminal analysis are disabled. The owner can toggle all four
-features in `/admin/setup` at any time. Without message history, summaries and
+profanity and criminal analysis are disabled. The owner can configure all four
+features in `/admin/setup` when their dependencies and AI credentials are available. Without message history, summaries and
 contextual criminal analysis cannot be enabled. Switching modes does not delete
 previously captured data and does not affect persistent user statistics/metadata.
 Statistics-only is **not** a no-processing guarantee: if an operator enables

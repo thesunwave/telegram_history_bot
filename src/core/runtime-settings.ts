@@ -264,7 +264,7 @@ export async function saveRuntimeSettings(
     [input.criminalEnabled, 'criminal', env.CRIMINAL_PROVIDER],
   ] as const) {
     if (!enabled) continue;
-    const featureProvider = configuredProvider || provider;
+    const featureProvider = String(configuredProvider || provider).toLowerCase();
     if ((featureProvider === 'openai' || featureProvider === 'openai-premium') && !env.OPENAI_API_KEY) {
       throw new Error(`OPENAI_API_KEY is required to enable ${capability} analysis`);
     }

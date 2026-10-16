@@ -213,4 +213,15 @@ describe('runtime settings', () => {
     } as any });
     await expect(withRuntimeSettings(env, true)).rejects.toThrow('settings temporarily unavailable');
   });
+
+  it('validates AI provider settings regardless of the case used in Wrangler', async () => {
+    const db = makeSettingsDb();
+    const env = makeEnv({ DB: db as any, PROFANITY_PROVIDER: 'OPENAI', OPENAI_API_KEY: undefined });
+    await expect(saveRuntimeSettings(env, {
+      storageMode: 'stats_only', activityTrackingEnabled: true,
+      profanityEnabled: true, criminalEnabled: false,
+      summary: { enabled: false, provider: 'cloudflare', model: '@cf/model' },
+    })).rejects.toThrow('OPENAI_API_KEY');
+    expect(db.read()).toBeNull();
+  });
 });
