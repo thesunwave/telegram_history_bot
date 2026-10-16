@@ -126,6 +126,8 @@ describe('runtime settings', () => {
   it('requires an explicit choice on portable fresh installs', async () => {
     const settings = await resolveRuntimeSettings(makeEnv({ REQUIRE_EXPLICIT_STORAGE_CHOICE: true }));
     expect(settings.storageMode).toBe('unconfigured');
+    expect((await resolveRuntimeSettings(makeEnv({ REQUIRE_EXPLICIT_STORAGE_CHOICE: 'true' }))).storageMode)
+      .toBe('unconfigured');
   });
 
   it('persists the explicit mode and feature toggles and passes them to processing', async () => {
@@ -178,5 +180,16 @@ describe('runtime settings', () => {
     expect(runtimeEnv.ENABLE_CRIMINAL_ANALYSIS).toBe(false);
     expect(runtimeEnv.ENABLE_ACTIVITY_TRACKING).toBe(false);
     expect(runtimeEnv.ENABLE_PROFANITY_ANALYSIS).toBe(false);
+  });
+
+  it('requires the Vectorize binding before enabling legal-rag criminal analysis', async () => {
+    const db = makeSettingsDb();
+    const env = makeEnv({ DB: db as any, CRIMINAL_PROVIDER: 'legal-rag' });
+    await expect(saveRuntimeSettings(env, {
+      storageMode: 'history', activityTrackingEnabled: true,
+      profanityEnabled: false, criminalEnabled: true,
+      summary: { enabled: false, provider: 'cloudflare', model: '@cf/model' },
+    })).rejects.toThrow('LEGAL_RAG_INDEX');
+    expect(db.read()).toBeNull();
   });
 });

@@ -53,6 +53,10 @@ profanity and criminal analysis are disabled. The owner can toggle all four
 features in `/admin/setup` at any time. Without message history, summaries and
 contextual criminal analysis cannot be enabled. Switching modes does not delete
 previously captured data and does not affect persistent user statistics/metadata.
+Statistics-only is **not** a no-processing guarantee: if an operator enables
+profanity analysis, message text can still be sent to the selected external AI
+provider, while extracted matches and provider/platform logs may be retained.
+Telegram and Cloudflare process incoming webhook traffic in either mode.
 Existing production installations preserve their configured storage behaviour
 until an owner changes it. OpenAI/OpenRouter keys
 must be configured as Cloudflare Secrets before enabling those providers.

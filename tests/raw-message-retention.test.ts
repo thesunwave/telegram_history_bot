@@ -43,6 +43,7 @@ describe('fallback raw message retention', () => {
   it('never writes raw messages to KV or a day-block when stats-only is selected', async () => {
     const { env, put } = makeEnv();
     env.RAW_MESSAGE_STORAGE_MODE = 'stats_only';
+    env.TOKEN = 'normal-live-token';
     env.DAY_BLOCK_MANAGER_DO = { idFromName: vi.fn(), get: vi.fn() };
     await recordMessage(message(Math.floor(Date.now() / 1000)), env);
     expect(put.mock.calls.filter(([key]) => key.startsWith('msg:') || key.startsWith('msg_day:'))).toHaveLength(0);

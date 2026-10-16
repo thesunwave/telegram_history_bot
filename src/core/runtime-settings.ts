@@ -68,7 +68,8 @@ function baseSettingsFromEnv(env: Env): RuntimeSettings {
     // installs explicitly require a storage decision before webhook setup.
     storageMode: env.RAW_MESSAGE_STORAGE_MODE === 'stats_only' || env.RAW_MESSAGE_STORAGE_MODE === 'history'
       ? env.RAW_MESSAGE_STORAGE_MODE
-      : env.REQUIRE_EXPLICIT_STORAGE_CHOICE === true ? 'unconfigured' : 'history',
+      : (env.REQUIRE_EXPLICIT_STORAGE_CHOICE === true || env.REQUIRE_EXPLICIT_STORAGE_CHOICE === 'true')
+        ? 'unconfigured' : 'history',
     summary: {
       enabled: parseBoolean(env.ENABLE_SUMMARY, false),
       provider,
@@ -267,6 +268,9 @@ export async function saveRuntimeSettings(
     }
     if (featureProvider === 'openrouter' && !env.OPENROUTER_API_KEY) {
       throw new Error(`OPENROUTER_API_KEY is required to enable ${capability} analysis`);
+    }
+    if (featureProvider === 'legal-rag' && !env.LEGAL_RAG_INDEX?.query) {
+      throw new Error(`LEGAL_RAG_INDEX Vectorize binding is required to enable ${capability} analysis`);
     }
     if ((featureProvider === 'cloudflare' || featureProvider === 'legal-rag') && !env.AI) {
       throw new Error(`Workers AI binding is required to enable ${capability} analysis`);

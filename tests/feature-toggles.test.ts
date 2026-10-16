@@ -42,5 +42,9 @@ describe('disabled feature commands', () => {
     await handleUpdate(message('/summary'), env);
     await handleUpdate(message('/criminal_backfill'), env);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    const replies = fetchMock.mock.calls.map(([_, options]) =>
+      JSON.parse((options as RequestInit).body as string).text as string);
+    expect(replies[0]).toContain('AI-сводки отключены');
+    expect(replies[1]).toContain('Уголовный анализ отключён');
   });
 });

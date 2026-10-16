@@ -41,7 +41,7 @@ export interface Env {
   DEBUG_LOGS?: string;
   RAW_MESSAGE_RETENTION_DAYS?: string | number;
   RAW_MESSAGE_STORAGE_MODE?: 'stats_only' | 'history' | 'unconfigured';
-  REQUIRE_EXPLICIT_STORAGE_CHOICE?: boolean;
+  REQUIRE_EXPLICIT_STORAGE_CHOICE?: boolean | string;
   KV_BATCH_SIZE?: number;
   KV_BATCH_DELAY?: number;
   LARGE_DATASET_BATCH_SIZE?: number;
