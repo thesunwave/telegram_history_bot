@@ -192,4 +192,25 @@ describe('runtime settings', () => {
     })).rejects.toThrow('LEGAL_RAG_INDEX');
     expect(db.read()).toBeNull();
   });
+
+  it('reads privacy policy fresh for ingestion even when a cached policy is stale', async () => {
+    const db = makeSettingsDb(JSON.stringify({ version: 1, storageMode: 'history' }));
+    const env = makeEnv({ DB: db as any });
+    expect((await withRuntimeSettings(env)).RAW_MESSAGE_STORAGE_MODE).toBe('history');
+    await db.prepare('INSERT INTO app_settings').bind('global', JSON.stringify({
+      version: 1, storageMode: 'stats_only', activityTrackingEnabled: true,
+      criminalEnabled: false,
+    })).run();
+    expect((await withRuntimeSettings(env)).RAW_MESSAGE_STORAGE_MODE).toBe('history');
+    expect((await withRuntimeSettings(env, true)).RAW_MESSAGE_STORAGE_MODE).toBe('stats_only');
+  });
+
+  it('does not fall back to history when D1 policy lookup fails during ingestion', async () => {
+    const env = makeEnv({ DB: {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({ first: vi.fn().mockRejectedValue(new Error('D1 unavailable')) })),
+      })),
+    } as any });
+    await expect(withRuntimeSettings(env, true)).rejects.toThrow('settings temporarily unavailable');
+  });
 });

@@ -144,10 +144,16 @@ export class CriminalCodeAnalyzerDO {
 
   async fetch(request: Request): Promise<Response> {
     try {
-      await this.initialize();
-
       const url = new URL(request.url);
       const path = url.pathname;
+      // These routes can process message text even after the webhook is disabled.
+      // Check durable owner settings before accepting any new analysis input.
+      if (request.method === 'POST' &&
+          ['/analyze', '/enqueue', '/diagnose', '/batch-analyze'].includes(path)) {
+        const enabled = await this.isAnalysisAllowed();
+        if (!enabled) return Response.json({ error: 'Criminal analysis disabled' }, { status: 409 });
+      }
+      await this.initialize();
 
       // 🔍 Single message analysis
       if (path === '/analyze' && request.method === 'POST') {
@@ -640,6 +646,17 @@ export class CriminalCodeAnalyzerDO {
   private async flushQueue(reason: string): Promise<void> {
     const queue = await this.loadQueue();
     if (queue.length === 0) {
+      return;
+    }
+    // An alarm might fire after the owner has switched to Stats Only or
+    // disabled criminal analysis. Drop pending message text instead of sending
+    // it to an AI provider; terminal acks keep counters from stalling.
+    if (!(await this.isAnalysisAllowed())) {
+      await this.saveQueue([]);
+      for (const task of queue) {
+        await this.ackCriminalOutcome(task, 'skipped');
+        await this.ackProfanityOutcome(task, 'skipped');
+      }
       return;
     }
 
@@ -3314,6 +3331,29 @@ export class CriminalCodeAnalyzerDO {
     const raw = (this.env as any).ADMIN_USER_ID;
     const parsed = typeof raw === 'number' ? raw : parseInt(String(raw ?? ''), 10);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private async isAnalysisAllowed(): Promise<boolean> {
+    if (!this.env.DB?.prepare) {
+      return this.env.REQUIRE_EXPLICIT_STORAGE_CHOICE !== true &&
+        this.env.REQUIRE_EXPLICIT_STORAGE_CHOICE !== 'true';
+    }
+    // A failed D1 read must not silently opt a configured bot back into AI.
+    const row = await this.env.DB.prepare('SELECT settings_json FROM app_settings WHERE scope = ?')
+      .bind('global').first() as { settings_json?: string } | null;
+    if (!row?.settings_json) {
+      // Older deployments did not have an owner policy; preserve their flags.
+      return this.env.REQUIRE_EXPLICIT_STORAGE_CHOICE !== true &&
+        this.env.REQUIRE_EXPLICIT_STORAGE_CHOICE !== 'true';
+    }
+    let policy: Record<string, unknown>;
+    try {
+      policy = JSON.parse(row.settings_json);
+    } catch {
+      return false;
+    }
+    return policy.version === 1 && policy.storageMode !== 'stats_only' &&
+      policy.criminalEnabled !== false;
   }
 
   private async loadQueue(): Promise<QueuedCriminalAnalysisTask[]> {

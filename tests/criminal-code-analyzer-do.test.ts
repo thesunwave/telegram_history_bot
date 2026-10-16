@@ -165,6 +165,35 @@ describe("CriminalCodeAnalyzerDO", () => {
     });
   });
 
+  it('drops queued message text when owner disables criminal analysis before the alarm', async () => {
+    const queue = [{
+      text: 'PRIVATE_SENTINEL', chatId: 12345, messageId: 991,
+      userId: 55, day: '2026-10-16', sequence: 4, ts: 1792100000,
+      enqueuedAt: Date.now(), reasons: ['semantic_prefilter'],
+    }];
+    const storage = new Map<string, any>([['criminal_analysis_queue', queue]]);
+    mockState.storage = {
+      get: vi.fn(async (key: string) => storage.get(key)),
+      put: vi.fn(async (key: string, value: unknown) => { storage.set(key, value); }),
+      setAlarm: vi.fn(async () => {}),
+    };
+    mockEnv.DB.prepare = vi.fn(() => ({
+      bind: vi.fn(() => ({ first: vi.fn(async () => ({
+        settings_json: JSON.stringify({ version: 1, storageMode: 'stats_only', criminalEnabled: false }),
+      })) })),
+    }));
+    const instance = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+    const pref = vi.spyOn(instance as any, 'runSemanticPrefilterBatch');
+    await instance.alarm();
+    expect(storage.get('criminal_analysis_queue')).toEqual([]);
+    expect(pref).not.toHaveBeenCalled();
+    expect(mockEnv.COUNTERS_DO.get).toHaveBeenCalled();
+    const response = await instance.fetch(new Request('https://do/enqueue', {
+      method: 'POST', body: JSON.stringify(queue[0]),
+    }));
+    expect(response.status).toBe(409);
+  });
+
   describe("analyze endpoint", () => {
     it("should analyze text for criminal code violations", async () => {
       const requestBody = {

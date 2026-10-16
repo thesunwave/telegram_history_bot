@@ -238,7 +238,11 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   const configuredDays = Number(env.RAW_MESSAGE_RETENTION_DAYS ?? 7);
   const retentionDays = Number.isFinite(configuredDays) && configuredDays > 0 ? Math.ceil(configuredDays) : 7;
   const expiration = ts + retentionDays * DAY;
-  const rawExpired = !Number.isInteger(ts) || expiration <= Math.floor(Date.now() / 1000) + 60;
+  const dayStart = Number.isInteger(ts)
+    ? Date.parse(`${new Date(ts * 1000).toISOString().slice(0, 10)}T00:00:00.000Z`)
+    : NaN;
+  const rawExpired = !Number.isFinite(dayStart) ||
+    dayStart + retentionDays * DAY * 1000 <= Date.now() + 60_000;
   if (env.RAW_MESSAGE_STORAGE_MODE === 'stats_only') {
     Logger.debug(env, 'recordMessage: raw history storage disabled');
   } else if (rawExpired) {

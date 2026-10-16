@@ -79,6 +79,10 @@ export class DayBlockManager {
 
     try {
       const date = new Date(message.ts * 1000).toISOString().slice(0, 10);
+      // Late Telegram updates must not resurrect an already expired day's DO.
+      if (this.retentionExpiry(date) <= Date.now() + 60_000) {
+        return Response.json({ success: true, duplicate: true, messageCount: 0 });
+      }
       const blockId = `${message.chat}:${date}`;
 
       // Load meta (or migrate from legacy single-block format)
@@ -499,10 +503,7 @@ export async function addMessageToDayBlockSafe(
 
   } catch (error: any) {
     Logger.error('addMessageToDayBlockSafe: failed', {
-      chat: message.chat.toString(LOG_ID_RADIX),
-      date,
-      error: error.message || String(error),
-      stack: error.stack
+      errorName: error instanceof Error ? error.name : 'UnknownError'
     });
     throw error;
   }

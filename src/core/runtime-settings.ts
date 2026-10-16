@@ -104,9 +104,9 @@ function sanitizePersistedSettings(value: unknown): PersistedRuntimeSettingsV1 |
   return sanitized;
 }
 
-async function readPersistedSettings(env: Env): Promise<PersistedRuntimeSettingsV1 | null> {
+async function readPersistedSettings(env: Env, fresh = false): Promise<PersistedRuntimeSettingsV1 | null> {
   const now = Date.now();
-  if (persistedCache && persistedCache.expiresAt > now) {
+  if (!fresh && persistedCache && persistedCache.expiresAt > now) {
     return persistedCache.value;
   }
 
@@ -125,8 +125,10 @@ async function readPersistedSettings(env: Env): Promise<PersistedRuntimeSettings
     persistedCache = { expiresAt: now + SETTINGS_CACHE_TTL_MS, value };
     return value;
   } catch {
-    // Migrations can lag the first deploy. Until the settings table is ready,
-    // use the existing environment configuration, including production flags.
+    // Incoming webhooks must never fall back to history when an explicitly
+    // selected Stats Only policy cannot be read. Retry Telegram delivery later.
+    if (fresh) throw new Error('Bot runtime settings temporarily unavailable');
+    // Non-ingestion paths preserve compatibility during initial migrations.
     persistedCache = { expiresAt: now + SETTINGS_CACHE_TTL_MS, value: null };
     return null;
   }
@@ -136,9 +138,9 @@ export function resetRuntimeSettingsCache(): void {
   persistedCache = null;
 }
 
-export async function resolveRuntimeSettings(env: Env): Promise<RuntimeSettings> {
+export async function resolveRuntimeSettings(env: Env, fresh = false): Promise<RuntimeSettings> {
   const base = baseSettingsFromEnv(env);
-  const persisted = await readPersistedSettings(env);
+  const persisted = await readPersistedSettings(env, fresh);
   if (!persisted) return base;
   const provider = persisted.summary?.provider ?? base.summary.provider;
   const storageMode = persisted.storageMode ?? base.storageMode;
@@ -157,8 +159,8 @@ export async function resolveRuntimeSettings(env: Env): Promise<RuntimeSettings>
   };
 }
 
-export async function withRuntimeSettings(env: Env): Promise<Env> {
-  const settings = await resolveRuntimeSettings(env);
+export async function withRuntimeSettings(env: Env, fresh = false): Promise<Env> {
+  const settings = await resolveRuntimeSettings(env, fresh);
   const runtimeEnv: Env = {
     ...env,
     RAW_MESSAGE_STORAGE_MODE: settings.storageMode,

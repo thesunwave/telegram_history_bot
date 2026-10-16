@@ -62,8 +62,9 @@ independent audit of Telegram, Cloudflare or model providers.
 - This is *Cloudflare-hosted* self-deployment, not a local-only install. Telegram
   and Cloudflare handle message data. Enabled external AI services receive the
   content submitted to them. Account administrators can access stored data.
-- A seven-day maximum for **newly saved raw message copies** is the intent of
-  this change. It is not an assertion that all user-related data, backups,
+- The default retention for **newly saved raw message copies** is seven days
+  (UTC-day deadline for daily blocks; timestamp TTL for single-message fallback).
+  Operators may change `RAW_MESSAGE_RETENTION_DAYS`; the setting is not capped at seven. It is not an assertion that all user-related data, backups,
   provider copies or logs disappear within seven days.
 
 ## Required follow-up before strong privacy marketing

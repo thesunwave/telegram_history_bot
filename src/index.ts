@@ -79,8 +79,16 @@ export default {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<Response> {
-    env = await withRuntimeSettings(env);
     const url = new URL(req.url);
+    // Privacy-sensitive ingestion must use the current persisted policy, not a
+    // potentially stale isolate cache. On D1 failure, reject and let Telegram retry.
+    const isWebhook = req.method === 'POST' &&
+      (url.pathname === '/telegram/webhook' || /^\/tg\/[^/]+\/webhook$/.test(url.pathname));
+    try {
+      env = await withRuntimeSettings(env, isWebhook);
+    } catch {
+      return new Response('Bot settings temporarily unavailable', { status: 503 });
+    }
     const isPublicRead = req.method === "GET" || req.method === "HEAD";
     const isLegacyEnglish = ['/en', '/en/', '/en/index.html'].includes(url.pathname);
     if (isPublicRead && isLegacyEnglish) {

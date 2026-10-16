@@ -225,6 +225,22 @@ describe("webhook", () => {
     expect(await env.HISTORY.list({ prefix: 'msg:' })).toMatchObject({ keys: [] });
   });
 
+  it('fails closed rather than writing raw text when current D1 policy cannot be read', async () => {
+    const storage = env.HISTORY;
+    const db = { prepare: vi.fn(() => ({
+      bind: vi.fn(() => ({ first: vi.fn().mockRejectedValue(new Error('D1 down')) })),
+    })) };
+    const response = await worker.fetch(new Request('https://bot.example/telegram/webhook', {
+      method: 'POST',
+      headers: { 'X-Telegram-Bot-Api-Secret-Token': 's', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: { message_id: 1, text: 'PRIVATE_SENTINEL',
+        chat: { id: 147 }, from: { id: 248 }, date: Math.floor(Date.now() / 1000) } }),
+    }), { ...env, DB: db }, ctx);
+    expect(response.status).toBe(503);
+    expect(await storage.list({ prefix: 'msg:' })).toMatchObject({ keys: [] });
+    expect(await storage.list({ prefix: 'msg_day:' })).toMatchObject({ keys: [] });
+  });
+
   const adminAuth = `Basic ${btoa("admin:password")}`;
   const telegramUserId = 42;
 
