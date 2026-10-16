@@ -55,41 +55,69 @@ describe('owner setup', () => {
     expect(update.status).toBe(401);
   });
 
-  it('reuses existing instance Basic Auth for owner settings without the BotFather token', async () => {
-    const basicEnv = { ...env, ADMIN_BASIC_USER: 'admin', ADMIN_BASIC_PASSWORD: 'owner-password' };
-    const authorization = 'Basic ' + btoa('admin:owner-password');
+  it('pairs one verified Telegram account with the bot only after BotFather proof', async () => {
+    const rows = new Map<string, string>();
+    const database = { prepare: vi.fn((sql: string) => ({
+      bind: vi.fn((scope: string, json?: string) => ({
+        first: vi.fn(async () => rows.has(scope) ? { settings_json: rows.get(scope) } : null),
+        run: vi.fn(async () => {
+          if (sql.startsWith('INSERT INTO app_settings') && !rows.has(scope)) {
+            rows.set(scope, json!);
+          }
+          return { success: true };
+        }),
+      })),
+      first: vi.fn(async () => null),
+    })) };
+    const linkedEnv = { ...env, DB: database, HISTORY: { get: vi.fn(async () => null) } } as unknown as Env;
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, result: {} })));
+    const cookie = (id: number) => createTelegramSessionCookie(linkedEnv, {
+      id, auth_date: Math.floor(Date.now() / 1000),
+    }).then(value => value.split(';')[0]);
+    const ownerCookie = await cookie(42);
+    const impostorCookie = await cookie(43);
 
-    const loginPage = await handleSetupRequest(request('/admin/setup'), basicEnv);
-    expect(await loginPage.text()).toContain('/admin/setup?auth=basic');
-    const prompt = await handleSetupRequest(request('/admin/setup?auth=basic'), basicEnv);
-    expect(prompt.status).toBe(401);
-    expect(prompt.headers.get('WWW-Authenticate')).toContain('Basic realm=');
-    const challengeResponse = await handleSetupRequest(new Request(origin + '/admin/setup?auth=basic', {
-      headers: { Authorization: authorization },
-    }), basicEnv);
-    expect(challengeResponse.status).toBe(200);
-    expect(challengeResponse.headers.get('Cache-Control')).toBe('no-store');
+    const identity = await handleSetupRequest(request('/admin/api/setup/identity', 'GET',
+      undefined, ownerCookie), linkedEnv);
+    expect(await identity.json()).toEqual({ telegramAuthenticated: true, canClaimOwner: true });
+    expect((await handleSetupRequest(request('/admin/api/setup/status', 'GET',
+      undefined, ownerCookie), linkedEnv)).status).toBe(401);
+    expect((await handleSetupRequest(request('/admin/api/setup/claim-owner', 'POST',
+      { token: env.TOKEN }, undefined), linkedEnv)).status).toBe(401);
+    expect((await handleSetupRequest(request('/admin/api/setup/claim-owner', 'POST',
+      { token: 'wrong' }, ownerCookie), linkedEnv)).status).toBe(403);
+    expect(rows.size).toBe(0);
+    expect((await handleSetupRequest(request('/admin/api/setup/claim-owner', 'POST',
+      { token: env.TOKEN }, ownerCookie, 'https://evil.example'), linkedEnv)).status).toBe(403);
+    expect(rows.size).toBe(0);
 
+    const claim = await handleSetupRequest(request('/admin/api/setup/claim-owner', 'POST',
+      { token: env.TOKEN }, ownerCookie), linkedEnv);
+    expect(claim.status).toBe(200);
+    expect(rows.has('telegram_owner')).toBe(true);
+    expect((await handleSetupRequest(request('/admin/api/setup/status', 'GET',
+      undefined, ownerCookie), linkedEnv)).status).toBe(200);
+    expect((await handleSetupRequest(request('/admin/api/setup/status', 'GET',
+      undefined, impostorCookie), linkedEnv)).status).toBe(401);
+    expect((await handleSetupRequest(request('/admin/api/setup/claim-owner', 'POST',
+      { token: env.TOKEN }, impostorCookie), linkedEnv)).status).toBe(409);
+    const bound = JSON.parse(rows.get('telegram_owner')!);
+    expect(bound.telegramId).toBe('42');
+    expect(await (await handleSetupRequest(request('/admin/api/setup/identity', 'GET',
+      undefined, impostorCookie), linkedEnv)).json()).toEqual({
+      telegramAuthenticated: true, canClaimOwner: false,
+    });
+  });
+
+  it('never exposes Telegram ownership to Basic Auth or unconfigured group admins', async () => {
+    const basicEnv = { ...env, ADMIN_BASIC_USER: 'admin', ADMIN_BASIC_PASSWORD: 'password' };
+    const authorization = 'Basic ' + btoa('admin:password');
     const status = await handleSetupRequest(new Request(origin + '/admin/api/setup/status', {
       headers: { Authorization: authorization },
     }), basicEnv);
-    expect(status.status).toBe(200);
-    expect((await status.json() as { authMethod: string }).authMethod).toBe('basic');
-    const denied = await handleSetupRequest(new Request(origin + '/admin/api/setup/status', {
-      headers: { Authorization: 'Basic ' + btoa('admin:wrong') },
-    }), basicEnv);
-    expect(denied.status).toBe(401);
-
-    const settingsRequest = (requestOrigin: string) => new Request(origin + '/admin/api/setup/settings', {
-      method: 'PATCH', headers: { Authorization: authorization, Origin: requestOrigin,
-        'Content-Type': 'application/json' },
-      body: JSON.stringify({ not: 'settings' }),
-    });
-    expect((await handleSetupRequest(settingsRequest('https://evil.example'), basicEnv)).status)
-      .toBe(403);
-    // Auth is accepted for writes, but invalid configuration is still rejected.
-    expect((await handleSetupRequest(settingsRequest(origin), basicEnv)).status).toBe(400);
+    expect(status.status).toBe(401);
+    const page = await handleSetupRequest(request('/admin/setup'), basicEnv);
+    expect(await page.text()).not.toContain('/admin/setup?auth=basic');
   });
 
   it('reuses the designated Telegram owner session, never a group admin session', async () => {

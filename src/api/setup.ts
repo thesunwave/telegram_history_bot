@@ -1,5 +1,5 @@
 import type { Env } from '../core/env';
-import { authenticateAdmin, authenticateTelegramSession } from './admin-auth';
+import { authenticateTelegramSession } from './admin-auth';
 import { ProviderInitializer } from '../core/providers/provider-init';
 import { resolveRuntimeSettings, saveSummaryRuntimeSettings, saveRuntimeSettings } from '../core/runtime-settings';
 import { getWebhookSecret } from '../core/webhook-secret';
@@ -29,16 +29,30 @@ async function signTimestamp(env: Env, timestamp: string): Promise<string> {
   return [...new Uint8Array(signature)].map(value => value.toString(16).padStart(2, '0')).join('');
 }
 
-type OwnerAuthMethod = 'telegram' | 'basic' | 'token';
+const OWNER_SCOPE = 'telegram_owner';
+type OwnerAuthMethod = 'telegram' | 'token';
+
+function configuredOwnerId(env: Env): string | null {
+  const value = env.ADMIN_USER_ID?.trim();
+  return value && /^[1-9][0-9]*$/.test(value) ? value : null;
+}
+
+async function storedOwnerId(env: Env): Promise<string | null> {
+  if (!env.DB?.prepare) return null;
+  const row = await env.DB.prepare('SELECT settings_json FROM app_settings WHERE scope = ?')
+    .bind(OWNER_SCOPE).first() as { settings_json?: string } | null;
+  if (!row?.settings_json) return null;
+  const parsed = JSON.parse(row.settings_json) as { telegramId?: unknown };
+  return typeof parsed.telegramId === 'string' && /^[1-9][0-9]*$/.test(parsed.telegramId)
+    ? parsed.telegramId : null;
+}
 
 async function setupOwnerAuth(req: Request, env: Env): Promise<OwnerAuthMethod | null> {
-  // Basic Auth is already a privileged, instance-wide admin credential.
-  // Telegram group membership alone must never grant owner access.
-  if (authenticateAdmin(req, env)) return 'basic';
-  const ownerId = env.ADMIN_USER_ID?.trim();
-  if (ownerId && /^[1-9][0-9]*$/.test(ownerId)) {
-    const principal = await authenticateTelegramSession(req, env);
-    if (principal?.telegramId && String(principal.telegramId) === ownerId) return 'telegram';
+  const principal = await authenticateTelegramSession(req, env);
+  if (principal?.telegramId) {
+    // Ordinary Telegram group admins have no instance-wide permissions.
+    const ownerId = configuredOwnerId(env) ?? await storedOwnerId(env);
+    if (String(principal.telegramId) === ownerId) return 'telegram';
   }
   if (!env.TOKEN) return null;
   const matching = (req.headers.get('Cookie') || '').split(';').map(item => item.trim())
@@ -77,7 +91,7 @@ async function telegramApi(env: Env, method: string, args?: Record<string, unkno
   return body.result || {};
 }
 
-function renderSetupHtml(basicAuthEnabled: boolean): string {
+function renderSetupHtml(): string {
   return `<!doctype html>
 <html lang="ru">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -93,13 +107,16 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}
 <body>
 <p><a href="/admin">← Админка</a></p><h1>Настройка бота</h1>
 <section id="login"><h2>Доступ владельца</h2>
-<p>Если ты вошёл в админку как владелец, настройки откроются автоматически.
-Для входа через Telegram должен быть задан ADMIN_USER_ID владельца.</p>
-${basicAuthEnabled ? '<p><a href="/admin/setup?auth=basic">Войти с логином и паролем админки</a></p>' : ''}
-<p>Для первоначальной самостоятельной установки можно использовать BotFather-токен.
-Он не сохраняется в браузере или D1; такая сессия действует два часа.</p>
+<p>Войди в <a href="/admin">админку через Telegram</a>. Если аккаунт уже привязан к боту, настройки откроются автоматически.</p>
+<p id="ownerStatus"></p>
+<form id="claimForm" hidden>
+<p>Для первой привязки этого Telegram-аккаунта к боту один раз подтверди владение BotFather-токеном. Повторно вводить его не придётся.</p>
+<label>BotFather TOKEN <input id="claimToken" type="password" autocomplete="off"></label>
+<button>Привязать Telegram-аккаунт</button></form>
+<details id="bootstrap"><summary>Первоначальная самостоятельная установка без Telegram Login</summary>
+<p>Можно войти по BotFather-токену. Он не хранится в браузере или D1; сессия действует два часа.</p>
 <form id="loginForm"><label>BotFather TOKEN <input id="token" type="password" required autocomplete="off"></label>
-<button>Войти</button></form></section>
+<button>Войти</button></form></details></section>
 <div id="settings" hidden>
 <section><h2>1. Как хранить сообщения?</h2>
 <p>Выбери, какие данные бот может сохранять. Решение можно изменить позже.</p>
@@ -174,6 +191,18 @@ async function refresh() {
   } catch(error) {
     if (error.status===401) {
       el('settings').hidden=true; el('login').hidden=false; el('error').textContent='';
+      try {
+        const identity = await api('identity');
+        el('claimForm').hidden=!identity.canClaimOwner;
+        el('bootstrap').hidden=identity.telegramAuthenticated;
+        el('ownerStatus').textContent=identity.canClaimOwner
+          ? 'Ты вошёл через Telegram. Подтверди владение ботом один раз.'
+          : identity.telegramAuthenticated
+            ? 'Этот Telegram-аккаунт не назначен владельцем бота.'
+            : 'Сначала войди в админку через Telegram.';
+      } catch(identityError) {
+        el('error').textContent=identityError.message;
+      }
     } else {
       el('error').textContent=error.message;
     }
@@ -184,6 +213,13 @@ el('loginForm').onsubmit=async event=>{
   try {
     await api('login','POST',{token:el('token').value});
     el('token').value=''; await refresh();
+  } catch(error) { el('error').textContent=error.message; }
+};
+el('claimForm').onsubmit=async event=>{
+  event.preventDefault();
+  try {
+    await api('claim-owner','POST',{token:el('claimToken').value});
+    el('claimToken').value=''; await refresh();
   } catch(error) { el('error').textContent=error.message; }
 };
 el('connect').onclick=async ()=>{
@@ -213,19 +249,7 @@ refresh();
 export async function handleSetupRequest(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   if (url.pathname === '/admin/setup' && req.method === 'GET') {
-    const basicAuthEnabled = Boolean(env.ADMIN_BASIC_USER && env.ADMIN_BASIC_PASSWORD);
-    // Explicit browser Basic Auth entry for existing owner installations;
-    // normal visits still show bootstrap instructions when unauthenticated.
-    if (url.searchParams.get('auth') === 'basic') {
-      if (!basicAuthEnabled) return new Response('Not found', { status: 404 });
-      if (!authenticateAdmin(req, env)) {
-        return new Response('Owner authentication required', { status: 401, headers: {
-          'WWW-Authenticate': 'Basic realm="Telegram History owner", charset="UTF-8"',
-          'Cache-Control': 'no-store',
-        } });
-      }
-    }
-    return new Response(renderSetupHtml(basicAuthEnabled), { headers: {
+    return new Response(renderSetupHtml(), { headers: {
       'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store',
     } });
   }
@@ -235,6 +259,41 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
 
   if (req.method !== 'GET' && req.headers.get('Origin') !== url.origin) {
     return errorResponse('Origin check failed', 403);
+  }
+
+  if (route === 'identity' && req.method === 'GET') {
+    try {
+      const principal = await authenticateTelegramSession(req, env);
+      const ownerId = configuredOwnerId(env) ?? await storedOwnerId(env);
+      return Response.json({
+        telegramAuthenticated: Boolean(principal?.telegramId),
+        canClaimOwner: Boolean(principal?.telegramId) && !ownerId,
+      }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch {
+      return errorResponse('Unable to read owner settings', 503);
+    }
+  }
+
+  if (route === 'claim-owner' && req.method === 'POST') {
+    const principal = await authenticateTelegramSession(req, env);
+    if (!principal?.telegramId) return errorResponse('Sign in with Telegram first', 401);
+    if (!env.DB?.prepare) return errorResponse('D1 database is not ready', 503);
+    if (configuredOwnerId(env)) return errorResponse('Owner already configured', 409);
+    const body = await req.json().catch(() => null) as { token?: unknown } | null;
+    if (typeof body?.token !== 'string' || body.token.length > 512 || !env.TOKEN ||
+      !constantTimeEqual(body.token, env.TOKEN)) return errorResponse('Invalid BotFather token', 403);
+    try {
+      // Atomic claim: a concurrent request cannot replace an existing owner.
+      await env.DB.prepare(`INSERT INTO app_settings(scope, settings_json, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(scope) DO NOTHING`)
+        .bind(OWNER_SCOPE, JSON.stringify({ telegramId: String(principal.telegramId) })).run();
+      if (await storedOwnerId(env) !== String(principal.telegramId)) {
+        return errorResponse('Owner already linked', 409);
+      }
+      return Response.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch {
+      return errorResponse('Unable to link owner, check D1 migrations', 503);
+    }
   }
 
   if (route === 'login' && req.method === 'POST') {
