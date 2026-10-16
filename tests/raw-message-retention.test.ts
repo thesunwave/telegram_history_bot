@@ -33,6 +33,19 @@ describe('fallback raw message retention', () => {
     expect(rawWrite![2]).toEqual({ expiration: ts + 7 * 86400 });
   });
 
+  it('does not re-store data from an expired UTC day even if its timestamp TTL is still live', async () => {
+    const { env, put } = makeEnv();
+    const now = Date.parse('2026-10-16T06:00:00Z');
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const ts = Math.floor(Date.parse('2026-10-09T18:00:00Z') / 1000);
+      await recordMessage(message(ts), env);
+      expect(put.mock.calls.filter(([key]) => key.startsWith('msg:'))).toHaveLength(0);
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
   it('does not resurrect message text that is already past retention', async () => {
     const { env, put } = makeEnv();
     const ts = Math.floor(Date.now() / 1000) - 8 * 86400;
