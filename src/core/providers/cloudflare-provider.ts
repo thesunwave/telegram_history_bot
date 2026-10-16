@@ -423,7 +423,7 @@ export class CloudflareAIProvider implements AIProvider {
       if (!response || typeof response !== 'string' || response.trim() === '') {
         Logger.warn('Cloudflare criminal code analysis: empty response received (likely content filtered)', {
           provider: 'cloudflare',
-          rawResponse: response
+          responseLength: typeof response === 'string' ? response.length : 0
         });
         return {
           hasViolations: false,
@@ -473,8 +473,8 @@ export class CloudflareAIProvider implements AIProvider {
     } catch (error) {
       Logger.error('Cloudflare criminal code analysis: response parsing failed', {
         provider: 'cloudflare',
-        rawResponse: response,
-        error: error instanceof Error ? error.message : String(error)
+        responseLength: typeof response === 'string' ? response.length : 0,
+        errorName: error instanceof Error ? error.name : 'UnknownError'
       });
 
       return {

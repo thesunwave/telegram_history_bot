@@ -305,43 +305,14 @@ export default {
       const token = url.pathname.split("/")[2];
       const secretHeader = req.headers.get("X-Telegram-Bot-Api-Secret-Token");
 
-      const tokenMatches = token === env.TOKEN;
-      const secretMatches = secretHeader === env.SECRET;
-
-      Logger.debug(env, "webhook auth check", {
-        tokenProvided: Boolean(token),
-        tokenMatches,
-        secretProvided: Boolean(secretHeader),
-        secretMatches,
-      });
-
-      if (!tokenMatches) {
-        if (env.ENVIRONMENT === "development") {
-          Logger.warn(env, "webhook token mismatch (IGNORED IN DEVELOPMENT)", {
-            tokenProvided: Boolean(token),
-          });
-        } else {
-          Logger.warn(env, "webhook token mismatch", {
-            tokenProvided: Boolean(token),
-          });
-          return new Response("forbidden", { status: 403 });
-        }
+      // Fail closed in every environment. A public development Worker is still
+      // reachable by attackers; ENVIRONMENT must never disable webhook auth.
+      if (!env.TOKEN || !env.SECRET || !constantTimeEqual(token, env.TOKEN) ||
+          !constantTimeEqual(secretHeader, env.SECRET)) {
+        Logger.warn(env, "webhook authentication failed");
+        return new Response("forbidden", { status: 403 });
       }
 
-      if (!secretMatches) {
-        console.log('DEBUG: env.ENVIRONMENT =', `"${env.ENVIRONMENT}"`);
-        console.log('DEBUG: secretMatches =', secretMatches);
-        if (env.ENVIRONMENT === "development") {
-          Logger.warn(env, "webhook secret mismatch (IGNORED IN DEVELOPMENT)", {
-            secretProvided: Boolean(secretHeader),
-          });
-        } else {
-          Logger.warn(env, "webhook secret mismatch", {
-            secretProvided: Boolean(secretHeader),
-          });
-          return new Response("forbidden", { status: 403 });
-        }
-      }
       const update = await req.json();
       Logger.debug(env, "webhook received", {
         updateType: (update as any).message ? "message" : "other",

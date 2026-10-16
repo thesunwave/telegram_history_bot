@@ -1167,9 +1167,8 @@ describe('OpenAIProvider', () => {
     });
 
     // End-to-end through analyzeCriminalCode — partial-content truncation:
-    // the operator should now see BOTH the truncation warn (categorisation)
-    // AND the parser-failure error (carrying the raw partial JSON), while the
-    // moderation outcome stays the deliberate fail-open clean fallback.
+    // The operator sees truncation and parser failure metadata without
+    // storing the potentially sensitive model response in Cloudflare logs.
     it('analyzeCriminalCode: partial-content truncation returns clean fallback with truncation warn + parser error', async () => {
       const partialJson = '{"hasViolations": true, "violations": [{"article": "105"';
       mockFetch.mockResolvedValue({
@@ -1202,12 +1201,12 @@ describe('OpenAIProvider', () => {
       );
       expect(extractorWarns).toHaveLength(1);
 
-      // Visibility: the parser-failure error log still carries the raw partial JSON
+      // Parser failure remains visible but cannot leak the partial model response.
       const parseErrors = findErrors(
         (msg, data) => typeof msg === 'string' &&
           msg.includes('response parsing failed') &&
           typeof data === 'object' && data !== null &&
-          data.rawResponse === partialJson
+          data.responseLength === partialJson.length && data.rawResponse === undefined
       );
       expect(parseErrors).toHaveLength(1);
 
