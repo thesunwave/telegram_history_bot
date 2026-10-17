@@ -12,10 +12,17 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('<button type="submit" class="secondary logoutButton">Выйти</button>');
   });
 
+  it('shows global setup only for the owner or claim-eligible Telegram user', () => {
+    const user = { type: 'telegram', username: 'participant', telegramId: 42 };
+    expect(renderAdminHtml({ principal: user, canAccessSetup: true })).toContain('href="/admin/setup"');
+    expect(renderAdminHtml({ principal: user, canAccessSetup: false })).not.toContain('href="/admin/setup"');
+  });
+
   it('does not offer logout on the login screen', () => {
     const html = renderAdminHtml({ botUsername: 'stats_bot', principal: null });
 
     expect(html).not.toContain('action="/admin/logout"');
+    expect(html).not.toContain('href="/admin/setup"');
   });
 
   it('renders hourly timezone selector persisted in localStorage', () => {

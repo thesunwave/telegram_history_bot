@@ -275,7 +275,9 @@ describe("webhook", () => {
     expect(response.status).toBe(200);
     const html = await response.text();
     expect(html).toContain("Вход через Telegram");
-    expect(html).toContain("test_bot");
+    expect(html).toContain('https://oauth.telegram.org/js/telegram-login.js');
+    expect(html).not.toContain('telegram-widget.js');
+    expect(html).not.toContain('test_bot');
   });
 
   it("requires telegram auth for admin API routes without triggering basic auth", async () => {

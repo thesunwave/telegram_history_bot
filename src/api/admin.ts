@@ -27,7 +27,7 @@ import {
   LiveProgressUnavailable,
 } from '../features/stats/admin-stats-errors';
 import { renderAdminHtml } from './admin-html';
-import { handleSetupRequest } from './setup';
+import { canAccessSetupLink, handleSetupRequest } from './setup';
 
 const ADMIN_PATH = '/admin';
 
@@ -143,24 +143,6 @@ async function handleNotificationGet(
   });
 }
 
-async function getBotUsername(env: Env): Promise<string | null> {
-  if (env.TELEGRAM_BOT_USERNAME) {
-    return env.TELEGRAM_BOT_USERNAME;
-  }
-
-  try {
-    const response = await fetch(`https://api.telegram.org/bot${env.TOKEN}/getMe`);
-    if (!response.ok) {
-      return null;
-    }
-
-    const payload = await response.json().catch(() => null) as any;
-    return typeof payload?.result?.username === 'string' ? payload.result.username : null;
-  } catch {
-    return null;
-  }
-}
-
 async function authenticateAdminRequest(req: Request, env: Env): Promise<AdminPrincipal | null> {
   return (await authenticateTelegramSession(req, env)) || authenticateAdmin(req, env);
 }
@@ -269,9 +251,17 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
 
   if (url.pathname === ADMIN_PATH || url.pathname === `${ADMIN_PATH}/`) {
     const principal = await authenticateTelegramSession(req, env);
+    let canAccessSetup = false;
+    if (principal?.telegramId) {
+      try {
+        canAccessSetup = await canAccessSetupLink(env, principal.telegramId);
+      } catch {
+        // A settings DB failure must not prevent opening the statistics admin.
+      }
+    }
     return new Response(renderAdminHtml({
-      botUsername: principal ? null : await getBotUsername(env),
       principal,
+      canAccessSetup,
     }), {
       headers: {
         'Content-Type': 'text/html; charset=UTF-8',

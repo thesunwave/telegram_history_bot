@@ -18,7 +18,11 @@ describe('Telegram OIDC login and admin session', () => {
     expect(response.headers.get('Cache-Control')).toBe('no-store');
     expect(html).toContain('id="telegramLogin"');
     expect(html).toContain('id="dashboard"');
-    expect(html).toContain("script.dataset.authUrl = '/admin/login'");
+    expect(html).toContain('https://oauth.telegram.org/js/telegram-login.js');
+    expect(html).toContain("fetch('/auth/telegram/config'");
+    expect(html).toContain("fetch('/auth/telegram'");
+    expect(html).not.toContain('telegram-widget.js');
+    expect(html).not.toContain("script.dataset.authUrl = '/admin/login'");
     expect(html).not.toContain('id="screenshots"');
   });
 
