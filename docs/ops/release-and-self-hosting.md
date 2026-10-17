@@ -48,7 +48,16 @@ token, and register the Telegram webhook. This bootstrap credential is sent
 over HTTPS and only a signed, two-hour session cookie is retained by the
 browser. On new portable installs the owner must explicitly select either statistics-only
 (no new raw message text storage) or history + statistics before connecting the
-Telegram webhook. Activity stats are enabled initially, while AI summary,
+Telegram webhook. Existing installations use the existing Telegram Login session for the
+configured `ADMIN_USER_ID`, or can link their Telegram account one time with
+BotFather-token proof if that ID is not configured. The binding is stored in
+D1 as `app_settings.scope = telegram_owner` and never grants rights merely
+because someone administers a Telegram group. Basic Auth is not used for bot
+settings. On installations with Telegram Login, an ordinary BotFather-token
+setup session cannot bypass the Telegram owner binding; the token can only
+confirm the one-time pairing. The standalone token bootstrap remains available
+when Telegram Login is not configured.
+Activity stats are enabled initially, while AI summary,
 profanity and criminal analysis are disabled. The owner can configure all four
 features in `/admin/setup` when their dependencies and AI credentials are available. Without message history, summaries and
 contextual criminal analysis cannot be enabled. Switching modes does not delete

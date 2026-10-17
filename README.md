@@ -63,6 +63,14 @@ to their configured model provider. All advanced analyses initially start off.
 Switching to stats-only stops **new raw message writes**, but does not purge
 previously stored messages; they age out under their retention policy. This page
 controls the entire self-hosted bot instance, not individual Telegram groups.
+On existing installations, the configured `ADMIN_USER_ID` can open `/admin/setup`
+with the regular Telegram session. If no owner ID is configured, the Telegram
+account may be linked **once** by confirming the BotFather token; the binding is
+stored in D1, and future visits use Telegram Login automatically. Group admins
+are not owners unless explicitly linked. No Basic Auth is required for settings.
+When Telegram Login is enabled, BotFather-token sessions cannot be used to
+change settings; the token is accepted only for the one-time owner pairing.
+Standalone installations without Telegram Login retain the token bootstrap.
 You can enable AI summaries after configuring any required provider key as a
 Cloudflare Secret. Never paste an OpenAI/OpenRouter key into the dashboard.
 
