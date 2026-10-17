@@ -77,6 +77,17 @@ describe('Telegram login browser flow', () => {
     expect(missingSdk.elements.get('loginHint').textContent).toContain('инициализировать');
   });
 
+  it('keeps login disabled if the SDK fails to load', async () => {
+    const h = loginHarness();
+    await h.showLogin();
+    h.getSdk().onerror();
+    expect(h.elements.get('telegramLoginButton').disabled).toBe(true);
+    expect(h.elements.get('loginHint').textContent).toContain('загрузить Telegram Login');
+    h.elements.get('telegramLoginButton').handlers.get('click')();
+    expect(h.auth).not.toHaveBeenCalled();
+    expect(h.location.assign).not.toHaveBeenCalled();
+  });
+
   it('does not redirect if the server rejects an OIDC ID token', async () => {
     const h = loginHarness({ authAccepted: false });
     await h.showLogin();
@@ -84,5 +95,6 @@ describe('Telegram login browser flow', () => {
     await h.callback({ id_token: 'signed-oidc-jwt' });
     expect(h.location.assign).not.toHaveBeenCalled();
     expect(h.elements.get('loginHint').textContent).toContain('Не удалось подтвердить вход');
+    expect(h.fetchMock.mock.calls.filter(call => call[0] === '/auth/telegram/config')).toHaveLength(2);
   });
 });

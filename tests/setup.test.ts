@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../src/core/env';
-import { handleSetupRequest } from '../src/api/setup';
+import { canAccessSetupLink, handleSetupRequest } from '../src/api/setup';
 import { createTelegramSessionCookie } from '../src/api/admin-auth';
 import { getWebhookSecret } from '../src/core/webhook-secret';
 import { resetRuntimeSettingsCache } from '../src/core/runtime-settings';
@@ -127,6 +127,17 @@ describe('owner setup', () => {
     expect(await identity.json()).toEqual({
       telegramAuthenticated: false, telegramLoginConfigured: true, canClaimOwner: false,
     });
+  });
+
+  it('shows owner settings link only to configured owner or unclaimed owner candidates', async () => {
+    expect(await canAccessSetupLink({ ...env, ADMIN_USER_ID: '42' }, 42)).toBe(true);
+    expect(await canAccessSetupLink({ ...env, ADMIN_USER_ID: '42' }, 43)).toBe(false);
+    expect(await canAccessSetupLink(env, 43)).toBe(true);
+    const database = { prepare: vi.fn(() => ({ bind: vi.fn(() => ({
+      first: vi.fn(async () => ({ settings_json: JSON.stringify({ telegramId: '42' }) })),
+    })) })) };
+    expect(await canAccessSetupLink({ ...env, DB: database } as unknown as Env, 42)).toBe(true);
+    expect(await canAccessSetupLink({ ...env, DB: database } as unknown as Env, 43)).toBe(false);
   });
 
   it('never exposes Telegram ownership to Basic Auth or unconfigured group admins', async () => {

@@ -1,5 +1,6 @@
 interface AdminHtmlOptions {
-  botUsername: string | null;
+  botUsername?: string | null; // Legacy caller compatibility; OIDC uses a Client ID instead.
+  canAccessSetup?: boolean;
   principal: {
     type: string;
     username: string;
@@ -9,7 +10,6 @@ interface AdminHtmlOptions {
 }
 
 export function renderAdminHtml(options: AdminHtmlOptions): string {
-  const botUsername = JSON.stringify(options.botUsername || '');
   const principal = JSON.stringify(options.principal || null);
   return `<!doctype html>
 <html lang="ru">
@@ -991,7 +991,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     <div class="wrap topbar">
       <h1>Telegram Stats Admin</h1>
       <div class="topbarRight">
-        ${options.principal?.type === 'telegram' ? '<a href="/admin/setup" style="color:inherit;text-decoration:underline;white-space:nowrap" title="Настройки всего экземпляра бота, доступные владельцу">Настройки бота</a>' : ''}
+        ${options.principal?.type === 'telegram' && options.canAccessSetup ? '<a href="/admin/setup" style="color:inherit;text-decoration:underline;white-space:nowrap" title="Настройки всего экземпляра бота, доступные владельцу">Настройки бота</a>' : ''}
         <label class="themeControl">Тема
           <select id="themeSelect" aria-label="Тема оформления">
             <option value="system">Система</option>
@@ -1332,7 +1332,6 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
   </main>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script>
-    const botUsername = ${botUsername};
     const principal = ${principal};
     const HOURLY_TIMEZONE_STORAGE_KEY = 'telegramStatsAdmin.hourlyTimezoneOffset';
     const THEME_STORAGE_KEY = 'telegramStatsAdmin.theme';

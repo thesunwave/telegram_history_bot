@@ -47,6 +47,12 @@ async function storedOwnerId(env: Env): Promise<string | null> {
     ? parsed.telegramId : null;
 }
 
+/** Only the instance owner (or a user eligible for one-time pairing) sees the global settings link. */
+export async function canAccessSetupLink(env: Env, telegramId: number): Promise<boolean> {
+  const ownerId = configuredOwnerId(env) ?? await storedOwnerId(env);
+  return !ownerId || ownerId === String(telegramId);
+}
+
 async function setupOwnerAuth(req: Request, env: Env): Promise<OwnerAuthMethod | null> {
   const principal = await authenticateTelegramSession(req, env);
   if (principal?.telegramId) {
