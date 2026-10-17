@@ -54,7 +54,10 @@ async function setupOwnerAuth(req: Request, env: Env): Promise<OwnerAuthMethod |
     const ownerId = configuredOwnerId(env) ?? await storedOwnerId(env);
     if (String(principal.telegramId) === ownerId) return 'telegram';
   }
-  if (!env.TOKEN) return null;
+  // Token sessions only bootstrap standalone installations without Telegram Login.
+  // When Telegram Login is configured, only the designated Telegram owner can
+  // change global settings, even if a legacy token session cookie exists.
+  if (!env.TOKEN || env.TELEGRAM_LOGIN_CLIENT_ID) return null;
   const matching = (req.headers.get('Cookie') || '').split(';').map(item => item.trim())
     .filter(item => item.startsWith(SESSION_COOKIE + '='));
   if (matching.length !== 1) return null;
@@ -194,7 +197,7 @@ async function refresh() {
       try {
         const identity = await api('identity');
         el('claimForm').hidden=!identity.canClaimOwner;
-        el('bootstrap').hidden=identity.telegramAuthenticated;
+        el('bootstrap').hidden=identity.telegramLoginConfigured;
         el('ownerStatus').textContent=identity.canClaimOwner
           ? 'Ты вошёл через Telegram. Подтверди владение ботом один раз.'
           : identity.telegramAuthenticated
@@ -267,6 +270,7 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
       const ownerId = configuredOwnerId(env) ?? await storedOwnerId(env);
       return Response.json({
         telegramAuthenticated: Boolean(principal?.telegramId),
+        telegramLoginConfigured: Boolean(env.TELEGRAM_LOGIN_CLIENT_ID),
         canClaimOwner: Boolean(principal?.telegramId) && !ownerId,
       }, { headers: { 'Cache-Control': 'no-store' } });
     } catch {
@@ -297,6 +301,9 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
   }
 
   if (route === 'login' && req.method === 'POST') {
+    if (env.TELEGRAM_LOGIN_CLIENT_ID) {
+      return errorResponse('Use Telegram Login to manage bot settings', 403);
+    }
     const body = await req.json().catch(() => null) as { token?: unknown } | null;
     const token = body?.token;
     if (typeof token !== 'string' || token.length > 512 || !env.TOKEN ||

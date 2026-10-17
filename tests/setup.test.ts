@@ -69,7 +69,8 @@ describe('owner setup', () => {
       })),
       first: vi.fn(async () => null),
     })) };
-    const linkedEnv = { ...env, DB: database, HISTORY: { get: vi.fn(async () => null) } } as unknown as Env;
+    const linkedEnv = { ...env, DB: database, TELEGRAM_LOGIN_CLIENT_ID: 'test-login-client',
+      HISTORY: { get: vi.fn(async () => null) } } as unknown as Env;
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, result: {} })));
     const cookie = (id: number) => createTelegramSessionCookie(linkedEnv, {
       id, auth_date: Math.floor(Date.now() / 1000),
@@ -79,7 +80,9 @@ describe('owner setup', () => {
 
     const identity = await handleSetupRequest(request('/admin/api/setup/identity', 'GET',
       undefined, ownerCookie), linkedEnv);
-    expect(await identity.json()).toEqual({ telegramAuthenticated: true, canClaimOwner: true });
+    expect(await identity.json()).toEqual({
+      telegramAuthenticated: true, telegramLoginConfigured: true, canClaimOwner: true,
+    });
     expect((await handleSetupRequest(request('/admin/api/setup/status', 'GET',
       undefined, ownerCookie), linkedEnv)).status).toBe(401);
     expect((await handleSetupRequest(request('/admin/api/setup/claim-owner', 'POST',
@@ -105,7 +108,24 @@ describe('owner setup', () => {
     expect(bound.telegramId).toBe('42');
     expect(await (await handleSetupRequest(request('/admin/api/setup/identity', 'GET',
       undefined, impostorCookie), linkedEnv)).json()).toEqual({
-      telegramAuthenticated: true, canClaimOwner: false,
+      telegramAuthenticated: true, telegramLoginConfigured: true, canClaimOwner: false,
+    });
+  });
+
+  it('rejects legacy BotFather sessions when Telegram Login is enabled', async () => {
+    const tokenCookie = await ownerCookie();
+    const loginEnabled = { ...env, TELEGRAM_LOGIN_CLIENT_ID: 'configured-login' };
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, result: {} })));
+    // Replaying a valid signed bootstrap cookie must never bypass Telegram owner binding.
+    expect((await handleSetupRequest(request('/admin/api/setup/status', 'GET',
+      undefined, tokenCookie), loginEnabled)).status).toBe(401);
+    expect((await handleSetupRequest(request('/admin/api/setup/settings', 'PATCH',
+      { storageMode: 'stats_only' }, tokenCookie), loginEnabled)).status).toBe(401);
+    expect((await handleSetupRequest(request('/admin/api/setup/login', 'POST',
+      { token: env.TOKEN }), loginEnabled)).status).toBe(403);
+    const identity = await handleSetupRequest(request('/admin/api/setup/identity'), loginEnabled);
+    expect(await identity.json()).toEqual({
+      telegramAuthenticated: false, telegramLoginConfigured: true, canClaimOwner: false,
     });
   });
 

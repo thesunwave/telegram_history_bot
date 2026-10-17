@@ -53,7 +53,10 @@ configured `ADMIN_USER_ID`, or can link their Telegram account one time with
 BotFather-token proof if that ID is not configured. The binding is stored in
 D1 as `app_settings.scope = telegram_owner` and never grants rights merely
 because someone administers a Telegram group. Basic Auth is not used for bot
-settings.
+settings. On installations with Telegram Login, an ordinary BotFather-token
+setup session cannot bypass the Telegram owner binding; the token can only
+confirm the one-time pairing. The standalone token bootstrap remains available
+when Telegram Login is not configured.
 Activity stats are enabled initially, while AI summary,
 profanity and criminal analysis are disabled. The owner can configure all four
 features in `/admin/setup` when their dependencies and AI credentials are available. Without message history, summaries and
