@@ -505,7 +505,7 @@ describe('Telegram Integration Tests', () => {
       expect(helpText).not.toContain('/reset');
       expect(helpText).not.toContain('/criminal_reset');
       expect(helpText).not.toContain('/profanity_reset');
-      expect(helpText).not.toContain('/auto_notifications');
+      expect(helpText).toContain('/auto_notifications enable activity_summary');
     });
 
     it('should mark globally disabled production features in help text', async () => {

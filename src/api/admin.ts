@@ -238,13 +238,20 @@ async function handleNotificationPost(
   };
 
   for (const [type, update] of Object.entries(payload.notifications || {})) {
-    if (!isNotificationType(type, availableTypes) || typeof update?.enabled !== 'boolean') {
+    if (!isNotificationType(type, Object.keys(currentSettings.notifications) as NotificationType[]) || typeof update?.enabled !== 'boolean') {
       continue;
     }
 
     nextSettings.notifications[type] = {
       ...nextSettings.notifications[type],
       enabled: update.enabled,
+      ...(type === 'activity_summary' && update.enabled
+        ? { frequency: 'daily' as const, time: {
+          hour: nextSettings.notifications.activity_summary.time?.hour ?? 18,
+          minute: 0,
+          timezone: 'UTC'
+        } }
+        : {}),
     };
   }
 

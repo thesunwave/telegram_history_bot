@@ -797,7 +797,7 @@ describe("webhook", () => {
         body: JSON.stringify({
           enabled: true,
           notifications: {
-            daily_summary: { enabled: true },
+            activity_summary: { enabled: true },
             profanity_reports: { enabled: false },
           },
         }),
@@ -809,7 +809,9 @@ describe("webhook", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as any;
     expect(body.settings.enabled).toBe(true);
-    expect(body.settings.notifications.daily_summary.enabled).toBe(true);
+    expect(body.settings.notifications.activity_summary.enabled).toBe(true);
+    expect(body.settings.notifications.activity_summary.time.timezone).toBe('UTC');
+    expect(body.settings.notifications.daily_summary.enabled).toBe(false);
     expect(body.settings.updatedBy).toBe("admin-telegram:42");
     expect(body.settings.updatedByName).toBe("Admin");
   });
@@ -1556,6 +1558,20 @@ describe("criminal analyze-test", () => {
 });
 
 describe("cron", () => {
+  it("runs only opt-in activity reports on the hourly cron", async () => {
+    const activityModule = await import("../src/features/notifications/activity-report");
+    const activitySpy = vi.spyOn(activityModule, "runActivityReportCron").mockResolvedValue(0);
+    const summarySpy = vi.spyOn(await import("../src/features/stats/stats"), "dailySummary")
+      .mockResolvedValue(undefined);
+    const event = {
+      scheduledTime: Date.parse("2026-10-15T18:00:00Z"),
+      cron: activityModule.ACTIVITY_REPORT_CRON,
+    } as any;
+    await worker.scheduled(event, env, ctx);
+    expect(activitySpy).toHaveBeenCalledWith(expect.anything(), event.scheduledTime);
+    expect(summarySpy).not.toHaveBeenCalled();
+  });
+
   it("runs daily summary on the exact daily cron", async () => {
     const spy = vi
       .spyOn(await import("../src/features/stats/stats"), "dailySummary")

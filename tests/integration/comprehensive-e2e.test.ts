@@ -89,7 +89,7 @@ describe('Comprehensive E2E Integration Tests', () => {
         expect(helpText).toContain('/criminal_stats');
         expect(helpText).toContain('/activity');
         expect(helpText).not.toContain('/reset');
-        expect(helpText).not.toContain('/auto_notifications');
+        expect(helpText).toContain('/auto_notifications enable activity_summary');
       });
     });
 

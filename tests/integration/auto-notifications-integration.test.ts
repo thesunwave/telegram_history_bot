@@ -70,13 +70,17 @@ describe('Auto Notifications Integration', () => {
 
       // Проверяем, что настройки были сохранены
       expect(mockEnv.HISTORY.put).toHaveBeenCalled();
+      const saved = vi.mocked(mockEnv.HISTORY.put).mock.calls
+        .find(([key]) => key === 'notification_settings:123');
+      expect(JSON.parse(saved![1] as string).notifications.activity_summary)
+        .toMatchObject({ enabled: true, frequency: 'daily', time: { timezone: 'UTC', minute: 0 } });
 
       // Проверяем, что было отправлено подтверждение
       const { sendMessage } = await import('../../src/core/telegram');
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
-        expect.stringContaining('Автоматические уведомления включены')
+        expect.stringContaining('Ежедневный отчёт об активности включён')
       );
     });
 
@@ -84,7 +88,7 @@ describe('Auto Notifications Integration', () => {
       const mockMessage = {
         chat: { id: 123 },
         from: { id: 456, username: 'testuser' },
-        text: '/auto_notifications enable criminal_reports',
+        text: '/auto_notifications enable activity_summary',
         date: Math.floor(Date.now() / 1000)
       };
 
@@ -98,7 +102,7 @@ describe('Auto Notifications Integration', () => {
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
-        expect.stringContaining('Криминальные репорты')
+        expect.stringContaining('Сводка активности')
       );
     });
 
@@ -229,7 +233,7 @@ describe('Auto Notifications Integration', () => {
       const mockMessage = {
         chat: { id: 123 },
         from: { id: 456, username: 'testuser' }, // Пользователь не в списке allowedUsers
-        text: '/auto_notifications enable criminal_reports',
+        text: '/auto_notifications enable activity_summary',
         date: Math.floor(Date.now() / 1000)
       };
 
@@ -240,7 +244,7 @@ describe('Auto Notifications Integration', () => {
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
-        expect.stringContaining('Криминальные репорты')
+        expect.stringContaining('Сводка активности')
       );
     });
 
@@ -291,6 +295,23 @@ describe('Auto Notifications Integration', () => {
       fetchMock.mockRestore();
     });
 
+    it('should reject changing the activity report hour for a non-admin group member', async () => {
+      const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(
+        Response.json({ ok: true, result: { status: 'member' } })
+      );
+      await handleUpdate({
+        chat: { id: -100123, title: 'Group', type: 'supergroup' },
+        from: { id: 456 },
+        text: '/auto_notifications schedule activity_summary 08:00',
+        date: Math.floor(Date.now() / 1000),
+      }, mockEnv);
+      const { sendMessage } = await import('../../src/core/telegram');
+      expect(sendMessage).toHaveBeenCalledWith(mockEnv, -100123,
+        expect.stringContaining('У вас нет прав'));
+      expect(mockEnv.HISTORY.put).not.toHaveBeenCalled();
+      fetchMock.mockRestore();
+    });
+
     it('should show current settings when they exist', async () => {
       const existingSettings = {
         chatId: '123',
@@ -330,8 +351,46 @@ describe('Auto Notifications Integration', () => {
       expect(sendMessage).toHaveBeenCalledWith(
         mockEnv,
         123,
-        expect.stringMatching(/Автоматические уведомления.*Включены.*Криминальные репорты.*Отчеты о мате.*Тихие часы/s)
+        expect.stringMatching(/Автоматические уведомления.*Включены.*Сводка активности.*Тихие часы/s)
       );
+    });
+
+    it('rejects unsupported notification types rather than claiming they work', async () => {
+      await handleUpdate({
+        chat: { id: 123 }, from: { id: 456 },
+        text: '/auto_notifications enable criminal_reports',
+        date: Math.floor(Date.now() / 1000),
+      }, mockEnv);
+      const { sendMessage } = await import('../../src/core/telegram');
+      expect(sendMessage).toHaveBeenCalledWith(mockEnv, 123,
+        expect.stringContaining('Неизвестный тип уведомлений'));
+      expect(mockEnv.HISTORY.put).not.toHaveBeenCalled();
+    });
+
+    it('sets and validates a whole UTC hour, without enabling the report', async () => {
+      const { NotificationValidationUtils } = await import('../../src/core/models/notification-validation');
+      const settings = NotificationValidationUtils.createDefaultChatSettings('123', '456');
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(settings));
+      await handleUpdate({
+        chat: { id: 123 }, from: { id: 456 },
+        text: '/auto_notifications schedule activity_summary 08:00',
+        date: Math.floor(Date.now() / 1000),
+      }, mockEnv);
+      const put = vi.mocked(mockEnv.HISTORY.put).mock.calls
+        .find(([key]) => key === 'notification_settings:123');
+      expect(put).toBeDefined();
+      const saved = JSON.parse(put![1] as string);
+      expect(saved.notifications.activity_summary.time).toEqual({
+        hour: 8, minute: 0, timezone: 'UTC'
+      });
+      expect(saved.notifications.activity_summary.enabled).toBe(false);
+      vi.mocked(mockEnv.HISTORY.put).mockClear();
+      await handleUpdate({
+        chat: { id: 123 }, from: { id: 456 },
+        text: '/auto_notifications schedule activity_summary 08:30',
+        date: Math.floor(Date.now() / 1000),
+      }, mockEnv);
+      expect(mockEnv.HISTORY.put).not.toHaveBeenCalled();
     });
   });
 
