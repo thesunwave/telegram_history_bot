@@ -991,7 +991,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     <div class="wrap topbar">
       <h1>Telegram Stats Admin</h1>
       <div class="topbarRight">
-        <a href="/admin/setup" style="color:inherit;text-decoration:underline;white-space:nowrap" title="Настройки всего экземпляра бота, доступные владельцу">Настройки бота</a>
+        ${options.principal?.type === 'telegram' ? '<a href="/admin/setup" style="color:inherit;text-decoration:underline;white-space:nowrap" title="Настройки всего экземпляра бота, доступные владельцу">Настройки бота</a>' : ''}
         <label class="themeControl">Тема
           <select id="themeSelect" aria-label="Тема оформления">
             <option value="system">Система</option>
@@ -1010,7 +1010,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     <section class="login hidden" id="loginPanel">
       <h2>Вход через Telegram</h2>
       <p>После входа будут показаны только чаты, где ваш Telegram-пользователь состоит участником.</p>
-      <div id="telegramLogin"></div>
+      <div id="telegramLogin"><button type="button" id="telegramLoginButton" disabled>Войти через Telegram</button></div>
       <p class="muted" id="loginHint"></p>
     </section>
     <form class="controls hidden" id="controls">
@@ -1887,7 +1887,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       renderNotifications({ enabled: false, notifications: {} }, [], false);
     }
 
-    function showLogin() {
+    async function showLogin() {
       document.getElementById('loginPanel').classList.remove('hidden');
       document.getElementById('controls').classList.add('hidden');
       document.getElementById('dashboard').classList.add('hidden');
@@ -1895,19 +1895,88 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       document.getElementById('status').classList.add('hidden');
       document.getElementById('sessionLabel').textContent = 'Не авторизован';
 
-      if (!botUsername) {
-        document.getElementById('loginHint').textContent = 'Не удалось получить username бота для Telegram Login.';
-        return;
+      const hint = document.getElementById('loginHint');
+      const button = document.getElementById('telegramLoginButton');
+      let challenge = null;
+      let submitting = false;
+
+      async function refreshChallenge() {
+        button.disabled = true;
+        const response = await fetch('/auth/telegram/config', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Login configuration unavailable');
+        const data = await response.json();
+        if (!Number.isSafeInteger(data.clientId) || !data.nonce) {
+          throw new Error('Telegram Login is not configured');
+        }
+        challenge = data;
+        button.disabled = false;
       }
 
-      const script = document.createElement('script');
-      script.async = true;
-      script.src = 'https://telegram.org/js/telegram-widget.js?22';
-      script.dataset.telegramLogin = botUsername;
-      script.dataset.size = 'large';
-      script.dataset.authUrl = '/admin/login';
-      script.dataset.requestAccess = 'write';
-      document.getElementById('telegramLogin').append(script);
+      hint.textContent = 'Подготовка входа через Telegram...';
+      try {
+        await refreshChallenge();
+        // The old iframe widget points to a deprecated Telegram endpoint.
+        // The new library returns an ID token to our already-verified OIDC route.
+        const sdk = document.createElement('script');
+        sdk.src = 'https://oauth.telegram.org/js/telegram-login.js';
+        sdk.async = true;
+        sdk.onload = () => {
+          if (!window.Telegram?.Login?.auth) {
+            button.disabled = true;
+            hint.textContent = 'Не удалось инициализировать Telegram Login. Обновите страницу.';
+            return;
+          }
+          button.disabled = false;
+          hint.textContent = '';
+        };
+        sdk.onerror = () => {
+          button.disabled = true;
+          hint.textContent = 'Не удалось загрузить Telegram Login. Попробуйте обновить страницу.';
+        };
+        button.disabled = true;
+        document.head.append(sdk);
+
+        button.addEventListener('click', () => {
+          if (button.disabled || !challenge || !window.Telegram?.Login?.auth || submitting) return;
+          // Open synchronously on the click to preserve user activation on iOS Safari.
+          window.Telegram.Login.auth({
+            client_id: challenge.clientId,
+            scope: ['profile'],
+            nonce: challenge.nonce,
+          }, async result => {
+            if (!result?.id_token) {
+              hint.textContent = 'Вход не завершён. Можно попробовать ещё раз.';
+              try { await refreshChallenge(); }
+              catch (_error) { hint.textContent = 'Не удалось обновить вход. Перезагрузите страницу.'; }
+              return;
+            }
+            if (submitting) return;
+            submitting = true;
+            button.disabled = true;
+            hint.textContent = 'Проверяем вход...';
+            try {
+              const response = await fetch('/auth/telegram', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id_token: result.id_token }),
+              });
+              if (!response.ok) throw new Error('Telegram login rejected');
+              const payload = await response.json();
+              if (!payload.ok || payload.redirectTo !== '/admin') throw new Error('Unexpected login response');
+              window.location.assign('/admin');
+            } catch (_error) {
+              hint.textContent = 'Не удалось подтвердить вход. Попробуйте ещё раз.';
+              try { await refreshChallenge(); }
+              catch (_error) { hint.textContent = 'Не удалось обновить вход. Перезагрузите страницу.'; }
+            } finally {
+              submitting = false;
+            }
+          });
+        });
+      } catch (_error) {
+        button.disabled = true;
+        hint.textContent = 'Telegram Login недоступен. Проверьте настройку бота и обновите страницу.';
+      }
     }
 
     function showDashboardShell() {

@@ -16,6 +16,7 @@ describe('renderAdminHtml', () => {
     const html = renderAdminHtml({ botUsername: 'stats_bot', principal: null });
 
     expect(html).not.toContain('action="/admin/logout"');
+    expect(html).not.toContain('href="/admin/setup"');
   });
 
   it('renders hourly timezone selector persisted in localStorage', () => {
