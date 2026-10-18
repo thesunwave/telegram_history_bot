@@ -67,7 +67,15 @@ profanity analysis, message text can still be sent to the selected external AI
 provider, while extracted matches and provider/platform logs may be retained.
 Telegram and Cloudflare process incoming webhook traffic in either mode.
 Existing production installations preserve their configured storage behaviour
-until an owner changes it. OpenAI/OpenRouter keys
+until an owner changes it. The settings page explicitly distinguishes live
+Cloudflare environment defaults from global D1 overrides, and shows separate
+read-only provider/model settings for summary, profanity and criminal analysis
+(including prefilter and final-judge stages). The editable provider/model input
+only controls **summaries**. Unsaved changes must be confirmed; clicking Save
+writes a global D1 override for every feature toggle and the summary settings,
+which then take precedence over environment defaults. Do not use Save merely
+to inspect existing configurations.
+OpenAI/OpenRouter keys
 must be configured as Cloudflare Secrets before enabling those providers.
 In the Deploy to Cloudflare setup screen make sure the deploy command is
 `npm run deploy` and check the build log for successful D1 migrations.

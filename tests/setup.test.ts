@@ -55,6 +55,88 @@ describe('owner setup', () => {
     expect(update.status).toBe(401);
   });
 
+  it('shows inherited providers and feature flags independently without D1 overrides', async () => {
+    const db = { prepare: vi.fn(() => ({
+      first: vi.fn(async () => null),
+      bind: vi.fn(() => ({ first: vi.fn(async () => null) })),
+    })) };
+    const production = { ...env,
+      DB: db,
+      ENABLE_SUMMARY: false,
+      ENABLE_PROFANITY_ANALYSIS: false,
+      ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER: true,
+      ENABLE_CRIMINAL_ANALYSIS: true,
+      SUMMARY_PROVIDER: 'openai', OPENAI_MODEL: 'gpt-4.1-nano',
+      PROFANITY_PROVIDER: 'openai', PROFANITY_MODEL: 'gpt-4.1-nano',
+      CRIMINAL_PROVIDER: 'legal-rag', CRIMINAL_MODEL: 'gpt-5-nano',
+      CRIMINAL_AI_PREFILTER_ENABLED: true,
+      CRIMINAL_PREFILTER_PROVIDER: 'qwen', QWEN_PREFILTER_MODEL: 'qwen3.7-flash',
+      CRIMINAL_FINAL_JUDGE_ENABLED: true, CRIMINAL_FINAL_JUDGE_MODEL: 'gpt-5-nano',
+    } as unknown as Env;
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, result: {} })));
+    const cookie = await ownerCookie();
+    const response = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie), production);
+    expect(response.status).toBe(200);
+    const state = await response.json() as any;
+    expect(state.settingsSource).toBe('env');
+    expect(state.databaseReady).toBe(true);
+    expect(state.features.profanityEnabled).toBe(false);
+    expect(state.features.criminalEnabled).toBe(true);
+    expect(state.summary).toEqual({ enabled: false, provider: 'openai', model: 'gpt-4.1-nano' });
+    expect(state.providers).toEqual({
+      summary: { provider: 'openai', model: 'gpt-4.1-nano' },
+      profanity: { provider: 'openai', model: 'gpt-4.1-nano', viaCriminalPrefilter: true },
+      criminal: { provider: 'legal-rag', model: 'gpt-5-nano',
+        prefilterProvider: 'qwen', prefilterModel: 'qwen3.7-flash', finalJudgeModel: 'gpt-5-nano' },
+    });
+    expect(db.prepare).not.toHaveBeenCalledWith(expect.stringContaining('INSERT'));
+  });
+
+  it('reports D1 as source when a global settings override exists', async () => {
+    const db = { prepare: vi.fn((sql: string) => ({
+      first: vi.fn(async () => null),
+      bind: vi.fn((scope: string) => ({ first: vi.fn(async () => scope === 'global'
+        ? sql.includes('settings_json')
+          ? { settings_json: JSON.stringify({ version: 1, storageMode: 'history', profanityEnabled: true }) }
+          : { scope: 'global' }
+        : null),
+      })),
+    })) };
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, result: {} })));
+    const cookie = await ownerCookie();
+    const response = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie),
+      { ...env, DB: db, ENABLE_PROFANITY_ANALYSIS: false } as unknown as Env);
+    expect(response.status).toBe(200);
+    const state = await response.json() as any;
+    expect(state.settingsSource).toBe('d1');
+    expect(state.features.profanityEnabled).toBe(true);
+  });
+
+  it('marks settings source unknown if D1 reads fail and does not expose provider secrets', async () => {
+    const db = { prepare: vi.fn(() => ({
+      first: vi.fn(async () => { throw new Error('D1 unavailable'); }),
+      bind: vi.fn(() => ({ first: vi.fn(async () => { throw new Error('D1 unavailable'); }) })),
+    })) };
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, result: {} })));
+    const cookie = await ownerCookie();
+    const response = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie),
+      { ...env, DB: db, OPENAI_API_KEY: 'sensitive-token' } as unknown as Env);
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(JSON.parse(body).settingsSource).toBe('unknown');
+    expect(body).not.toContain('sensitive-token');
+  });
+
+  it('makes unsaved changes explicit and avoids automatic settings writes', async () => {
+    const html = await (await handleSetupRequest(request('/admin/setup'), env)).text();
+    expect(html).toContain('Сохранить изменения</button>');
+    expect(html).toContain('id="save" disabled');
+    expect(html).toContain('Настройки функций получены из текущих переменных Cloudflare');
+    expect(html).toContain('window.confirm(');
+    expect(html).toContain("if (event.persisted) void refresh()");
+    expect(html).not.toContain('telegram-widget.js');
+  });
+
   it('pairs one verified Telegram account with the bot only after BotFather proof', async () => {
     const rows = new Map<string, string>();
     const database = { prepare: vi.fn((sql: string) => ({
@@ -234,6 +316,7 @@ describe('owner setup', () => {
     const cookie = await ownerCookie();
     const database = { prepare: vi.fn(() => ({
       first: vi.fn().mockResolvedValue(null),
+      bind: vi.fn(() => ({ first: vi.fn().mockResolvedValue(null) })),
     })) };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ ok: true, result: {} })));
     const response = await handleSetupRequest(
