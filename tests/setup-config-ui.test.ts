@@ -11,8 +11,9 @@ const inheritedState = {
   providers: {
     summary: { provider: 'openai', model: 'gpt-4.1-nano' },
     profanity: { provider: 'openai', model: 'gpt-4.1-nano', viaCriminalPrefilter: true },
-    criminal: { provider: 'legal-rag', model: 'gpt-5-nano', prefilterProvider: 'qwen',
-      prefilterModel: 'qwen3.7-flash', finalJudgeModel: 'gpt-5-nano' },
+    criminal: { provider: 'legal-rag', model: '@cf/baai/bge-m3',
+      prefilterEnabled: true, prefilterProvider: 'qwen', prefilterModel: 'qwen3.7-flash',
+      finalJudgeEnabled: true, finalJudgeProvider: 'OpenAI', finalJudgeModel: 'gpt-5-nano' },
   },
 };
 

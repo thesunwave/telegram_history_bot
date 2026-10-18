@@ -100,6 +100,23 @@ async function telegramApi(env: Env, method: string, args?: Record<string, unkno
   return body.result || {};
 }
 
+/** Mirror provider/model fallbacks without exposing credentials or invoking an AI call. */
+function enabledUnlessFalse(value: boolean | string | undefined): boolean {
+  return value !== false && value !== 'false';
+}
+
+function modelForCapability(env: Env, provider: string, override?: string): string | null {
+  if (provider === 'legal-rag') return env.LEGAL_RAG_EMBEDDING_MODEL || '@cf/baai/bge-m3';
+  if (override?.trim()) return override.trim();
+  switch (provider) {
+    case 'openai': return env.OPENAI_MODEL || 'gpt-3.5-turbo';
+    case 'openai-premium': return (env as any).OPENAI_PREMIUM_MODEL || env.OPENAI_MODEL || 'gpt-4-turbo';
+    case 'openrouter': return env.OPENROUTER_MODEL || 'nvidia/nemotron-3-super-120b-a12b:free';
+    case 'cloudflare': return env.CLOUDFLARE_MODEL || env.SUMMARY_MODEL || null;
+    default: return null;
+  }
+}
+
 function renderSetupHtml(): string {
   return `<!doctype html>
 <html lang="ru">
@@ -197,10 +214,10 @@ function showProviderDetails(info) {
     '; провайдер: ' + cfg.profanity.provider + '; модель: ' + (cfg.profanity.model || 'по настройкам провайдера') +
     '. Дополнительно криминальный prefilter: ' + (cfg.profanity.viaCriminalPrefilter ? 'включён' : 'выключен');
   el('configCriminal').textContent = 'Уголовный анализ: ' + (info.features.criminalEnabled ? 'включён' : 'выключен') +
-    '; основной провайдер: ' + cfg.criminal.provider + '; модель: ' + (cfg.criminal.model || 'по настройкам провайдера') +
-    '; prefilter: ' + (cfg.criminal.prefilterProvider || 'не задан') +
-    (cfg.criminal.prefilterModel ? ' (' + cfg.criminal.prefilterModel + ')' : '') +
-    (cfg.criminal.finalJudgeModel ? '; final judge: ' + cfg.criminal.finalJudgeModel : '');
+    '; основной провайдер: ' + cfg.criminal.provider + '; ' + (cfg.criminal.provider === 'legal-rag' ? 'embedding-модель: ' : 'модель: ') +
+    (cfg.criminal.model || 'по настройкам провайдера') +
+    '; prefilter: ' + (cfg.criminal.prefilterEnabled ? cfg.criminal.prefilterProvider + ' (' + cfg.criminal.prefilterModel + ')' : 'выключен') +
+    '; final judge: ' + (cfg.criminal.finalJudgeEnabled ? cfg.criminal.finalJudgeProvider + ' (' + cfg.criminal.finalJudgeModel + ')' : 'выключен');
 }
 function selectedStorageMode() {
   return document.querySelector('input[name="storageMode"]:checked')?.value || null;
@@ -411,20 +428,21 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
         summary: { provider: settings.summary.provider, model: settings.summary.model },
         profanity: {
           provider: env.PROFANITY_PROVIDER || settings.summary.provider,
-          model: env.PROFANITY_MODEL || null,
+          model: modelForCapability(env, env.PROFANITY_PROVIDER || settings.summary.provider, env.PROFANITY_MODEL),
           viaCriminalPrefilter: env.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER === true ||
             env.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER === 'true',
         },
         criminal: {
           provider: env.CRIMINAL_PROVIDER || settings.summary.provider,
-          model: env.CRIMINAL_MODEL || null,
-          prefilterProvider: env.CRIMINAL_AI_PREFILTER_ENABLED === true || env.CRIMINAL_AI_PREFILTER_ENABLED === 'true'
-            ? env.CRIMINAL_PREFILTER_PROVIDER || null : null,
-          prefilterModel: env.CRIMINAL_AI_PREFILTER_ENABLED === true || env.CRIMINAL_AI_PREFILTER_ENABLED === 'true'
-            ? env.CRIMINAL_PREFILTER_PROVIDER === 'qwen' ? env.QWEN_PREFILTER_MODEL || null
-              : env.CRIMINAL_PREFILTER_MODEL || null : null,
-          finalJudgeModel: env.CRIMINAL_FINAL_JUDGE_ENABLED === true || env.CRIMINAL_FINAL_JUDGE_ENABLED === 'true'
-            ? env.CRIMINAL_FINAL_JUDGE_MODEL || null : null,
+          model: modelForCapability(env, env.CRIMINAL_PROVIDER || settings.summary.provider, env.CRIMINAL_MODEL),
+          prefilterEnabled: enabledUnlessFalse(env.CRIMINAL_AI_PREFILTER_ENABLED),
+          prefilterProvider: env.CRIMINAL_PREFILTER_PROVIDER || 'openai',
+          prefilterModel: env.CRIMINAL_PREFILTER_PROVIDER === 'qwen'
+            ? env.QWEN_PREFILTER_MODEL || env.QWEN_SHADOW_MODEL || 'qwen3.7-flash'
+            : env.CRIMINAL_PREFILTER_MODEL || env.LLM_NANO_MODEL || 'gpt-4.1-nano',
+          finalJudgeEnabled: enabledUnlessFalse(env.CRIMINAL_FINAL_JUDGE_ENABLED),
+          finalJudgeProvider: 'OpenAI',
+          finalJudgeModel: env.CRIMINAL_FINAL_JUDGE_MODEL || 'gpt-5-nano',
         },
       },
       features: {

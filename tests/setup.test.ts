@@ -86,10 +86,32 @@ describe('owner setup', () => {
     expect(state.providers).toEqual({
       summary: { provider: 'openai', model: 'gpt-4.1-nano' },
       profanity: { provider: 'openai', model: 'gpt-4.1-nano', viaCriminalPrefilter: true },
-      criminal: { provider: 'legal-rag', model: 'gpt-5-nano',
-        prefilterProvider: 'qwen', prefilterModel: 'qwen3.7-flash', finalJudgeModel: 'gpt-5-nano' },
+      criminal: { provider: 'legal-rag', model: '@cf/baai/bge-m3',
+        prefilterEnabled: true, prefilterProvider: 'qwen', prefilterModel: 'qwen3.7-flash',
+        finalJudgeEnabled: true, finalJudgeProvider: 'OpenAI', finalJudgeModel: 'gpt-5-nano' },
     });
     expect(db.prepare).not.toHaveBeenCalledWith(expect.stringContaining('INSERT'));
+  });
+
+  it('resolves default criminal stages and AI capability model fallbacks', async () => {
+    const db = { prepare: vi.fn(() => ({
+      first: vi.fn(async () => null),
+      bind: vi.fn(() => ({ first: vi.fn(async () => null) })),
+    })) };
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, result: {} })));
+    const cookie = await ownerCookie();
+    const response = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie), {
+      ...env, DB: db, SUMMARY_PROVIDER: 'openai', OPENAI_MODEL: 'gpt-4.1-mini',
+      PROFANITY_PROVIDER: 'openai', CRIMINAL_PROVIDER: 'legal-rag',
+    } as unknown as Env);
+    expect(response.status).toBe(200);
+    const state = await response.json() as any;
+    expect(state.providers.profanity.model).toBe('gpt-4.1-mini');
+    expect(state.providers.criminal).toEqual({
+      provider: 'legal-rag', model: '@cf/baai/bge-m3',
+      prefilterEnabled: true, prefilterProvider: 'openai', prefilterModel: 'gpt-4.1-nano',
+      finalJudgeEnabled: true, finalJudgeProvider: 'OpenAI', finalJudgeModel: 'gpt-5-nano',
+    });
   });
 
   it('reports D1 as source when a global settings override exists', async () => {

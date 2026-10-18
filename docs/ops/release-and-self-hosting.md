@@ -69,8 +69,11 @@ Telegram and Cloudflare process incoming webhook traffic in either mode.
 Existing production installations preserve their configured storage behaviour
 until an owner changes it. The settings page explicitly distinguishes live
 Cloudflare environment defaults from global D1 overrides, and shows separate
-read-only provider/model settings for summary, profanity and criminal analysis
-(including prefilter and final-judge stages). The editable provider/model input
+read-only provider/model settings for summary, profanity and criminal analysis.
+The criminal prefilter shows its configured or effective default provider/model;
+the optional final judge uses OpenAI and shows its model (configured or default).
+For Legal RAG the reported model is the embedding model used for retrieval.
+The editable provider/model input
 only controls **summaries**. Unsaved changes must be confirmed; clicking Save
 writes a global D1 override for every feature toggle and the summary settings,
 which then take precedence over environment defaults. Do not use Save merely
