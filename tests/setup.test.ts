@@ -149,16 +149,6 @@ describe('owner setup', () => {
     expect(body).not.toContain('sensitive-token');
   });
 
-  it('makes unsaved changes explicit and avoids automatic settings writes', async () => {
-    const html = await (await handleSetupRequest(request('/admin/setup'), env)).text();
-    expect(html).toContain('Сохранить изменения</button>');
-    expect(html).toContain('id="save" disabled');
-    expect(html).toContain('Настройки функций получены из текущих переменных Cloudflare');
-    expect(html).toContain('window.confirm(');
-    expect(html).toContain("if (event.persisted) void refresh()");
-    expect(html).not.toContain('telegram-widget.js');
-  });
-
   it('pairs one verified Telegram account with the bot only after BotFather proof', async () => {
     const rows = new Map<string, string>();
     const database = { prepare: vi.fn((sql: string) => ({

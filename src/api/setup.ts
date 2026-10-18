@@ -314,6 +314,7 @@ el('save').onclick=async ()=>{
     const settings = currentSettings();
     if (!settings.storageMode) throw Error('Выбери режим хранения сообщений.');
     if (!loadedSettings || JSON.stringify(settings) === JSON.stringify(loadedSettings)) return;
+    if (!settingsDatabaseReady) throw Error('D1 недоступна. Настройки не сохранены.');
     if (!window.confirm('Сохранить изменения глобальных настроек? Это запишет их в D1 и переопределит текущие переменные Cloudflare для функций бота.')) return;
     el('save').disabled = true;
     await api('settings','PATCH',settings);

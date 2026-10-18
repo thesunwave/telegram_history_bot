@@ -17,7 +17,7 @@ const inheritedState = {
   },
 };
 
-async function setupBrowser(approved = false) {
+async function setupBrowser(approved = false, state = inheritedState) {
   const page = await handleSetupRequest(new Request('https://bot.example/admin/setup'), {} as Env);
   const html = await page.text();
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
@@ -46,7 +46,7 @@ async function setupBrowser(approved = false) {
   const onPageShow = vi.fn();
   const confirm = vi.fn(() => approved);
   const fetch = vi.fn(async (path: string, opts?: RequestInit) => {
-    if (path === '/admin/api/setup/status') return Response.json(inheritedState);
+    if (path === '/admin/api/setup/status') return Response.json(state);
     if (path === '/admin/api/setup/settings' && opts?.method === 'PATCH') {
       return Response.json({ ok: true, settings: JSON.parse(String(opts.body)) });
     }
@@ -84,6 +84,42 @@ describe('global setup client keeps production configuration safe', () => {
     await browser.elements.get('save').onclick();
     expect(browser.confirm).toHaveBeenCalledOnce();
     expect(browser.fetch).not.toHaveBeenCalledWith('/admin/api/setup/settings', expect.anything());
+  });
+
+  it('sends exactly one PATCH only after the owner approves the changes', async () => {
+    const browser = await setupBrowser(true);
+    browser.elements.get('profanity').checked = true;
+    browser.elements.get('profanity').listeners.get('change')();
+    expect(browser.elements.get('save').disabled).toBe(false);
+
+    await browser.elements.get('save').onclick();
+
+    expect(browser.confirm).toHaveBeenCalledOnce();
+    const writes = browser.fetch.mock.calls.filter(([path, options]) =>
+      path === '/admin/api/setup/settings' && options?.method === 'PATCH');
+    expect(writes).toHaveLength(1);
+    expect(JSON.parse(String(writes[0][1]?.body))).toEqual({
+      storageMode: 'history', activityTrackingEnabled: true,
+      profanityEnabled: true, criminalEnabled: true,
+      summary: { enabled: false, provider: 'openai', model: 'gpt-4.1-nano' },
+    });
+  });
+
+  it('blocks saving while D1 is unavailable even after editing the form', async () => {
+    const browser = await setupBrowser(true, {
+      ...inheritedState, databaseReady: false, settingsSource: 'unknown',
+    });
+    expect(browser.elements.get('save').disabled).toBe(true);
+    expect(browser.elements.get('configSource').textContent).toContain('D1 недоступна');
+    browser.elements.get('profanity').checked = true;
+    browser.elements.get('profanity').listeners.get('change')();
+    expect(browser.elements.get('save').disabled).toBe(true);
+    // Even invoking the handler directly cannot bypass the disabled control.
+    await browser.elements.get('save').onclick();
+    expect(browser.confirm).not.toHaveBeenCalled();
+    expect(browser.fetch.mock.calls.filter(([path]) =>
+      path === '/admin/api/setup/settings')).toHaveLength(0);
+    expect(browser.elements.get('error').textContent).toContain('D1 недоступна');
   });
 
   it('re-fetches config on browser back/forward restoration', async () => {
