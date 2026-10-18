@@ -33,7 +33,7 @@ export interface INotificationService {
   resetChatSettings(chatId: string, updatedBy: string): Promise<ChatNotificationSettings>;
   
   // Управление типами уведомлений
-  enableNotification(chatId: string, type: NotificationType, updatedBy: string): Promise<void>;
+  enableNotification(chatId: string, type: NotificationType, updatedBy: string, activateGlobal?: boolean): Promise<void>;
   disableNotification(chatId: string, type: NotificationType, updatedBy: string): Promise<void>;
   updateNotificationSettings(chatId: string, type: NotificationType, settings: Partial<NotificationTypeSettings>, updatedBy: string): Promise<void>;
   
@@ -149,12 +149,22 @@ export class NotificationService implements INotificationService {
   /**
    * Включить уведомление определенного типа
    */
-  async enableNotification(chatId: string, type: NotificationType, updatedBy: string): Promise<void> {
+  async enableNotification(chatId: string, type: NotificationType, updatedBy: string, activateGlobal = false): Promise<void> {
     try {
       const settings = await this.getChatSettings(chatId) || 
         NotificationValidationUtils.createDefaultChatSettings(chatId, updatedBy);
 
       settings.notifications[type].enabled = true;
+      if (type === 'activity_summary') {
+        if (activateGlobal) settings.enabled = true;
+        settings.notifications.activity_summary.frequency = 'daily';
+        const time = settings.notifications.activity_summary.time;
+        settings.notifications.activity_summary.time = {
+          hour: time?.hour ?? 18,
+          minute: 0,
+          timezone: 'UTC'
+        };
+      }
       settings.updatedAt = new Date();
       settings.updatedBy = updatedBy;
 
@@ -479,14 +489,8 @@ export class NotificationService implements INotificationService {
    * Получить список доступных типов уведомлений
    */
   getAvailableNotificationTypes(): NotificationType[] {
-    return [
-      'criminal_reports',
-      'profanity_reports',
-      'activity_summary',
-      'daily_summary',
-      'weekly_summary',
-      'monthly_summary'
-    ];
+    // Other notification types have templates but no working scheduled delivery.
+    return ['activity_summary'];
   }
 
   /**
