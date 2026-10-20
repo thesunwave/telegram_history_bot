@@ -124,9 +124,11 @@ describe('owner setup', () => {
     const response = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie), {
       ...env, DB: db, CRIMINAL_PROVIDER: 'legal-rag',
       CRIMINAL_AI_PREFILTER_ENABLED: 'FALSE', CRIMINAL_FINAL_JUDGE_ENABLED: 'False',
+      ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER: 'TRUE',
     } as unknown as Env);
     expect(response.status).toBe(200);
     const state = await response.json() as any;
+    expect(state.providers.profanity.viaCriminalPrefilter).toBe(true);
     expect(state.providers.criminal.prefilterEnabled).toBe(false);
     expect(state.providers.criminal.finalJudgeEnabled).toBe(false);
   });

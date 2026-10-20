@@ -101,10 +101,10 @@ async function telegramApi(env: Env, method: string, args?: Record<string, unkno
 }
 
 /** Mirror provider/model fallbacks without exposing credentials or invoking an AI call. */
-function enabledUnlessFalse(value: boolean | string | undefined): boolean {
-  // Match CriminalCodeAnalyzerDO.getBooleanEnv(name, true): omitted flags are
-  // enabled, and the textual false value is case-insensitive.
-  if (value === undefined || value === null) return true;
+function booleanEnv(value: boolean | string | undefined, fallback: boolean): boolean {
+  // Match CriminalCodeAnalyzerDO.getBooleanEnv(name, fallback): omitted flags use
+  // the fallback, and any value other than a case-insensitive "false" is enabled.
+  if (value === undefined || value === null) return fallback;
   if (typeof value === 'boolean') return value;
   return String(value).toLowerCase() !== 'false';
 }
@@ -434,18 +434,17 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
         profanity: {
           provider: env.PROFANITY_PROVIDER || settings.summary.provider,
           model: modelForCapability(env, env.PROFANITY_PROVIDER || settings.summary.provider, env.PROFANITY_MODEL),
-          viaCriminalPrefilter: env.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER === true ||
-            env.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER === 'true',
+          viaCriminalPrefilter: booleanEnv(env.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER, false),
         },
         criminal: {
           provider: env.CRIMINAL_PROVIDER || settings.summary.provider,
           model: modelForCapability(env, env.CRIMINAL_PROVIDER || settings.summary.provider, env.CRIMINAL_MODEL),
-          prefilterEnabled: enabledUnlessFalse(env.CRIMINAL_AI_PREFILTER_ENABLED),
+          prefilterEnabled: booleanEnv(env.CRIMINAL_AI_PREFILTER_ENABLED, true),
           prefilterProvider: env.CRIMINAL_PREFILTER_PROVIDER || 'openai',
           prefilterModel: env.CRIMINAL_PREFILTER_PROVIDER === 'qwen'
             ? env.QWEN_PREFILTER_MODEL || env.QWEN_SHADOW_MODEL || 'qwen3.7-flash'
             : env.CRIMINAL_PREFILTER_MODEL || env.LLM_NANO_MODEL || 'gpt-4.1-nano',
-          finalJudgeEnabled: enabledUnlessFalse(env.CRIMINAL_FINAL_JUDGE_ENABLED),
+          finalJudgeEnabled: booleanEnv(env.CRIMINAL_FINAL_JUDGE_ENABLED, true),
           finalJudgeProvider: 'OpenAI',
           finalJudgeModel: env.CRIMINAL_FINAL_JUDGE_MODEL || 'gpt-5-nano',
         },
