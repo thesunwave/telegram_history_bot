@@ -7,6 +7,7 @@ import {
   isAdditiveMigration,
   pendingMigrations,
   migrationDecision,
+  nonAdditiveMigrations,
   splitSqlStatements,
 } from '../../scripts/preflight-production.mjs';
 
@@ -87,10 +88,12 @@ describe('production release preflight', () => {
     const files = ['0013_existing.sql', '0014_app_settings.sql'];
     expect(pendingMigrations(files, ['0013_existing.sql'])).toEqual(['0014_app_settings.sql']);
     expect(pendingMigrations(files, files)).toEqual([]);
-    expect(migrationDecision(['0014_app_settings.sql'], false).safe).toBe(true);
+    expect(migrationDecision(['0014_app_settings.sql'], false, []).safe).toBe(true);
     expect(migrationDecision(['0014_app_settings.sql'], true, ['0014_app_settings.sql']).safe)
       .toBe(false);
-    expect(migrationDecision([], true).safe).toBe(true);
+    expect(migrationDecision([], true, []).safe).toBe(true);
+    // Omitting the classification must not silently pass the gate.
+    expect(() => migrationDecision(['0014_app_settings.sql'], true)).toThrow();
   });
 
   it('lets an actual deploy apply pending migrations only when all are additive', () => {
@@ -109,6 +112,10 @@ describe('production release preflight', () => {
     expect(isAdditiveMigration(sql('0003_criminal_code.sql'))).toBe(false);
     expect(isAdditiveMigration('DROP TABLE summaries;')).toBe(false);
     expect(isAdditiveMigration('ALTER TABLE a RENAME TO b;')).toBe(false);
+    expect(isAdditiveMigration('CREATE TABLE b AS SELECT * FROM a;')).toBe(false);
+    expect(nonAdditiveMigrations(
+      ['0015_stats_daily_media_max_duration.sql', '0005_add_article_title.sql'], sql,
+    )).toEqual(['0005_add_article_title.sql']);
     expect(isAdditiveMigration('-- only a comment')).toBe(false);
     expect(isAdditiveMigration('ALTER TABLE t ADD COLUMN c INTEGER; /* x */ DELETE FROM t;'))
       .toBe(false);

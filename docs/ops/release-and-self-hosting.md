@@ -98,7 +98,7 @@ compares the live Cloudflare KV/D1/DO/Vectorize/service bindings against the
 selected release and lists pending D1 migrations without changing them.
 Infrastructure drift blocks the release. A read-only run only lists pending
 migrations. On an actual deploy, pending migrations that are all **additive**
-(only `CREATE TABLE`, `CREATE INDEX` or `ALTER TABLE … ADD`) are applied
+(only `CREATE TABLE`, `CREATE [UNIQUE] INDEX` or `ALTER TABLE … ADD`) are applied
 automatically: the job first records a D1 Time Travel bookmark and prints the
 restore command in the run summary, then runs `wrangler d1 migrations apply`.
 Any other pending migration (data rewrites, inserts, drops, triggers, renames)

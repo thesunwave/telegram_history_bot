@@ -96,7 +96,7 @@ jobs:
         run: npm test
 
       - name: Test release infrastructure checks
-        run: cd .release-tools && ../node_modules/.bin/vitest run tests/scripts/preflight-production.test.ts
+        run: cd .release-tools && ../node_modules/.bin/vitest run tests/scripts/preflight-production.test.ts tests/scripts/apply-production-migrations.test.ts
 
       - name: Production build dry-run
         run: npm run check:production

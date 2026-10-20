@@ -136,15 +136,21 @@ export function splitSqlStatements(sql) {
   return statements.map(statement => statement.trim()).filter(Boolean);
 }
 
+// CREATE TABLE ... AS SELECT copies rows, so it is not purely additive.
+const CREATE_TABLE_AS_SELECT = /^CREATE\s+TABLE\b[\s\S]*\bAS\s+SELECT\b/i;
+
 export function isAdditiveMigration(sql) {
   const statements = splitSqlStatements(sql);
   return Boolean(statements?.length) &&
-    statements.every(statement => ADDITIVE_STATEMENT.test(statement));
+    statements.every(statement =>
+      ADDITIVE_STATEMENT.test(statement) && !CREATE_TABLE_AS_SELECT.test(statement));
 }
 
 // Additive migrations are applied by the release job after a D1 Time Travel
 // restore point is recorded; anything else still blocks an actual deploy.
-export function migrationDecision(pending, willDeploy, nonAdditive = []) {
+// nonAdditive is required so a caller cannot skip classification by omission.
+export function migrationDecision(pending, willDeploy, nonAdditive) {
+  if (!Array.isArray(nonAdditive)) throw new Error('migrationDecision requires the non-additive list');
   if (!pending.length) return { safe: true, reason: 'up to date' };
   if (!willDeploy) {
     return { safe: true, reason: 'Pending production D1 migrations: ' + pending.join(', ') };
