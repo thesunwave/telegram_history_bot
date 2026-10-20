@@ -134,7 +134,7 @@ export function isQuoteGroundedInTarget(quote: string, targetText: string): bool
   if (!normalizedQuote || !normalizedTarget) {
     return false;
   }
-  return normalizedTarget.includes(normalizedQuote) || normalizedQuote.includes(normalizedTarget);
+  return normalizedTarget.includes(normalizedQuote);
 }
 
 export function isUsefulFinalJudgeReference(reference: LegalReferenceHit): boolean {
