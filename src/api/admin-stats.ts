@@ -70,6 +70,8 @@ export interface AdminChatStats {
     topTalkers: AdminUserCount[];
     topVoiceUsers: AdminUserCount[];
     topVideoNoteUsers: AdminUserCount[];
+    /** Every participant with messages in the range, capped for response size. */
+    allUsers: AdminUserCount[];
     dailyMessages: Array<{ day: string; count: number }>;
     dailyActiveUsers: Array<{ day: string; count: number }>;
     dailyMedia: Array<{
@@ -89,6 +91,7 @@ export interface AdminChatStats {
         label: string;
       }>;
       participants: Array<{
+        userId: string;
         username: string;
         dailyLevels: Array<{
           day: string;

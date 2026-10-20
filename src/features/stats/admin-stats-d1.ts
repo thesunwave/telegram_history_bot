@@ -45,6 +45,8 @@ const TIMELINE_BUCKETS: Array<{ bucket: BucketName; label: string }> = [
 type TimelineLevel = 'inactive' | 'active' | 'talkative';
 
 const MAX_PARTICIPANTS = 12;
+// Bounds the untruncated people table so huge chats keep a small response.
+const ALL_USERS_LIMIT = 500;
 const TOP_LIMIT = 10;
 const BUCKET_TOP_LIMIT = 5;
 const HOURS_PER_DAY = 24;
@@ -685,6 +687,11 @@ function mapAdminChatStatsFromD1Results(
     )
     .slice(0, TOP_LIMIT);
 
+  const allUsers = activityUsers
+    .filter((user) => user.message_count > 0)
+    .sort((a, b) => b.message_count - a.message_count || byIdAsc(a, b))
+    .slice(0, ALL_USERS_LIMIT);
+
   const participants = activityUsers
     .filter((user) => user.active_days > 0)
     .sort(
@@ -706,6 +713,7 @@ function mapAdminChatStatsFromD1Results(
           : `Участник ${index + 1}`;
 
       return {
+        userId: String(user.user_id),
         username,
         dailyLevels: range.days.map((day) => {
           const count = dayUserCounts.get(`${day}|${user.user_id}`) ?? 0;
@@ -858,6 +866,7 @@ function mapAdminChatStatsFromD1Results(
       topTalkers: topTalkers.map((user) => mapUser(user)),
       topVoiceUsers: topVoiceUsers.map((user) => mapUser(user)),
       topVideoNoteUsers: topVideoNoteUsers.map((user) => mapUser(user)),
+      allUsers: allUsers.map((user) => mapUser(user)),
       dailyMessages: range.days.map((day) => ({ day, count: dayRows.get(day)?.count ?? 0 })),
       dailyActiveUsers: range.days.map((day) => ({ day, count: dayRows.get(day)?.active ?? 0 })),
       dailyMedia: range.days.map((day) => {

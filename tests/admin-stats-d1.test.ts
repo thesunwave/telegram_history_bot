@@ -493,6 +493,10 @@ describe('D1 admin stats reader', () => {
     expect(alice.username).toBe('alice');
     // 200 has no username → anonymized "Участник N".
     expect(id200.username).toBe('Участник 2');
+    // The people table joins the timeline on userId, not the anonymized name.
+    expect(alice.userId).toBe('100');
+    expect(id200.userId).toBe('200');
+    expect(activity.allUsers.map((user) => user.userId)).toEqual(['100', '200']);
     // alice: 8 messages / 2 days → threshold max(2, ceil(8/2)=4) = 4.
     expect(alice.dailyLevels).toEqual([
       { day: d1, level: 'talkative', timeBucketLevels: [

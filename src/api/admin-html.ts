@@ -1260,7 +1260,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           total: 0, totalWords: 0, wordsPerMessage: 0, totalVoiceCount: 0, totalVoiceMinutes: 0,
           totalVideoNoteCount: 0, totalVideoNoteMinutes: 0, activeUsers: 0, averageDailyMessages: 0,
           averageDailyActiveUsers: 0, averageHourlyMessages: 0, topUsers: [], topTalkers: [],
-          topVoiceUsers: [], topVideoNoteUsers: [], dailyMessages: [], dailyActiveUsers: [],
+          topVoiceUsers: [], topVideoNoteUsers: [], allUsers: [], dailyMessages: [], dailyActiveUsers: [],
           dailyMedia: [], hourlyAverages: [], participantTimeline: null, timeBuckets: [],
           longestVoice: null, longestVideoNote: null
         },
@@ -1593,6 +1593,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       };
       const activity = stats.activity || {};
       for (const row of [
+        ...(activity.allUsers || []),
         ...(activity.topUsers || []), ...(activity.topTalkers || []),
         ...(activity.topVoiceUsers || []), ...(activity.topVideoNoteUsers || [])
       ]) {
@@ -1668,8 +1669,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         return dir * ((Number(a[key]) || 0) - (Number(b[key]) || 0)) || b.messages - a.messages;
       });
       const maxMessages = Math.max(...people.map(person => person.messages), 0);
+      // Join on userId: the timeline renames users without a username.
       const timeline = new Map(
-        (stats.activity?.participantTimeline?.participants || []).map(participant => [participant.username, participant])
+        (stats.activity?.participantTimeline?.participants || []).map(participant => [String(participant.userId), participant])
       );
       for (const person of people) {
         const tr = el('tr');
@@ -1684,7 +1686,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         messagesCell.append(barCell);
 
         const rhythmCell = el('td');
-        const participant = timeline.get(person.username);
+        const participant = timeline.get(String(person.userId));
         if (participant) {
           const week = el('span', 'weekRhythm');
           week.setAttribute('role', 'img');
