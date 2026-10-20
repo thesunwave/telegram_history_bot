@@ -3313,6 +3313,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             modules: state.modules,
             canEdit: false
           });
+        if (!chatSettingsRes.ok) {
+          document.getElementById('chatSettingsMeta').textContent = 'Настройки чата временно недоступны.';
+        }
         renderChatCards();
         if (state.view === 'lab') void loadShadowComparisons();
         const servedRange = stats.range && stats.range.from && stats.range.to
