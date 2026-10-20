@@ -144,6 +144,11 @@ describe('renderAdminHtml', () => {
     const deltaInfo = new Function(match[0] + '\nreturn deltaInfo;')();
     expect(deltaInfo(10, null)).toBeNull();
     expect(deltaInfo(10, undefined)).toBeNull();
+    expect(deltaInfo(5, 0)).toEqual({ text: 'раньше не было', tone: 'up' });
+    expect(deltaInfo(0, 0)).toEqual({ text: 'без изменений', tone: '' });
+    expect(deltaInfo(100, 100)).toEqual({ text: 'как в прошлом периоде', tone: '' });
+    expect(deltaInfo(118, 100)).toEqual({ text: '▲ 18% к прошлому периоду', tone: 'up' });
+    expect(deltaInfo(88, 100)).toEqual({ text: '▼ 12% к прошлому периоду', tone: 'down' });
   });
   it('renders an accessible participant rhythm heatmap', () => {
     const html = renderAdminHtml({
@@ -163,7 +168,8 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('Активно общается');
     expect(html).toContain('participantTimeline');
     expect(html).toContain('timeBucketLevels');
-    expect(html).toContain("{ bucket: 'night'");
+    expect(html).toContain("{ bucket: 'night', label: 'Ночь · 22–05' }");
+    expect(html).toContain("{ bucket: 'evening', label: 'Вечер · 17–22' }");
     expect(html).toContain("const ACTIVITY_WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']");
     expect(html).toContain('function rhythmLevel(levels)');
     expect(html).toContain('talkativeLevels * 2 >= levels.length');

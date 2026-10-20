@@ -22,7 +22,10 @@ export interface AdminUserCount {
   voiceMinutes: number;
   videoNoteCount: number;
   videoNoteMinutes: number;
-  /** Longest single recording in the period; null when unknown (days before tracking). */
+  /**
+   * Longest single recording among days tracked since migration 0015; null when none.
+   * Days before tracking are excluded, so a period that starts earlier reports only its tracked days.
+   */
   voiceMaxSeconds: number | null;
   videoNoteMaxSeconds: number | null;
   activeDays: number;
