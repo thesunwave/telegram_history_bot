@@ -1610,6 +1610,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         person.profanity = Number(row.profanityCount) || 0;
         person.rate = row.profanityRate === null || row.profanityRate === undefined ? null : Number(row.profanityRate) || 0;
         person.criminal = Number(row.criminalCount) || 0;
+        person.fromAllUsers = true;
       }
       for (const row of stats.profanity?.topUsers || []) {
         entry(row.userId, row.username).profanity = Number(row.count) || 0;
@@ -1623,7 +1624,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const person = entry(row.userId, row.username);
         // Keep one count source per column: allUsers' daily criminal_count wins,
         // the top list only adds the sentence (and covers users missing from allUsers).
-        if (!person.criminal) person.criminal = Number(row.count) || 0;
+        if (!person.fromAllUsers) person.criminal = Number(row.count) || 0;
         person.sentence = formatSentence(row);
       }
       return [...people.values()];
