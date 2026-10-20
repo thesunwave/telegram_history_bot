@@ -48,6 +48,9 @@ export interface ActivityAggregateWrite {
   voiceDurationSeconds?: number;
   videoNoteCount?: number;
   videoNoteDurationSeconds?: number;
+  /** Duration of this event's single voice message / video note; kept as a daily max. */
+  voiceMessageDurationSeconds?: number;
+  videoNoteMessageDurationSeconds?: number;
   /** Message timestamp (epoch seconds); absent → last_message_ts stays untouched/0. */
   ts?: number;
   /** Day-local monotonic sequence allocated by CountersDO; present → progress rows written. */
@@ -99,8 +102,9 @@ export interface CriminalAggregateWrite {
 const USER_DAILY_UPSERT_ACTIVITY = `
   INSERT INTO stats_daily_user
     (chat_id, day, user_id, message_count, word_count, voice_count, voice_duration_seconds,
-     video_note_count, video_note_duration_seconds, profanity_count, criminal_count, criminal_severity, last_message_ts)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?)
+     video_note_count, video_note_duration_seconds, profanity_count, criminal_count, criminal_severity, last_message_ts,
+     voice_max_duration_seconds, video_note_max_duration_seconds)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?)
   ON CONFLICT(chat_id, day, user_id) DO UPDATE SET
     message_count = excluded.message_count,
     word_count = excluded.word_count,
@@ -108,7 +112,9 @@ const USER_DAILY_UPSERT_ACTIVITY = `
     voice_duration_seconds = CASE WHEN ? = 1 THEN excluded.voice_duration_seconds ELSE stats_daily_user.voice_duration_seconds END,
     video_note_count = CASE WHEN ? = 1 THEN excluded.video_note_count ELSE stats_daily_user.video_note_count END,
     video_note_duration_seconds = CASE WHEN ? = 1 THEN excluded.video_note_duration_seconds ELSE stats_daily_user.video_note_duration_seconds END,
-    last_message_ts = MAX(COALESCE(stats_daily_user.last_message_ts, 0), COALESCE(excluded.last_message_ts, 0))
+    last_message_ts = MAX(COALESCE(stats_daily_user.last_message_ts, 0), COALESCE(excluded.last_message_ts, 0)),
+    voice_max_duration_seconds = MAX(stats_daily_user.voice_max_duration_seconds, excluded.voice_max_duration_seconds),
+    video_note_max_duration_seconds = MAX(stats_daily_user.video_note_max_duration_seconds, excluded.video_note_max_duration_seconds)
 `;
 
 const USER_DAILY_UPSERT_PROFANITY = `
@@ -311,6 +317,8 @@ export async function writeActivityAggregates(
         videoNoteCount,
         videoNoteDurationSeconds,
         lastMessageTs,
+        Math.max(0, Math.round(input.voiceMessageDurationSeconds ?? 0)),
+        Math.max(0, Math.round(input.videoNoteMessageDurationSeconds ?? 0)),
         voiceTouched ? 1 : 0,
         voiceTouched ? 1 : 0,
         videoNoteTouched ? 1 : 0,

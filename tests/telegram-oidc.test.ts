@@ -17,7 +17,7 @@ describe('Telegram OIDC login and admin session', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('no-store');
     expect(html).toContain('id="telegramLogin"');
-    expect(html).toContain('id="dashboard"');
+    expect(html).toContain('id="views"');
     expect(html).toContain('https://oauth.telegram.org/js/telegram-login.js');
     expect(html).toContain("fetch('/auth/telegram/config'");
     expect(html).toContain("fetch('/auth/telegram'");

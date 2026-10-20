@@ -96,6 +96,7 @@ async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database
     '0010_stats_backfill_state.sql',
     '0011_stats_chat_user_profile.sql',
     '0012_stats_daily_pipeline_progress.sql',
+    '0015_stats_daily_media_max_duration.sql',
   ]) {
     const sql = readFileSync(join(migrationsDir, file), 'utf8');
     for (const statement of sql.split(';')) {
@@ -198,6 +199,24 @@ describe('CountersDO D1 aggregate dual-write', () => {
 
   afterEach(() => {
     harness.sqlite.close();
+  });
+
+  it('keeps the longest single voice message and video note per user/day', async () => {
+    await post(counters, '/inc', basePayload({ voiceDurationSeconds: 5, ts: 1000 }));
+    await post(counters, '/inc', basePayload({ voiceDurationSeconds: 12, ts: 1100 }));
+    await post(counters, '/inc', basePayload({ voiceDurationSeconds: 7, ts: 1200 }));
+    await post(counters, '/inc', basePayload({ voiceCount: 0, voiceDurationSeconds: 0, videoNoteCount: 1, videoNoteDurationSeconds: 40, ts: 1300 }));
+    await post(counters, '/inc', basePayload({ voiceCount: 0, voiceDurationSeconds: 0, ts: 1400 }));
+
+    const user = rows(
+      harness.sqlite,
+      'SELECT * FROM stats_daily_user WHERE chat_id = 123 AND day = ? AND user_id = 456',
+      ['2026-05-07'],
+    )[0];
+    expect(user.voice_count).toBe(3);
+    expect(user.voice_duration_seconds).toBe(24);
+    expect(user.voice_max_duration_seconds).toBe(12);
+    expect(user.video_note_max_duration_seconds).toBe(40);
   });
 
   it('base events write additive aggregates, valid hour/bucket, monotonic last_message_ts and profile', async () => {

@@ -312,7 +312,7 @@ describe("webhook", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("text/html");
     const html = await response.text();
-    expect(html).toContain("Telegram Stats Admin");
+    expect(html).toContain("История чатов · админка");
     expect(html).toContain("admin_user");
   });
 

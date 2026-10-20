@@ -45,6 +45,8 @@ const TIMELINE_BUCKETS: Array<{ bucket: BucketName; label: string }> = [
 type TimelineLevel = 'inactive' | 'active' | 'talkative';
 
 const MAX_PARTICIPANTS = 12;
+// Bounds the untruncated people table so huge chats keep a small response.
+const ALL_USERS_LIMIT = 500;
 const TOP_LIMIT = 10;
 const BUCKET_TOP_LIMIT = 5;
 const HOURS_PER_DAY = 24;
@@ -57,6 +59,8 @@ interface User {
   voice_duration_seconds: number;
   video_note_count: number;
   video_note_duration_seconds: number;
+  voice_max_duration_seconds: number | null;
+  video_note_max_duration_seconds: number | null;
   profanity_count: number;
   criminal_count: number;
   active_days: number;
@@ -68,6 +72,21 @@ interface DayRow {
   day: string;
   count: number;
   active: number;
+  voice_count: number;
+  voice_duration_seconds: number;
+  video_note_count: number;
+  video_note_duration_seconds: number;
+}
+
+interface PreviousTotalsRow {
+  message_count: number | null;
+  word_count: number | null;
+  active_users: number | null;
+  voice_count: number | null;
+  voice_duration_seconds: number | null;
+  video_note_count: number | null;
+  video_note_duration_seconds: number | null;
+  profanity_count: number | null;
 }
 
 interface HourRow {
@@ -120,6 +139,7 @@ interface AdminStatsD1ResultIndexes {
   bucket: number;
   word: number;
   wordUser: number;
+  previous: number;
   criminalSentence?: number;
 }
 
@@ -138,6 +158,21 @@ function round1(value: number): number {
 
 function round2(value: number): number {
   return Number(value.toFixed(2));
+}
+
+/** UTC day string shifted by `offset` days. */
+function shiftDay(day: string, offset: number): string {
+  const date = new Date(`${day}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Equal-length window that ends the day before `range.from`. */
+function previousRangeOf(range: AdminDateRange): { from: string; to: string } {
+  return {
+    from: shiftDay(range.from, -range.days.length),
+    to: shiftDay(range.from, -1),
+  };
 }
 
 /** UTC day string for the day following `day`. */
@@ -193,12 +228,34 @@ function mapCriminalSentenceUsers(
     .slice(0, TOP_LIMIT);
 }
 
+/**
+ * Longest single recording among users. Only days written after migration 0015
+ * carry a max, so an all-zero range yields null instead of a fake 0:00 record.
+ */
+function longestRecording(
+  users: User[],
+  column: 'voice_max_duration_seconds' | 'video_note_max_duration_seconds',
+): { userId: string; username: string; seconds: number } | null {
+  let best: User | null = null;
+  for (const user of users) {
+    const seconds = Number(user[column]) || 0;
+    if (seconds > 0 && (!best || seconds > (Number(best[column]) || 0))) best = user;
+  }
+  if (!best) return null;
+  return {
+    userId: String(best.user_id),
+    username: best.username ?? `id${best.user_id}`,
+    seconds: Number(best[column]),
+  };
+}
+
 /** Builds all bounded aggregate/profile/criminal statements for an admin response. */
 function createAdminStatsD1QueryPlan(
   db: D1Database,
   chatId: number,
   range: AdminDateRange,
 ): AdminStatsD1QueryPlan {
+  const previousRange = previousRangeOf(range);
   const statements: D1PreparedStatement[] = [
     db
       .prepare(
@@ -209,6 +266,8 @@ function createAdminStatsD1QueryPlan(
                 SUM(u.voice_duration_seconds) AS voice_duration_seconds,
                 SUM(u.video_note_count) AS video_note_count,
                 SUM(u.video_note_duration_seconds) AS video_note_duration_seconds,
+                MAX(u.voice_max_duration_seconds) AS voice_max_duration_seconds,
+                MAX(u.video_note_max_duration_seconds) AS video_note_max_duration_seconds,
                 SUM(u.profanity_count) AS profanity_count,
                 SUM(u.criminal_count) AS criminal_count,
                  COUNT(CASE WHEN u.message_count > 0 THEN 1 END) AS active_days,
@@ -224,7 +283,11 @@ function createAdminStatsD1QueryPlan(
     db
       .prepare(
         `SELECT day, SUM(message_count) AS count,
-                COUNT(CASE WHEN message_count > 0 THEN 1 END) AS active
+                COUNT(CASE WHEN message_count > 0 THEN 1 END) AS active,
+                SUM(voice_count) AS voice_count,
+                SUM(voice_duration_seconds) AS voice_duration_seconds,
+                SUM(video_note_count) AS video_note_count,
+                SUM(video_note_duration_seconds) AS video_note_duration_seconds
          FROM stats_daily_user
          WHERE chat_id = ? AND day >= ? AND day <= ?
          GROUP BY day`,
@@ -275,6 +338,20 @@ function createAdminStatsD1QueryPlan(
          GROUP BY w.word, w.user_id, p.username`,
       )
       .bind(chatId, range.from, range.to),
+    db
+      .prepare(
+        `SELECT SUM(message_count) AS message_count,
+                SUM(word_count) AS word_count,
+                COUNT(DISTINCT CASE WHEN message_count > 0 THEN user_id END) AS active_users,
+                SUM(voice_count) AS voice_count,
+                SUM(voice_duration_seconds) AS voice_duration_seconds,
+                SUM(video_note_count) AS video_note_count,
+                SUM(video_note_duration_seconds) AS video_note_duration_seconds,
+                SUM(profanity_count) AS profanity_count
+         FROM stats_daily_user
+         WHERE chat_id = ? AND day >= ? AND day <= ?`,
+      )
+      .bind(chatId, previousRange.from, previousRange.to),
   ];
   const indexes: AdminStatsD1ResultIndexes = {
     users: 0,
@@ -284,6 +361,7 @@ function createAdminStatsD1QueryPlan(
     bucket: 4,
     word: 5,
     wordUser: 6,
+    previous: 7,
   };
 
   if (range.period !== 'custom') {
@@ -332,6 +410,7 @@ function createReadyAdminStatsD1QueryPlan(
       bucket: stats.indexes.bucket + offset,
       word: stats.indexes.word + offset,
       wordUser: stats.indexes.wordUser + offset,
+      previous: stats.indexes.previous + offset,
       ...(stats.indexes.criminalSentence === undefined
         ? {}
         : { criminalSentence: stats.indexes.criminalSentence + offset }),
@@ -484,6 +563,7 @@ function mapAdminChatStatsFromD1Results(
   const buckets = resultRows<BucketUserRow>(results, indexes.bucket);
   const words = resultRows<WordRow>(results, indexes.word);
   const wordUsers = resultRows<WordUserRow>(results, indexes.wordUser);
+  const previousRow = resultRows<PreviousTotalsRow>(results, indexes.previous)[0];
   const criminalSentenceRows = indexes.criminalSentence === undefined
     ? []
     : resultRows<CriminalSentenceRow>(results, indexes.criminalSentence);
@@ -512,6 +592,8 @@ function mapAdminChatStatsFromD1Results(
     voiceMinutes: round1(user.voice_duration_seconds / 60),
     videoNoteCount: user.video_note_count,
     videoNoteMinutes: round1(user.video_note_duration_seconds / 60),
+    voiceMaxSeconds: user.voice_max_duration_seconds || null,
+    videoNoteMaxSeconds: user.video_note_max_duration_seconds || null,
     activeDays: user.active_days,
     lastMessageTs: user.last_message_ts || null,
   });
@@ -536,6 +618,8 @@ function mapAdminChatStatsFromD1Results(
       voiceMinutes: 0,
       videoNoteCount: 0,
       videoNoteMinutes: 0,
+      voiceMaxSeconds: null,
+      videoNoteMaxSeconds: null,
       activeDays: 0,
       lastMessageTs: profile?.last_message_ts || null,
     };
@@ -603,6 +687,11 @@ function mapAdminChatStatsFromD1Results(
     )
     .slice(0, TOP_LIMIT);
 
+  const allUsers = activityUsers
+    .filter((user) => user.message_count > 0)
+    .sort((a, b) => b.message_count - a.message_count || byIdAsc(a, b))
+    .slice(0, ALL_USERS_LIMIT);
+
   const participants = activityUsers
     .filter((user) => user.active_days > 0)
     .sort(
@@ -624,6 +713,7 @@ function mapAdminChatStatsFromD1Results(
           : `Участник ${index + 1}`;
 
       return {
+        userId: String(user.user_id),
         username,
         dailyLevels: range.days.map((day) => {
           const count = dayUserCounts.get(`${day}|${user.user_id}`) ?? 0;
@@ -697,6 +787,26 @@ function mapAdminChatStatsFromD1Results(
         })),
     }));
 
+  const longestVoice = longestRecording(activityUsers, 'voice_max_duration_seconds');
+  const longestVideoNote = longestRecording(activityUsers, 'video_note_max_duration_seconds');
+  const profanityTotal = users.reduce((sum, user) => sum + user.profanity_count, 0);
+  const previousRange = previousRangeOf(range);
+  const previousTotal = Number(previousRow?.message_count) || 0;
+  const previous: AdminChatStats['previous'] = previousTotal > 0
+    ? {
+        from: previousRange.from,
+        to: previousRange.to,
+        total: previousTotal,
+        totalWords: Number(previousRow?.word_count) || 0,
+        activeUsers: Number(previousRow?.active_users) || 0,
+        totalVoiceCount: Number(previousRow?.voice_count) || 0,
+        totalVoiceMinutes: round1((Number(previousRow?.voice_duration_seconds) || 0) / 60),
+        totalVideoNoteCount: Number(previousRow?.video_note_count) || 0,
+        totalVideoNoteMinutes: round1((Number(previousRow?.video_note_duration_seconds) || 0) / 60),
+        profanityTotal: Number(previousRow?.profanity_count) || 0,
+      }
+    : null;
+
   let criminalTopUsers: AdminChatStats['criminal']['topUsers'];
   if (range.period === 'custom') {
     criminalTopUsers = users
@@ -735,6 +845,7 @@ function mapAdminChatStatsFromD1Results(
     range: { from: range.from, to: range.to, days: dayCount },
     status,
     ...(progress ? { progress } : {}),
+    previous,
     activity: {
       total,
       totalWords,
@@ -755,8 +866,29 @@ function mapAdminChatStatsFromD1Results(
       topTalkers: topTalkers.map((user) => mapUser(user)),
       topVoiceUsers: topVoiceUsers.map((user) => mapUser(user)),
       topVideoNoteUsers: topVideoNoteUsers.map((user) => mapUser(user)),
+      allUsers: allUsers.map((user) => ({
+        ...mapUser(user),
+        profanityCount: user.profanity_count,
+        profanityRate:
+          user.word_count >= PROFANITY_RATE_MIN_WORDS
+            ? (user.profanity_count / user.word_count) * 100
+            : null,
+        criminalCount: user.criminal_count,
+      })),
       dailyMessages: range.days.map((day) => ({ day, count: dayRows.get(day)?.count ?? 0 })),
       dailyActiveUsers: range.days.map((day) => ({ day, count: dayRows.get(day)?.active ?? 0 })),
+      dailyMedia: range.days.map((day) => {
+        const row = dayRows.get(day);
+        return {
+          day,
+          voiceCount: Number(row?.voice_count) || 0,
+          voiceMinutes: round1((Number(row?.voice_duration_seconds) || 0) / 60),
+          videoNoteCount: Number(row?.video_note_count) || 0,
+          videoNoteMinutes: round1((Number(row?.video_note_duration_seconds) || 0) / 60),
+        };
+      }),
+      longestVoice,
+      longestVideoNote,
       hourlyAverages: Array.from({ length: HOURS_PER_DAY }, (_, hour) => ({
         hour: String(hour).padStart(2, '0'),
         count: round2((hourRows.get(hour) ?? 0) / dayCount),
@@ -765,6 +897,7 @@ function mapAdminChatStatsFromD1Results(
       timeBuckets,
     },
     profanity: {
+      total: profanityTotal,
       topUsers: profanityTopUsers,
       topRateUsers,
       topWords,
