@@ -371,7 +371,8 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   // Instance policy first, then the chat's own switches (they can only narrow it).
   const instanceProfanityEnabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
   const instanceCriminalEnabled = env.ENABLE_CRIMINAL_ANALYSIS !== 'false' && env.ENABLE_CRIMINAL_ANALYSIS !== false;
-  const chatSettings = instanceProfanityEnabled || instanceCriminalEnabled
+  const analysableText = Boolean(msg.text) && !msg.text.startsWith('/');
+  const chatSettings = analysableText && (instanceProfanityEnabled || instanceCriminalEnabled)
     ? await readChatSettings(env, chatId)
     : null;
   const profanityAnalysisEnabled = instanceProfanityEnabled && chatSettings?.profanityEnabled === true;

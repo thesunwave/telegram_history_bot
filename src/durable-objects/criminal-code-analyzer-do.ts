@@ -568,9 +568,11 @@ export class CriminalCodeAnalyzerDO {
       return;
     }
     // An alarm might fire after the owner has switched to Stats Only or
-    // disabled criminal analysis. Drop pending message text instead of sending
-    // it to an AI provider; terminal acks keep counters from stalling.
-    if (!(await this.isAnalysisAllowed())) {
+    // disabled criminal analysis, or the chat turned it off (one DO per chat).
+    // Drop pending message text instead of sending it to an AI provider;
+    // terminal acks keep counters from stalling.
+    if (!(await this.isAnalysisAllowed()) ||
+        !(await readChatSettings(this.env, queue[0].chatId, { fresh: true })).criminalEnabled) {
       await this.saveQueue([]);
       for (const task of queue) {
         await this.ackCriminalOutcome(task, 'skipped');

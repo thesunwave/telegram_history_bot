@@ -170,6 +170,14 @@ describe('chat settings', () => {
     });
   });
 
+  it('treats an unknown-version row as unreadable', async () => {
+    const { db, sqlite } = createD1();
+    sqlite.prepare(`INSERT INTO app_settings (scope, settings_json) VALUES ('chat:-100', '{"version":2}')`).run();
+    expect(await readChatSettings({ DB: db } as any, -100)).toMatchObject({
+      profanityEnabled: false, criminalEnabled: false, summaryEnabled: false, dashboardAccess: 'admins',
+    });
+  });
+
   it('rejects malformed payloads', () => {
     expect(() => parseChatSettingsInput({ ...DEFAULT_CHAT_SETTINGS, profanityEnabled: 'yes' })).toThrow();
     expect(() => parseChatSettingsInput({ ...DEFAULT_CHAT_SETTINGS, dashboardAccess: 'everyone' })).toThrow();
@@ -178,6 +186,9 @@ describe('chat settings', () => {
 
   async function recordWithChatSettings(criminalEnabled: boolean) {
     const { db } = createD1();
+    const analyzerFetch = vi.fn(async () => Response.json({ ok: true }));
+    const background: Promise<unknown>[] = [];
+    const ctx = { waitUntil: (promise: Promise<unknown>) => background.push(promise) } as any;
     const env = {
       DB: db,
       TOKEN: 'live-token',
@@ -187,7 +198,10 @@ describe('chat settings', () => {
       ENABLE_CRIMINAL_ANALYSIS: true,
       HISTORY: createKv(),
       COUNTERS: createKv(),
-      CRIMINAL_CODE_ANALYZER_DO: { idFromName: vi.fn(), get: vi.fn() },
+      CRIMINAL_CODE_ANALYZER_DO: {
+        idFromName: vi.fn(() => 'analyzer-id'),
+        get: vi.fn(() => ({ fetch: analyzerFetch })),
+      },
     } as any;
     await saveChatSettings(env, -100, {
       profanityEnabled: false, criminalEnabled, summaryEnabled: true, dashboardAccess: 'members',
@@ -197,11 +211,12 @@ describe('chat settings', () => {
       await recordMessage({
         message_id: 1, date: 1790000000, text: 'обычный текст',
         chat: { id: -100, type: 'supergroup', title: 'Group' }, from: { id: 5, username: 'bob' },
-      }, env);
+      }, env, ctx);
+      await Promise.allSettled(background);
     } finally {
       vi.unstubAllEnvs();
     }
-    return env.CRIMINAL_CODE_ANALYZER_DO.idFromName as ReturnType<typeof vi.fn>;
+    return analyzerFetch;
   }
 
   it('skips criminal analysis for a chat that turned it off', async () => {

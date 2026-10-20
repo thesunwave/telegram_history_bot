@@ -1,4 +1,5 @@
 import type { Env } from './env';
+import { Logger } from './logger';
 
 /**
  * Per-chat switches that chat administrators manage from the dashboard. They
@@ -51,7 +52,11 @@ function scopeOf(chatId: number): string {
 }
 
 function sanitize(raw: unknown, updatedAt: string | null): StoredChatSettings {
-  const value = raw && typeof raw === 'object' ? raw as Partial<PersistedChatSettingsV1> : {};
+  if (raw !== null && (typeof raw !== 'object' || (raw as { version?: unknown }).version !== 1)) {
+    // An unknown or corrupt row must not silently re-enable anything.
+    throw new Error('Unsupported chat settings row');
+  }
+  const value = (raw ?? {}) as Partial<PersistedChatSettingsV1>;
   const flag = (key: 'profanityEnabled' | 'criminalEnabled' | 'summaryEnabled') =>
     typeof value[key] === 'boolean' ? value[key] as boolean : DEFAULT_CHAT_SETTINGS[key];
   return {
@@ -93,7 +98,10 @@ export async function readChatSettings(
     );
     cache.set(chatId, { expiresAt: now + CACHE_TTL_MS, value });
     return value;
-  } catch {
+  } catch (error) {
+    Logger.warn('Chat settings unreadable, using restrictive fallback', {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    });
     return { ...UNREADABLE_CHAT_SETTINGS, updatedAt: null, updatedByName: null };
   }
 }
@@ -133,5 +141,7 @@ export async function saveChatSettings(
     .bind(scopeOf(chatId), JSON.stringify(payload))
     .run();
   cache.delete(chatId);
-  return readChatSettings(env, chatId);
+  // Report what was written even if the read-back hits a transient error.
+  const stored = await readChatSettings(env, chatId, { fresh: true });
+  return { ...settings, updatedAt: stored.updatedAt, updatedByName };
 }

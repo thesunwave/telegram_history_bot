@@ -2,6 +2,7 @@ import type { Env } from '../core/env';
 import { readChatSettings, type StoredChatSettings } from '../core/chat-settings';
 import { resolveRuntimeSettings } from '../core/runtime-settings';
 import type { AdminChatWithRole } from './admin-chats';
+import { Logger } from '../core/logger';
 
 /**
  * Data for the dashboard's "Мои чаты" page and per-chat settings card. Chat
@@ -60,7 +61,10 @@ async function readChatPulses(env: Env, chatIds: number[]): Promise<Map<number, 
       });
     }
     return pulses;
-  } catch {
+  } catch (error) {
+    Logger.warn('Chat pulse query failed', {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    });
     return null;
   }
 }
@@ -77,7 +81,8 @@ export async function buildChatOverview(
     chats.map(async (chat) => ({ chat, settings: await readChatSettings(env, chat.chatId) })),
   );
   const visible = withSettings.filter(
-    ({ chat, settings }) => settings.dashboardAccess !== 'admins' || chat.role !== 'member',
+    // Unconfirmed roles count as members here: admins-only chats need a confirmed admin.
+    ({ chat, settings }) => settings.dashboardAccess !== 'admins' || chat.role === 'admin',
   );
   const pulses = await readChatPulses(env, visible.map(({ chat }) => chat.chatId));
   return visible.map(({ chat, settings }) => ({

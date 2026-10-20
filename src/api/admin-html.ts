@@ -3039,7 +3039,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     function memberRelative(value, chatValue, unit) {
       if (chatValue === null || chatValue === undefined || !(Number(chatValue) > 0)) return '';
-      const ratio = (Number(value) || 0) / Number(chatValue);
+      if (!(Number(value) > 0)) return '';
+      const ratio = Number(value) / Number(chatValue);
       if (ratio >= 0.95 && ratio <= 1.05) return 'как в среднем по чату';
       return (ratio > 1 ? 'в ' + formatDecimal(ratio) + ' раза больше' : 'в ' + formatDecimal(1 / ratio) + ' раза меньше') + ' ' + unit;
     }
@@ -3306,7 +3307,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         );
         renderChatSettings(chatSettingsRes.ok
           ? await chatSettingsRes.json()
-          : { settings: null, modules: state.modules, canEdit: false });
+          : {
+            // Unknown state: show everything off and read-only rather than guessing "on".
+            settings: { profanityEnabled: false, criminalEnabled: false, summaryEnabled: false, dashboardAccess: 'admins' },
+            modules: state.modules,
+            canEdit: false
+          });
         renderChatCards();
         if (state.view === 'lab') void loadShadowComparisons();
         const servedRange = stats.range && stats.range.from && stats.range.to
