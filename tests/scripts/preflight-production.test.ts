@@ -113,6 +113,8 @@ describe('production release preflight', () => {
     expect(isAdditiveMigration('DROP TABLE summaries;')).toBe(false);
     expect(isAdditiveMigration('ALTER TABLE a RENAME TO b;')).toBe(false);
     expect(isAdditiveMigration('CREATE TABLE b AS SELECT * FROM a;')).toBe(false);
+    expect(isAdditiveMigration('CREATE TABLE IF NOT EXISTS b AS\nSELECT * FROM a;')).toBe(false);
+    expect(isAdditiveMigration("CREATE TABLE b (v TEXT DEFAULT 'x AS SELECT y');")).toBe(true);
     expect(nonAdditiveMigrations(
       ['0015_stats_daily_media_max_duration.sql', '0005_add_article_title.sql'], sql,
     )).toEqual(['0005_add_article_title.sql']);

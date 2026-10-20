@@ -136,8 +136,9 @@ export function splitSqlStatements(sql) {
   return statements.map(statement => statement.trim()).filter(Boolean);
 }
 
-// CREATE TABLE ... AS SELECT copies rows, so it is not purely additive.
-const CREATE_TABLE_AS_SELECT = /^CREATE\s+TABLE\b[\s\S]*\bAS\s+SELECT\b/i;
+// CREATE TABLE ... AS SELECT copies rows, so it is not purely additive. CTAS has
+// no column list, so AS before the first "(" cannot be inside a quoted default.
+const CREATE_TABLE_AS_SELECT = /^CREATE\s+TABLE\b[^(]*\bAS\b/i;
 
 export function isAdditiveMigration(sql) {
   const statements = splitSqlStatements(sql);
