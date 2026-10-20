@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CriminalCodeAnalyzerDO } from '../src/durable-objects/criminal-code-analyzer-do';
+import { buildQwenPrefilterResponseFormat } from '../src/features/criminal/analyzer/semantic-prefilter';
 
 function createHistoryKv() {
   const values = new Map<string, string>();
@@ -188,7 +189,7 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     expect(qwenRequest.body.response_format.json_schema.schema.additionalProperties).toBe(false);
     expect(qwenRequest.body.response_format.json_schema.schema.required).toContain('profanity');
 
-    const batchFormat = (analyzer as any).buildQwenPrefilterResponseFormat(true);
+    const batchFormat = buildQwenPrefilterResponseFormat(true);
     expect(batchFormat.type).toBe('json_schema');
     expect(batchFormat.json_schema.strict).toBe(true);
     expect(batchFormat.json_schema.schema.required).toEqual(['items']);

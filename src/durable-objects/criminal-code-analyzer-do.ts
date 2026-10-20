@@ -15,7 +15,6 @@ import type {
   CriminalAnalysisCache,
   CriminalSemanticPrefilterResult,
   StoredMessage,
-  MessageReplyContext,
   LegalReferenceHit
 } from '../core/env';
 import {
@@ -25,11 +24,9 @@ import {
 import type { DurableObjectState } from '@cloudflare/workers-types';
 import { ProviderFactory } from '../core/providers/provider-factory';
 import type { AIProvider } from '../core/providers/ai-provider';
-import { criminalPrefilter, CriminalPrefilterReason } from '../features/criminal/prefilter';
+import { criminalPrefilter } from '../features/criminal/prefilter';
 import {
-  countNormalizedProfanityTokens,
   detectLocalProfanity,
-  normalizeProfanityWord,
   type LocalProfanityResult,
 } from '../features/profanity/local-detector';
 import { fetchLastMessagesOptimized } from '../features/history/history-optimized';
@@ -42,56 +39,52 @@ import {
   type ShadowEvaluationProvider,
   type ShadowEvaluationUsage,
 } from '../features/model-shadow/evaluation-store';
-
-interface QueuedCriminalAnalysisTask {
-  text: string;
-  chatId: number;
-  userId?: number;
-  messageId?: number;
-  username?: string;
-  replyTo?: MessageReplyContext;
-  day?: string;
-  ts?: number;
-  sequence?: number;
-  reasons: CriminalPrefilterReason[];
-  enqueuedAt: number;
-  localProfanity?: LocalProfanityResult;
-}
-
-interface CriminalFinalJudgeResult {
-  decision?: 'violation' | 'no_violation' | 'uncertain';
-  confidence?: number;
-  contextResolvesBenign?: boolean;
-  meaning?: {
-    speechAct?: 'threat' | 'admission' | 'fantasy' | 'endorsement' | 'incitement' | 'plan' | 'instruction' | 'prediction' | 'taunt' | 'report' | 'quote' | 'metaphor' | 'other' | 'unclear';
-    evidence?: string;
-  };
-  evidence?: {
-    subject?: string;
-    object?: string;
-    intent?: string;
-    contextSummary?: string;
-    whyNotBenign?: string;
-  };
-  violations?: CriminalFinalJudgeViolation[];
-}
-
-interface CriminalFinalJudgeViolation extends Partial<CriminalViolation> {
-}
-
-interface CriminalPrefilterBatchItem {
-  id: string;
-  input: CriminalContextAnalysisInput;
-  task: QueuedCriminalAnalysisTask;
-  shadowEvaluationId?: string;
-  shadowCreatedAt?: number;
-}
+import {
+  buildDiagnosticContextInput,
+  buildContextMessages,
+  normalizeReplyContext,
+  findTargetMessageIndex,
+  buildSingleMessageContextInput,
+  normalizeAnalysisResult,
+  hashText,
+  getPeriodDays,
+} from '../features/criminal/analyzer/context-messages';
+import {
+  buildAllowedReferenceMap,
+  cleanJudgeText,
+  selectFinalJudgeReferences,
+  isQuoteGroundedInTarget,
+  isUsefulFinalJudgeReference,
+  cleanLegalReferenceText,
+  clampNumber,
+  calculateRiskLevel,
+  evaluateFinalJudgeMeaning,
+  getGroundedFinalJudgeMeaningEvidence,
+  normalizeJudgedViolation,
+} from '../features/criminal/analyzer/legal-references';
+import {
+  buildQwenPrefilterResponseFormat,
+  buildSemanticPrefilterSystemPrompt,
+  buildSemanticPrefilterPayload,
+  selectSemanticPrefilterMessages,
+  normalizeSemanticPrefilterResult,
+  semanticFrameSupportsReason,
+  buildNoSignalPrefilter,
+  normalizeTextForSemanticCache,
+  extractOpenAIResponsesText,
+  buildShadowUsage,
+  getShadowErrorMessage,
+  mergeProfanityWords,
+} from '../features/criminal/analyzer/semantic-prefilter';
+import type {
+  CriminalFinalJudgeResult,
+  CriminalPrefilterBatchItem,
+  QueuedCriminalAnalysisTask,
+} from '../features/criminal/analyzer/types';
 
 const QUEUE_STORAGE_KEY = 'criminal_analysis_queue';
 const LAST_OPENROUTER_CALL_KEY = 'criminal_openrouter_last_call';
 const LAST_FINAL_ANALYSIS_CALL_KEY = 'criminal_final_analysis_last_call';
-const SEMANTIC_PREFILTER_CONTEXT_BEFORE = 2;
-const SEMANTIC_PREFILTER_CONTEXT_AFTER = 1;
 
 /**
  * Privacy-safe error classification: never include message/stack/content in
@@ -294,7 +287,7 @@ export class CriminalCodeAnalyzerDO {
       }
 
       const { text, chatId, messageId, userId, username, day, ts, sequence } = body;
-      const replyTo = this.normalizeReplyContext(body.replyTo);
+      const replyTo = normalizeReplyContext(body.replyTo);
       if (!text || text.trim().length === 0) {
         return new Response(JSON.stringify({ error: 'Text is required' }), { status: 400 });
       }
@@ -412,7 +405,7 @@ export class CriminalCodeAnalyzerDO {
       const targetTimestamp = Number.isFinite(Number(body.ts))
         ? Number(body.ts)
         : Math.floor(Date.now() / 1000);
-      const input = this.buildDiagnosticContextInput(body, text, chatId, targetTimestamp);
+      const input = buildDiagnosticContextInput(body, text, chatId, targetTimestamp);
       const task: QueuedCriminalAnalysisTask = {
         text,
         chatId,
@@ -475,83 +468,6 @@ export class CriminalCodeAnalyzerDO {
         error: error?.message || String(error),
       }, { status: 500 });
     }
-  }
-
-  private buildDiagnosticContextInput(
-    body: any,
-    text: string,
-    chatId: number,
-    targetTimestamp: number
-  ): CriminalContextAnalysisInput {
-    const targetMessageId = Number.isFinite(Number(body.messageId)) ? Number(body.messageId) : Date.now();
-    const targetUserId = Number.isFinite(Number(body.userId)) ? Number(body.userId) : undefined;
-    const targetUsername = typeof body.username === 'string' ? body.username : 'diagnostic';
-    const replyTo = this.normalizeReplyContext(body.replyTo);
-    const rawMessages = Array.isArray(body.messages) ? body.messages : [];
-
-    if (rawMessages.length === 0) {
-      return {
-        targetMessageId,
-        targetUserId,
-        targetUsername,
-        targetText: text,
-        targetTimestamp,
-        chatId,
-        replyTo,
-        contextWindow: { before: 0, after: 0, totalMessages: 1 },
-        messages: [{
-          messageId: targetMessageId,
-          username: targetUsername,
-          userId: targetUserId,
-          text,
-          ts: targetTimestamp,
-          relativePosition: 0,
-          isTarget: true,
-        }],
-      };
-    }
-
-    const messages = rawMessages
-      .map((message: any, index: number): CriminalContextMessage => ({
-        messageId: Number.isFinite(Number(message.messageId)) ? Number(message.messageId) : undefined,
-        username: typeof message.username === 'string' ? message.username : 'unknown',
-        userId: Number.isFinite(Number(message.userId)) ? Number(message.userId) : undefined,
-        text: typeof message.text === 'string' ? message.text : '',
-        ts: Number.isFinite(Number(message.ts)) ? Number(message.ts) : targetTimestamp + index,
-        relativePosition: Number.isFinite(Number(message.relativePosition))
-          ? Number(message.relativePosition)
-          : index,
-        isTarget: Boolean(message.isTarget),
-      }))
-      .filter((message: CriminalContextMessage) => message.text.trim().length > 0);
-
-    if (!messages.some((message: CriminalContextMessage) => message.isTarget)) {
-      messages.push({
-        messageId: targetMessageId,
-        username: targetUsername,
-        userId: targetUserId,
-        text,
-        ts: targetTimestamp,
-        relativePosition: 0,
-        isTarget: true,
-      });
-    }
-
-    return {
-      targetMessageId,
-      targetUserId,
-      targetUsername,
-      targetText: text,
-      targetTimestamp,
-      chatId,
-      replyTo,
-      contextWindow: {
-        before: messages.filter((message: CriminalContextMessage) => message.relativePosition < 0).length,
-        after: messages.filter((message: CriminalContextMessage) => message.relativePosition > 0).length,
-        totalMessages: messages.length,
-      },
-      messages,
-    };
   }
 
   // ========================================
@@ -682,7 +598,7 @@ export class CriminalCodeAnalyzerDO {
 
     for (const item of prepared) {
       const { task, input: contextInput } = item;
-      const semanticPrefilter = semanticPrefilters.get(item.id) || this.buildNoSignalPrefilter(
+      const semanticPrefilter = semanticPrefilters.get(item.id) || buildNoSignalPrefilter(
         'missing semantic prefilter result'
       );
       // Profanity and criminal terminal outcomes must be independent: profanity
@@ -814,10 +730,10 @@ export class CriminalCodeAnalyzerDO {
     const totalLimit = beforeLimit + afterLimit + 1;
     const recentMessages = await fetchLastMessagesOptimized(this.env, task.chatId, Math.max(totalLimit, 25))
       .catch(() => [] as StoredMessage[]);
-    const messages = this.buildContextMessages(recentMessages, task, beforeLimit, afterLimit);
-    const targetIndex = this.findTargetMessageIndex(recentMessages, task);
+    const messages = buildContextMessages(recentMessages, task, beforeLimit, afterLimit);
+    const targetIndex = findTargetMessageIndex(recentMessages, task);
     const storedReplyTo = targetIndex >= 0 ? recentMessages[targetIndex]?.replyTo : undefined;
-    const replyTo = this.normalizeReplyContext(task.replyTo ?? storedReplyTo);
+    const replyTo = normalizeReplyContext(task.replyTo ?? storedReplyTo);
 
     return {
       targetMessageId: task.messageId,
@@ -834,123 +750,6 @@ export class CriminalCodeAnalyzerDO {
       },
       messages,
     };
-  }
-
-  private buildContextMessages(
-    recentMessages: StoredMessage[],
-    task: QueuedCriminalAnalysisTask,
-    beforeLimit: number,
-    afterLimit: number
-  ): CriminalContextMessage[] {
-    const targetIndex = this.findTargetMessageIndex(recentMessages, task);
-    if (targetIndex >= 0) {
-      const start = Math.max(0, targetIndex - beforeLimit);
-      const end = Math.min(recentMessages.length, targetIndex + afterLimit + 1);
-      return recentMessages.slice(start, end).map((message, index) => {
-        const absoluteIndex = start + index;
-        return this.toContextMessage(message, absoluteIndex - targetIndex, absoluteIndex === targetIndex);
-      });
-    }
-
-    // The queue can be processed after the original message has fallen out of
-    // the bounded recent-history read. Never nominate an arbitrary later chat
-    // message as the target in that case: inject the queued task itself and use
-    // message id/timestamp only to split the available context around it.
-    const before: StoredMessage[] = [];
-    const after: StoredMessage[] = [];
-    for (const message of recentMessages) {
-      if (this.compareStoredMessageToTask(message, task) > 0) {
-        after.push(message);
-      } else {
-        before.push(message);
-      }
-    }
-
-    const selectedBefore = before.slice(-beforeLimit);
-    const selectedAfter = after.slice(0, afterLimit);
-    return [
-      ...selectedBefore.map((message, index) =>
-        this.toContextMessage(message, index - selectedBefore.length, false)
-      ),
-      {
-        messageId: task.messageId,
-        username: task.username || 'unknown',
-        userId: task.userId,
-        text: task.text,
-        ts: task.ts || Math.floor(Date.now() / 1000),
-        relativePosition: 0,
-        isTarget: true,
-      },
-      ...selectedAfter.map((message, index) =>
-        this.toContextMessage(message, index + 1, false)
-      ),
-    ];
-  }
-
-  private toContextMessage(
-    message: StoredMessage,
-    relativePosition: number,
-    isTarget: boolean
-  ): CriminalContextMessage {
-    return {
-      messageId: message.messageId,
-      username: message.username,
-      userId: message.user,
-      text: message.text,
-      ts: message.ts,
-      relativePosition,
-      isTarget,
-    };
-  }
-
-  private normalizeReplyContext(value: unknown): MessageReplyContext | undefined {
-    if (!value || typeof value !== 'object') {
-      return undefined;
-    }
-    const reply = value as Record<string, unknown>;
-    const messageId = Number.isFinite(Number(reply.messageId)) ? Number(reply.messageId) : undefined;
-    const userId = Number.isFinite(Number(reply.userId)) ? Number(reply.userId) : undefined;
-    const username = typeof reply.username === 'string'
-      ? reply.username.replace(/\s+/g, ' ').trim().slice(0, 100)
-      : undefined;
-    const text = typeof reply.text === 'string'
-      ? reply.text.replace(/\s+/g, ' ').trim().slice(0, 2000)
-      : undefined;
-    const ts = Number.isFinite(Number(reply.ts)) ? Number(reply.ts) : undefined;
-
-    if (messageId === undefined && userId === undefined && !username && !text && ts === undefined) {
-      return undefined;
-    }
-    return { messageId, userId, username: username || undefined, text: text || undefined, ts };
-  }
-
-  private compareStoredMessageToTask(message: StoredMessage, task: QueuedCriminalAnalysisTask): number {
-    if (Number.isInteger(message.messageId) && Number.isInteger(task.messageId)) {
-      return (message.messageId as number) - (task.messageId as number);
-    }
-    if (Number.isFinite(message.ts) && Number.isFinite(task.ts)) {
-      return message.ts - (task.ts as number);
-    }
-    // Without a reliable ordering field, preserve the old useful behavior of
-    // treating the latest bounded history as preceding context.
-    return -1;
-  }
-
-  private findTargetMessageIndex(
-    messages: StoredMessage[],
-    task: QueuedCriminalAnalysisTask
-  ): number {
-    if (task.messageId !== undefined) {
-      const byMessageId = messages.findIndex(message => message.messageId === task.messageId);
-      if (byMessageId >= 0) {
-        return byMessageId;
-      }
-    }
-    const byText = messages.findIndex(message => (
-      message.user === task.userId &&
-      message.text === task.text
-    ));
-    return byText;
   }
 
   private detectLocalProfanityForMessage(text: string): LocalProfanityResult | undefined {
@@ -1072,7 +871,7 @@ export class CriminalCodeAnalyzerDO {
       throw new Error('Profanity counter update skipped due to incomplete task identity');
     }
 
-    const words = this.mergeProfanityWords(
+    const words = mergeProfanityWords(
       input.task.text,
       input.task.localProfanity,
       input.semanticPrefilter?.profanity
@@ -1113,63 +912,12 @@ export class CriminalCodeAnalyzerDO {
     }
   }
 
-  private mergeProfanityWords(
-    text: string,
-    localResult?: LocalProfanityResult,
-    modelResult?: CriminalSemanticPrefilterResult['profanity']
-  ): Array<{ word: string; count: number }> {
-    const counts = new Map<string, number>();
-    const tokenCounts = countNormalizedProfanityTokens(text);
-
-    for (const source of [localResult, modelResult]) {
-      if (!source?.hasProfanity || !Array.isArray(source.words)) {
-        continue;
-      }
-      const sourceCounts = new Map<string, number>();
-      for (const rawWord of source.words) {
-        const normalized = this.normalizeProfanityCounterWord(rawWord);
-        if (!normalized) {
-          continue;
-        }
-        const tokenCount = tokenCounts.get(normalized.word) || 0;
-        if (tokenCount <= 0) {
-          continue;
-        }
-        const count = Math.min(normalized.count, tokenCount);
-        sourceCounts.set(
-          normalized.word,
-          (sourceCounts.get(normalized.word) || 0) + count
-        );
-      }
-      for (const [word, count] of sourceCounts) {
-        counts.set(word, Math.max(counts.get(word) || 0, count));
-      }
-    }
-    return Array.from(counts.entries()).map(([word, count]) => ({ word, count }));
-  }
-
-  private normalizeProfanityCounterWord(rawWord: any): { word: string; count: number } | null {
-    const confidence = typeof rawWord?.confidence === 'number'
-      ? this.clampNumber(rawWord.confidence, 0, 1)
-      : 0;
-    if (confidence < 0.5) {
-      return null;
-    }
-
-    const word = normalizeProfanityWord(String(rawWord?.word || rawWord?.baseForm || ''));
-    const count = Math.round(this.clampNumber(Number(rawWord?.count ?? 1), 0, 100));
-    if (!word || count <= 0) {
-      return null;
-    }
-    return { word, count };
-  }
-
   private async runSemanticPrefilter(
     input: CriminalContextAnalysisInput,
     task: QueuedCriminalAnalysisTask
   ): Promise<CriminalSemanticPrefilterResult> {
     const result = await this.runSemanticPrefilterBatch([{ id: 'single', input, task }]);
-    return result.get('single') || this.buildNoSignalPrefilter('missing semantic prefilter result');
+    return result.get('single') || buildNoSignalPrefilter('missing semantic prefilter result');
   }
 
   private async runSemanticPrefilterBatch(
@@ -1222,7 +970,7 @@ export class CriminalCodeAnalyzerDO {
       if (!(await this.canSpendPrefilterRequest())) {
         await this.recordDailyCounter(this.getSkippedPrefilterUsageKey());
         for (const item of misses) {
-          results.set(item.id, this.buildNoSignalPrefilter('semantic prefilter daily cap exceeded'));
+          results.set(item.id, buildNoSignalPrefilter('semantic prefilter daily cap exceeded'));
         }
         return results;
       }
@@ -1268,7 +1016,7 @@ export class CriminalCodeAnalyzerDO {
         fetched = await this.callOpenAIPrefilterForItems(requestItems);
       }
       for (const item of requestItems) {
-        const fetchedResult = fetched.get(item.id) || this.buildNoSignalPrefilter(
+        const fetchedResult = fetched.get(item.id) || buildNoSignalPrefilter(
           'model did not return this prefilter item'
         );
         const filtered = this.applySemanticPrefilterThreshold(fetchedResult, item.input.targetText);
@@ -1287,7 +1035,7 @@ export class CriminalCodeAnalyzerDO {
       });
 
       for (const item of misses) {
-        results.set(item.id, this.buildNoSignalPrefilter('fallback after semantic prefilter failure'));
+        results.set(item.id, buildNoSignalPrefilter('fallback after semantic prefilter failure'));
       }
       return results;
     }
@@ -1309,7 +1057,7 @@ export class CriminalCodeAnalyzerDO {
         enqueuedAt: Date.now(),
       },
     }]);
-    return results.get('single') || this.buildNoSignalPrefilter('model did not return this prefilter item');
+    return results.get('single') || buildNoSignalPrefilter('model did not return this prefilter item');
   }
 
   private async callOpenAIPrefilterForItems(
@@ -1324,7 +1072,7 @@ export class CriminalCodeAnalyzerDO {
     }
 
     const results = new Map<string, CriminalSemanticPrefilterResult>();
-    const batchSize = Math.round(this.clampNumber(
+    const batchSize = Math.round(clampNumber(
       this.getNumberEnv('CRIMINAL_PREFILTER_BATCH_SIZE', 8),
       2,
       20
@@ -1365,8 +1113,8 @@ export class CriminalCodeAnalyzerDO {
     const model = (this.env as any).CRIMINAL_PREFILTER_MODEL || (this.env as any).LLM_NANO_MODEL || 'gpt-4.1-nano';
     const maxTokens = Math.max(this.getNumberEnv('CRIMINAL_PREFILTER_MAX_TOKENS', 512), 512);
     const isGpt5 = String(model).toLowerCase().includes('gpt-5');
-    const systemPrompt = this.buildSemanticPrefilterSystemPrompt(false);
-    const userPayload = JSON.stringify(this.buildSemanticPrefilterPayload(input));
+    const systemPrompt = buildSemanticPrefilterSystemPrompt(false);
+    const userPayload = JSON.stringify(buildSemanticPrefilterPayload(input));
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
     if (this.isProductionPrefilterProvider('openai')) {
       this.scheduleShadowInput(item, systemPrompt, userInput, 1);
@@ -1414,24 +1162,24 @@ export class CriminalCodeAnalyzerDO {
 
       this.recordOpenAIUsage(model, 'criminal_prefilter', parsed?.usage);
 
-      const raw = isGpt5 ? this.extractOpenAIResponsesText(parsed) : parsed?.choices?.[0]?.message?.content;
+      const raw = isGpt5 ? extractOpenAIResponsesText(parsed) : parsed?.choices?.[0]?.message?.content;
       if (!raw) {
         throw new Error('OpenAI prefilter returned empty content');
       }
 
       const jsonMatch = String(raw).match(/\{[\s\S]*\}/);
       const result = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as Partial<CriminalSemanticPrefilterResult>;
-      const normalized = this.normalizeSemanticPrefilterResult(result, item.input.targetText);
+      const normalized = normalizeSemanticPrefilterResult(result, item.input.targetText);
       this.scheduleShadowProviderResult(item, 'openai', model, startedAt, {
         rawOutput: String(raw),
         parsedOutput: normalized,
         finishReason: isGpt5 ? parsed?.status : parsed?.choices?.[0]?.finish_reason,
-        usage: this.buildShadowUsage(parsed?.usage, 1),
+        usage: buildShadowUsage(parsed?.usage, 1),
       });
       return normalized;
     } catch (error: unknown) {
       this.scheduleShadowProviderResult(item, 'openai', model, startedAt, {
-        error: this.getShadowErrorMessage(error),
+        error: getShadowErrorMessage(error),
       });
       throw error;
     }
@@ -1451,11 +1199,11 @@ export class CriminalCodeAnalyzerDO {
       Math.min(2048, 260 * items.length)
     );
     const isGpt5 = String(model).toLowerCase().includes('gpt-5');
-    const systemPrompt = this.buildSemanticPrefilterSystemPrompt(true);
+    const systemPrompt = buildSemanticPrefilterSystemPrompt(true);
     const userPayload = JSON.stringify({
       items: items.map(item => ({
         id: item.id,
-        ...this.buildSemanticPrefilterPayload(item.input),
+        ...buildSemanticPrefilterPayload(item.input),
       })),
     });
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
@@ -1507,7 +1255,7 @@ export class CriminalCodeAnalyzerDO {
 
       this.recordOpenAIUsage(model, 'criminal_prefilter_batch', parsed?.usage);
 
-      const raw = isGpt5 ? this.extractOpenAIResponsesText(parsed) : parsed?.choices?.[0]?.message?.content;
+      const raw = isGpt5 ? extractOpenAIResponsesText(parsed) : parsed?.choices?.[0]?.message?.content;
       if (!raw) {
         throw new Error('OpenAI prefilter batch returned empty content');
       }
@@ -1521,7 +1269,7 @@ export class CriminalCodeAnalyzerDO {
           : [];
       const results = new Map<string, CriminalSemanticPrefilterResult>();
       const finishReason = isGpt5 ? parsed?.status : parsed?.choices?.[0]?.finish_reason;
-      const usage = this.buildShadowUsage(parsed?.usage, items.length);
+      const usage = buildShadowUsage(parsed?.usage, items.length);
       for (const item of items) {
         const rawItem = resultItems.find((resultItem: any) => resultItem?.id === item.id);
         if (!rawItem) {
@@ -1532,7 +1280,7 @@ export class CriminalCodeAnalyzerDO {
           });
           continue;
         }
-        const normalized = this.normalizeSemanticPrefilterResult(rawItem, item.input.targetText);
+        const normalized = normalizeSemanticPrefilterResult(rawItem, item.input.targetText);
         results.set(item.id, normalized);
         this.scheduleShadowProviderResult(item, 'openai', model, startedAt, {
           rawOutput: JSON.stringify(rawItem),
@@ -1545,7 +1293,7 @@ export class CriminalCodeAnalyzerDO {
     } catch (error: unknown) {
       for (const item of items) {
         this.scheduleShadowProviderResult(item, 'openai', model, startedAt, {
-          error: this.getShadowErrorMessage(error),
+          error: getShadowErrorMessage(error),
         });
       }
       throw error;
@@ -1580,7 +1328,7 @@ export class CriminalCodeAnalyzerDO {
       return results;
     }
 
-    const batchSize = Math.round(this.clampNumber(
+    const batchSize = Math.round(clampNumber(
       this.getNumberEnv('CRIMINAL_PREFILTER_BATCH_SIZE', 8),
       2,
       20
@@ -1604,11 +1352,11 @@ export class CriminalCodeAnalyzerDO {
     apiKey: string,
     model: string
   ): Promise<CriminalSemanticPrefilterResult> {
-    const systemPrompt = this.buildSemanticPrefilterSystemPrompt(
+    const systemPrompt = buildSemanticPrefilterSystemPrompt(
       false,
       this.getQwenPrefilterPromptVariant()
     );
-    const userPayload = JSON.stringify(this.buildSemanticPrefilterPayload(item.input));
+    const userPayload = JSON.stringify(buildSemanticPrefilterPayload(item.input));
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
     if (this.isProductionPrefilterProvider('qwen')) {
       this.scheduleShadowInput(item, systemPrompt, userInput, 1);
@@ -1625,20 +1373,20 @@ export class CriminalCodeAnalyzerDO {
       }
       const jsonMatch = String(raw).match(/\{[\s\S]*\}/);
       const result = JSON.parse(jsonMatch ? jsonMatch[0] : raw) as Partial<CriminalSemanticPrefilterResult>;
-      const normalized = this.normalizeSemanticPrefilterResult(result, item.input.targetText);
+      const normalized = normalizeSemanticPrefilterResult(result, item.input.targetText);
       this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
         rawOutput: String(raw),
         parsedOutput: normalized,
         finishReason: parsed?.choices?.[0]?.finish_reason,
-        usage: this.buildShadowUsage(parsed?.usage, 1),
+        usage: buildShadowUsage(parsed?.usage, 1),
       });
       return normalized;
     } catch (error: unknown) {
       this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
         rawOutput: raw,
         finishReason: parsed?.choices?.[0]?.finish_reason,
-        usage: this.buildShadowUsage(parsed?.usage, 1),
-        error: this.getShadowErrorMessage(error),
+        usage: buildShadowUsage(parsed?.usage, 1),
+        error: getShadowErrorMessage(error),
       });
       throw error;
     }
@@ -1649,14 +1397,14 @@ export class CriminalCodeAnalyzerDO {
     apiKey: string,
     model: string
   ): Promise<Map<string, CriminalSemanticPrefilterResult>> {
-    const systemPrompt = this.buildSemanticPrefilterSystemPrompt(
+    const systemPrompt = buildSemanticPrefilterSystemPrompt(
       true,
       this.getQwenPrefilterPromptVariant()
     );
     const userPayload = JSON.stringify({
       items: items.map(item => ({
         id: item.id,
-        ...this.buildSemanticPrefilterPayload(item.input),
+        ...buildSemanticPrefilterPayload(item.input),
       })),
     });
     const userInput = `Analyze this JSON payload and return JSON only:\n${userPayload}`;
@@ -1686,7 +1434,7 @@ export class CriminalCodeAnalyzerDO {
           ? parsedResult.results
           : [];
       finishReason = parsed?.choices?.[0]?.finish_reason;
-      usage = this.buildShadowUsage(parsed?.usage, items.length);
+      usage = buildShadowUsage(parsed?.usage, items.length);
     } catch (error: unknown) {
       console.warn('Qwen prefilter batch failed; retrying items individually', {
         op: 'qwenPrefilterBatchFallback',
@@ -1699,7 +1447,7 @@ export class CriminalCodeAnalyzerDO {
     for (const item of items) {
       const rawItem = resultItems.find((resultItem: any) => resultItem?.id === item.id);
       if (rawItem) {
-        const normalized = this.normalizeSemanticPrefilterResult(rawItem, item.input.targetText);
+        const normalized = normalizeSemanticPrefilterResult(rawItem, item.input.targetText);
         results.set(item.id, normalized);
         this.scheduleShadowProviderResult(item, 'qwen', model, startedAt, {
           rawOutput: JSON.stringify(rawItem),
@@ -1745,7 +1493,7 @@ export class CriminalCodeAnalyzerDO {
         temperature: 0,
         // Qwen 3.7 enables thinking by default; this prefilter should stay low-latency.
         enable_thinking: false,
-        response_format: this.buildQwenPrefilterResponseFormat(isBatch),
+        response_format: buildQwenPrefilterResponseFormat(isBatch),
         messages: [
           {
             role: 'system',
@@ -1764,112 +1512,6 @@ export class CriminalCodeAnalyzerDO {
       throw new Error(parsed?.error?.message || `Qwen prefilter failed with ${response.status}`);
     }
     return parsed;
-  }
-
-  private buildQwenPrefilterResponseFormat(isBatch: boolean): Record<string, unknown> {
-    const resultProperties = {
-      shouldAnalyze: { type: 'boolean' },
-      reason: {
-        type: 'string',
-        enum: [
-          'threat', 'sexual_threat', 'incitement', 'self_incrimination', 'extremism',
-          'dangerous_instruction', 'violent_expression', 'other_criminal', 'none',
-        ],
-      },
-      confidence: { type: 'number' },
-      explanation: { type: 'string' },
-      searchQuery: { type: 'string' },
-      semanticFrame: {
-        type: 'object',
-        properties: {
-          speechAct: {
-            type: 'string',
-            enum: [
-              'threat', 'prediction', 'taunt', 'admission', 'incitement', 'instruction',
-              'fantasy', 'endorsement', 'plan', 'report', 'quote', 'hypothetical', 'other',
-              'unknown',
-            ],
-          },
-          actor: { type: 'string', enum: ['author', 'third_party', 'unknown'] },
-          action: { type: 'string' },
-          targetKind: {
-            type: 'string',
-            enum: ['person', 'group', 'property', 'institution', 'abstract', 'unknown'],
-          },
-          harmKind: {
-            type: 'string',
-            enum: [
-              'death', 'grievous_bodily_harm', 'bodily_harm', 'sexual_violence',
-              'property_damage', 'coercion', 'other', 'none', 'unknown',
-            ],
-          },
-          modality: {
-            type: 'string',
-            enum: ['intended', 'promised', 'desired', 'predicted', 'hypothetical', 'reported', 'unknown'],
-          },
-          evidenceSpans: { type: 'array', items: { type: 'string' } },
-        },
-        required: ['speechAct', 'actor', 'action', 'targetKind', 'harmKind', 'modality', 'evidenceSpans'],
-        additionalProperties: false,
-      },
-      profanity: {
-        type: 'object',
-        properties: {
-          hasProfanity: { type: 'boolean' },
-          words: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                word: { type: 'string' },
-                count: { type: 'integer' },
-                confidence: { type: 'number' },
-              },
-              required: ['word', 'count', 'confidence'],
-              additionalProperties: false,
-            },
-          },
-        },
-        required: ['hasProfanity', 'words'],
-        additionalProperties: false,
-      },
-    };
-    const resultRequired = [
-      'shouldAnalyze', 'reason', 'confidence', 'explanation', 'searchQuery', 'semanticFrame', 'profanity',
-    ];
-    const resultSchema = {
-      type: 'object',
-      properties: resultProperties,
-      required: resultRequired,
-      additionalProperties: false,
-    };
-    const schema = isBatch
-      ? {
-        type: 'object',
-        properties: {
-          items: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: { id: { type: 'string' }, ...resultProperties },
-              required: ['id', ...resultRequired],
-              additionalProperties: false,
-            },
-          },
-        },
-        required: ['items'],
-        additionalProperties: false,
-      }
-      : resultSchema;
-
-    return {
-      type: 'json_schema',
-      json_schema: {
-        name: isBatch ? 'criminal_prefilter_batch' : 'criminal_prefilter',
-        strict: true,
-        schema,
-      },
-    };
   }
 
   private scheduleShadowInput(
@@ -1929,38 +1571,6 @@ export class CriminalCodeAnalyzerDO {
     }).catch(() => undefined));
   }
 
-  private buildShadowUsage(usage: any, batchSize: number): ShadowEvaluationUsage | undefined {
-    if (!usage) {
-      return undefined;
-    }
-    const promptTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0;
-    const completionTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0;
-    const totalTokens = Number(usage.total_tokens ?? (promptTokens + completionTokens)) || 0;
-    const promptDetails = usage.prompt_tokens_details ?? {};
-    const cachedTokens = Number(
-      promptDetails.cached_tokens ?? usage.cache_read_input_tokens ?? 0
-    ) || 0;
-    const cacheCreationTokens = Number(
-      promptDetails.cache_creation_input_tokens ?? usage.cache_creation_input_tokens ?? 0
-    ) || 0;
-    return {
-      promptTokens,
-      completionTokens,
-      totalTokens,
-      cachedTokens,
-      cacheCreationTokens,
-      scope: 'request',
-      batchSize,
-    };
-  }
-
-  private getShadowErrorMessage(error: unknown): string {
-    if (error instanceof Error && error.message) {
-      return error.message.slice(0, 500);
-    }
-    return 'Unknown provider error';
-  }
-
   private isProductionPrefilterProvider(provider: 'openai' | 'qwen'): boolean {
     return String((this.env as any).CRIMINAL_PREFILTER_PROVIDER || 'openai')
       .trim()
@@ -1975,221 +1585,6 @@ export class CriminalCodeAnalyzerDO {
       : 'ru';
   }
 
-  private buildSemanticPrefilterSystemPrompt(
-    isBatch: boolean,
-    variant: 'ru' | 'hybrid_en_v1' = 'ru'
-  ): string {
-    if (variant === 'hybrid_en_v1') {
-      return this.buildHybridEnglishSemanticPrefilterSystemPrompt(isBatch);
-    }
-    return [
-      'Ты быстрый prefilter для Telegram-чата.',
-      'Реши, нужно ли отправлять target-сообщение в дорогой юридический анализ УК РФ.',
-      'Квалифицируй только target-сообщение. Короткий соседний контекст дан только для восстановления смысла target: местоимений, пропущенного субъекта/объекта, сленга, эллипсиса и переносных выражений.',
-      'Если передан replyTo, это сообщение, на которое target отвечает напрямую. Для коротких ответов, подколов, эллипсиса и местоимений replyTo важнее обычных соседних сообщений при восстановлении смысла target.',
-      'Никогда не переноси угрозу, насилие или иной криминальный смысл из replyTo на target. Если target в связке с replyTo является только ответной шуткой, сексуальным/грубым подколом, уточнением или отрицанием без собственного уголовно значимого действия автора, верни shouldAnalyze=false.',
-      'Опасный смысл только в соседних сообщениях не является причиной анализировать target. Если контекст однозначно раскрывает target как бытовую, предметную, игровую или иную некриминальную реплику, верни shouldAnalyze=false.',
-      'Не достраивай отсутствующее насильственное действие, жертву или умысел из грубой, двусмысленной или эллиптической фразы.',
-      'Сначала опиши фактический смысл target в semanticFrame, а уже потом выбирай shouldAnalyze/reason.',
-      'Отличай обещание/угрозу действия автора от прогноза, насмешки, цитаты или сообщения о действиях третьих лиц.',
-      'Негативный прогноз сам по себе не является угрозой: фразы вроде "скоро не будет вашей школы/компании/образования" без обещания насилия классифицируй как prediction или taunt, а не threat.',
-      'Для этого продукта считай значимыми не только угрозы и признания, но и выраженные автором фантазии, планы, одобрение или пожелание конкретного уголовно наказуемого насилия/деяния.',
-      'Если автор от себя фантазирует о насилии, одобряет его, предлагает его или планирует его, ставь shouldAnalyze=true; используй speechAct=fantasy|endorsement|incitement|plan по смыслу и reason=violent_expression, если более специальный reason не подходит.',
-      'Не ограничивай уголовный сигнал насилием. Если автор от себя одобряет, предлагает, планирует, желает, инструктирует или признаётся в конкретном потенциально уголовно наказуемом деянии, которое не подходит под более специальный reason, используй reason=other_criminal.',
-      'В частности, reason=other_criminal должен пропускать в юридический анализ одобрение или предложение сексуальных действий с несовершеннолетними, хищения, мошенничества, незаконного оборота наркотиков и иных конкретных деяний. Простое обсуждение закона, новости, чужих действий или абстрактный вопрос без позиции/намерения автора не пропускай.',
-      'Если автор только пересказывает чужую угрозу, цитирует новость или использует слово "убить" метафорически/технически, не превращай это в угрозу автора.',
-      'Ищи реальные смысловые признаки: угрозы, угрозы сексуального насилия, призывы/одобрение насилия, экстремизм/терроризм, признание в совершенном преступлении, опасные инструкции.',
-      'Мат, сексуальный сленг, шутки, бытовые фразы и действия с предметами сами по себе не являются причиной.',
-      'Но разговорные угрозы причинить вред человеку должны проходить: обещания избить, ударить, покалечить, убить, изнасиловать или совершить иное насилие.',
-      'semanticFrame.evidenceSpans должен содержать только точные короткие цитаты из target-сообщения, подтверждающие выбранный смысл.',
-      'Если shouldAnalyze=true, reason не может быть none.',
-      'Для угроз сексуального насилия используй reason=sexual_threat.',
-      'Для бытовых угроз физической расправы без сексуального смысла используй reason=threat, не sexual_threat.',
-      'Если shouldAnalyze=true, добавь searchQuery на русском: нейтральную юридическую формулировку для поиска по УК РФ без номера статьи и без цитирования мата.',
-      'searchQuery должен сохранять тип речевого акта и суть деяния, а не сводить любое насилие к угрозе.',
-      'Примеры searchQuery: "угроза убийством адресату", "признание в тайном хищении чужого имущества", "призыв к насилию против группы по национальному признаку", "одобрение причинения тяжкого вреда здоровью".',
-      'Не используй английский язык, жаргон, странные слова, номера статей или фразы вроде "без указания конкретной статьи" в searchQuery.',
-      'Одновременно проверь target-сообщение на русскую обсценную лексику. Это не влияет на shouldAnalyze.',
-      'В profanity.words возвращай только точные словоформы мата из target-сообщения и count по ним, не леммы и не базовые формы.',
-      'Не включай морально-негативные, религиозные или просто грубые слова, если они не являются русской обсценной лексикой.',
-      isBatch
-        ? 'Верни строго JSON: {"items":[{"id":"same id","shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|violent_expression|other_criminal|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|fantasy|endorsement|plan|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}]}'
-        : 'Верни строго JSON: {"shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|violent_expression|other_criminal|none","confidence":0..1,"explanation":"short","searchQuery":"short or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|fantasy|endorsement|plan|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}'
-    ].join('\n');
-  }
-
-  private buildHybridEnglishSemanticPrefilterSystemPrompt(isBatch: boolean): string {
-    return [
-      'You are a fast semantic prefilter for a Russian-language Telegram chat.',
-      'Decide whether the TARGET message should be sent to expensive legal analysis under the Criminal Code of the Russian Federation (УК РФ).',
-      'Classify only the TARGET message. Neighboring context is provided only to resolve the meaning of TARGET: pronouns, omitted subject/object, slang, ellipsis, and figurative language.',
-      'If replyTo is present, it is the message that TARGET directly replies to. Use it as stronger context than ordinary neighboring messages when resolving short replies, jokes, ellipsis, and pronouns.',
-      'Never transfer a threat, violence, criminal intent, or any other criminal meaning from replyTo or neighboring context onto TARGET.',
-      'If TARGET is only a reply joke, crude or sexual taunt, clarification, denial, report, quote, or neutral discussion without its own criminally relevant act or stance by the author, return shouldAnalyze=false.',
-      'If dangerous meaning exists only in neighboring messages, that is not a reason to analyze TARGET.',
-      'Do not invent a violent act, victim, intent, or criminal plan that TARGET does not express.',
-      'First describe the factual meaning of TARGET in semanticFrame. Only then choose shouldAnalyze and reason.',
-      'Distinguish an act promised or intended by the author from a prediction, taunt, quote, hypothetical, report, or third-party action.',
-      'A negative prediction is not a threat by itself. For example, a statement like "скоро не будет вашей школы" without a promise of violence is prediction/taunt, not threat.',
-      'For this product, pass explicit fantasies, plans, endorsements, wishes, or proposals by the author for a concrete potentially criminal act, not only direct threats or confessions.',
-      'If the author personally fantasizes about, endorses, proposes, wishes, or plans concrete violence, use shouldAnalyze=true and speechAct=fantasy|endorsement|plan|incitement as appropriate; use reason=violent_expression when no more specific reason fits.',
-      'Do not limit criminal signals to violence. If the author personally endorses, proposes, plans, instructs, wishes, or admits a concrete potentially criminal act that has no more specific reason, use reason=other_criminal.',
-      'Simple discussion of a law, news, another person’s conduct, or an abstract question without the author’s own stance or intent should not pass.',
-      'If the author merely reports another person’s threat or uses violent wording metaphorically or technically, do not turn it into a threat by the author.',
-      'Relevant semantic signals include threats, sexual-violence threats, incitement or endorsement of violence, extremism/terrorism, self-incrimination, and dangerous instructions.',
-      'Profanity, sexual slang, jokes, everyday frustration, and actions involving objects are not criminal signals by themselves.',
-      'Conversational threats to harm a person should pass when TARGET itself expresses a promise or intent to beat, injure, kill, rape, or otherwise commit violence.',
-      'semanticFrame.evidenceSpans must contain only exact short quotes from TARGET that support the selected meaning.',
-      'If shouldAnalyze=true, reason must not be none.',
-      'Use reason=sexual_threat only for threats of sexual violence. Use reason=threat for ordinary physical threats without sexual meaning.',
-      'If shouldAnalyze=true, write searchQuery in Russian as a neutral legal search phrase for УК РФ. Do not include an article number and do not quote profanity.',
-      'searchQuery must preserve the speech act and the substance of the conduct instead of reducing every violent statement to a threat.',
-      'Examples of searchQuery: "угроза убийством адресату", "признание в тайном хищении чужого имущества", "призыв к насилию против группы по национальному признаку", "одобрение причинения тяжкого вреда здоровью".',
-      'At the same time, detect Russian obscene profanity in TARGET. Profanity does not affect shouldAnalyze.',
-      'In profanity.words return only exact obscene word forms that literally occur in TARGET, with their counts. Do not return lemmas, normalized forms, or profanity copied from context.',
-      'Do not include merely rude, insulting, religious, sexual, or morally negative words unless they are Russian obscene profanity.',
-      isBatch
-        ? 'Return strict JSON only: {"items":[{"id":"same id","shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|violent_expression|other_criminal|none","confidence":0..1,"explanation":"short","searchQuery":"short Russian phrase or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|fantasy|endorsement|plan|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}]}'
-        : 'Return strict JSON only: {"shouldAnalyze":boolean,"reason":"threat|sexual_threat|incitement|self_incrimination|extremism|dangerous_instruction|violent_expression|other_criminal|none","confidence":0..1,"explanation":"short","searchQuery":"short Russian phrase or empty","semanticFrame":{"speechAct":"threat|prediction|taunt|admission|incitement|instruction|fantasy|endorsement|plan|report|quote|hypothetical|other|unknown","actor":"author|third_party|unknown","action":"short factual action","targetKind":"person|group|property|institution|abstract|unknown","harmKind":"death|grievous_bodily_harm|bodily_harm|sexual_violence|property_damage|coercion|other|none|unknown","modality":"intended|promised|desired|predicted|hypothetical|reported|unknown","evidenceSpans":["exact target quote"]},"profanity":{"hasProfanity":boolean,"words":[{"word":"string","count":1,"confidence":0..1}]}}'
-    ].join('\n');
-  }
-
-  private buildSemanticPrefilterPayload(input: CriminalContextAnalysisInput): Record<string, unknown> {
-    return {
-      targetMessageId: input.targetMessageId,
-      targetText: input.targetText,
-      targetUsername: input.targetUsername,
-      replyTo: input.replyTo,
-      contextWindow: input.contextWindow,
-      messages: this.selectSemanticPrefilterMessages(input)
-        .map(message => ({
-          username: message.username,
-          text: message.text,
-          relativePosition: message.relativePosition,
-          isTarget: message.isTarget
-        }))
-    };
-  }
-
-  private selectSemanticPrefilterMessages(input: CriminalContextAnalysisInput): CriminalContextMessage[] {
-    return input.messages.filter(message => {
-      if (message.isTarget) {
-        return true;
-      }
-      if (message.relativePosition < 0) {
-        return Math.abs(message.relativePosition) <= SEMANTIC_PREFILTER_CONTEXT_BEFORE;
-      }
-      return message.relativePosition <= SEMANTIC_PREFILTER_CONTEXT_AFTER;
-    });
-  }
-
-  private normalizeSemanticPrefilterResult(
-    result: Partial<CriminalSemanticPrefilterResult>,
-    targetText?: string
-  ): CriminalSemanticPrefilterResult {
-    const reason = result.reason === 'threat' ||
-      result.reason === 'sexual_threat' ||
-      result.reason === 'incitement' ||
-      result.reason === 'self_incrimination' ||
-      result.reason === 'extremism' ||
-      result.reason === 'dangerous_instruction' ||
-      result.reason === 'violent_expression' ||
-      result.reason === 'other_criminal'
-      ? result.reason
-      : 'none';
-
-    const profanity = this.normalizeSemanticPrefilterProfanity((result as any).profanity);
-    return {
-      shouldAnalyze: Boolean(result.shouldAnalyze),
-      reason,
-      confidence: typeof result.confidence === 'number' ? Math.max(0, Math.min(1, result.confidence)) : 0,
-      explanation: typeof result.explanation === 'string' ? result.explanation.slice(0, 200) : '',
-      searchQuery: typeof result.searchQuery === 'string' ? result.searchQuery.slice(0, 300) : '',
-      semanticFrame: this.normalizeSemanticFrame((result as any).semanticFrame),
-      profanity: targetText
-        ? this.groundSemanticPrefilterProfanity(profanity, targetText)
-        : profanity,
-    };
-  }
-
-  private normalizeSemanticFrame(result: any): CriminalSemanticPrefilterResult['semanticFrame'] {
-    if (!result || typeof result !== 'object') {
-      return undefined;
-    }
-
-    const speechActs = new Set([
-      'threat', 'prediction', 'taunt', 'admission', 'incitement', 'instruction',
-      'fantasy', 'endorsement', 'plan', 'report', 'quote', 'hypothetical', 'other', 'unknown',
-    ]);
-    const actors = new Set(['author', 'third_party', 'unknown']);
-    const targetKinds = new Set(['person', 'group', 'property', 'institution', 'abstract', 'unknown']);
-    const harmKinds = new Set([
-      'death', 'grievous_bodily_harm', 'bodily_harm', 'sexual_violence',
-      'property_damage', 'coercion', 'other', 'none', 'unknown',
-    ]);
-    const modalities = new Set([
-      'intended', 'promised', 'desired', 'predicted', 'hypothetical', 'reported', 'unknown',
-    ]);
-    const evidenceSpans = Array.isArray(result.evidenceSpans)
-      ? result.evidenceSpans
-        .filter((value: unknown): value is string => typeof value === 'string')
-        .map((value: string) => value.replace(/\s+/g, ' ').trim().slice(0, 300))
-        .filter(Boolean)
-        .slice(0, 5)
-      : [];
-
-    return {
-      speechAct: speechActs.has(result.speechAct) ? result.speechAct : 'unknown',
-      actor: actors.has(result.actor) ? result.actor : 'unknown',
-      action: typeof result.action === 'string' ? result.action.replace(/\s+/g, ' ').trim().slice(0, 200) : '',
-      targetKind: targetKinds.has(result.targetKind) ? result.targetKind : 'unknown',
-      harmKind: harmKinds.has(result.harmKind) ? result.harmKind : 'unknown',
-      modality: modalities.has(result.modality) ? result.modality : 'unknown',
-      evidenceSpans,
-    } as CriminalSemanticPrefilterResult['semanticFrame'];
-  }
-
-  private normalizeSemanticPrefilterProfanity(
-    result: any
-  ): CriminalSemanticPrefilterResult['profanity'] {
-    const words = Array.isArray(result?.words)
-      ? result.words
-        .map((word: any) => {
-          const normalized = this.normalizeProfanityCounterWord(word);
-          if (!normalized) {
-            return null;
-          }
-          const confidence = typeof word?.confidence === 'number'
-            ? this.clampNumber(word.confidence, 0, 1)
-            : 0.5;
-          return { ...normalized, confidence };
-        })
-        .filter((word: any): word is { word: string; count: number; confidence: number } => Boolean(word))
-      : [];
-    return {
-      hasProfanity: Boolean(result?.hasProfanity) && words.length > 0,
-      words,
-    };
-  }
-
-  private groundSemanticPrefilterProfanity(
-    profanity: CriminalSemanticPrefilterResult['profanity'],
-    targetText: string
-  ): CriminalSemanticPrefilterResult['profanity'] {
-    const tokenCounts = countNormalizedProfanityTokens(targetText);
-    const words = (profanity?.words || []).flatMap(word => {
-      const targetCount = tokenCounts.get(word.word) || 0;
-      if (targetCount <= 0) {
-        return [];
-      }
-      return [{ ...word, count: Math.min(word.count, targetCount) }];
-    });
-    return {
-      hasProfanity: words.length > 0,
-      words,
-    };
-  }
-
   private applySemanticPrefilterThreshold(
     result: CriminalSemanticPrefilterResult,
     targetText: string
@@ -2199,11 +1594,11 @@ export class CriminalCodeAnalyzerDO {
       ? {
         ...result.semanticFrame,
         evidenceSpans: result.semanticFrame.evidenceSpans.filter(span =>
-          this.isQuoteGroundedInTarget(span, targetText)
+          isQuoteGroundedInTarget(span, targetText)
         ),
       }
       : undefined;
-    const frameSupportsAnalysis = this.semanticFrameSupportsReason(semanticFrame, result.reason);
+    const frameSupportsAnalysis = semanticFrameSupportsReason(semanticFrame, result.reason);
     return {
       ...result,
       semanticFrame,
@@ -2214,61 +1609,8 @@ export class CriminalCodeAnalyzerDO {
     };
   }
 
-  private semanticFrameSupportsReason(
-    frame: CriminalSemanticPrefilterResult['semanticFrame'],
-    reason: CriminalSemanticPrefilterResult['reason']
-  ): boolean {
-    if (!frame || frame.evidenceSpans.length === 0 || frame.actor === 'third_party') {
-      return false;
-    }
-
-    switch (reason) {
-      case 'threat':
-      case 'sexual_threat':
-        return frame.speechAct === 'threat';
-      case 'incitement':
-        return frame.speechAct === 'incitement';
-      case 'self_incrimination':
-        return frame.speechAct === 'admission';
-      case 'dangerous_instruction':
-        return frame.speechAct === 'instruction';
-      case 'violent_expression':
-        return frame.speechAct === 'fantasy' ||
-          frame.speechAct === 'endorsement' ||
-          frame.speechAct === 'incitement' ||
-          frame.speechAct === 'plan';
-      case 'extremism':
-        return frame.speechAct === 'threat' ||
-          frame.speechAct === 'incitement' ||
-          frame.speechAct === 'instruction' ||
-          frame.speechAct === 'fantasy' ||
-          frame.speechAct === 'endorsement' ||
-          frame.speechAct === 'plan';
-      case 'other_criminal':
-        return frame.speechAct === 'admission' ||
-          frame.speechAct === 'instruction' ||
-          frame.speechAct === 'fantasy' ||
-          frame.speechAct === 'endorsement' ||
-          frame.speechAct === 'incitement' ||
-          frame.speechAct === 'plan';
-      case 'none':
-      default:
-        return false;
-    }
-  }
-
   private getSemanticPrefilterMinConfidence(): number {
     return this.getNumberEnv('CRIMINAL_PREFILTER_MIN_CONFIDENCE', 0.7);
-  }
-
-  private buildNoSignalPrefilter(explanation: string): CriminalSemanticPrefilterResult {
-    return {
-      shouldAnalyze: false,
-      reason: 'none',
-      confidence: 0,
-      explanation,
-      searchQuery: '',
-    };
   }
 
   private recordOpenAIUsage(model: string, feature: string, usage: any): void {
@@ -2309,7 +1651,7 @@ export class CriminalCodeAnalyzerDO {
         return null;
       }
       return this.applySemanticPrefilterThreshold(
-        this.normalizeSemanticPrefilterResult(cached.result),
+        normalizeSemanticPrefilterResult(cached.result),
         input.targetText
       );
     } catch (error: any) {
@@ -2347,18 +1689,18 @@ export class CriminalCodeAnalyzerDO {
   }
 
   private async getSemanticPrefilterCacheKey(input: CriminalContextAnalysisInput): Promise<string> {
-    const normalizedTarget = this.normalizeTextForSemanticCache(input.targetText);
+    const normalizedTarget = normalizeTextForSemanticCache(input.targetText);
     const normalizedReply = input.replyTo
       ? [
         Number.isFinite(input.replyTo.messageId) ? String(input.replyTo.messageId) : '',
-        this.normalizeTextForSemanticCache(input.replyTo.text || ''),
+        normalizeTextForSemanticCache(input.replyTo.text || ''),
       ].join(':')
       : '';
-    const normalizedContext = this.selectSemanticPrefilterMessages(input)
+    const normalizedContext = selectSemanticPrefilterMessages(input)
       .filter(message => !message.isTarget)
-      .map(message => `${message.relativePosition}:${this.normalizeTextForSemanticCache(message.text)}`)
+      .map(message => `${message.relativePosition}:${normalizeTextForSemanticCache(message.text)}`)
       .join('\n');
-    const hash = await this.hashText(`${normalizedTarget}\nreply:\n${normalizedReply}\ncontext:\n${normalizedContext}`);
+    const hash = await hashText(`${normalizedTarget}\nreply:\n${normalizedReply}\ncontext:\n${normalizedContext}`);
     const version = String((this.env as any).CRIMINAL_PREFILTER_CACHE_VERSION || 'v8')
       .replace(/[^a-z0-9_-]+/gi, '_');
     const provider = String((this.env as any).CRIMINAL_PREFILTER_PROVIDER || 'openai')
@@ -2374,78 +1716,12 @@ export class CriminalCodeAnalyzerDO {
     return `criminal_semantic_prefilter:${version}:${provider}:${model}:${promptVariant}:${threshold}:${hash}`;
   }
 
-  private normalizeTextForSemanticCache(text: string): string {
-    return text
-      .normalize('NFKC')
-      .replace(/[\u200B-\u200D\uFEFF]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
-  }
-
   private getSemanticPrefilterCacheTTL(): number {
-    return Math.round(this.clampNumber(
+    return Math.round(clampNumber(
       this.getNumberEnv('CRIMINAL_PREFILTER_CACHE_TTL', 30 * 24 * 60 * 60),
       60,
       90 * 24 * 60 * 60
     ));
-  }
-
-  private extractOpenAIResponsesText(response: any): string | null {
-    if (typeof response?.output_text === 'string') {
-      return response.output_text;
-    }
-    const nestedJson = this.findJsonLikeText(response?.output);
-    if (nestedJson) {
-      return nestedJson;
-    }
-    if (!Array.isArray(response?.output)) {
-      return null;
-    }
-    for (const item of response.output) {
-      const content = item?.content;
-      if (!Array.isArray(content)) {
-        continue;
-      }
-      for (const part of content) {
-        if (typeof part?.text === 'string') {
-          return part.text;
-        }
-      }
-    }
-    return null;
-  }
-
-  private findJsonLikeText(value: unknown): string | null {
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (
-        trimmed.includes('"shouldAnalyze"') ||
-        (trimmed.startsWith('{') && trimmed.includes('"confidence"'))
-      ) {
-        return value;
-      }
-      return null;
-    }
-    if (!value || typeof value !== 'object') {
-      return null;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const found = this.findJsonLikeText(item);
-        if (found) {
-          return found;
-        }
-      }
-      return null;
-    }
-    for (const nested of Object.values(value as Record<string, unknown>)) {
-      const found = this.findJsonLikeText(nested);
-      if (found) {
-        return found;
-      }
-    }
-    return null;
   }
 
   // ========================================
@@ -2467,7 +1743,7 @@ export class CriminalCodeAnalyzerDO {
           MIN(created_at) as first_seen,
           MAX(created_at) as last_seen
         FROM violation_stats 
-        WHERE created_at >= datetime('now', '-${this.getPeriodDays(period)} days')
+        WHERE created_at >= datetime('now', '-${getPeriodDays(period)} days')
       `;
 
       const params: any[] = [];
@@ -2556,14 +1832,14 @@ export class CriminalCodeAnalyzerDO {
 
     try {
       const result = await this.aiProvider.analyzeCriminalCode(text, this.env);
-      const input = this.buildSingleMessageContextInput(text);
+      const input = buildSingleMessageContextInput(text);
       if (this.shouldRunOpenAIFinalJudge(input, result)) {
         const judged = await this.runOpenAIFinalJudge(input, result);
         console.log(`✅ Analysis completed: ${judged.hasViolations ? judged.violations.length + ' violations found' : 'no violations'}`);
         return judged;
       }
       console.log(`✅ Analysis completed: ${result.hasViolations ? result.violations.length + ' violations found' : 'no violations'}`);
-      return this.normalizeAnalysisResult(result);
+      return normalizeAnalysisResult(result);
     } catch (error: any) {
       console.error('❌ AI analysis failed', {
         op: 'analyze',
@@ -2578,27 +1854,6 @@ export class CriminalCodeAnalyzerDO {
         analysisTimestamp: Date.now()
       };
     }
-  }
-
-  private buildSingleMessageContextInput(text: string): CriminalContextAnalysisInput {
-    const ts = Math.floor(Date.now() / 1000);
-    return {
-      targetText: text,
-      targetTimestamp: ts,
-      chatId: 0,
-      contextWindow: {
-        before: 0,
-        after: 0,
-        totalMessages: 1,
-      },
-      messages: [{
-        username: 'unknown',
-        text,
-        ts,
-        relativePosition: 0,
-        isTarget: true,
-      }],
-    };
   }
 
   private async performContextualAnalysis(input: CriminalContextAnalysisInput): Promise<CriminalAnalysisResult> {
@@ -2620,7 +1875,7 @@ export class CriminalCodeAnalyzerDO {
         return await this.runOpenAIFinalJudge(input, result);
       }
 
-      return this.normalizeAnalysisResult(result);
+      return normalizeAnalysisResult(result);
     } catch (error: any) {
       console.error('Criminal contextual AI analysis failed', {
         op: 'contextualAnalysis',
@@ -2630,17 +1885,6 @@ export class CriminalCodeAnalyzerDO {
       // the provider exception into a fabricated no-violation / zero result.
       throw error;
     }
-  }
-
-  private normalizeAnalysisResult(result: CriminalAnalysisResult): CriminalAnalysisResult {
-    if (
-      typeof result.analysisTimestamp !== 'number' ||
-      !Number.isFinite(result.analysisTimestamp) ||
-      result.analysisTimestamp <= 0
-    ) {
-      return { ...result, analysisTimestamp: Date.now() };
-    }
-    return result;
   }
 
   private shouldRunOpenAIFinalJudge(
@@ -2659,12 +1903,12 @@ export class CriminalCodeAnalyzerDO {
     if (!result.legalReferences?.length) {
       return false;
     }
-    const selected = this.selectFinalJudgeReferences(
+    const selected = selectFinalJudgeReferences(
       result.legalReferences,
       this.getFinalJudgeMaxReferences()
     );
     const minQualityReferences = this.getFinalJudgeMinQualityReferences(input);
-    const qualityCount = selected.filter(reference => this.isUsefulFinalJudgeReference(reference)).length;
+    const qualityCount = selected.filter(reference => isUsefulFinalJudgeReference(reference)).length;
     const shouldRun = qualityCount >= minQualityReferences;
     if (!shouldRun) {
       console.log('Criminal final judge skipped by RAG quality gate', {
@@ -2679,7 +1923,7 @@ export class CriminalCodeAnalyzerDO {
     retrievalResult: CriminalAnalysisResult
   ): Promise<CriminalAnalysisResult> {
     try {
-      const finalJudgeReferences = this.selectFinalJudgeReferences(
+      const finalJudgeReferences = selectFinalJudgeReferences(
         retrievalResult.legalReferences || [],
         this.getFinalJudgeMaxReferences()
       );
@@ -2764,7 +2008,7 @@ export class CriminalCodeAnalyzerDO {
         relativePosition: message.relativePosition,
         isTarget: message.isTarget,
       })),
-      legalReferences: this.selectFinalJudgeReferences(references, maxReferences).map(reference => ({
+      legalReferences: selectFinalJudgeReferences(references, maxReferences).map(reference => ({
         article: reference.article,
         subarticle: reference.subarticle,
         articleTitle: reference.articleTitle,
@@ -2816,7 +2060,7 @@ export class CriminalCodeAnalyzerDO {
 
     this.recordOpenAIUsage(model, 'criminal_final_judge', parsed?.usage);
 
-    const raw = isGpt5 ? this.extractOpenAIResponsesText(parsed) : parsed?.choices?.[0]?.message?.content;
+    const raw = isGpt5 ? extractOpenAIResponsesText(parsed) : parsed?.choices?.[0]?.message?.content;
     if (!raw) {
       throw new Error('OpenAI final judge returned empty content');
     }
@@ -2826,7 +2070,7 @@ export class CriminalCodeAnalyzerDO {
   }
 
   private getFinalJudgeMaxReferences(): number {
-    return Math.round(this.clampNumber(
+    return Math.round(clampNumber(
       this.getNumberEnv('CRIMINAL_FINAL_JUDGE_MAX_REFERENCES', 12),
       1,
       12
@@ -2834,7 +2078,7 @@ export class CriminalCodeAnalyzerDO {
   }
 
   private getFinalJudgeMaxReferenceChars(): number {
-    return Math.round(this.clampNumber(
+    return Math.round(clampNumber(
       this.getNumberEnv('CRIMINAL_FINAL_JUDGE_MAX_REFERENCE_CHARS', 700),
       250,
       1500
@@ -2846,16 +2090,16 @@ export class CriminalCodeAnalyzerDO {
     if (input.semanticPrefilter?.reason === 'none') {
       return 1;
     }
-    return Math.round(this.clampNumber(configured, 1, 3));
+    return Math.round(clampNumber(configured, 1, 3));
   }
 
   private selectFinalJudgeMessages(input: CriminalContextAnalysisInput): CriminalContextMessage[] {
-    const before = Math.round(this.clampNumber(
+    const before = Math.round(clampNumber(
       this.getNumberEnv('CRIMINAL_FINAL_JUDGE_CONTEXT_BEFORE', 3),
       0,
       15
     ));
-    const after = Math.round(this.clampNumber(
+    const after = Math.round(clampNumber(
       this.getNumberEnv('CRIMINAL_FINAL_JUDGE_CONTEXT_AFTER', 2),
       0,
       10
@@ -2883,25 +2127,25 @@ export class CriminalCodeAnalyzerDO {
       ? judge.decision
       : 'uncertain';
     const minConfidence = this.getNumberEnv('CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE', 0.55);
-    const allowedReferences = this.buildAllowedReferenceMap(this.selectFinalJudgeReferences(
+    const allowedReferences = buildAllowedReferenceMap(selectFinalJudgeReferences(
       retrievalResult.legalReferences || [],
       this.getFinalJudgeMaxReferences()
     ));
     const evidence = {
-      subject: this.cleanJudgeText(judge.evidence?.subject, input.targetUsername || 'unknown'),
-      object: this.cleanJudgeText(judge.evidence?.object, 'unknown'),
-      intent: this.cleanJudgeText(judge.evidence?.intent, 'not established'),
-      contextSummary: this.cleanJudgeText(judge.evidence?.contextSummary, 'Final judge completed'),
-      whyNotBenign: this.cleanJudgeText(judge.evidence?.whyNotBenign, 'not established'),
+      subject: cleanJudgeText(judge.evidence?.subject, input.targetUsername || 'unknown'),
+      object: cleanJudgeText(judge.evidence?.object, 'unknown'),
+      intent: cleanJudgeText(judge.evidence?.intent, 'not established'),
+      contextSummary: cleanJudgeText(judge.evidence?.contextSummary, 'Final judge completed'),
+      whyNotBenign: cleanJudgeText(judge.evidence?.whyNotBenign, 'not established'),
     };
-    const groundedMeaningQuote = this.getGroundedFinalJudgeMeaningEvidence(judge.meaning, input);
+    const groundedMeaningQuote = getGroundedFinalJudgeMeaningEvidence(judge.meaning, input);
     const meaningVerdict = judge.contextResolvesBenign === true && groundedMeaningQuote
       ? 'benign'
-      : this.evaluateFinalJudgeMeaning(judge.meaning, input);
+      : evaluateFinalJudgeMeaning(judge.meaning, input);
     const judgedViolations = judge.violations || [];
     const violations = meaningVerdict === 'criminal'
       ? judgedViolations
-        .map(violation => this.normalizeJudgedViolation(
+        .map(violation => normalizeJudgedViolation(
           violation,
           allowedReferences,
           retrievalResult.legalReferences || [],
@@ -2928,7 +2172,7 @@ export class CriminalCodeAnalyzerDO {
       evidence,
       violations: hasViolations ? confidentViolations : [],
       totalSeverity,
-      riskLevel: this.calculateRiskLevel(totalSeverity),
+      riskLevel: calculateRiskLevel(totalSeverity),
       analysisTimestamp: Date.now(),
       targetMessageId: input.targetMessageId,
       contextWindow: input.contextWindow,
@@ -2936,316 +2180,13 @@ export class CriminalCodeAnalyzerDO {
     };
   }
 
-  private normalizeJudgedViolation(
-    violation: CriminalFinalJudgeViolation,
-    allowedReferences: Map<string, LegalReferenceHit>,
-    allReferences: LegalReferenceHit[],
-    evidence: NonNullable<CriminalAnalysisResult['evidence']>,
-    input: CriminalContextAnalysisInput,
-    fallbackConfidence?: number,
-    groundedMeaningQuote?: string
-  ): CriminalViolation | null {
-    const article = typeof violation.article === 'string' ? violation.article.trim() : '';
-    const subarticle = typeof violation.subarticle === 'string' && violation.subarticle.trim()
-      ? violation.subarticle.trim()
-      : null;
-    const reference = allowedReferences.get(`${article}:${subarticle || ''}`);
-    if (!article || !reference) {
-      return null;
-    }
-
-    const confidence = this.clampNumber(Number(violation.confidence ?? fallbackConfidence ?? 0), 0, 1);
-    const severity = Math.round(this.clampNumber(Number(violation.severity ?? 1), 1, 10));
-    const modelQuote = this.cleanJudgeText(violation.quote, '').slice(0, 500);
-    const quote = this.isQuoteGroundedInTarget(modelQuote, input.targetText)
-      ? modelQuote
-      : groundedMeaningQuote || '';
-    if (!quote) {
-      console.warn('Criminal final judge rejected ungrounded violation quote', {
-        op: 'finalJudgeQuote',
-        errorCode: 'UNGROUNDED_QUOTE',
-      });
-      return null;
-    }
-    if (quote !== modelQuote) {
-      console.warn('Criminal final judge replaced ungrounded violation quote with grounded meaning evidence', {
-        op: 'finalJudgeQuote',
-        errorCode: 'QUOTE_FALLBACK_TO_MEANING',
-      });
-    }
-
-    const punishmentReference = this.selectPunishmentReference(allReferences, reference) || reference;
-    return {
-      article: reference.article,
-      subarticle: reference.subarticle || null,
-      articleTitle: reference.articleTitle || this.cleanJudgeText(violation.articleTitle, ''),
-      quote,
-      punishment: this.buildStoredPunishment(punishmentReference),
-      severity,
-      confidence,
-      decision: 'violation',
-      evidence,
-      targetMessageId: input.targetMessageId,
-      contextWindow: input.contextWindow,
-    };
-  }
-
-  private evaluateFinalJudgeMeaning(
-    meaning: CriminalFinalJudgeResult['meaning'],
-    input: CriminalContextAnalysisInput
-  ): 'criminal' | 'benign' | 'unclear' {
-    if (!meaning || typeof meaning !== 'object') {
-      return 'unclear';
-    }
-    const evidence = this.cleanJudgeText(meaning.evidence, '');
-    if (!evidence || !this.isQuoteGroundedInTarget(evidence, input.targetText)) {
-      return 'unclear';
-    }
-
-    const criminalActs = new Set([
-      'threat', 'admission', 'fantasy', 'endorsement', 'incitement', 'plan', 'instruction',
-    ]);
-    if (criminalActs.has(meaning.speechAct || '')) {
-      return 'criminal';
-    }
-    if (
-      meaning.speechAct === 'prediction' ||
-      meaning.speechAct === 'taunt' ||
-      meaning.speechAct === 'report' ||
-      meaning.speechAct === 'quote' ||
-      meaning.speechAct === 'metaphor'
-    ) {
-      return 'benign';
-    }
-    return 'unclear';
-  }
-
-  private getGroundedFinalJudgeMeaningEvidence(
-    meaning: CriminalFinalJudgeResult['meaning'],
-    input: CriminalContextAnalysisInput
-  ): string {
-    if (!meaning || typeof meaning !== 'object') {
-      return '';
-    }
-    const evidence = this.cleanJudgeText(meaning.evidence, '').slice(0, 500);
-    return this.isQuoteGroundedInTarget(evidence, input.targetText) ? evidence : '';
-  }
-
-  private buildAllowedReferenceMap(references: LegalReferenceHit[]): Map<string, LegalReferenceHit> {
-    const result = new Map<string, LegalReferenceHit>();
-    const referencesByArticle = new Map<string, LegalReferenceHit[]>();
-
-    for (const reference of references) {
-      result.set(`${reference.article}:${reference.subarticle || ''}`, reference);
-      const articleReferences = referencesByArticle.get(reference.article) || [];
-      articleReferences.push(reference);
-      referencesByArticle.set(reference.article, articleReferences);
-    }
-
-    for (const [article, articleReferences] of referencesByArticle) {
-      if (articleReferences.length === 1) {
-        result.set(`${article}:`, articleReferences[0]);
-      }
-    }
-
-    return result;
-  }
-
-  private buildStoredPunishment(reference: LegalReferenceHit): string {
-    const referenceText = this.cleanLegalReferenceText(reference.quote);
-    const punishmentText = this.extractPunishmentText(referenceText);
-    return (punishmentText || referenceText).slice(0, 1000);
-  }
-
-  private selectPunishmentReference(
-    references: LegalReferenceHit[],
-    qualificationReference: LegalReferenceHit
-  ): LegalReferenceHit | null {
-    const matching = references.filter(reference =>
-      reference.article === qualificationReference.article &&
-      (reference.subarticle || null) === (qualificationReference.subarticle || null) &&
-      this.hasPunishmentSignal(reference.quote || '')
-    );
-    return matching.sort((a, b) => (b.score || 0) - (a.score || 0))[0] || null;
-  }
-
-  private extractPunishmentText(value: string): string {
-    const normalized = value.replace(/\s+/g, ' ').trim();
-    if (!normalized) {
-      return '';
-    }
-
-    const startIndex = normalized.search(/наказыва(?:ет|ю)тся/i);
-    if (startIndex < 0) {
-      return '';
-    }
-
-    const tail = normalized.slice(startIndex);
-    const nextPartIndex = tail.search(/\s\d+(?:\.\d+)*\.\s+[А-ЯЁA-Z]/);
-    const clause = nextPartIndex > 0 ? tail.slice(0, nextPartIndex) : tail;
-    return clause
-      .replace(/\((?:в\s+ред\.|см\.).*$/i, '')
-      .trim();
-  }
-
-  private cleanJudgeText(value: unknown, fallback: string): string {
-    if (typeof value !== 'string') {
-      return fallback;
-    }
-    const normalized = value.replace(/\s+/g, ' ').trim();
-    return normalized ? normalized.slice(0, 1000) : fallback;
-  }
-
-  private selectFinalJudgeReferences(
-    references: LegalReferenceHit[],
-    maxReferences: number
-  ): LegalReferenceHit[] {
-    const bestByArticle = new Map<string, LegalReferenceHit>();
-    for (const reference of references) {
-      const key = `${reference.article}:${reference.subarticle || ''}`;
-      const existing = bestByArticle.get(key);
-      if (!existing || this.isBetterQualificationReference(reference, existing)) {
-        bestByArticle.set(key, reference);
-      }
-    }
-
-    const ranked = Array.from(bestByArticle.values())
-      .sort((a, b) => (b.score || 0) - (a.score || 0));
-    const firstPerArticle: LegalReferenceHit[] = [];
-    const extraParts: LegalReferenceHit[] = [];
-    const seenArticles = new Set<string>();
-
-    for (const reference of ranked) {
-      if (seenArticles.has(reference.article)) {
-        extraParts.push(reference);
-        continue;
-      }
-      seenArticles.add(reference.article);
-      firstPerArticle.push(reference);
-    }
-
-    return [...firstPerArticle, ...extraParts].slice(0, maxReferences);
-  }
-
-  private isBetterQualificationReference(
-    candidate: LegalReferenceHit,
-    existing: LegalReferenceHit
-  ): boolean {
-    const candidateIndex = this.getLegalChunkIndex(candidate);
-    const existingIndex = this.getLegalChunkIndex(existing);
-    if (candidateIndex !== null && existingIndex !== null && candidateIndex !== existingIndex) {
-      return candidateIndex < existingIndex;
-    }
-    return (candidate.score || 0) > (existing.score || 0);
-  }
-
-  private getLegalChunkIndex(reference: LegalReferenceHit): number | null {
-    const parts = reference.vectorId?.split(':') || [];
-    for (const rawIndex of [parts[parts.length - 2], parts[parts.length - 1]]) {
-      const index = Number(rawIndex);
-      if (Number.isInteger(index) && index >= 0) {
-        return index;
-      }
-    }
-    return null;
-  }
-
-  private isQuoteGroundedInTarget(quote: string, targetText: string): boolean {
-    const normalizedQuote = this.normalizeForGrounding(quote);
-    const normalizedTarget = this.normalizeForGrounding(targetText);
-    if (!normalizedQuote || !normalizedTarget) {
-      return false;
-    }
-    return normalizedTarget.includes(normalizedQuote) || normalizedQuote.includes(normalizedTarget);
-  }
-
-  private isUsefulFinalJudgeReference(reference: LegalReferenceHit): boolean {
-    const text = this.cleanLegalReferenceText(reference.quote);
-    if (!reference.articleTitle?.trim()) {
-      return false;
-    }
-    if (/утратил[аои]? силу/i.test(reference.quote || '')) {
-      return false;
-    }
-    if (!this.hasQualificationContent(text)) {
-      return false;
-    }
-    const titleAndText = `${reference.articleTitle} ${text}`;
-    if (text.length < 80) {
-      return /^Статья\s+\d/i.test(text) && this.hasLegalDispositionSignal(titleAndText);
-    }
-    return this.hasLegalDispositionSignal(titleAndText);
-  }
-
-  private hasQualificationContent(text: string): boolean {
-    const normalized = this.cleanLegalReferenceText(text);
-    if (!normalized) {
-      return false;
-    }
-    const punishmentIndex = normalized.search(
-      /наказыва(?:ет|ю)тся|лишением свободы|штрафом|обязательными работами|принудительными работами|арестом/i
-    );
-    const qualificationText = punishmentIndex >= 0
-      ? normalized.slice(0, punishmentIndex).trim()
-      : normalized;
-    return qualificationText.length >= 40;
-  }
-
-  private hasLegalDispositionSignal(text: string): boolean {
-    return /Статья\s+\d|наказыва(?:ет|ю)тся|угроза|призывы|склонение|вовлечение|причинение|насильственн|полов/i
-      .test(text);
-  }
-
   private buildFinalJudgeReferenceExcerpt(reference: LegalReferenceHit): string {
-    const text = this.cleanLegalReferenceText(reference.quote);
+    const text = cleanLegalReferenceText(reference.quote);
     const maxChars = this.getFinalJudgeMaxReferenceChars();
     if (text.length <= maxChars) {
       return text;
     }
     return text.slice(0, maxChars).trim();
-  }
-
-  private normalizeForGrounding(value: string): string {
-    return value
-      .replace(/[«»"“”]/g, '')
-      .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
-  }
-
-  private hasPunishmentSignal(text: string): boolean {
-    return /наказыва(?:ет|ю)тся|лишением свободы|штрафом|обязательными работами|принудительными работами|арестом/i
-      .test(text);
-  }
-
-  private cleanLegalReferenceText(value: string): string {
-    return value
-      .replace(/\([^)]*утратил[аои]? силу[^)]*\)/gi, ' ')
-      .replace(/(?:Примечани[ея]\.?\s*)?Утратил[аои]? силу\.\s*/gi, ' ')
-      .replace(/(?:^|\s)\d+(?:\.\d+)*\.\s*Утратил[аои]? силу\.\s*/gim, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  private clampNumber(value: number, min: number, max: number): number {
-    if (!Number.isFinite(value)) {
-      return min;
-    }
-    return Math.max(min, Math.min(max, value));
-  }
-
-  private calculateRiskLevel(totalSeverity: number): 'low' | 'medium' | 'high' | 'critical' {
-    if (totalSeverity >= 16) {
-      return 'critical';
-    }
-    if (totalSeverity >= 8) {
-      return 'high';
-    }
-    if (totalSeverity >= 4) {
-      return 'medium';
-    }
-    return 'low';
   }
 
   private async sendAdminViolationReport(
@@ -3505,7 +2446,7 @@ export class CriminalCodeAnalyzerDO {
 
   private async getCachedAnalysis(text: string): Promise<CriminalAnalysisResult | null> {
     try {
-      const textHash = await this.hashText(text);
+      const textHash = await hashText(text);
       const cacheKey = `criminal_cache:${textHash}`;
       const cacheTTL = this.getCacheTTL();
 
@@ -3514,7 +2455,7 @@ export class CriminalCodeAnalyzerDO {
       if (cached) {
         const cacheData = cached as CriminalAnalysisCache;
         if (Date.now() - cacheData.createdAt < cacheTTL * 1000) {
-          return this.normalizeAnalysisResult(cacheData.result);
+          return normalizeAnalysisResult(cacheData.result);
         }
       }
 
@@ -3526,7 +2467,7 @@ export class CriminalCodeAnalyzerDO {
       const dbResult = await stmt.bind(textHash).first();
 
       if (dbResult) {
-        const result = this.normalizeAnalysisResult(
+        const result = normalizeAnalysisResult(
           JSON.parse(dbResult.analysis_result as string) as CriminalAnalysisResult
         );
         // Update KV cache
@@ -3550,7 +2491,7 @@ export class CriminalCodeAnalyzerDO {
 
   private async cacheAnalysis(text: string, result: CriminalAnalysisResult): Promise<void> {
     try {
-      const textHash = await this.hashText(text);
+      const textHash = await hashText(text);
       const cacheKey = `criminal_cache:${textHash}`;
       const cacheTTL = this.getCacheTTL();
       const cacheData: CriminalAnalysisCache = {
@@ -3727,24 +2668,6 @@ export class CriminalCodeAnalyzerDO {
   // ========================================
   // 🛠️ UTILITY METHODS
   // ========================================
-
-  private async hashText(text: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(text.trim().toLowerCase());
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  private getPeriodDays(period: string): number {
-    switch (period) {
-      case '1d': return 1;
-      case '7d': return 7;
-      case '30d': return 30;
-      case '90d': return 90;
-      default: return 7;
-    }
-  }
 
   // ========================================
   // 🔒 CONCURRENCY CONTROL
