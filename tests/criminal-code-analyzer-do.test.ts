@@ -4,7 +4,7 @@ import type { CriminalAnalysisResult } from '../src/core/env';
 import { ProviderFactory } from "../src/core/providers/provider-factory";
 import { Logger } from '../src/core/logger';
 import { buildContextMessages } from "../src/features/criminal/analyzer/context-messages";
-import { evaluateFinalJudgeMeaning, isUsefulFinalJudgeReference, selectFinalJudgeReferences } from "../src/features/criminal/analyzer/legal-references";
+import { evaluateFinalJudgeMeaning, isQuoteGroundedInTarget, isUsefulFinalJudgeReference, selectFinalJudgeReferences } from "../src/features/criminal/analyzer/legal-references";
 import { buildSemanticPrefilterPayload, buildSemanticPrefilterSystemPrompt, normalizeSemanticPrefilterResult } from "../src/features/criminal/analyzer/semantic-prefilter";
 
 // Mock Logger
@@ -1005,6 +1005,12 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(buildSemanticPrefilterSystemPrompt(false)).toContain("сексуальных действий с несовершеннолетними");
     });
 
+    it("should not ground a quote that adds words to the target text", () => {
+      expect(isQuoteGroundedInTarget("тебя убью", "я тебя убью")).toBe(true);
+      expect(isQuoteGroundedInTarget("я тебя убью", "я тебя убью")).toBe(true);
+      expect(isQuoteGroundedInTarget("я тебя убью завтра ножом", "я тебя убью")).toBe(false);
+    });
+
     it("should require grounded evidence for the final literal meaning", () => {
       const targetText = "я тебя убью";
       const input = {
@@ -1029,6 +1035,10 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(evaluateFinalJudgeMeaning({
         speechAct: "threat",
         evidence: "выдуманная цитата",
+      }, input)).toBe("unclear");
+      expect(evaluateFinalJudgeMeaning({
+        speechAct: "threat",
+        evidence: "я тебя убью завтра ножом",
       }, input)).toBe("unclear");
       expect(evaluateFinalJudgeMeaning({
         speechAct: "threat",
