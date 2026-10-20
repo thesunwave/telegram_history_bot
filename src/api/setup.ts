@@ -1,7 +1,9 @@
 import type { Env } from '../core/env';
 import { authenticateTelegramSession } from './admin-auth';
 import { ProviderInitializer } from '../core/providers/provider-init';
-import { resolveRuntimeSettings, saveSummaryRuntimeSettings, saveRuntimeSettings } from '../core/runtime-settings';
+import {
+  profanityViaCriminalPrefilter, resolveRuntimeSettings, saveSummaryRuntimeSettings, saveRuntimeSettings,
+} from '../core/runtime-settings';
 import { getWebhookSecret } from '../core/webhook-secret';
 
 const SESSION_COOKIE = 'tg_setup_session';
@@ -100,6 +102,27 @@ async function telegramApi(env: Env, method: string, args?: Record<string, unkno
   return body.result || {};
 }
 
+/** Mirror provider/model fallbacks without exposing credentials or invoking an AI call. */
+function booleanEnv(value: boolean | string | undefined, fallback: boolean): boolean {
+  // Match CriminalCodeAnalyzerDO.getBooleanEnv(name, fallback): omitted flags use
+  // the fallback, and any value other than a case-insensitive "false" is enabled.
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'boolean') return value;
+  return String(value).toLowerCase() !== 'false';
+}
+
+function modelForCapability(env: Env, provider: string, override?: string): string | null {
+  if (provider === 'legal-rag') return env.LEGAL_RAG_EMBEDDING_MODEL || '@cf/baai/bge-m3';
+  if (override?.trim()) return override.trim();
+  switch (provider) {
+    case 'openai': return env.OPENAI_MODEL || 'gpt-3.5-turbo';
+    case 'openai-premium': return (env as any).OPENAI_PREMIUM_MODEL || env.OPENAI_MODEL || 'gpt-4-turbo';
+    case 'openrouter': return env.OPENROUTER_MODEL || 'nvidia/nemotron-3-super-120b-a12b:free';
+    case 'cloudflare': return env.CLOUDFLARE_MODEL || env.SUMMARY_MODEL || null;
+    default: return null;
+  }
+}
+
 function renderSetupHtml(): string {
   return `<!doctype html>
 <html lang="ru">
@@ -129,20 +152,25 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}
 <div id="settings" hidden>
 <section><h2>1. Как хранить сообщения?</h2>
 <p>Выбери, какие данные бот может сохранять. Решение можно изменить позже.</p>
-<label><input type="radio" name="storageMode" value="stats_only"> <b>Только статистика</b> — исходные сообщения не записываются в KV/DO-хранилище истории. Бот считает сообщения, слова и активность участников.</label>
-<label><input type="radio" name="storageMode" value="history"> <b>История сообщений + статистика</b> — исходные сообщения временно хранятся в твоих Cloudflare KV/DO; доступны сводки и контекстный анализ.</label>
+<label><input autocomplete="off" type="radio" name="storageMode" value="stats_only"> <b>Только статистика</b> — исходные сообщения не записываются в KV/DO-хранилище истории. Бот считает сообщения, слова и активность участников.</label>
+<label><input autocomplete="off" type="radio" name="storageMode" value="history"> <b>История сообщений + статистика</b> — исходные сообщения временно хранятся в твоих Cloudflare KV/DO; доступны сводки и контекстный анализ.</label>
 <small>В обоих вариантах хранятся счётчики, ID пользователей и метаданные чатов. Смена режима не удаляет уже сохранённую историю; она истекает по сроку хранения. Telegram, Cloudflare и возможные логи платформы остаются отдельными от истории бота.</small></section>
 <section><h2>2. Включить функции</h2>
-<label><input id="activity" type="checkbox"> Статистика активности и топы участников</label>
-<label><input id="profanity" type="checkbox"> Анализ мата при получении сообщений</label>
+<label><input id="activity" type="checkbox" autocomplete="off"> Статистика активности и топы участников</label>
+<label><input id="profanity" type="checkbox" autocomplete="off"> Анализ мата при получении сообщений</label>
 <small>Для анализа мата текст может отправляться AI-провайдеру, даже в режиме без хранения. Провайдер определяется PROFANITY_PROVIDER, а без него — провайдером сводок. Результаты анализа (например, найденные слова) могут храниться отдельно.</small>
-<label><input id="criminal" type="checkbox"> Контекстный анализ уголовных нарушений (требует истории)</label>
-<label><input id="enabled" type="checkbox"> AI-сводки (требуют истории)</label>
+<label><input id="criminal" type="checkbox" autocomplete="off"> Контекстный анализ уголовных нарушений (требует истории)</label>
+<label><input id="enabled" type="checkbox" autocomplete="off"> AI-сводки (требуют истории)</label>
 <label>AI-провайдер для сводок <select id="provider"><option value="cloudflare">Workers AI</option>
 <option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option></select></label>
 <label>Модель <input id="model" type="text" maxlength="150"></label>
-<small>OpenAI/OpenRouter API-ключи добавляй как Cloudflare Secrets, не через эту страницу.</small>
-<p id="storageWarning" role="status"></p><p><button id="save">Сохранить настройки</button></p></section>
+<small>Это настройки провайдера <b>только для AI-сводок</b>. Мат и уголовный анализ могут использовать другие модели. OpenAI/OpenRouter API-ключи добавляй как Cloudflare Secrets, не через эту страницу.</small>
+<h3>Текущая конфигурация (только чтение)</h3>
+<p id="configSource"></p>
+<ul><li id="configSummary"></li><li id="configProfanity"></li><li id="configCriminal"></li></ul>
+<small>Это информационный обзор. Настройки провайдеров мата, уголовного анализа и их дополнительных этапов по-прежнему задаются переменными Cloudflare.</small>
+<p id="storageWarning" role="status"></p><p id="unsavedWarning" role="status"></p>
+<p><button id="save" disabled>Сохранить изменения</button></p></section>
 <section><h2>3. Telegram webhook</h2>
 <p>Подключай бот только после того, как сохранишь выбранный режим хранения.</p>
 <button id="connect">Подключить webhook</button><span id="webhook"></span></section>
@@ -160,6 +188,45 @@ async function api(path, method='GET', body) {
   if (!response.ok) { const error = Error(json.error || 'Request failed ('+response.status+')'); error.status=response.status; throw error; }
   return json;
 }
+let loadedSettings = null;
+let settingsDatabaseReady = false;
+function currentSettings() {
+  return {
+    storageMode: selectedStorageMode(),
+    activityTrackingEnabled: el('activity').checked,
+    profanityEnabled: el('profanity').checked,
+    criminalEnabled: el('criminal').checked,
+    summary: { enabled: el('enabled').checked, provider: el('provider').value, model: el('model').value }
+  };
+}
+function updatePendingChanges() {
+  const current = currentSettings();
+  const changed = loadedSettings && JSON.stringify(current) !== JSON.stringify(loadedSettings);
+  el('save').disabled = !changed || !settingsDatabaseReady;
+  el('unsavedWarning').textContent = changed
+    ? 'Есть несохранённые изменения. Сохранение создаст переопределение в D1, которое будет иметь приоритет над переменными Cloudflare.'
+    : 'Нет несохранённых изменений.';
+}
+function showProviderDetails(info) {
+  el('configSource').textContent = info.settingsSource === 'd1'
+    ? 'Настройки функций переопределены в D1. Изменения Cloudflare могут не влиять на эти переключатели.'
+    : info.settingsSource === 'env'
+      ? 'Настройки функций получены из текущих переменных Cloudflare. В D1 нет глобального переопределения.'
+      : 'Не удалось достоверно определить источник настроек. Не сохраняй изменения, пока D1 недоступна.';
+  const cfg = info.providers;
+  el('configSummary').textContent = 'AI-сводки: ' + (info.summary.enabled ? 'включены' : 'выключены') +
+    '; провайдер: ' + cfg.summary.provider + '; модель: ' + cfg.summary.model;
+  el('configProfanity').textContent = 'Анализ мата: ' + (!info.features.profanityEnabled ? 'выключен'
+    : cfg.profanity.viaCriminalPrefilter
+      ? 'включён, считается внутри уголовного prefilter (локальный словарь и подсказки prefilter), отдельных AI-запросов нет'
+      : 'включён, отдельный AI-запрос на сообщение; провайдер: ' + cfg.profanity.provider + '; модель: ' +
+        (cfg.profanity.model || 'по настройкам провайдера'));
+  el('configCriminal').textContent = 'Уголовный анализ: ' + (info.features.criminalEnabled ? 'включён' : 'выключен') +
+    '; основной провайдер: ' + cfg.criminal.provider + '; ' + (cfg.criminal.provider === 'legal-rag' ? 'embedding-модель: ' : 'модель: ') +
+    (cfg.criminal.model || 'по настройкам провайдера') +
+    '; prefilter: ' + (cfg.criminal.prefilterEnabled ? cfg.criminal.prefilterProvider + ' (' + cfg.criminal.prefilterModel + ')' : 'выключен') +
+    '; final judge: ' + (cfg.criminal.finalJudgeEnabled ? cfg.criminal.finalJudgeProvider + ' (' + cfg.criminal.finalJudgeModel + ')' : 'выключен');
+}
 function selectedStorageMode() {
   return document.querySelector('input[name="storageMode"]:checked')?.value || null;
 }
@@ -172,6 +239,7 @@ function refreshDependencies() {
   el('storageWarning').textContent = history
     ? 'Сырой текст будет сохраняться на выбранный срок. Внешние AI-провайдеры получают данные только при включении соответствующих функций.'
     : 'Без истории AI-сводки, контекстный уголовный анализ и backfill недоступны.';
+  updatePendingChanges();
 }
 for (const option of document.querySelectorAll('input[name="storageMode"]')) {
   option.onchange = refreshDependencies;
@@ -190,6 +258,15 @@ async function refresh() {
     el('enabled').checked=info.summary.enabled;
     el('provider').value=info.summary.provider;
     el('model').value=info.summary.model;
+    settingsDatabaseReady = info.databaseReady;
+    loadedSettings = {
+      storageMode: info.storageMode,
+      activityTrackingEnabled: info.features.activityTrackingEnabled,
+      profanityEnabled: info.features.profanityEnabled,
+      criminalEnabled: info.features.criminalEnabled,
+      summary: { enabled: info.summary.enabled, provider: info.summary.provider, model: info.summary.model }
+    };
+    showProviderDetails(info);
     refreshDependencies();
     el('status').textContent=JSON.stringify(info,null,2);
     el('webhook').textContent=info.webhookConfigured?' Подключён':' Не подключён';
@@ -235,21 +312,24 @@ el('connect').onclick=async ()=>{
   try { await api('webhook','POST'); await refresh(); }
   catch(error) {el('error').textContent=error.message;}
 };
-el('provider').onchange=()=>{el('model').value='';};
+for (const id of ['activity', 'profanity', 'criminal', 'enabled', 'model']) {
+  el(id).addEventListener('input', updatePendingChanges);
+  el(id).addEventListener('change', updatePendingChanges);
+}
+el('provider').onchange=()=>{el('model').value='';updatePendingChanges();};
 el('save').onclick=async ()=>{
   try {
-    const storageMode = selectedStorageMode();
-    if (!storageMode) throw Error('Выбери режим хранения сообщений.');
-    await api('settings','PATCH',{
-      storageMode,
-      activityTrackingEnabled:el('activity').checked,
-      profanityEnabled:el('profanity').checked,
-      criminalEnabled:el('criminal').checked,
-      summary:{enabled:el('enabled').checked, provider:el('provider').value, model:el('model').value}
-    });
+    const settings = currentSettings();
+    if (!settings.storageMode) throw Error('Выбери режим хранения сообщений.');
+    if (!loadedSettings || JSON.stringify(settings) === JSON.stringify(loadedSettings)) return;
+    if (!settingsDatabaseReady) throw Error('D1 недоступна. Настройки не сохранены.');
+    if (!window.confirm('Сохранить изменения глобальных настроек? Это запишет их в D1 и переопределит текущие переменные Cloudflare для функций бота.')) return;
+    el('save').disabled = true;
+    await api('settings','PATCH',settings);
     await refresh();
-  } catch(error) { el('error').textContent=error.message; }
+  } catch(error) { el('error').textContent=error.message;updatePendingChanges(); }
 };
+window.addEventListener('pageshow', event => { if (event.persisted) void refresh(); });
 el('logout').onclick=async ()=>{await api('logout','POST');await refresh();};
 refresh();
 </script></body></html>`;
@@ -332,9 +412,13 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
   if (route === 'status' && req.method === 'GET') {
     const settings = await resolveRuntimeSettings(env);
     let databaseReady = false;
+    let hasPersistedGlobalSettings = false;
     try {
       if (env.DB?.prepare) {
         await env.DB.prepare('SELECT scope FROM app_settings LIMIT 1').first();
+        const override = await env.DB.prepare('SELECT scope FROM app_settings WHERE scope = ?')
+          .bind('global').first();
+        hasPersistedGlobalSettings = Boolean(override);
         databaseReady = true;
       }
     } catch {
@@ -347,7 +431,28 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
     } catch { /* Report only the configured state, never the bot token. */ }
     return Response.json({
       ok: true, authMethod: ownerAuth, summary: settings.summary, webhookConfigured, databaseReady,
+      settingsSource: databaseReady ? hasPersistedGlobalSettings ? 'd1' : 'env' : 'unknown',
       storageMode: settings.storageMode,
+      providers: {
+        summary: { provider: settings.summary.provider, model: settings.summary.model },
+        profanity: {
+          provider: env.PROFANITY_PROVIDER || settings.summary.provider,
+          model: modelForCapability(env, env.PROFANITY_PROVIDER || settings.summary.provider, env.PROFANITY_MODEL),
+          viaCriminalPrefilter: profanityViaCriminalPrefilter({ ...env, ENABLE_CRIMINAL_ANALYSIS: settings.criminalEnabled }),
+        },
+        criminal: {
+          provider: env.CRIMINAL_PROVIDER || settings.summary.provider,
+          model: modelForCapability(env, env.CRIMINAL_PROVIDER || settings.summary.provider, env.CRIMINAL_MODEL),
+          prefilterEnabled: booleanEnv(env.CRIMINAL_AI_PREFILTER_ENABLED, true),
+          prefilterProvider: env.CRIMINAL_PREFILTER_PROVIDER || 'openai',
+          prefilterModel: env.CRIMINAL_PREFILTER_PROVIDER === 'qwen'
+            ? env.QWEN_PREFILTER_MODEL || env.QWEN_SHADOW_MODEL || 'qwen3.7-flash'
+            : env.CRIMINAL_PREFILTER_MODEL || env.LLM_NANO_MODEL || 'gpt-4.1-nano',
+          finalJudgeEnabled: booleanEnv(env.CRIMINAL_FINAL_JUDGE_ENABLED, true),
+          finalJudgeProvider: 'OpenAI',
+          finalJudgeModel: env.CRIMINAL_FINAL_JUDGE_MODEL || 'gpt-5-nano',
+        },
+      },
       features: {
         activityTrackingEnabled: settings.activityTrackingEnabled,
         profanityEnabled: settings.profanityEnabled,
