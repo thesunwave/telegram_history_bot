@@ -96,8 +96,13 @@ the box and enter `BUILDS_DISABLED`, then approve the deployment. The
 post-approval job checks out the **validated SHA**, installs dependencies,
 compares the live Cloudflare KV/D1/DO/Vectorize/service bindings against the
 selected release and lists pending D1 migrations without changing them.
-Infrastructure drift blocks the release. Pending migrations are displayed
-in read-only mode and **block an actual deploy** until applied after backup.
+Infrastructure drift blocks the release. A read-only run only lists pending
+migrations. On an actual deploy, pending migrations that are all **additive**
+(only `CREATE TABLE`, `CREATE [UNIQUE] INDEX` or `ALTER TABLE … ADD`) are applied
+automatically: the job first records a D1 Time Travel bookmark and prints the
+restore command in the run summary, then runs `wrangler d1 migrations apply`.
+Any other pending migration (data rewrites, inserts, drops, triggers, renames)
+still **blocks an actual deploy** until applied manually after backup.
 Only after this check does Wrangler deploy with `wrangler.production.jsonc`.
 It never runs on push. The post-deploy smoke check validates health, public
 landing, Telegram auth config and owner setup; no Telegram messages are sent.
@@ -106,12 +111,13 @@ The preflight and smoke scripts are pinned to the workflow commit separately
 from the release commit, so earlier supported release tags can be redeployed
 without silently switching their application code.
 
-D1 migrations are **not** automatically applied to the owner's database by this workflow.
-Before an upgrade that needs schema changes, back up D1, inspect pending migrations,
-apply them deliberately, and have a recovery plan for non-reversible schema changes.
-Cloudflare Secrets are configured in the Worker, not committed to Git.
-For example, migration `0014_app_settings.sql` must be reviewed and applied
-separately. Rollback of Worker code does not roll back D1 schema changes.
+Only additive D1 migrations are applied automatically, and only after production
+approval on an actual deploy. For anything else, back up D1, inspect pending
+migrations, apply them deliberately, and have a recovery plan for non-reversible
+schema changes. The `CLOUDFLARE_API_TOKEN` needs D1 Edit permission for the
+automatic apply. Cloudflare Secrets are configured in the Worker, not committed to Git.
+Rollback of Worker code does not roll back D1 schema changes; restoring the
+recorded Time Travel bookmark rolls back the schema **and every write since**.
 
 ## Community installations and upgrades
 

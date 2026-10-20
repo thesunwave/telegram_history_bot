@@ -96,7 +96,7 @@ jobs:
         run: npm test
 
       - name: Test release infrastructure checks
-        run: cd .release-tools && ../node_modules/.bin/vitest run tests/scripts/preflight-production.test.ts
+        run: cd .release-tools && ../node_modules/.bin/vitest run tests/scripts/preflight-production.test.ts tests/scripts/apply-production-migrations.test.ts
 
       - name: Production build dry-run
         run: npm run check:production
@@ -133,6 +133,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           DEPLOY_TO_PRODUCTION: ${{ inputs.deploy_to_production }}
         run: node .release-tools/scripts/preflight-production.mjs
+
+      # Additive migrations only, after a D1 Time Travel restore point. The
+      # preflight above already blocked any non-additive pending migration.
+      - name: Record D1 restore point and apply additive migrations
+        if: inputs.deploy_to_production && inputs.confirmation == 'BUILDS_DISABLED'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node .release-tools/scripts/apply-production-migrations.mjs
 
       - name: Deploy pinned, validated release
         if: inputs.deploy_to_production && inputs.confirmation == 'BUILDS_DISABLED'

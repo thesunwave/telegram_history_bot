@@ -1,9 +1,14 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   compareBindings,
   configuredBindings,
+  isAdditiveMigration,
   pendingMigrations,
   migrationDecision,
+  nonAdditiveMigrations,
+  splitSqlStatements,
 } from '../../scripts/preflight-production.mjs';
 
 describe('production release preflight', () => {
@@ -79,12 +84,56 @@ describe('production release preflight', () => {
     )).toContain('ASSETS: bucket_name differs from deployed Worker');
   });
 
-  it('blocks pending D1 migrations and allows previously applied migrations', () => {
+  it('blocks non-additive pending D1 migrations and allows previously applied migrations', () => {
     const files = ['0013_existing.sql', '0014_app_settings.sql'];
     expect(pendingMigrations(files, ['0013_existing.sql'])).toEqual(['0014_app_settings.sql']);
     expect(pendingMigrations(files, files)).toEqual([]);
-    expect(migrationDecision(['0014_app_settings.sql'], false).safe).toBe(true);
-    expect(migrationDecision(['0014_app_settings.sql'], true).safe).toBe(false);
-    expect(migrationDecision([], true).safe).toBe(true);
+    expect(migrationDecision(['0014_app_settings.sql'], false, []).safe).toBe(true);
+    expect(migrationDecision(['0014_app_settings.sql'], true, ['0014_app_settings.sql']).safe)
+      .toBe(false);
+    expect(migrationDecision([], true, []).safe).toBe(true);
+    // Omitting the classification must not silently pass the gate.
+    expect(() => migrationDecision(['0014_app_settings.sql'], true)).toThrow();
+  });
+
+  it('lets an actual deploy apply pending migrations only when all are additive', () => {
+    expect(migrationDecision(['0015_add.sql'], true, []).safe).toBe(true);
+    expect(migrationDecision(['0015_add.sql', '0016_drop.sql'], true, ['0016_drop.sql']))
+      .toMatchObject({ safe: false });
+  });
+
+  it('classifies only table/index creation and added columns as additive', () => {
+    const sql = (file: string) => readFileSync(resolve('migrations', file), 'utf8');
+    expect(isAdditiveMigration(sql('0015_stats_daily_media_max_duration.sql'))).toBe(true);
+    expect(isAdditiveMigration(sql('0014_app_settings.sql'))).toBe(true);
+    expect(isAdditiveMigration(sql('0009_stats_daily_aggregates.sql'))).toBe(true);
+    // Data rewrites, seed inserts and triggers fail closed.
+    expect(isAdditiveMigration(sql('0005_add_article_title.sql'))).toBe(false);
+    expect(isAdditiveMigration(sql('0003_criminal_code.sql'))).toBe(false);
+    expect(isAdditiveMigration('DROP TABLE summaries;')).toBe(false);
+    expect(isAdditiveMigration('ALTER TABLE a RENAME TO b;')).toBe(false);
+    expect(isAdditiveMigration('CREATE TABLE b AS SELECT * FROM a;')).toBe(false);
+    expect(isAdditiveMigration('CREATE TABLE IF NOT EXISTS b AS\nSELECT * FROM a;')).toBe(false);
+    expect(isAdditiveMigration("CREATE TABLE b (v TEXT DEFAULT 'x AS SELECT y');")).toBe(true);
+    expect(nonAdditiveMigrations(
+      ['0015_stats_daily_media_max_duration.sql', '0005_add_article_title.sql'], sql,
+    )).toEqual(['0005_add_article_title.sql']);
+    expect(isAdditiveMigration('-- only a comment')).toBe(false);
+    expect(isAdditiveMigration('ALTER TABLE t ADD COLUMN c INTEGER; /* x */ DELETE FROM t;'))
+      .toBe(false);
+  });
+
+  it('does not treat comment markers or semicolons inside quotes as SQL syntax', () => {
+    expect(isAdditiveMigration("CREATE TABLE x (v TEXT DEFAULT '--'); DROP TABLE users;"))
+      .toBe(false);
+    expect(isAdditiveMigration("CREATE TABLE x (v TEXT DEFAULT '/*'); DROP TABLE users; -- */"))
+      .toBe(false);
+    expect(isAdditiveMigration("CREATE TABLE x (v TEXT DEFAULT 'a;b', w TEXT DEFAULT 'it''s');"))
+      .toBe(true);
+    expect(splitSqlStatements("CREATE TABLE x (v TEXT DEFAULT 'a;b'); ALTER TABLE x ADD y INT;"))
+      .toEqual(["CREATE TABLE x (v TEXT DEFAULT 'a;b')", 'ALTER TABLE x ADD y INT']);
+    // Unterminated literals or block comments fail closed.
+    expect(isAdditiveMigration("CREATE TABLE x (v TEXT DEFAULT 'oops);")).toBe(false);
+    expect(isAdditiveMigration('CREATE TABLE x (v TEXT); /* never closed')).toBe(false);
   });
 });
