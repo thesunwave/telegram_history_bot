@@ -3,6 +3,9 @@ import { CriminalCodeAnalyzerDO } from '../src/durable-objects/criminal-code-ana
 import type { CriminalAnalysisResult } from '../src/core/env';
 import { ProviderFactory } from "../src/core/providers/provider-factory";
 import { Logger } from '../src/core/logger';
+import { buildContextMessages } from "../src/features/criminal/analyzer/context-messages";
+import { evaluateFinalJudgeMeaning, isUsefulFinalJudgeReference, selectFinalJudgeReferences } from "../src/features/criminal/analyzer/legal-references";
+import { buildSemanticPrefilterPayload, buildSemanticPrefilterSystemPrompt, normalizeSemanticPrefilterResult } from "../src/features/criminal/analyzer/semantic-prefilter";
 
 // Mock Logger
 vi.mock("../src/core/logger", () => ({
@@ -883,7 +886,7 @@ describe("CriminalCodeAnalyzerDO", () => {
 
     it("should keep only target-grounded semantic frame evidence", () => {
       const targetText = "не будет скоро вашего образования нахуй";
-      const normalized = (analyzer as any).normalizeSemanticPrefilterResult({
+      const normalized = normalizeSemanticPrefilterResult({
         shouldAnalyze: true,
         reason: "threat",
         confidence: 0.9,
@@ -917,7 +920,7 @@ describe("CriminalCodeAnalyzerDO", () => {
 
     it("should fail closed when a positive semantic prefilter omits semanticFrame", () => {
       const filtered = (analyzer as any).applySemanticPrefilterThreshold(
-        (analyzer as any).normalizeSemanticPrefilterResult({
+        normalizeSemanticPrefilterResult({
           shouldAnalyze: true,
           reason: "threat",
           confidence: 0.9,
@@ -933,7 +936,7 @@ describe("CriminalCodeAnalyzerDO", () => {
     it("should reject weak threat guesses even when the semantic frame looks criminal", () => {
       const targetText = "Будешь просыпаться";
       const filtered = (analyzer as any).applySemanticPrefilterThreshold(
-        (analyzer as any).normalizeSemanticPrefilterResult({
+        normalizeSemanticPrefilterResult({
           shouldAnalyze: true,
           reason: "threat",
           confidence: 0.58,
@@ -956,7 +959,7 @@ describe("CriminalCodeAnalyzerDO", () => {
     });
 
     it("should preserve violent_expression as an analyzable prefilter reason", () => {
-      const normalized = (analyzer as any).normalizeSemanticPrefilterResult({
+      const normalized = normalizeSemanticPrefilterResult({
         shouldAnalyze: true,
         reason: "violent_expression",
         confidence: 0.8,
@@ -980,7 +983,7 @@ describe("CriminalCodeAnalyzerDO", () => {
 
     it("should pass non-violent criminal endorsements to legal analysis", () => {
       const targetText = "Лет после 13 уже можно ебать";
-      const normalized = (analyzer as any).normalizeSemanticPrefilterResult({
+      const normalized = normalizeSemanticPrefilterResult({
         shouldAnalyze: true,
         reason: "other_criminal",
         confidence: 0.9,
@@ -999,7 +1002,7 @@ describe("CriminalCodeAnalyzerDO", () => {
 
       expect(normalized.reason).toBe("other_criminal");
       expect((analyzer as any).applySemanticPrefilterThreshold(normalized, targetText).shouldAnalyze).toBe(true);
-      expect((analyzer as any).buildSemanticPrefilterSystemPrompt(false)).toContain("сексуальных действий с несовершеннолетними");
+      expect(buildSemanticPrefilterSystemPrompt(false)).toContain("сексуальных действий с несовершеннолетними");
     });
 
     it("should require grounded evidence for the final literal meaning", () => {
@@ -1018,16 +1021,16 @@ describe("CriminalCodeAnalyzerDO", () => {
         }],
       };
 
-      expect((analyzer as any).evaluateFinalJudgeMeaning(undefined, input)).toBe("unclear");
-      expect((analyzer as any).evaluateFinalJudgeMeaning({
+      expect(evaluateFinalJudgeMeaning(undefined, input)).toBe("unclear");
+      expect(evaluateFinalJudgeMeaning({
         speechAct: "report",
         evidence: "я тебя убью",
       }, input)).toBe("benign");
-      expect((analyzer as any).evaluateFinalJudgeMeaning({
+      expect(evaluateFinalJudgeMeaning({
         speechAct: "threat",
         evidence: "выдуманная цитата",
       }, input)).toBe("unclear");
-      expect((analyzer as any).evaluateFinalJudgeMeaning({
+      expect(evaluateFinalJudgeMeaning({
         speechAct: "threat",
         evidence: "я тебя убью",
       }, input)).toBe("criminal");
@@ -1052,9 +1055,9 @@ describe("CriminalCodeAnalyzerDO", () => {
         ],
       };
 
-      const payload = (analyzer as any).buildSemanticPrefilterPayload(input);
+      const payload = buildSemanticPrefilterPayload(input);
       const positions = payload.messages.map((message: any) => message.relativePosition);
-      const prompt = (analyzer as any).buildSemanticPrefilterSystemPrompt(false);
+      const prompt = buildSemanticPrefilterSystemPrompt(false);
 
       expect(positions).toEqual([-2, -1, 0, 1]);
       expect(prompt).toContain("Короткий соседний контекст");
@@ -1085,8 +1088,8 @@ describe("CriminalCodeAnalyzerDO", () => {
         ],
       };
 
-      const payload = (analyzer as any).buildSemanticPrefilterPayload(input);
-      const prompt = (analyzer as any).buildSemanticPrefilterSystemPrompt(false);
+      const payload = buildSemanticPrefilterPayload(input);
+      const prompt = buildSemanticPrefilterSystemPrompt(false);
 
       expect(payload.replyTo).toEqual(input.replyTo);
       expect(prompt).toContain("replyTo");
@@ -1154,7 +1157,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         enqueuedAt: Date.now(),
       };
 
-      const messages = (analyzer as any).buildContextMessages(recentMessages, task, 15, 5);
+      const messages = buildContextMessages(recentMessages, task, 15, 5);
       const targets = messages.filter((message: any) => message.isTarget);
 
       expect(targets).toHaveLength(1);
@@ -2072,9 +2075,9 @@ describe("CriminalCodeAnalyzerDO", () => {
         vectorId: "uk-rf:119:1:1:punishment",
       };
 
-      expect((analyzer as any).isUsefulFinalJudgeReference(dispositionReference)).toBe(true);
-      expect((analyzer as any).isUsefulFinalJudgeReference(punishmentReference)).toBe(false);
-      expect((analyzer as any).selectFinalJudgeReferences([
+      expect(isUsefulFinalJudgeReference(dispositionReference)).toBe(true);
+      expect(isUsefulFinalJudgeReference(punishmentReference)).toBe(false);
+      expect(selectFinalJudgeReferences([
         punishmentReference,
         dispositionReference,
       ], 1)).toEqual([dispositionReference]);
@@ -2099,7 +2102,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         vectorId: `uk-rf:${reference.article}:${reference.subarticle || "main"}:0:${index}`,
       }));
 
-      const selected = (analyzer as any).selectFinalJudgeReferences(references, 7);
+      const selected = selectFinalJudgeReferences(references, 7);
 
       expect(selected.map((reference: any) => reference.article)).toEqual([
         "165", "167", "168", "160", "296", "164", "158",
@@ -2118,7 +2121,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         vectorId: "uk-rf:282:2:0",
       };
 
-      expect((analyzer as any).isUsefulFinalJudgeReference(reference)).toBe(true);
+      expect(isUsefulFinalJudgeReference(reference)).toBe(true);
     });
 
     it("should reject final judge violations quoted from neighboring context", async () => {
