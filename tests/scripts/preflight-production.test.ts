@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   compareBindings,
   configuredBindings,
+  isAdditiveMigration,
   pendingMigrations,
   migrationDecision,
 } from '../../scripts/preflight-production.mjs';
@@ -79,12 +82,34 @@ describe('production release preflight', () => {
     )).toContain('ASSETS: bucket_name differs from deployed Worker');
   });
 
-  it('blocks pending D1 migrations and allows previously applied migrations', () => {
+  it('blocks non-additive pending D1 migrations and allows previously applied migrations', () => {
     const files = ['0013_existing.sql', '0014_app_settings.sql'];
     expect(pendingMigrations(files, ['0013_existing.sql'])).toEqual(['0014_app_settings.sql']);
     expect(pendingMigrations(files, files)).toEqual([]);
     expect(migrationDecision(['0014_app_settings.sql'], false).safe).toBe(true);
-    expect(migrationDecision(['0014_app_settings.sql'], true).safe).toBe(false);
+    expect(migrationDecision(['0014_app_settings.sql'], true, ['0014_app_settings.sql']).safe)
+      .toBe(false);
     expect(migrationDecision([], true).safe).toBe(true);
+  });
+
+  it('lets an actual deploy apply pending migrations only when all are additive', () => {
+    expect(migrationDecision(['0015_add.sql'], true, []).safe).toBe(true);
+    expect(migrationDecision(['0015_add.sql', '0016_drop.sql'], true, ['0016_drop.sql']))
+      .toMatchObject({ safe: false });
+  });
+
+  it('classifies only table/index creation and added columns as additive', () => {
+    const sql = (file: string) => readFileSync(resolve('migrations', file), 'utf8');
+    expect(isAdditiveMigration(sql('0015_stats_daily_media_max_duration.sql'))).toBe(true);
+    expect(isAdditiveMigration(sql('0014_app_settings.sql'))).toBe(true);
+    expect(isAdditiveMigration(sql('0009_stats_daily_aggregates.sql'))).toBe(true);
+    // Data rewrites, seed inserts and triggers fail closed.
+    expect(isAdditiveMigration(sql('0005_add_article_title.sql'))).toBe(false);
+    expect(isAdditiveMigration(sql('0003_criminal_code.sql'))).toBe(false);
+    expect(isAdditiveMigration('DROP TABLE summaries;')).toBe(false);
+    expect(isAdditiveMigration('ALTER TABLE a RENAME TO b;')).toBe(false);
+    expect(isAdditiveMigration('-- only a comment')).toBe(false);
+    expect(isAdditiveMigration('ALTER TABLE t ADD COLUMN c INTEGER; /* x */ DELETE FROM t;'))
+      .toBe(false);
   });
 });
