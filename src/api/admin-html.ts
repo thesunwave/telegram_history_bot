@@ -1621,7 +1621,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }
       for (const row of stats.criminal?.topUsers || []) {
         const person = entry(row.userId, row.username);
-        person.criminal = Number(row.count) || 0;
+        // Keep one count source per column: allUsers' daily criminal_count wins,
+        // the top list only adds the sentence (and covers users missing from allUsers).
+        if (!person.criminal) person.criminal = Number(row.count) || 0;
         person.sentence = formatSentence(row);
       }
       return [...people.values()];
