@@ -96,14 +96,50 @@ export function pendingMigrations(files, applied) {
 const ADDITIVE_STATEMENT =
   /^(CREATE\s+TABLE(\s+IF\s+NOT\s+EXISTS)?\s|CREATE\s+(UNIQUE\s+)?INDEX(\s+IF\s+NOT\s+EXISTS)?\s|ALTER\s+TABLE\s+\S+\s+ADD\s)/i;
 
+const QUOTE_CLOSERS = { "'": "'", '"': '"', '`': '`', '[': ']' };
+
+// Quote-aware split: comments and semicolons inside string literals or quoted
+// identifiers stay part of the statement. Returns null for unterminated input.
+export function splitSqlStatements(sql) {
+  const statements = [];
+  let current = '';
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
+    if (char === '-' && sql[i + 1] === '-') {
+      const end = sql.indexOf('\n', i);
+      if (end === -1) break;
+      current += ' ';
+      i = end;
+    } else if (char === '/' && sql[i + 1] === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      if (end === -1) return null;
+      current += ' ';
+      i = end + 1;
+    } else if (QUOTE_CLOSERS[char]) {
+      const closer = QUOTE_CLOSERS[char];
+      let end = i + 1;
+      // A doubled quote ('' or "") is an escaped quote inside the literal.
+      while (end < sql.length && !(sql[end] === closer && sql[end + 1] !== closer)) {
+        end += sql[end] === closer ? 2 : 1;
+      }
+      if (end >= sql.length) return null;
+      current += sql.slice(i, end + 1);
+      i = end;
+    } else if (char === ';') {
+      statements.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  statements.push(current);
+  return statements.map(statement => statement.trim()).filter(Boolean);
+}
+
 export function isAdditiveMigration(sql) {
-  const statements = sql
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map(statement => statement.trim())
-    .filter(Boolean);
-  return statements.length > 0 && statements.every(statement => ADDITIVE_STATEMENT.test(statement));
+  const statements = splitSqlStatements(sql);
+  return Boolean(statements?.length) &&
+    statements.every(statement => ADDITIVE_STATEMENT.test(statement));
 }
 
 // Additive migrations are applied by the release job after a D1 Time Travel

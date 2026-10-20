@@ -7,6 +7,7 @@ import {
   isAdditiveMigration,
   pendingMigrations,
   migrationDecision,
+  splitSqlStatements,
 } from '../../scripts/preflight-production.mjs';
 
 describe('production release preflight', () => {
@@ -111,5 +112,19 @@ describe('production release preflight', () => {
     expect(isAdditiveMigration('-- only a comment')).toBe(false);
     expect(isAdditiveMigration('ALTER TABLE t ADD COLUMN c INTEGER; /* x */ DELETE FROM t;'))
       .toBe(false);
+  });
+
+  it('does not treat comment markers or semicolons inside quotes as SQL syntax', () => {
+    expect(isAdditiveMigration("CREATE TABLE x (v TEXT DEFAULT '--'); DROP TABLE users;"))
+      .toBe(false);
+    expect(isAdditiveMigration("CREATE TABLE x (v TEXT DEFAULT '/*'); DROP TABLE users; -- */"))
+      .toBe(false);
+    expect(isAdditiveMigration("CREATE TABLE x (v TEXT DEFAULT 'a;b', w TEXT DEFAULT 'it''s');"))
+      .toBe(true);
+    expect(splitSqlStatements("CREATE TABLE x (v TEXT DEFAULT 'a;b'); ALTER TABLE x ADD y INT;"))
+      .toEqual(["CREATE TABLE x (v TEXT DEFAULT 'a;b')", 'ALTER TABLE x ADD y INT']);
+    // Unterminated literals or block comments fail closed.
+    expect(isAdditiveMigration("CREATE TABLE x (v TEXT DEFAULT 'oops);")).toBe(false);
+    expect(isAdditiveMigration('CREATE TABLE x (v TEXT); /* never closed')).toBe(false);
   });
 });
