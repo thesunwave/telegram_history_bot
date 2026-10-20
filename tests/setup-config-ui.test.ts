@@ -6,7 +6,7 @@ import type { Env } from '../src/core/env';
 const inheritedState = {
   ok: true, authMethod: 'telegram', databaseReady: true, settingsSource: 'env',
   storageMode: 'history', webhookConfigured: true,
-  features: { activityTrackingEnabled: true, profanityEnabled: false, criminalEnabled: true },
+  features: { activityTrackingEnabled: true, profanityEnabled: true, criminalEnabled: true },
   summary: { enabled: false, provider: 'openai', model: 'gpt-4.1-nano' },
   providers: {
     summary: { provider: 'openai', model: 'gpt-4.1-nano' },
@@ -62,13 +62,13 @@ describe('global setup client keeps production configuration safe', () => {
     const { elements, fetch, radios } = await setupBrowser();
     expect(radios.find(option => option.value === 'history')?.checked).toBe(true);
     expect(elements.get('activity').checked).toBe(true);
-    expect(elements.get('profanity').checked).toBe(false);
+    expect(elements.get('profanity').checked).toBe(true);
     expect(elements.get('criminal').checked).toBe(true);
     expect(elements.get('enabled').checked).toBe(false);
     expect(elements.get('provider').value).toBe('openai');
     expect(elements.get('model').value).toBe('gpt-4.1-nano');
     expect(elements.get('configSource').textContent).toContain('Cloudflare');
-    expect(elements.get('configProfanity').textContent).toContain('криминальный prefilter: включён');
+    expect(elements.get('configProfanity').textContent).toContain('внутри уголовного prefilter');
     expect(elements.get('configCriminal').textContent).toContain('qwen3.7-flash');
     expect(elements.get('save').disabled).toBe(true);
     await elements.get('save').onclick();
@@ -77,7 +77,7 @@ describe('global setup client keeps production configuration safe', () => {
 
   it('requires confirmation before creating a global D1 override', async () => {
     const browser = await setupBrowser(false);
-    browser.elements.get('profanity').checked = true;
+    browser.elements.get('profanity').checked = false;
     browser.elements.get('profanity').listeners.get('change')();
     expect(browser.elements.get('save').disabled).toBe(false);
     expect(browser.elements.get('unsavedWarning').textContent).toContain('D1');
@@ -88,7 +88,7 @@ describe('global setup client keeps production configuration safe', () => {
 
   it('sends exactly one PATCH only after the owner approves the changes', async () => {
     const browser = await setupBrowser(true);
-    browser.elements.get('profanity').checked = true;
+    browser.elements.get('profanity').checked = false;
     browser.elements.get('profanity').listeners.get('change')();
     expect(browser.elements.get('save').disabled).toBe(false);
 
@@ -100,7 +100,7 @@ describe('global setup client keeps production configuration safe', () => {
     expect(writes).toHaveLength(1);
     expect(JSON.parse(String(writes[0][1]?.body))).toEqual({
       storageMode: 'history', activityTrackingEnabled: true,
-      profanityEnabled: true, criminalEnabled: true,
+      profanityEnabled: false, criminalEnabled: true,
       summary: { enabled: false, provider: 'openai', model: 'gpt-4.1-nano' },
     });
   });
@@ -111,7 +111,7 @@ describe('global setup client keeps production configuration safe', () => {
     });
     expect(browser.elements.get('save').disabled).toBe(true);
     expect(browser.elements.get('configSource').textContent).toContain('D1 недоступна');
-    browser.elements.get('profanity').checked = true;
+    browser.elements.get('profanity').checked = false;
     browser.elements.get('profanity').listeners.get('change')();
     expect(browser.elements.get('save').disabled).toBe(true);
     // Even invoking the handler directly cannot bypass the disabled control.
@@ -126,10 +126,10 @@ describe('global setup client keeps production configuration safe', () => {
     const browser = await setupBrowser();
     const onPageShow = browser.onPageShow.mock.calls.find(([name]) => name === 'pageshow')?.[1];
     expect(onPageShow).toBeTypeOf('function');
-    browser.elements.get('profanity').checked = true;
+    browser.elements.get('profanity').checked = false;
     onPageShow({ persisted: true });
     await new Promise(resolve => setTimeout(resolve, 0));
-    expect(browser.elements.get('profanity').checked).toBe(false);
+    expect(browser.elements.get('profanity').checked).toBe(true);
     expect(browser.elements.get('save').disabled).toBe(true);
   });
 });

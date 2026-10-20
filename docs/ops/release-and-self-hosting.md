@@ -73,6 +73,10 @@ read-only provider/model settings for summary, profanity and criminal analysis.
 The criminal prefilter shows its configured or effective default provider/model;
 the optional final judge uses OpenAI and shows its model (configured or default).
 For Legal RAG the reported model is the embedding model used for retrieval.
+When `ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER` is on and criminal analysis is
+enabled, profanity counters come from the criminal prefilter and the profanity
+toggle shows as enabled without a separate AI call per message; turning it off
+and saving stops those counters.
 The editable provider/model input
 only controls **summaries**. Unsaved changes must be confirmed; clicking Save
 writes a global D1 override for every feature toggle and the summary settings,

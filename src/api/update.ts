@@ -22,6 +22,7 @@ import {
 } from '../features/stats/stats';
 import { sendMessage } from '../core/telegram';
 import { Logger } from '../core/logger';
+import { runsSeparateProfanityAnalysis } from '../core/runtime-settings';
 import { ProfanityAnalyzer } from '../features/profanity/profanity';
 import { ProviderFactory } from '../core/providers/provider-factory';
 import { NotificationService } from '../core/services/notification-service';
@@ -148,7 +149,7 @@ type ProgressOutcome = 'completed' | 'zero' | 'skipped' | 'failed';
 
 /** Whether profanity analysis will actually run for this message. */
 function profanityAnalysisEnabledFor(env: Env, msg: any): boolean {
-  const enabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
+  const enabled = runsSeparateProfanityAnalysis(env);
   return enabled && !!msg?.text && !msg.text.startsWith('/') && !isTestEnvironment(env);
 }
 
@@ -367,8 +368,8 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     op: 'profanityCheck',
   });
 
-  // Check for ENABLE_PROFANITY_ANALYSIS flag (default to true)
-  const profanityAnalysisEnabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
+  // Profanity counted by the criminal prefilter needs no separate AI analysis.
+  const profanityAnalysisEnabled = runsSeparateProfanityAnalysis(env);
 
   if (profanityAnalysisEnabled && msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
     Logger.debug(env, 'Scheduling profanity analysis for message', { op: 'profanitySchedule' });

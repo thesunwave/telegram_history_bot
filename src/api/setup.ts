@@ -1,7 +1,9 @@
 import type { Env } from '../core/env';
 import { authenticateTelegramSession } from './admin-auth';
 import { ProviderInitializer } from '../core/providers/provider-init';
-import { resolveRuntimeSettings, saveSummaryRuntimeSettings, saveRuntimeSettings } from '../core/runtime-settings';
+import {
+  profanityViaCriminalPrefilter, resolveRuntimeSettings, saveSummaryRuntimeSettings, saveRuntimeSettings,
+} from '../core/runtime-settings';
 import { getWebhookSecret } from '../core/webhook-secret';
 
 const SESSION_COOKIE = 'tg_setup_session';
@@ -214,9 +216,11 @@ function showProviderDetails(info) {
   const cfg = info.providers;
   el('configSummary').textContent = 'AI-сводки: ' + (info.summary.enabled ? 'включены' : 'выключены') +
     '; провайдер: ' + cfg.summary.provider + '; модель: ' + cfg.summary.model;
-  el('configProfanity').textContent = 'Отдельный анализ мата: ' + (info.features.profanityEnabled ? 'включён' : 'выключен') +
-    '; провайдер: ' + cfg.profanity.provider + '; модель: ' + (cfg.profanity.model || 'по настройкам провайдера') +
-    '. Дополнительно криминальный prefilter: ' + (cfg.profanity.viaCriminalPrefilter ? 'включён' : 'выключен');
+  el('configProfanity').textContent = 'Анализ мата: ' + (!info.features.profanityEnabled ? 'выключен'
+    : cfg.profanity.viaCriminalPrefilter
+      ? 'включён, считается внутри уголовного prefilter (локальный словарь и подсказки prefilter), отдельных AI-запросов нет'
+      : 'включён, отдельный AI-запрос на сообщение; провайдер: ' + cfg.profanity.provider + '; модель: ' +
+        (cfg.profanity.model || 'по настройкам провайдера'));
   el('configCriminal').textContent = 'Уголовный анализ: ' + (info.features.criminalEnabled ? 'включён' : 'выключен') +
     '; основной провайдер: ' + cfg.criminal.provider + '; ' + (cfg.criminal.provider === 'legal-rag' ? 'embedding-модель: ' : 'модель: ') +
     (cfg.criminal.model || 'по настройкам провайдера') +
@@ -434,7 +438,7 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
         profanity: {
           provider: env.PROFANITY_PROVIDER || settings.summary.provider,
           model: modelForCapability(env, env.PROFANITY_PROVIDER || settings.summary.provider, env.PROFANITY_MODEL),
-          viaCriminalPrefilter: booleanEnv(env.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER, false),
+          viaCriminalPrefilter: profanityViaCriminalPrefilter({ ...env, ENABLE_CRIMINAL_ANALYSIS: settings.criminalEnabled }),
         },
         criminal: {
           provider: env.CRIMINAL_PROVIDER || settings.summary.provider,

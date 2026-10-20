@@ -80,7 +80,8 @@ describe('owner setup', () => {
     const state = await response.json() as any;
     expect(state.settingsSource).toBe('env');
     expect(state.databaseReady).toBe(true);
-    expect(state.features.profanityEnabled).toBe(false);
+    // Production counts profanity inside the criminal prefilter, so Save must keep it on.
+    expect(state.features.profanityEnabled).toBe(true);
     expect(state.features.criminalEnabled).toBe(true);
     expect(state.summary).toEqual({ enabled: false, provider: 'openai', model: 'gpt-4.1-nano' });
     expect(state.providers).toEqual({
@@ -124,7 +125,7 @@ describe('owner setup', () => {
     const response = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie), {
       ...env, DB: db, CRIMINAL_PROVIDER: 'legal-rag',
       CRIMINAL_AI_PREFILTER_ENABLED: 'FALSE', CRIMINAL_FINAL_JUDGE_ENABLED: 'False',
-      ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER: 'TRUE',
+      ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER: 'TRUE', ENABLE_CRIMINAL_ANALYSIS: true,
     } as unknown as Env);
     expect(response.status).toBe(200);
     const state = await response.json() as any;
