@@ -114,6 +114,23 @@ describe('owner setup', () => {
     });
   });
 
+  it('matches the criminal runtime case-insensitive boolean override parsing', async () => {
+    const db = { prepare: vi.fn(() => ({
+      first: vi.fn(async () => null),
+      bind: vi.fn(() => ({ first: vi.fn(async () => null) })),
+    })) };
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, result: {} })));
+    const cookie = await ownerCookie();
+    const response = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie), {
+      ...env, DB: db, CRIMINAL_PROVIDER: 'legal-rag',
+      CRIMINAL_AI_PREFILTER_ENABLED: 'FALSE', CRIMINAL_FINAL_JUDGE_ENABLED: 'False',
+    } as unknown as Env);
+    expect(response.status).toBe(200);
+    const state = await response.json() as any;
+    expect(state.providers.criminal.prefilterEnabled).toBe(false);
+    expect(state.providers.criminal.finalJudgeEnabled).toBe(false);
+  });
+
   it('reports D1 as source when a global settings override exists', async () => {
     const db = { prepare: vi.fn((sql: string) => ({
       first: vi.fn(async () => null),

@@ -102,7 +102,11 @@ async function telegramApi(env: Env, method: string, args?: Record<string, unkno
 
 /** Mirror provider/model fallbacks without exposing credentials or invoking an AI call. */
 function enabledUnlessFalse(value: boolean | string | undefined): boolean {
-  return value !== false && value !== 'false';
+  // Match CriminalCodeAnalyzerDO.getBooleanEnv(name, true): omitted flags are
+  // enabled, and the textual false value is case-insensitive.
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'boolean') return value;
+  return String(value).toLowerCase() !== 'false';
 }
 
 function modelForCapability(env: Env, provider: string, override?: string): string | null {
