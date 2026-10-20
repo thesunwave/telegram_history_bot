@@ -34,8 +34,10 @@ Do not run `setup.sh`; it is a deprecated manual provisioning script.
    `main`) with `deploy_to_production=false` for a read-only preflight.
    Approve the protected `production` environment even for this read-only run;
    approval unlocks the preflight job but does not deploy the Worker.
-4. Review infrastructure drift and pending production D1 migrations. Before
-   applying migrations, create and verify a private production D1 backup.
+4. Review infrastructure drift and pending production D1 migrations. Additive
+   migrations are applied by the actual deploy after a Time Travel restore
+   point. For any other migration, create and verify a private production D1
+   backup and apply it manually first.
 5. For a real deploy, dispatch the same tag with
    `deploy_to_production=true`, confirmation `BUILDS_DISABLED`, and approve
    the protected `production` environment.

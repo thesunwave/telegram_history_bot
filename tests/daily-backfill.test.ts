@@ -136,6 +136,7 @@ async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database
     '0009_stats_daily_aggregates.sql',
     '0010_stats_backfill_state.sql',
     '0011_stats_chat_user_profile.sql',
+    '0015_stats_daily_media_max_duration.sql',
   ]) {
     const sql = readFileSync(join(migrationsDir, file), 'utf8');
     for (const statement of sql.split(';')) {

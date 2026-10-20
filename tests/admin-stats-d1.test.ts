@@ -137,6 +137,7 @@ async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database
     '0010_stats_backfill_state.sql',
     '0011_stats_chat_user_profile.sql',
     '0012_stats_daily_pipeline_progress.sql',
+    '0015_stats_daily_media_max_duration.sql',
   ]) {
     const sql = readFileSync(join(migrationsDir, file), 'utf8');
     for (const statement of sql.split(';')) {
@@ -492,6 +493,13 @@ describe('D1 admin stats reader', () => {
     expect(alice.username).toBe('alice');
     // 200 has no username → anonymized "Участник N".
     expect(id200.username).toBe('Участник 2');
+    // The people table joins the timeline on userId, not the anonymized name.
+    expect(alice.userId).toBe('100');
+    expect(id200.userId).toBe('200');
+    expect(activity.allUsers.map((user) => user.userId)).toEqual(['100', '200']);
+    // Full per-person profanity and criminal counts, not just the top-10 lists.
+    expect(activity.allUsers[0]).toMatchObject({ profanityCount: 3, profanityRate: null, criminalCount: 1 });
+    expect(activity.allUsers[1]).toMatchObject({ profanityCount: 0, profanityRate: null, criminalCount: 0 });
     // alice: 8 messages / 2 days → threshold max(2, ceil(8/2)=4) = 4.
     expect(alice.dailyLevels).toEqual([
       { day: d1, level: 'talkative', timeBucketLevels: [
@@ -572,6 +580,59 @@ describe('D1 admin stats reader', () => {
     // `count` becomes 0/1/2 instead of the user's message_count 50/30/10.
     expect(voice.map((u) => u.count)).toEqual([50, 30, 10]);
     expect(vn.map((u) => u.count)).toEqual([50, 30, 10]);
+  });
+
+  it('returns daily media series, longest recordings and previous-window totals', async () => {
+    const sqlite = harness.sqlite;
+    const d1 = '2026-08-25';
+    const d2 = '2026-08-26';
+    insertUser(sqlite, { day: d1, user_id: 100, message_count: 5, word_count: 10, voice_count: 2, voice_duration_seconds: 120, profanity_count: 1 });
+    insertUser(sqlite, { day: d2, user_id: 100, message_count: 3, word_count: 6, video_note_count: 1, video_note_duration_seconds: 30 });
+    insertUser(sqlite, { day: d2, user_id: 200, message_count: 2, word_count: 4, voice_count: 1, voice_duration_seconds: 90, profanity_count: 2 });
+    sqlite.exec(`UPDATE stats_daily_user SET voice_max_duration_seconds = 80 WHERE user_id = 100 AND day = '${d1}'`);
+    sqlite.exec(`UPDATE stats_daily_user SET voice_max_duration_seconds = 90 WHERE user_id = 200`);
+    sqlite.exec(`UPDATE stats_daily_user SET video_note_max_duration_seconds = 30 WHERE user_id = 100 AND day = '${d2}'`);
+    // Previous equal-length window: 2026-08-23..2026-08-24.
+    insertUser(sqlite, { day: '2026-08-23', user_id: 100, message_count: 4, word_count: 8, voice_count: 1, voice_duration_seconds: 60 });
+    insertUser(sqlite, { day: '2026-08-24', user_id: 300, message_count: 1, word_count: 2, profanity_count: 3 });
+    insertProfile(sqlite, 1, 100, 'alice', 1000);
+    insertProfile(sqlite, 1, 200, 'bob', 1000);
+
+    const result = await getAdminChatStatsFromD1(db, 1, range('custom', [d1, d2]));
+
+    expect(result.activity.dailyMedia).toEqual([
+      { day: d1, voiceCount: 2, voiceMinutes: 2, videoNoteCount: 0, videoNoteMinutes: 0 },
+      { day: d2, voiceCount: 1, voiceMinutes: 1.5, videoNoteCount: 1, videoNoteMinutes: 0.5 },
+    ]);
+    expect(result.activity.longestVoice).toEqual({ userId: '200', username: 'bob', seconds: 90 });
+    expect(result.activity.longestVideoNote).toEqual({ userId: '100', username: 'alice', seconds: 30 });
+    expect(result.activity.topVoiceUsers.find((u) => u.username === 'alice')?.voiceMaxSeconds).toBe(80);
+    expect(result.profanity.total).toBe(3);
+    expect(result.previous).toEqual({
+      from: '2026-08-23',
+      to: '2026-08-24',
+      total: 5,
+      totalWords: 10,
+      activeUsers: 2,
+      totalVoiceCount: 1,
+      totalVoiceMinutes: 1,
+      totalVideoNoteCount: 0,
+      totalVideoNoteMinutes: 0,
+      profanityTotal: 3,
+    });
+  });
+
+  it('reports no previous window and no longest recordings when that data is absent', async () => {
+    const sqlite = harness.sqlite;
+    const d1 = '2026-08-26';
+    insertUser(sqlite, { day: d1, user_id: 100, message_count: 2, voice_count: 1, voice_duration_seconds: 40 });
+
+    const result = await getAdminChatStatsFromD1(db, 1, range('custom', [d1]));
+
+    expect(result.previous).toBeNull();
+    expect(result.activity.longestVoice).toBeNull();
+    expect(result.activity.longestVideoNote).toBeNull();
+    expect(result.activity.topVoiceUsers[0].voiceMaxSeconds).toBeNull();
   });
 
   it('preset periods produce sentence attributes from criminal_violations', async () => {

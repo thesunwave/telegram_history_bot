@@ -717,12 +717,17 @@ export class CountersDO {
           bucketCount,
           wordCount: userDayWordCount,
           ...(voiceTotals
-            ? { voiceCount: voiceTotals.count, voiceDurationSeconds: voiceTotals.duration }
+            ? {
+                voiceCount: voiceTotals.count,
+                voiceDurationSeconds: voiceTotals.duration,
+                voiceMessageDurationSeconds: voiceDurationSeconds,
+              }
             : {}),
           ...(videoNoteTotals
             ? {
                 videoNoteCount: videoNoteTotals.count,
                 videoNoteDurationSeconds: videoNoteTotals.duration,
+                videoNoteMessageDurationSeconds: videoNoteDurationSeconds,
               }
             : {}),
           ts,

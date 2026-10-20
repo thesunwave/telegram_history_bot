@@ -4,12 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import ts from 'typescript';
 
-const CONFIG_PATH = 'wrangler.production.jsonc';
+export const CONFIG_PATH = 'wrangler.production.jsonc';
 // Only inert values and Worker Secrets are deliberately excluded from
 // infrastructure drift checks. Unknown live binding types fail closed.
 const NON_RESOURCE_TYPES = new Set(['plain_text', 'json', 'secret_text']);
 
-function wranglerJson(...args) {
+export function wranglerJson(...args) {
   const command = resolve('node_modules/.bin/wrangler');
   const result = spawnSync(command, args, {
     encoding: 'utf8',
@@ -25,7 +25,7 @@ function wranglerJson(...args) {
   }
 }
 
-function report(text) {
+export function report(text) {
   console.log(text);
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, text + '\n');
@@ -91,12 +91,101 @@ export function pendingMigrations(files, applied) {
   return files.filter(file => !appliedNames.has(file)).sort();
 }
 
-export function migrationDecision(pending, willDeploy) {
+// A statement is additive when it only creates tables/indexes or adds columns.
+// Anything else (UPDATE, DROP, INSERT, triggers, renames) fails closed.
+const ADDITIVE_STATEMENT =
+  /^(CREATE\s+TABLE(\s+IF\s+NOT\s+EXISTS)?\s|CREATE\s+(UNIQUE\s+)?INDEX(\s+IF\s+NOT\s+EXISTS)?\s|ALTER\s+TABLE\s+\S+\s+ADD\s)/i;
+
+const QUOTE_CLOSERS = { "'": "'", '"': '"', '`': '`', '[': ']' };
+
+// Quote-aware split: comments and semicolons inside string literals or quoted
+// identifiers stay part of the statement. Returns null for unterminated input.
+export function splitSqlStatements(sql) {
+  const statements = [];
+  let current = '';
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
+    if (char === '-' && sql[i + 1] === '-') {
+      const end = sql.indexOf('\n', i);
+      if (end === -1) break;
+      current += ' ';
+      i = end;
+    } else if (char === '/' && sql[i + 1] === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      if (end === -1) return null;
+      current += ' ';
+      i = end + 1;
+    } else if (QUOTE_CLOSERS[char]) {
+      const closer = QUOTE_CLOSERS[char];
+      let end = i + 1;
+      // A doubled quote ('' or "") is an escaped quote inside the literal.
+      while (end < sql.length && !(sql[end] === closer && sql[end + 1] !== closer)) {
+        end += sql[end] === closer ? 2 : 1;
+      }
+      if (end >= sql.length) return null;
+      current += sql.slice(i, end + 1);
+      i = end;
+    } else if (char === ';') {
+      statements.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  statements.push(current);
+  return statements.map(statement => statement.trim()).filter(Boolean);
+}
+
+// CREATE TABLE ... AS SELECT copies rows, so it is not purely additive. CTAS has
+// no column list, so AS before the first "(" cannot be inside a quoted default.
+const CREATE_TABLE_AS_SELECT = /^CREATE\s+TABLE\b[^(]*\bAS\b/i;
+
+export function isAdditiveMigration(sql) {
+  const statements = splitSqlStatements(sql);
+  return Boolean(statements?.length) &&
+    statements.every(statement =>
+      ADDITIVE_STATEMENT.test(statement) && !CREATE_TABLE_AS_SELECT.test(statement));
+}
+
+// Additive migrations are applied by the release job after a D1 Time Travel
+// restore point is recorded; anything else still blocks an actual deploy.
+// nonAdditive is required so a caller cannot skip classification by omission.
+export function migrationDecision(pending, willDeploy, nonAdditive) {
+  if (!Array.isArray(nonAdditive)) throw new Error('migrationDecision requires the non-additive list');
   if (!pending.length) return { safe: true, reason: 'up to date' };
+  if (!willDeploy) {
+    return { safe: true, reason: 'Pending production D1 migrations: ' + pending.join(', ') };
+  }
+  if (nonAdditive.length) {
+    return {
+      safe: false,
+      reason: 'Non-additive D1 migrations need a manual backup and apply before deployment: ' +
+        nonAdditive.join(', '),
+    };
+  }
   return {
-    safe: !willDeploy,
-    reason: 'Production D1 backup and migration required before deployment: ' + pending.join(', '),
+    safe: true,
+    reason: 'Additive D1 migrations will be applied after a restore point: ' + pending.join(', '),
   };
+}
+
+export function nonAdditiveMigrations(pending, readSql) {
+  return pending.filter(file => !isAdditiveMigration(readSql(file)));
+}
+
+export function readMigrationSql(file) {
+  return readFileSync(resolve('migrations', file), 'utf8');
+}
+
+export function readPendingMigrations() {
+  const result = wranglerJson('d1', 'execute', 'DB', '--remote',
+    '--config', CONFIG_PATH, '--json', '--command',
+    'SELECT name FROM d1_migrations ORDER BY id');
+  if (!Array.isArray(result) || !result[0]?.success || !Array.isArray(result[0].results)) {
+    throw new Error('Could not read the production D1 migration registry');
+  }
+  const files = readdirSync('migrations').filter(name => /^[0-9]{4}.*[.]sql$/.test(name));
+  return pendingMigrations(files, result[0].results.map(row => row.name));
 }
 
 function main() {
@@ -130,17 +219,14 @@ function main() {
   }
   report('Production resource bindings match the active Worker.');
 
-  const result = wranglerJson('d1', 'execute', 'DB', '--remote',
-    '--config', CONFIG_PATH, '--json', '--command',
-    'SELECT name FROM d1_migrations ORDER BY id');
-  if (!Array.isArray(result) || !result[0]?.success || !Array.isArray(result[0].results)) {
-    throw new Error('Could not read the production D1 migration registry');
-  }
-  const files = readdirSync('migrations').filter(name => /^[0-9]{4}.*[.]sql$/.test(name));
-  const pending = pendingMigrations(files, result[0].results.map(row => row.name));
+  const pending = readPendingMigrations();
   if (pending.length) {
-    report('Pending production D1 migrations: ' + pending.join(', '));
-    const decision = migrationDecision(pending, process.env.DEPLOY_TO_PRODUCTION === 'true');
+    const decision = migrationDecision(
+      pending,
+      process.env.DEPLOY_TO_PRODUCTION === 'true',
+      nonAdditiveMigrations(pending, readMigrationSql),
+    );
+    report(decision.reason);
     if (!decision.safe) throw new Error(decision.reason);
     return;
   }
