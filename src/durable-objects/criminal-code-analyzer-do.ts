@@ -81,6 +81,7 @@ import type {
   CriminalPrefilterBatchItem,
   QueuedCriminalAnalysisTask,
 } from '../features/criminal/analyzer/types';
+import { readChatSettings } from '../core/chat-settings';
 
 const QUEUE_STORAGE_KEY = 'criminal_analysis_queue';
 const LAST_OPENROUTER_CALL_KEY = 'criminal_openrouter_last_call';
@@ -319,7 +320,7 @@ export class CriminalCodeAnalyzerDO {
           localProfanity,
         };
         // Evaluate consent once per message; a disabled feature must not update counters.
-        const profanityEnabled = await this.isProfanityAnalysisEnabled();
+        const profanityEnabled = await this.isProfanityAnalysisEnabled(task.chatId);
         // Independent terminal outcomes: profanity propagation identity must not block criminal ack.
         try {
           const profResult = await this.recordProfanityCountersFromAnalysis({
@@ -605,7 +606,7 @@ export class CriminalCodeAnalyzerDO {
       // success/failure must never block criminal completed/zero/skipped/failed.
       let profanityResult: { words: Array<{ word: string; count: number }>; count: number } | null = null;
       let profanityError: unknown = null;
-      const profanityEnabled = await this.isProfanityAnalysisEnabled();
+      const profanityEnabled = await this.isProfanityAnalysisEnabled(task.chatId);
       try {
         profanityResult = await this.recordProfanityCountersFromAnalysis({
           task, semanticPrefilter, sequence: task.sequence, profanityEnabled,
@@ -828,9 +829,15 @@ export class CriminalCodeAnalyzerDO {
     }
   }
 
-  private async isProfanityAnalysisEnabled(): Promise<boolean> {
+  private async isProfanityAnalysisEnabled(chatId: number): Promise<boolean> {
     if (!this.getBooleanEnv('ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER', false)) return false;
     if (!this.env.DB?.prepare) return true;
+    if (!(await this.isInstanceProfanityEnabled())) return false;
+    // A chat administrator's opt-out narrows the instance policy.
+    return (await readChatSettings(this.env, chatId, { fresh: true })).profanityEnabled;
+  }
+
+  private async isInstanceProfanityEnabled(): Promise<boolean> {
     try {
       const row = await this.env.DB.prepare('SELECT settings_json FROM app_settings WHERE scope = ?')
         .bind('global').first() as { settings_json?: string } | null;

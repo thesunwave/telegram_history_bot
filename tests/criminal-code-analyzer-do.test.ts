@@ -242,7 +242,8 @@ describe("CriminalCodeAnalyzerDO", () => {
     }));
     expect(events.some(({ path, body }) => path === '/ack' &&
       body.category === 'profanity' && body.outcome === 'zero')).toBe(true);
-    expect(first).toHaveBeenCalledTimes(2); // analyzer gate + one profanity decision
+    // analyzer gate + one profanity decision (instance policy, then the chat's own switch)
+    expect(first).toHaveBeenCalledTimes(3);
   });
 
   it('drops queued message text when owner disables criminal analysis before the alarm', async () => {

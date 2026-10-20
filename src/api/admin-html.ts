@@ -18,6 +18,8 @@ const NAV_ICONS = {
   criminal: '<path d="M12 3l8 4v5c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V7z"/>',
   notifications: '<path d="M6 16V11a6 6 0 0112 0v5l2 2H4zM10 21h4"/>',
   lab: '<path d="M9 3h6M10 3v6l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3"/>',
+  chats: '<path d="M4 5h11v8H8l-4 3z"/><path d="M15 9h5v8l-3-2h-6v-2"/>',
+  modules: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
   setup:
     '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
 } as const;
@@ -313,9 +315,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     .tab.warm[aria-selected="true"] { background: var(--orange-soft); color: var(--orange-text); }
     .rankList { display: flex; flex-direction: column; }
     .rankRow {
-      display: grid; grid-template-columns: 24px 30px minmax(80px, 140px) minmax(40px, 1fr) 80px;
+      display: grid; grid-template-columns: 24px minmax(120px, 182px) minmax(40px, 1fr) 80px;
       align-items: center; gap: 12px; padding: 9px 4px; border-top: 1px solid var(--line-soft);
     }
+    .rankRow .rankPerson { gap: 12px; }
     .rankRow .rank { font-size: 13px; color: var(--muted); text-align: right; }
     .rankRow .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .rankRow .value { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -463,6 +466,51 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       background: var(--surface); padding: 10px; border-radius: 8px; max-height: 360px; overflow: auto;
     }
 
+    .chatGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+    .chatCard { display: flex; flex-direction: column; gap: 12px; }
+    .chatCard[aria-current="true"] { border-color: var(--accent-mid); }
+    .chatCardHead { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .chatCardHead h2 { flex: 1; font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .roleBadge { font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: var(--surface); color: var(--text-2); white-space: nowrap; }
+    .roleBadge.admin { background: var(--accent-soft); color: var(--accent-strong); }
+    .chatPulse { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .chatPulse div { display: flex; flex-direction: column; gap: 2px; }
+    .chatPulse strong { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .chatPulse span { font-size: 12px; color: var(--muted); }
+    .chatPulse .lastActive strong { font-size: 15px; line-height: 27px; }
+    .moduleChips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .moduleChip { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--good-soft); color: var(--good); }
+    .moduleChip.off { background: var(--surface); color: var(--muted); text-decoration: line-through; }
+    .moduleChip.note { background: var(--surface); color: var(--text-2); }
+    .chatCard .formActions { justify-content: flex-start; }
+    .selectInput {
+      flex: none; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--input); color: var(--text); font: inherit; font-size: 14px;
+    }
+    .personButton {
+      display: inline-flex; align-items: center; gap: 10px; padding: 0; border: 0; background: none;
+      color: inherit; font: inherit; cursor: pointer; text-align: left; min-width: 0;
+    }
+    .personButton:hover .name { color: var(--accent-strong); text-decoration: underline; }
+    .memberDialog {
+      width: min(860px, calc(100vw - 24px)); max-height: calc(100vh - 32px); padding: 20px;
+      border: 1px solid var(--line); border-radius: 16px; background: var(--bg); color: var(--text);
+      box-shadow: 0 20px 60px var(--shadow);
+    }
+    .memberDialog::backdrop { background: rgba(10, 14, 18, .45); }
+    .memberHead { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+    .memberAvatar { width: 48px; height: 48px; font-size: 20px; flex: none; }
+    .memberTitle { flex: 1; min-width: 0; }
+    .memberTitle h2 { font-size: 20px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .memberBody { display: flex; flex-direction: column; gap: 14px; }
+    .memberCols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .memberBuckets { display: flex; flex-direction: column; gap: 10px; }
+    .memberBucket { display: grid; grid-template-columns: 58px minmax(0, 1fr) 44px; align-items: center; gap: 10px; font-size: 13px; }
+    .memberBucket .bars { display: flex; flex-direction: column; gap: 3px; }
+    .memberBucket .bar.chat > span { background: var(--line); }
+    .memberLegend { font-size: 12px; color: var(--muted); display: flex; gap: 12px; margin-top: 4px; }
+    .memberLegend span { display: inline-flex; align-items: center; gap: 5px; }
+
     .login { max-width: 460px; margin: 10vh auto 0; display: flex; flex-direction: column; gap: 12px; }
     .login h2 { font-size: 20px; }
     .statsError { display: flex; flex-direction: column; gap: 10px; }
@@ -518,8 +566,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       .kpiValue { font-size: 24px; }
       .spark { display: none; }
       .mediaGrid { grid-template-columns: 1fr; }
+      .memberCols { grid-template-columns: 1fr; }
+      .memberDialog { padding: 14px; }
+      .memberAvatar { width: 40px; height: 40px; font-size: 17px; }
+      .memberTitle h2 { font-size: 18px; }
+      .memberMeta { font-size: 13px; }
       .shadowColumns { grid-template-columns: 1fr; }
-      .rankRow { grid-template-columns: 20px 28px minmax(60px, 1fr) 56px; }
+      .rankRow { grid-template-columns: 20px minmax(90px, 1fr) 56px; }
       .rankRow .bar { display: none; }
       .mediaRow { grid-template-columns: 28px minmax(60px, 1fr) 44px 40px 48px 48px; }
       .mediaRow .bar, .mediaRow .barHead { display: none; }
@@ -545,6 +598,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       <div class="navDivider"></div>
       <div class="navLabel">Настройки чата</div>
       <nav class="navGroup settings" aria-label="Настройки">
+        <a class="navLink" href="#chats" data-view-link="chats">${navIcon('chats')}<span>Все чаты</span></a>
+        <a class="navLink" href="#modules" data-view-link="modules">${navIcon('modules')}<span>Модули</span></a>
         <a class="navLink" href="#notifications" data-view-link="notifications">${navIcon('notifications')}<span>Уведомления</span></a>
         <a class="navLink" href="#lab" data-view-link="lab">${navIcon('lab')}<span>Модели</span></a>
         ${setupLink}
@@ -765,6 +820,46 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </div>
         </section>
 
+        <section class="view hidden" data-view="chats">
+          <div class="stack">
+            <p class="muted" style="margin:0">Чаты, где вы состоите. Цифры за последние 7 дней, включая сегодня.</p>
+            <div class="chatGrid" id="chatCards"></div>
+          </div>
+        </section>
+
+        <section class="view hidden" data-view="modules">
+          <div class="stack narrow">
+            <p class="muted" style="margin:0">Что бот делает в этом чате. <span id="chatSettingsMeta"></span></p>
+            <section class="card">
+              <label class="switchRow">
+                <span class="switchText"><strong>Анализ мата</strong><span id="chatProfanityHint">Считать мат и любимые слова участников</span></span>
+                <input type="checkbox" class="switch" role="switch" id="chatProfanity" data-chat-setting="profanityEnabled" data-module="profanity">
+              </label>
+              <label class="switchRow">
+                <span class="switchText"><strong>УК РФ</strong><span id="chatCriminalHint">Искать в сообщениях «статьи» и считать сроки</span></span>
+                <input type="checkbox" class="switch" role="switch" id="chatCriminal" data-chat-setting="criminalEnabled" data-module="criminal">
+              </label>
+              <label class="switchRow">
+                <span class="switchText"><strong>Ночная AI-сводка</strong><span id="chatSummaryHint">Каждую ночь бот пишет в чат, что обсуждали за день</span></span>
+                <input type="checkbox" class="switch" role="switch" id="chatSummary" data-chat-setting="summaryEnabled" data-module="summary">
+              </label>
+            </section>
+            <section class="card">
+              <label class="switchRow">
+                <span class="switchText"><strong>Кто видит дашборд</strong><span>Участники без доступа не увидят этот чат в списке</span></span>
+                <select id="chatDashboardAccess" class="selectInput">
+                  <option value="members">Все участники</option>
+                  <option value="admins">Только админы</option>
+                </select>
+              </label>
+            </section>
+            <div class="formActions">
+              <span class="muted" id="chatSettingsDirty"></span>
+              <button class="primary" id="saveChatSettings" type="button">Сохранить</button>
+            </div>
+          </div>
+        </section>
+
         <section class="view hidden" data-view="notifications">
           <div class="stack narrow">
             <p class="muted" style="margin:0">Что бот сам присылает в этот чат. <span id="notificationMeta">Настройки еще не сохранялись</span></p>
@@ -812,6 +907,38 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       </div>
     </main>
   </div>
+  <dialog class="memberDialog" id="memberDialog" aria-labelledby="memberName">
+    <div class="memberHead">
+      <span class="avatar memberAvatar" id="memberAvatar" aria-hidden="true"></span>
+      <div class="memberTitle">
+        <h2 id="memberName"></h2>
+        <div class="muted memberMeta" id="memberMeta"></div>
+      </div>
+      <button type="button" class="iconButton" id="memberClose" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="memberBody" id="memberBody">
+      <div class="grid" id="memberKpis"></div>
+      <section class="card">
+        <div class="cardHead"><h2>Сообщения по дням</h2><span class="cardHint" id="memberDailyHint"></span></div>
+        <div class="chartBox short"><canvas id="memberDailyChart" aria-label="Сообщения участника по дням" role="img"></canvas></div>
+        <div class="chartEmpty hidden" id="memberDailyEmpty">Нет данных</div>
+      </section>
+      <div class="memberCols">
+        <section class="card">
+          <div class="cardHead"><h2>Когда пишет</h2><span class="cardHint">доля сообщений, UTC</span></div>
+          <div class="memberBuckets" id="memberBuckets"></div>
+        </section>
+        <section class="card">
+          <div class="cardHead"><h2>Любимые слова</h2><span class="cardHint" id="memberWordsHint"></span></div>
+          <div class="chips" id="memberWords"></div>
+        </section>
+      </div>
+      <div class="formActions">
+        <button type="button" class="secondary hidden" id="memberCriminalButton">Показать нарушения УК</button>
+      </div>
+    </div>
+    <p class="muted hidden" id="memberStatus"></p>
+  </dialog>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script>
     const principal = ${principal};
@@ -827,8 +954,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       profanity: 'Мат',
       criminal: 'УК РФ',
       notifications: 'Автоуведомления',
-      lab: 'Лаборатория моделей'
+      lab: 'Лаборатория моделей',
+      chats: 'Все чаты',
+      modules: 'Модули чата'
     };
+    // Views that do not depend on the stats period.
+    const SETTINGS_VIEWS = ['notifications', 'lab', 'chats', 'modules'];
     const AVATAR_COLORS = ['#f6c9a8', '#bfd9f2', '#cde8d6', '#e3d3f5', '#f5e1a4', '#f2c4ce', '#d3e4f0', '#e8dcc8'];
     const state = {
       chatId: '',
@@ -847,7 +978,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       loadedCriminalRange: null,
       shadowLoading: false,
       shadowFilter: 'diff',
-      shadowPayload: null
+      shadowPayload: null,
+      modules: null,
+      chatSettings: null,
+      chatSettingsDirty: false,
+      memberRequestId: 0,
+      memberUserId: null
     };
     const chartInstances = {};
     const labels = {
@@ -1016,6 +1152,16 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         node.textContent = row.username;
       }
       return node;
+    }
+
+    /** Avatar + name that opens the participant card. */
+    function personButton(row) {
+      const button = el('button', 'personButton');
+      button.type = 'button';
+      button.title = 'Открыть карточку участника';
+      button.append(avatarNode(row.username), nameNode(row));
+      button.addEventListener('click', () => openMember(row.userId, row.username));
+      return button;
     }
 
     function avatarNode(username) {
@@ -1213,8 +1359,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     function showView(name) {
       state.view = name;
       document.getElementById('viewTitle').textContent = VIEWS[name];
-      // Settings views do not depend on the stats period.
-      document.getElementById('controls').classList.toggle('hidden', name === 'notifications' || name === 'lab');
+      document.getElementById('controls').classList.toggle('hidden', SETTINGS_VIEWS.includes(name));
       for (const view of document.querySelectorAll('.view')) {
         view.classList.toggle('hidden', view.dataset.view !== name);
       }
@@ -1518,10 +1663,11 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const max = Math.max(...rows.map(row => Number(row.value) || 0), 0);
       rows.forEach((row, index) => {
         const line = el('div', 'rankRow');
+        const person = personButton(row);
+        person.classList.add('rankPerson');
         line.append(
           el('span', 'rank', index + 1),
-          avatarNode(row.username),
-          nameNode(row),
+          person,
           barNode(max > 0 ? ((Number(row.value) || 0) / max) * 100 : 0, state.leaderMetric === 'profanity' ? 'warm' : ''),
           el('span', 'value', row.display)
         );
@@ -1687,7 +1833,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const tr = el('tr');
         const nameCell = el('td');
         const personCell = el('span', 'personCell');
-        personCell.append(avatarNode(person.username), nameNode(person));
+        personCell.append(personButton(person));
         nameCell.append(personCell);
 
         const messagesCell = el('td');
@@ -2730,6 +2876,322 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       setNotificationsDirty(false);
     }
 
+    // ---------- all chats ----------
+
+    function formatLastActive(day) {
+      if (!day) return 'не было';
+      const today = new Date().toISOString().slice(0, 10);
+      if (day === today) return 'сегодня';
+      const diff = Math.round((Date.parse(today) - Date.parse(day)) / 86400000);
+      return diff === 1 ? 'вчера' : diff + ' ' + pluralRu(diff, ['день', 'дня', 'дней']) + ' назад';
+    }
+
+    function moduleChip(label, enabledHere, enabledByOwner) {
+      const on = enabledHere && enabledByOwner !== false;
+      const chip = el('span', 'moduleChip' + (on ? '' : ' off'), label);
+      if (enabledByOwner === false) chip.title = 'Выключено владельцем бота';
+      return chip;
+    }
+
+    function openChat(chatId) {
+      document.getElementById('chatSelect').value = String(chatId);
+      window.location.hash = '#overview';
+      loadDashboard();
+    }
+
+    function renderChatCards() {
+      const box = document.getElementById('chatCards');
+      box.replaceChildren();
+      if (!state.chats.length) {
+        box.append(emptyNote('Чаты пока не найдены'));
+        return;
+      }
+      const modules = state.modules || {};
+      for (const chat of state.chats) {
+        const card = el('section', 'card chatCard');
+        card.setAttribute('aria-current', String(String(chat.chatId) === String(state.chatId)));
+        const head = el('div', 'chatCardHead');
+        head.append(avatarNode(chat.title), el('h2', '', chat.title || String(chat.chatId)));
+        if (chat.role) head.append(el('span', 'roleBadge' + (chat.role === 'admin' ? ' admin' : ''), chat.role === 'admin' ? 'админ' : 'участник'));
+        card.append(head);
+
+        const pulse = el('div', 'chatPulse');
+        const metric = (value, label, className) => {
+          const box = el('div', className || '');
+          box.append(el('strong', '', value), el('span', '', label));
+          return box;
+        };
+        if (chat.pulse) {
+          pulse.append(
+            metric(formatNumber(chat.pulse.messages), pluralRu(chat.pulse.messages, ['сообщение', 'сообщения', 'сообщений'])),
+            metric(formatNumber(chat.pulse.activeUsers), 'активных'),
+            metric(formatLastActive(chat.pulse.lastActiveDay), 'последняя активность', 'lastActive')
+          );
+          card.append(pulse);
+        } else {
+          card.append(emptyNote('Активность временно недоступна'));
+        }
+
+        const settings = chat.settings || {};
+        const chips = el('div', 'moduleChips');
+        chips.append(
+          moduleChip('мат', settings.profanityEnabled !== false, modules.profanity),
+          moduleChip('УК РФ', settings.criminalEnabled !== false, modules.criminal),
+          moduleChip('сводка', settings.summaryEnabled !== false, modules.summary)
+        );
+        if (settings.dashboardAccess === 'admins') chips.append(el('span', 'moduleChip note', 'дашборд только админам'));
+        card.append(chips);
+
+        const actions = el('div', 'formActions');
+        const open = el('button', 'primary', 'Открыть');
+        open.type = 'button';
+        open.addEventListener('click', () => openChat(chat.chatId));
+        actions.append(open);
+        if (chat.role === 'admin') {
+          const configure = el('button', 'secondary', 'Модули');
+          configure.type = 'button';
+          configure.addEventListener('click', () => {
+            document.getElementById('chatSelect').value = String(chat.chatId);
+            window.location.hash = '#modules';
+            loadDashboard();
+          });
+          actions.append(configure);
+        }
+        card.append(actions);
+        box.append(card);
+      }
+    }
+
+    // ---------- chat modules ----------
+
+    const MODULE_OFF_HINT = 'Выключено владельцем бота для всех чатов';
+
+    function setChatSettingsDirty(dirty) {
+      state.chatSettingsDirty = dirty;
+      document.getElementById('chatSettingsDirty').textContent = dirty ? 'Есть несохранённые изменения' : '';
+    }
+
+    function renderChatSettings(payload) {
+      state.chatSettings = payload;
+      const settings = payload?.settings || {};
+      const modules = payload?.modules || state.modules || {};
+      const canEdit = Boolean(payload?.canEdit);
+      for (const input of document.querySelectorAll('[data-chat-setting]')) {
+        const ownerOff = modules[input.dataset.module] === false;
+        input.checked = !ownerOff && settings[input.dataset.chatSetting] !== false;
+        input.disabled = !canEdit || ownerOff;
+        const hint = document.getElementById(input.id + 'Hint');
+        if (!hint.dataset.defaultText) hint.dataset.defaultText = hint.textContent;
+        hint.textContent = ownerOff ? MODULE_OFF_HINT : hint.dataset.defaultText;
+      }
+      const access = document.getElementById('chatDashboardAccess');
+      access.value = settings.dashboardAccess === 'admins' ? 'admins' : 'members';
+      access.disabled = !canEdit;
+      document.getElementById('saveChatSettings').disabled = !canEdit;
+      document.getElementById('chatSettingsMeta').textContent = formatNotificationEditMeta(settings, canEdit);
+      setChatSettingsDirty(false);
+    }
+
+    async function saveChatSettings() {
+      if (!state.chatId || state.loading || !state.chatSettings) return;
+      const current = state.chatSettings.settings || {};
+      const modules = state.chatSettings.modules || {};
+      const payload = { dashboardAccess: document.getElementById('chatDashboardAccess').value };
+      for (const input of document.querySelectorAll('[data-chat-setting]')) {
+        // Keep a chat's own choice for modules the owner switched off instance-wide.
+        payload[input.dataset.chatSetting] = modules[input.dataset.module] === false
+          ? current[input.dataset.chatSetting] !== false
+          : input.checked;
+      }
+      setStatus('Сохранение...');
+      const res = await fetch('/admin/api/chat-settings?chatId=' + encodeURIComponent(state.chatId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.status === 401) {
+        redirectToLogin();
+        return;
+      }
+      if (!res.ok) {
+        setStatus('Не удалось сохранить модули. Попробуйте ещё раз.', true);
+        return;
+      }
+      const saved = await res.json();
+      renderChatSettings(saved);
+      const chat = state.chats.find(item => String(item.chatId) === String(state.chatId));
+      if (chat) chat.settings = saved.settings;
+      renderChatCards();
+      setStatus('Сохранено');
+    }
+
+    // ---------- participant card ----------
+
+    function buildMemberUrl(chatId, userId, loadedRange) {
+      const url = new URL('/admin/api/member', window.location.origin);
+      url.searchParams.set('chatId', chatId);
+      url.searchParams.set('userId', String(userId));
+      url.searchParams.set('period', 'custom');
+      url.searchParams.set('from', loadedRange.from);
+      url.searchParams.set('to', loadedRange.to);
+      return url.pathname + url.search;
+    }
+
+    function memberRelative(value, chatValue, unit) {
+      if (chatValue === null || chatValue === undefined || !(Number(chatValue) > 0)) return '';
+      const ratio = (Number(value) || 0) / Number(chatValue);
+      if (ratio >= 0.95 && ratio <= 1.05) return 'как в среднем по чату';
+      return (ratio > 1 ? 'в ' + formatDecimal(ratio) + ' раза больше' : 'в ' + formatDecimal(1 / ratio) + ' раза меньше') + ' ' + unit;
+    }
+
+    function renderMember(payload) {
+      const totals = payload.totals || {};
+      const chat = payload.chat || {};
+      const previous = payload.previous;
+      document.getElementById('memberName').textContent = payload.username;
+      const avatar = avatarNode(payload.username);
+      const avatarBox = document.getElementById('memberAvatar');
+      avatarBox.textContent = avatar.textContent;
+      avatarBox.style.background = avatar.style.background;
+      const meta = [];
+      if (chat.rank) meta.push(chat.rank + '-е место из ' + chat.activeUsers + ' по сообщениям');
+      if (payload.firstSeenDay) meta.push('в чате с ' + new Date(payload.firstSeenDay + 'T00:00:00Z').toLocaleDateString('ru-RU', { timeZone: 'UTC' }));
+      if (payload.lastMessageTs) meta.push('последнее сообщение ' + new Date(Number(payload.lastMessageTs) * 1000).toLocaleString('ru-RU'));
+      document.getElementById('memberMeta').textContent = meta.join(' · ');
+
+      renderKpis('memberKpis', [
+        {
+          label: 'Сообщения',
+          value: formatNumber(totals.messages),
+          delta: deltaInfo(totals.messages, previous ? previous.messages : null),
+          hint: formatDecimal(chat.share) + '% всех сообщений чата'
+        },
+        {
+          label: 'Слов на сообщение',
+          value: formatDecimal(totals.wordsPerMessage),
+          hint: memberRelative(totals.wordsPerMessage, chat.wordsPerMessage, 'чем в среднем') || formatNumber(totals.words) + ' слов'
+        },
+        {
+          label: 'Активных дней',
+          value: formatNumber(totals.activeDays) + ' из ' + formatNumber(payload.range?.days),
+          hint: formatDecimal(totals.voiceMinutes) + ' мин голосовых · ' + formatDecimal(totals.videoNoteMinutes) + ' мин кружков'
+        },
+        {
+          label: 'Доля мата',
+          value: totals.profanityRate === null ? '—' : formatRate(totals.profanityRate),
+          hint: totals.profanityRate === null
+            ? formatNumber(totals.profanity) + ' ' + pluralRu(totals.profanity, ['слово', 'слова', 'слов']) + ', слишком мало текста для доли'
+            : (memberRelative(totals.profanityRate, chat.profanityRate, 'чем по чату') || formatNumber(totals.profanity) + ' слов')
+        }
+      ]);
+
+      const daily = payload.daily || [];
+      const activeDays = daily.filter(row => row.messages > 0).length;
+      document.getElementById('memberDailyHint').textContent = activeDays
+        ? 'в среднем ' + formatDecimal((Number(totals.messages) || 0) / activeDays) + ' в активный день'
+        : '';
+      const hasDaily = daily.some(row => row.messages > 0);
+      setChartEmpty('memberDaily', !hasDaily);
+      if (hasDaily) {
+        const colors = getThemeColors();
+        makeChart('memberDailyChart', {
+          type: 'bar',
+          data: {
+            labels: daily.map(row => compactDayLabel(row.day)),
+            datasets: [{ data: daily.map(row => row.messages), backgroundColor: colors.accent, borderRadius: 5, maxBarThickness: 40 }]
+          },
+          options: commonChartOptions()
+        });
+      }
+
+      const buckets = document.getElementById('memberBuckets');
+      buckets.replaceChildren();
+      const userTotal = (payload.buckets || []).reduce((sum, row) => sum + (Number(row.count) || 0), 0);
+      const chatTotal = (payload.buckets || []).reduce((sum, row) => sum + (Number(row.chatCount) || 0), 0);
+      if (!userTotal) {
+        buckets.append(emptyNote('Нет сообщений за период'));
+      } else {
+        for (const row of payload.buckets) {
+          const own = (Number(row.count) || 0) / userTotal * 100;
+          const all = chatTotal ? (Number(row.chatCount) || 0) / chatTotal * 100 : 0;
+          const line = el('div', 'memberBucket');
+          const bars = el('div', 'bars');
+          bars.append(barNode(own), barNode(all, 'thin chat'));
+          line.append(el('span', 'muted', row.label), bars, el('span', 'num', Math.round(own) + '%'));
+          line.title = row.label + ': ' + Math.round(own) + '% сообщений участника, ' + Math.round(all) + '% по чату';
+          buckets.append(line);
+        }
+        const legend = el('div', 'memberLegend');
+        const own = el('span');
+        const ownSwatch = el('span', 'swatch');
+        ownSwatch.style.background = 'var(--accent)';
+        own.append(ownSwatch, document.createTextNode('участник'));
+        const all = el('span');
+        const allSwatch = el('span', 'swatch');
+        allSwatch.style.background = 'var(--line)';
+        all.append(allSwatch, document.createTextNode('весь чат'));
+        legend.append(own, all);
+        buckets.append(legend);
+      }
+
+      const words = document.getElementById('memberWords');
+      words.replaceChildren();
+      for (const word of payload.topWords || []) {
+        words.append(el('span', 'chip', word.word + ' · ' + formatNumber(word.count)));
+      }
+      document.getElementById('memberWordsHint').textContent = totals.profanity
+        ? formatNumber(totals.profanity) + ' за период'
+        : '';
+      if (!(payload.topWords || []).length) words.append(emptyNote('Без мата за этот период'));
+
+      const criminalButton = document.getElementById('memberCriminalButton');
+      criminalButton.classList.toggle('hidden', !(Number(totals.criminal) > 0));
+      criminalButton.textContent = 'Показать нарушения УК (' + formatNumber(totals.criminal) + ')';
+    }
+
+    function closeMember() {
+      state.memberRequestId += 1;
+      state.memberUserId = null;
+      destroyChart('memberDailyChart');
+      const dialog = document.getElementById('memberDialog');
+      if (dialog.open) dialog.close();
+    }
+
+    async function openMember(userId, username) {
+      if (!state.chatId || !state.loadedCriminalRange) return;
+      const requestId = ++state.memberRequestId;
+      state.memberUserId = userId;
+      const dialog = document.getElementById('memberDialog');
+      const status = document.getElementById('memberStatus');
+      const body = document.getElementById('memberBody');
+      document.getElementById('memberName').textContent = username || 'Участник';
+      document.getElementById('memberMeta').textContent = '';
+      const avatar = avatarNode(username);
+      const avatarBox = document.getElementById('memberAvatar');
+      avatarBox.textContent = avatar.textContent;
+      avatarBox.style.background = avatar.style.background;
+      body.classList.add('hidden');
+      status.classList.remove('hidden');
+      status.textContent = 'Загрузка...';
+      if (!dialog.open) dialog.showModal();
+      try {
+        const res = await fetch(buildMemberUrl(state.chatId, userId, state.loadedCriminalRange));
+        if (res.status === 401) {
+          redirectToLogin();
+          return;
+        }
+        if (!res.ok) throw new Error('member unavailable');
+        const payload = await res.json();
+        if (requestId !== state.memberRequestId) return;
+        status.classList.add('hidden');
+        body.classList.remove('hidden');
+        renderMember(payload);
+      } catch (_error) {
+        if (requestId !== state.memberRequestId) return;
+        status.textContent = 'Не удалось загрузить карточку участника. Попробуйте ещё раз.';
+      }
+    }
+
     // ---------- data loading ----------
 
     function renderChats(chats) {
@@ -2750,6 +3212,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         option.textContent = chat.title || String(chat.chatId);
         select.append(option);
       }
+      renderChatCards();
     }
 
     function redirectToLogin() {
@@ -2778,6 +3241,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         }
         if (!res.ok) throw new Error('chats unavailable');
         const body = await res.json();
+        state.modules = body.modules || null;
         renderChats(body.chats || []);
         finishDashboardLoading();
         if ((body.chats || []).length) {
@@ -2805,11 +3269,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const statsUrl = buildStatsUrl(chatId, period);
         setStatus('Загрузка...');
         renderDashboardSkeleton();
-        const [statsRes, notificationsRes] = await Promise.all([
+        const [statsRes, notificationsRes, chatSettingsRes] = await Promise.all([
           fetch(statsUrl),
-          fetch('/admin/api/notifications?chatId=' + encodeURIComponent(chatId))
+          fetch('/admin/api/notifications?chatId=' + encodeURIComponent(chatId)),
+          fetch('/admin/api/chat-settings?chatId=' + encodeURIComponent(chatId))
         ]);
-        if (statsRes.status === 401 || notificationsRes.status === 401) {
+        if (statsRes.status === 401 || notificationsRes.status === 401 || chatSettingsRes.status === 401) {
           redirectToLogin();
           return;
         }
@@ -2839,6 +3304,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           notifications.availableTypes,
           notifications.canEdit
         );
+        renderChatSettings(chatSettingsRes.ok
+          ? await chatSettingsRes.json()
+          : { settings: null, modules: state.modules, canEdit: false });
+        renderChatCards();
         if (state.view === 'lab') void loadShadowComparisons();
         const servedRange = stats.range && stats.range.from && stats.range.to
           ? stats.range.from + ' – ' + stats.range.to
@@ -2955,6 +3424,25 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     document.getElementById('notificationsEnabled').addEventListener('change', () => setNotificationsDirty(true));
     document.getElementById('saveNotifications').addEventListener('click', saveNotifications);
     document.getElementById('criminalDetailsClose').addEventListener('click', closeCriminalDetails);
+    document.getElementById('saveChatSettings').addEventListener('click', saveChatSettings);
+    for (const input of document.querySelectorAll('[data-chat-setting], #chatDashboardAccess')) {
+      input.addEventListener('change', () => setChatSettingsDirty(true));
+    }
+    document.getElementById('memberClose').addEventListener('click', closeMember);
+    document.getElementById('memberDialog').addEventListener('close', () => {
+      state.memberRequestId += 1;
+      destroyChart('memberDailyChart');
+    });
+    document.getElementById('memberDialog').addEventListener('click', event => {
+      if (event.target === event.currentTarget) closeMember();
+    });
+    document.getElementById('memberCriminalButton').addEventListener('click', () => {
+      const userId = state.memberUserId;
+      const username = document.getElementById('memberName').textContent;
+      closeMember();
+      window.location.hash = '#criminal';
+      if (userId) loadCriminalDetails({ userId, username });
+    });
     window.addEventListener('hashchange', () => showView(currentViewFromHash()));
     setupThemeControl();
     watchSystemThemeChanges();

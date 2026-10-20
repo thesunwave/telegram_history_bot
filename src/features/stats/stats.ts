@@ -4,6 +4,7 @@ import { sendMessage, sendPhoto } from '../../core/telegram';
 import { summariseChat } from '../summary/summary';
 import { ViolationRepository } from '../../core/repositories/violation-repository';
 import { getStatsPeriodRange } from '../../core/stats-period';
+import { readChatSettings } from '../../core/chat-settings';
 import {
   formatChatCriminalReport,
   formatCriminalTopReport,
@@ -447,6 +448,7 @@ export async function dailySummary(env: Env) {
     }
   } while (cursor);
   for (const c of chats) {
+    if (!(await readChatSettings(env, c)).summaryEnabled) continue;
     await summariseChat(env, c, 1);
   }
 }
