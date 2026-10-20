@@ -497,6 +497,9 @@ describe('D1 admin stats reader', () => {
     expect(alice.userId).toBe('100');
     expect(id200.userId).toBe('200');
     expect(activity.allUsers.map((user) => user.userId)).toEqual(['100', '200']);
+    // Full per-person profanity and criminal counts, not just the top-10 lists.
+    expect(activity.allUsers[0]).toMatchObject({ profanityCount: 3, profanityRate: null, criminalCount: 1 });
+    expect(activity.allUsers[1]).toMatchObject({ profanityCount: 0, profanityRate: null, criminalCount: 0 });
     // alice: 8 messages / 2 days → threshold max(2, ceil(8/2)=4) = 4.
     expect(alice.dailyLevels).toEqual([
       { day: d1, level: 'talkative', timeBucketLevels: [

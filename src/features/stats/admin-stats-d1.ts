@@ -866,7 +866,15 @@ function mapAdminChatStatsFromD1Results(
       topTalkers: topTalkers.map((user) => mapUser(user)),
       topVoiceUsers: topVoiceUsers.map((user) => mapUser(user)),
       topVideoNoteUsers: topVideoNoteUsers.map((user) => mapUser(user)),
-      allUsers: allUsers.map((user) => mapUser(user)),
+      allUsers: allUsers.map((user) => ({
+        ...mapUser(user),
+        profanityCount: user.profanity_count,
+        profanityRate:
+          user.word_count >= PROFANITY_RATE_MIN_WORDS
+            ? (user.profanity_count / user.word_count) * 100
+            : null,
+        criminalCount: user.criminal_count,
+      })),
       dailyMessages: range.days.map((day) => ({ day, count: dayRows.get(day)?.count ?? 0 })),
       dailyActiveUsers: range.days.map((day) => ({ day, count: dayRows.get(day)?.active ?? 0 })),
       dailyMedia: range.days.map((day) => {

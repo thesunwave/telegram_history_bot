@@ -74,7 +74,14 @@ export interface AdminChatStats {
     topVoiceUsers: AdminUserCount[];
     topVideoNoteUsers: AdminUserCount[];
     /** Every participant with messages in the range, capped for response size. */
-    allUsers: AdminUserCount[];
+    allUsers: Array<
+      AdminUserCount & {
+        profanityCount: number;
+        /** Percent of words; null below the minimum word count for a rate. */
+        profanityRate: number | null;
+        criminalCount: number;
+      }
+    >;
     dailyMessages: Array<{ day: string; count: number }>;
     dailyActiveUsers: Array<{ day: string; count: number }>;
     dailyMedia: Array<{

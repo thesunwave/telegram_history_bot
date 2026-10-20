@@ -1604,6 +1604,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         person.voiceMinutes = Number(row.voiceMinutes) || 0;
         person.videoNoteMinutes = Number(row.videoNoteMinutes) || 0;
       }
+      // allUsers carries per-person profanity and criminal counts beyond the top-10 lists.
+      for (const row of activity.allUsers || []) {
+        const person = entry(row.userId, row.username);
+        person.profanity = Number(row.profanityCount) || 0;
+        person.rate = row.profanityRate === null || row.profanityRate === undefined ? null : Number(row.profanityRate) || 0;
+        person.criminal = Number(row.criminalCount) || 0;
+      }
       for (const row of stats.profanity?.topUsers || []) {
         entry(row.userId, row.username).profanity = Number(row.count) || 0;
       }
