@@ -60,7 +60,7 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('<option value="dark">Ночь</option>');
   });
 
-  it('renders profanity rate chart and table', () => {
+  it('renders the profanity view with a rate table and word contributors', () => {
     const html = renderAdminHtml({
       botUsername: 'stats_bot',
       principal: {
@@ -70,12 +70,15 @@ describe('renderAdminHtml', () => {
       },
     });
 
-    expect(html).toContain('id="profanityRateChart"');
+    expect(html).toContain('data-view="profanity"');
+    expect(html).toContain('id="profanityKpis"');
     expect(html).toContain('id="profanityRateUsers"');
+    expect(html).toContain('id="profanityWords"');
+    expect(html).toContain('data-profanity-sort');
     expect(html).toContain('Доля мата');
-    expect(html).toContain('stats.profanity.topRateUsers');
+    expect(html).toContain('profanity.topRateUsers');
+    expect(html).not.toContain('profanityRateChart');
   });
-
   it('renders side-by-side OpenAI and Qwen shadow evaluation controls', () => {
     const html = renderAdminHtml({
       botUsername: 'stats_bot',
@@ -86,15 +89,15 @@ describe('renderAdminHtml', () => {
       },
     });
 
-    expect(html).toContain('data-block-id="model-shadow"');
-    expect(html).toContain('OpenAI ↔ Qwen · shadow');
+    expect(html).toContain('data-view="lab"');
+    expect(html).toContain('Лаборатория моделей');
     expect(html).toContain('/admin/api/shadow-evaluations?chatId=');
+    expect(html).toContain('data-shadow-filter');
     expect(html).toContain('Exact model input');
     expect(html).toContain('Raw output');
     expect(html).toContain('Совпадение не означает правильность');
   });
-
-  it('renders persisted manual dashboard layout controls', () => {
+  it('renders sidebar navigation with hash-routed views', () => {
     const html = renderAdminHtml({
       botUsername: 'stats_bot',
       principal: {
@@ -104,20 +107,45 @@ describe('renderAdminHtml', () => {
       },
     });
 
-    expect(html).toContain('telegramStatsAdmin.dashboardLayout.v1');
-    expect(html).toContain('data-block-id="activity"');
-    expect(html).toContain('data-block-id="notifications"');
-    expect(html).toContain('class="secondary dragHandle"');
-    expect(html).toContain('class="secondary sizeToggle"');
-    expect(html).toContain('Перетащить блок');
-    expect(html).toContain('Изменить ширину блока');
-    expect(html).toContain('setupDashboardDragAndDrop');
-    expect(html).toContain('setupDashboardSizeControls');
-    expect(html).toContain('applyDashboardLayout');
-    expect(html).toContain('resetDashboardLayout');
+    for (const view of ['overview', 'people', 'media', 'profanity', 'criminal', 'notifications', 'lab']) {
+      expect(html).toContain(`href="#${view}" data-view-link="${view}"`);
+      expect(html).toMatch(new RegExp(`<section class="view[^"]*" data-view="${view}"`));
+    }
+    expect(html).toContain('function showView');
+    expect(html).toContain('function currentViewFromHash');
+    expect(html).toContain("window.addEventListener('hashchange'");
+    expect(html).toContain('.navLink[aria-current="page"]');
+    // The drag-and-drop dashboard layout was replaced by fixed views.
+    expect(html).not.toContain('dashboardLayout');
+    expect(html).not.toContain('dragHandle');
   });
 
-  it('renders an accessible participant rhythm overview and daily detail heatmap', () => {
+  it('shows period-over-period deltas, media minutes and longest recordings', () => {
+    const html = renderAdminHtml({
+      botUsername: 'stats_bot',
+      principal: {
+        type: 'telegram',
+        username: 'admin',
+        telegramId: 123,
+      },
+    });
+
+    expect(html).toContain('id="overviewKpis"');
+    expect(html).toContain('function deltaInfo(current, previous)');
+    expect(html).toContain('stats.previous');
+    expect(html).toContain('id="mediaKpis"');
+    expect(html).toContain('id="mediaDailyChart"');
+    expect(html).toContain('dailyMedia');
+    expect(html).toContain('longestVoice');
+    expect(html).toContain('voiceMaxSeconds');
+
+    const match = html.match(/function deltaInfo\(current, previous\) \{[\s\S]*?\n    \}/);
+    if (!match) throw new Error('deltaInfo not found in rendered admin HTML');
+    const deltaInfo = new Function(match[0] + '\nreturn deltaInfo;')();
+    expect(deltaInfo(10, null)).toBeNull();
+    expect(deltaInfo(10, undefined)).toBeNull();
+  });
+  it('renders an accessible participant rhythm heatmap', () => {
     const html = renderAdminHtml({
       botUsername: 'stats_bot',
       principal: {
@@ -128,44 +156,25 @@ describe('renderAdminHtml', () => {
     });
 
     expect(html).toContain('<h2>Ритм участников</h2>');
-    expect(html).toContain('id="activityRhythmOverview"');
     expect(html).toContain('id="activityHeatmap"');
-    expect(html).toContain('id="activityDetailTitle"');
-    expect(html).toContain('Обзор показывает типичный ритм по дням недели; время — UTC.');
+    expect(html).toContain('id="peopleRows"');
     expect(html).toContain('Нет активности');
     expect(html).toContain('Активен');
     expect(html).toContain('Активно общается');
-    expect(html).toContain('stats.activity.participantTimeline');
+    expect(html).toContain('participantTimeline');
     expect(html).toContain('timeBucketLevels');
-    expect(html).toContain("{ bucket: 'night', label: 'Ночь · 22–05' }");
-    expect(html).toContain("{ bucket: 'evening', label: 'Вечер · 17–22' }");
+    expect(html).toContain("{ bucket: 'night'");
     expect(html).toContain("const ACTIVITY_WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']");
-    expect(html).toContain(".filter(({ index }) => days.some(day => weekdayIndex(day) === index))");
     expect(html).toContain('function rhythmLevel(levels)');
     expect(html).toContain('talkativeLevels * 2 >= levels.length');
-    expect(html).toContain('activeLevels * 4 >= levels.length');
     expect(html).toContain("if (!levels.length) return 'inactive'");
-    expect(html).toContain("select.setAttribute('aria-pressed', String(participant === selectedParticipant))");
-    expect(html).toContain("select.setAttribute('aria-controls', 'activityHeatmap')");
-    expect(html).toContain("select.addEventListener('click', () => renderActivityHeatmap(timeline, index))");
-    expect(html).toContain("dayHeader.textContent = day.slice(8) + '.' + day.slice(5, 7)");
-    expect(html).toContain("bucketName.scope = 'row'");
-    expect(html).toContain('.activityRhythmGrid');
-    expect(html).toContain('grid-template-columns: repeat(auto-fit, minmax(320px, 1fr))');
     expect(html).toContain('-webkit-overflow-scrolling: touch');
-    expect(html).not.toContain('function activityLevelMark(level)');
-    expect(html).not.toContain('cell.textContent = activityLevelMark(level)');
-    expect(html).not.toContain('writing-mode: vertical-rl');
-    expect(html).not.toContain('• Активен');
     expect(html).toContain("const participants = (timeline?.participants || []).slice(0, 12)");
     expect(html).toContain('sort().slice(-90)');
     expect(html).not.toContain('participantSelect');
-    expect(html).not.toContain('participantActivityChart');
     expect(html).not.toContain('/admin/api/chat/user-activity');
-    expect(html).not.toContain('participantRequestId');
-    expect(html).not.toContain("participant.userId");
+    expect(html).not.toContain('writing-mode: vertical-rl');
   });
-
   it('renders criminal violation drill-down with model confidence and retained context', () => {
     const html = renderAdminHtml({
       botUsername: 'stats_bot',
@@ -179,7 +188,7 @@ describe('renderAdminHtml', () => {
     expect(html).toContain('id="criminalDetails"');
     expect(html).toContain('id="criminalViolationList"');
     expect(html).toContain('/admin/api/criminal-violations');
-    expect(html).toContain('renderCriminalRows(stats.criminal.topUsers || [])');
+    expect(html).toContain('renderCriminalRows(stats.criminal?.topUsers || [])');
     expect(html).toContain('Сообщение-триггер');
     expect(html).toContain('Возможное наказание');
     expect(html).toContain('Максимум лишения свободы по тексту наказания');
@@ -240,12 +249,11 @@ describe('renderAdminHtml', () => {
       principal: null,
     });
 
-    expect(html).toContain('<option value="today">Сегодня · live</option>');
-    expect(html).toContain('Неделя · 7 дней, включая сегодня');
-    expect(html).toContain('Месяц · 30 дней, включая сегодня');
+    expect(html).toContain('data-period="today" title="Сегодня · live"');
+    expect(html).toContain('title="Неделя · 7 дней, включая сегодня"');
+    expect(html).toContain('title="Месяц · 30 дней, включая сегодня"');
     expect(html).toContain('включая сегодня · live');
   });
-
   it('builds the post-load status line with separators only between non-empty segments', () => {
     const html = renderAdminHtml({
       botUsername: 'stats_bot',

@@ -8,7 +8,7 @@ function loginHarness(options: { clientId?: number | null; sdkAvailable?: boolea
   if (!match) throw new Error('Unable to find login handler');
   const functionSource = match[0].replace(/\n\n    function showDashboardShell$/, '');
   const elements = new Map<string, any>();
-  for (const id of ['loginPanel', 'controls', 'dashboard', 'dashboardToolbar', 'status',
+  for (const id of ['loginPanel', 'controls', 'pageHeader', 'views', 'status',
     'sessionLabel', 'loginHint', 'telegramLoginButton']) {
     const handlers = new Map<string, () => void>();
     elements.set(id, {
