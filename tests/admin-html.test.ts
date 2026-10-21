@@ -339,4 +339,16 @@ describe('renderAdminHtml', () => {
       expect(output).not.toMatch(/^ · /);
     }
   });
+
+  it('blocks mobile zoom and lays out the people table as cards on narrow screens', () => {
+    const html = renderAdminHtml({ principal: { type: 'telegram', username: 'admin', telegramId: 123 } });
+
+    expect(html).toContain('maximum-scale=1, user-scalable=no');
+    expect(html).toContain("addEventListener(type, event => event.preventDefault(), { passive: false })");
+    expect(html).toMatch(/input, select, textarea, \.selectInput \{ font-size: 16px !important; \}/);
+    expect(html).toContain('.app { flex-direction: column; flex-wrap: nowrap; }');
+    expect(html).toContain('.peopleTable thead { display: none; }');
+    expect(html).toContain('id="peopleSortSelect"');
+    expect(html).toContain('td.dataset.label = PEOPLE_COLUMNS[index].label');
+  });
 });

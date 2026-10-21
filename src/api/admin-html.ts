@@ -38,7 +38,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>История чатов · админка</title>
   <script>
     (() => {
@@ -50,6 +50,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         document.documentElement.dataset.themeMode = 'system';
       }
     })();
+    // iOS Safari ignores user-scalable=no, so block pinch zoom explicitly.
+    for (const type of ['gesturestart', 'gesturechange']) {
+      document.addEventListener(type, event => event.preventDefault(), { passive: false });
+    }
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -169,6 +173,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }
     }
     * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; touch-action: pan-x pan-y; }
     body {
       margin: 0;
       background: var(--bg);
@@ -357,6 +362,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     .weekRhythm { display: inline-grid; grid-template-columns: repeat(7, 10px); gap: 3px; vertical-align: middle; }
     .weekRhythm span { width: 10px; height: 18px; border-radius: 3px; }
     .peopleTable { min-width: 920px; }
+    .peopleSort { display: none; }
 
     .heatmap-inactive { background: var(--track); }
     .heatmap-active { background: var(--accent-mid); }
@@ -366,7 +372,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     .heatmapLegendSwatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line); }
     .rhythmHeatmap { border-collapse: separate; border-spacing: 8px 6px; width: auto; }
     .rhythmHeatmap th, .rhythmHeatmap td { padding: 0; border: 0; }
-    .rhythmHeatmap th[scope="row"] { text-align: left; font-size: 14px; font-weight: 500; color: var(--text); padding-right: 8px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+    .rhythmHeatmap th[scope="row"] { position: sticky; left: 0; z-index: 1; background: var(--panel); text-align: left; font-size: 14px; font-weight: 500; color: var(--text); padding-right: 8px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
     .rhythmHeatmap .heatmapDay { text-align: center; font-size: 12px; }
     .rhythmDay { display: grid; grid-template-columns: repeat(4, 14px); gap: 2px; }
     .heatmapCell { display: block; height: 22px; border-radius: 3px; }
@@ -537,7 +543,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       .shadowSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 860px) {
-      .app { flex-direction: column; }
+      .app { flex-direction: column; flex-wrap: nowrap; }
       .sidebar {
         max-width: none; flex: none; border-right: 0; border-bottom: 1px solid var(--line);
         padding: 12px 16px; gap: 10px;
@@ -576,6 +582,37 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       .rankRow .bar { display: none; }
       .mediaRow { grid-template-columns: 28px minmax(60px, 1fr) 44px 40px 48px 48px; }
       .mediaRow .bar, .mediaRow .barHead { display: none; }
+
+      .peopleHint { display: none; }
+      .peopleSort { display: flex; align-items: center; gap: 8px; width: 100%; font-size: 13px; color: var(--muted); }
+      .peopleSort .selectInput { flex: 1; min-width: 0; }
+      .peopleTable { min-width: 0; }
+      .peopleTable thead { display: none; }
+      .peopleTable, .peopleTable tbody { display: block; }
+      .peopleTable tr {
+        display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px;
+        padding: 14px 0; border-top: 1px solid var(--line-soft);
+      }
+      .peopleTable tr:first-child { border-top: 0; padding-top: 2px; }
+      .peopleTable td {
+        display: flex; flex-direction: column; gap: 2px; min-width: 0;
+        padding: 0; border: 0; text-align: left; white-space: normal;
+      }
+      .peopleTable td::before { content: attr(data-label); font-size: 12px; font-weight: 500; color: var(--muted); }
+      .peopleTable td.peopleWide { grid-column: 1 / -1; }
+      .peopleTable td.peopleRhythm { grid-column: span 2; }
+      .peopleTable td.peopleName::before, .peopleTable td.peopleEmpty::before { content: none; }
+      .peopleTable td.peopleName .avatar { width: 32px; height: 32px; font-size: 13px; }
+      .peopleTable td.peopleName .name { font-size: 15px; font-weight: 600; }
+      .peopleTable .barCell { justify-content: flex-start; }
+      .peopleTable .barCell .bar { flex: 1; width: auto; }
+      .peopleTable .barCell > b { order: -1; min-width: 0; text-align: left; }
+      .peopleTable .weekRhythm { grid-template-columns: repeat(7, minmax(0, 22px)); gap: 3px; }
+      .peopleTable .weekRhythm span { width: auto; }
+    }
+    /* Inputs under 16px make iOS Safari zoom in on focus. */
+    @media (max-width: 860px), (pointer: coarse) {
+      input, select, textarea, .selectInput { font-size: 16px !important; }
     }
   </style>
 </head>
@@ -722,7 +759,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             <section class="card">
               <div class="cardHead">
                 <h2>Все участники</h2>
-                <span class="cardHint">Нажмите на заголовок столбца, чтобы отсортировать</span>
+                <span class="cardHint peopleHint">Нажмите на заголовок столбца, чтобы отсортировать</span>
+                <label class="peopleSort">Сортировка
+                  <select id="peopleSortSelect" class="selectInput" aria-label="Сортировка участников"></select>
+                </label>
               </div>
               <div class="tableScroll">
                 <table class="peopleTable" aria-label="Участники">
@@ -1808,12 +1848,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         head.append(th);
       }
 
+      renderPeopleSortSelect();
+
       const tbody = document.getElementById('peopleRows');
       tbody.replaceChildren();
       const people = mergePeople(stats);
       if (!people.length) {
         const tr = el('tr');
-        const td = el('td', 'muted', 'Нет данных');
+        const td = el('td', 'muted peopleEmpty peopleWide', 'Нет данных');
         td.colSpan = PEOPLE_COLUMNS.length;
         tr.append(td);
         tbody.append(tr);
@@ -1831,17 +1873,17 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       );
       for (const person of people) {
         const tr = el('tr');
-        const nameCell = el('td');
+        const nameCell = el('td', 'peopleName peopleWide');
         const personCell = el('span', 'personCell');
         personCell.append(personButton(person));
         nameCell.append(personCell);
 
-        const messagesCell = el('td');
+        const messagesCell = el('td', 'peopleWide');
         const barCell = el('span', 'barCell');
         barCell.append(barNode(maxMessages > 0 ? (person.messages / maxMessages) * 100 : 0, 'thin'), el('b', '', formatNumber(person.messages)));
         messagesCell.append(barCell);
 
-        const rhythmCell = el('td');
+        const rhythmCell = el('td', 'peopleRhythm');
         const participant = timeline.get(String(person.userId));
         if (participant) {
           const week = el('span', 'weekRhythm');
@@ -1867,8 +1909,25 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           criminalCell,
           rhythmCell
         );
+        // Labels for the mobile card layout, where the header row is hidden.
+        [...tr.children].forEach((td, index) => { td.dataset.label = PEOPLE_COLUMNS[index].label; });
         tbody.append(tr);
       }
+    }
+
+    function renderPeopleSortSelect() {
+      const select = document.getElementById('peopleSortSelect');
+      if (!select.options.length) {
+        for (const column of PEOPLE_COLUMNS) {
+          if (column.sortable === false) continue;
+          select.append(new Option(column.label, column.key));
+        }
+        select.addEventListener('change', () => {
+          state.peopleSort = { key: select.value, dir: select.value === 'username' ? 1 : -1 };
+          renderPeople(state.stats);
+        });
+      }
+      select.value = state.peopleSort.key;
     }
 
     function activityLevelLabel(level) {
