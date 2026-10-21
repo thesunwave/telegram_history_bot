@@ -28,6 +28,7 @@ import { NotificationService } from '../core/services/notification-service';
 import { NotificationRepository } from '../core/repositories/notification-repository';
 import type { NotificationType } from '../core/models/notification-settings';
 import { isTelegramUserChatAdmin, saveAdminChatMeta } from './admin-chats';
+import { readChatSettings } from '../core/chat-settings';
 
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
@@ -367,8 +368,14 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     op: 'profanityCheck',
   });
 
-  // Check for ENABLE_PROFANITY_ANALYSIS flag (default to true)
-  const profanityAnalysisEnabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
+  // Instance policy first, then the chat's own switches (they can only narrow it).
+  const instanceProfanityEnabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
+  const instanceCriminalEnabled = env.ENABLE_CRIMINAL_ANALYSIS !== 'false' && env.ENABLE_CRIMINAL_ANALYSIS !== false;
+  const analysableText = Boolean(msg.text) && !msg.text.startsWith('/');
+  const chatSettings = analysableText && (instanceProfanityEnabled || instanceCriminalEnabled)
+    ? await readChatSettings(env, chatId)
+    : null;
+  const profanityAnalysisEnabled = instanceProfanityEnabled && chatSettings?.profanityEnabled === true;
 
   if (profanityAnalysisEnabled && msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
     Logger.debug(env, 'Scheduling profanity analysis for message', { op: 'profanitySchedule' });
@@ -392,8 +399,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   // Schedule criminal code analysis in background (fire-and-forget)
   Logger.log('CRIMINAL CODE ANALYSIS CHECK', { op: 'criminalCheck' });
 
-  // Check for ENABLE_CRIMINAL_ANALYSIS flag (default to true)
-  const criminalAnalysisEnabled = env.ENABLE_CRIMINAL_ANALYSIS !== 'false' && env.ENABLE_CRIMINAL_ANALYSIS !== false;
+  const criminalAnalysisEnabled = instanceCriminalEnabled && chatSettings?.criminalEnabled === true;
 
   if (criminalAnalysisEnabled && msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
     Logger.debug(env, 'Scheduling criminal code analysis for message', { op: 'criminalSchedule' });

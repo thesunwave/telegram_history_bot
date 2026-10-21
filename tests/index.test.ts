@@ -477,17 +477,17 @@ describe("webhook", () => {
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as any;
-    expect(body.chats).toContainEqual({
+    expect(body.chats).toContainEqual(expect.objectContaining({
       chatId: -1001,
       title: "Main Group",
       type: "supergroup",
       lastSeenAt: 123,
-    });
-    expect(body.chats).toContainEqual({
+    }));
+    expect(body.chats).toContainEqual(expect.objectContaining({
       chatId: -1002,
       title: "Chat -1002",
       lastSeenAt: 0,
-    });
+    }));
   });
 
   it("filters admin chats by telegram membership", async () => {
@@ -706,7 +706,7 @@ describe("webhook", () => {
   });
 
   it("converts unhandled admin exceptions into stable 503 JSON with a UUID requestId", async () => {
-    const listChatsSpy = vi.spyOn(adminChatsModule, "listAdminChatsForTelegramUser");
+    const listChatsSpy = vi.spyOn(adminChatsModule, "listAdminChatsWithRoleForTelegramUser");
     listChatsSpy.mockRejectedValueOnce(new Error("kv failure"));
 
     const response = await worker.fetch(
