@@ -3,6 +3,7 @@ import { authenticateTelegramSession } from './admin-auth';
 import { ProviderInitializer } from '../core/providers/provider-init';
 import { resolveRuntimeSettings, saveSummaryRuntimeSettings, saveRuntimeSettings } from '../core/runtime-settings';
 import { getWebhookSecret } from '../core/webhook-secret';
+import { AdminLanguage, createAdminTranslator, resolveAdminLanguage } from './admin-i18n';
 
 const SESSION_COOKIE = 'tg_setup_session';
 const SESSION_SECONDS = 2 * 60 * 60;
@@ -100,11 +101,12 @@ async function telegramApi(env: Env, method: string, args?: Record<string, unkno
   return body.result || {};
 }
 
-function renderSetupHtml(): string {
+function renderSetupHtml(language: AdminLanguage): string {
+  const { h, js } = createAdminTranslator(language);
   return `<!doctype html>
-<html lang="ru">
+<html lang="${language}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Настройка Telegram History Bot</title>
+<title>${h('Настройка Telegram History Bot')}</title>
 <style>
 body{font:16px/1.5 system-ui,sans-serif;max-width:760px;margin:3rem auto;padding:0 1.2rem;color:#192531;background:#f7f9fb}
 section{padding:1.5rem;margin:1rem 0;background:#fff;border:1px solid #d6dfe8;border-radius:14px}
@@ -114,40 +116,40 @@ label{display:block;margin:.7rem 0}small{color:#637487}#error{color:#ba2929;whit
 pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}
 </style></head>
 <body>
-<p><a href="/admin">← Админка</a></p><h1>Настройка бота</h1>
-<section id="login"><h2>Доступ владельца</h2>
-<p>Войди в <a href="/admin">админку через Telegram</a>. Если аккаунт уже привязан к боту, настройки откроются автоматически.</p>
+<p><a href="/admin">${h('← Админка')}</a></p><h1>${h('Настройка бота')}</h1>
+<section id="login"><h2>${h('Доступ владельца')}</h2>
+<p>${h('Войди в')} <a href="/admin">${h('админку через Telegram')}</a>${h('. Если аккаунт уже привязан к боту, настройки откроются автоматически.')}</p>
 <p id="ownerStatus"></p>
 <form id="claimForm" hidden>
-<p>Для первой привязки этого Telegram-аккаунта к боту один раз подтверди владение BotFather-токеном. Повторно вводить его не придётся.</p>
+<p>${h('Для первой привязки этого Telegram-аккаунта к боту один раз подтверди владение BotFather-токеном. Повторно вводить его не придётся.')}</p>
 <label>BotFather TOKEN <input id="claimToken" type="password" autocomplete="off"></label>
-<button>Привязать Telegram-аккаунт</button></form>
-<details id="bootstrap"><summary>Первоначальная самостоятельная установка без Telegram Login</summary>
-<p>Можно войти по BotFather-токену. Он не хранится в браузере или D1; сессия действует два часа.</p>
+<button>${h('Привязать Telegram-аккаунт')}</button></form>
+<details id="bootstrap"><summary>${h('Первоначальная самостоятельная установка без Telegram Login')}</summary>
+<p>${h('Можно войти по BotFather-токену. Он не хранится в браузере или D1; сессия действует два часа.')}</p>
 <form id="loginForm"><label>BotFather TOKEN <input id="token" type="password" required autocomplete="off"></label>
-<button>Войти</button></form></details></section>
+<button>${h('Войти')}</button></form></details></section>
 <div id="settings" hidden>
-<section><h2>1. Как хранить сообщения?</h2>
-<p>Выбери, какие данные бот может сохранять. Решение можно изменить позже.</p>
-<label><input type="radio" name="storageMode" value="stats_only"> <b>Только статистика</b> — исходные сообщения не записываются в KV/DO-хранилище истории. Бот считает сообщения, слова и активность участников.</label>
-<label><input type="radio" name="storageMode" value="history"> <b>История сообщений + статистика</b> — исходные сообщения временно хранятся в твоих Cloudflare KV/DO; доступны сводки и контекстный анализ.</label>
-<small>В обоих вариантах хранятся счётчики, ID пользователей и метаданные чатов. Смена режима не удаляет уже сохранённую историю; она истекает по сроку хранения. Telegram, Cloudflare и возможные логи платформы остаются отдельными от истории бота.</small></section>
-<section><h2>2. Включить функции</h2>
-<label><input id="activity" type="checkbox"> Статистика активности и топы участников</label>
-<label><input id="profanity" type="checkbox"> Анализ мата при получении сообщений</label>
-<small>Для анализа мата текст может отправляться AI-провайдеру, даже в режиме без хранения. Провайдер определяется PROFANITY_PROVIDER, а без него — провайдером сводок. Результаты анализа (например, найденные слова) могут храниться отдельно.</small>
-<label><input id="criminal" type="checkbox"> Контекстный анализ уголовных нарушений (требует истории)</label>
-<label><input id="enabled" type="checkbox"> AI-сводки (требуют истории)</label>
-<label>AI-провайдер для сводок <select id="provider"><option value="cloudflare">Workers AI</option>
+<section><h2>${h('1. Как хранить сообщения?')}</h2>
+<p>${h('Выбери, какие данные бот может сохранять. Решение можно изменить позже.')}</p>
+<label><input type="radio" name="storageMode" value="stats_only"> <b>${h('Только статистика')}</b> ${h('— исходные сообщения не записываются в KV/DO-хранилище истории. Бот считает сообщения, слова и активность участников.')}</label>
+<label><input type="radio" name="storageMode" value="history"> <b>${h('История сообщений + статистика')}</b> ${h('— исходные сообщения временно хранятся в твоих Cloudflare KV/DO; доступны сводки и контекстный анализ.')}</label>
+<small>${h('В обоих вариантах хранятся счётчики, ID пользователей и метаданные чатов. Смена режима не удаляет уже сохранённую историю; она истекает по сроку хранения. Telegram, Cloudflare и возможные логи платформы остаются отдельными от истории бота.')}</small></section>
+<section><h2>${h('2. Включить функции')}</h2>
+<label><input id="activity" type="checkbox"> ${h('Статистика активности и топы участников')}</label>
+<label><input id="profanity" type="checkbox"> ${h('Анализ мата при получении сообщений')}</label>
+<small>${h('Для анализа мата текст может отправляться AI-провайдеру, даже в режиме без хранения. Провайдер определяется PROFANITY_PROVIDER, а без него — провайдером сводок. Результаты анализа (например, найденные слова) могут храниться отдельно.')}</small>
+<label><input id="criminal" type="checkbox"> ${h('Контекстный анализ уголовных нарушений (требует истории)')}</label>
+<label><input id="enabled" type="checkbox"> ${h('AI-сводки (требуют истории)')}</label>
+<label>${h('AI-провайдер для сводок')} <select id="provider"><option value="cloudflare">Workers AI</option>
 <option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option></select></label>
-<label>Модель <input id="model" type="text" maxlength="150"></label>
-<small>OpenAI/OpenRouter API-ключи добавляй как Cloudflare Secrets, не через эту страницу.</small>
-<p id="storageWarning" role="status"></p><p><button id="save">Сохранить настройки</button></p></section>
+<label>${h('Модель')} <input id="model" type="text" maxlength="150"></label>
+<small>${h('OpenAI/OpenRouter API-ключи добавляй как Cloudflare Secrets, не через эту страницу.')}</small>
+<p id="storageWarning" role="status"></p><p><button id="save">${h('Сохранить настройки')}</button></p></section>
 <section><h2>3. Telegram webhook</h2>
-<p>Подключай бот только после того, как сохранишь выбранный режим хранения.</p>
-<button id="connect">Подключить webhook</button><span id="webhook"></span></section>
-<section><h2>Статус</h2><pre id="status"></pre>
-<button id="logout">Выйти из настройки</button></section>
+<p>${h('Подключай бот только после того, как сохранишь выбранный режим хранения.')}</p>
+<button id="connect">${h('Подключить webhook')}</button><span id="webhook"></span></section>
+<section><h2>${h('Статус')}</h2><pre id="status"></pre>
+<button id="logout">${h('Выйти из настройки')}</button></section>
 </div><p id="error" role="alert"></p>
 <script>
 const el = id => document.getElementById(id);
@@ -170,8 +172,8 @@ function refreshDependencies() {
     if (!history) el(id).checked = false;
   }
   el('storageWarning').textContent = history
-    ? 'Сырой текст будет сохраняться на выбранный срок. Внешние AI-провайдеры получают данные только при включении соответствующих функций.'
-    : 'Без истории AI-сводки, контекстный уголовный анализ и backfill недоступны.';
+    ? ${js('Сырой текст будет сохраняться на выбранный срок. Внешние AI-провайдеры получают данные только при включении соответствующих функций.')}
+    : ${js('Без истории AI-сводки, контекстный уголовный анализ и backfill недоступны.')};
 }
 for (const option of document.querySelectorAll('input[name="storageMode"]')) {
   option.onchange = refreshDependencies;
@@ -192,11 +194,11 @@ async function refresh() {
     el('model').value=info.summary.model;
     refreshDependencies();
     el('status').textContent=JSON.stringify(info,null,2);
-    el('webhook').textContent=info.webhookConfigured?' Подключён':' Не подключён';
+    el('webhook').textContent=info.webhookConfigured?${js(' Подключён')}:${js(' Не подключён')};
     el('connect').disabled=info.storageMode==='unconfigured';
     el('error').textContent=info.databaseReady
-      ? info.storageMode==='unconfigured' ? 'Сначала выбери режим хранения и нажми «Сохранить настройки».' : ''
-      : 'D1 не инициализирована. Проверь, что команда npm run deploy завершила все миграции.';
+      ? info.storageMode==='unconfigured' ? ${js('Сначала выбери режим хранения и нажми «Сохранить настройки».')} : ''
+      : ${js('D1 не инициализирована. Проверь, что команда npm run deploy завершила все миграции.')};
   } catch(error) {
     if (error.status===401) {
       el('settings').hidden=true; el('login').hidden=false; el('error').textContent='';
@@ -205,10 +207,10 @@ async function refresh() {
         el('claimForm').hidden=!identity.canClaimOwner;
         el('bootstrap').hidden=identity.telegramLoginConfigured;
         el('ownerStatus').textContent=identity.canClaimOwner
-          ? 'Ты вошёл через Telegram. Подтверди владение ботом один раз.'
+          ? ${js('Ты вошёл через Telegram. Подтверди владение ботом один раз.')}
           : identity.telegramAuthenticated
-            ? 'Этот Telegram-аккаунт не назначен владельцем бота.'
-            : 'Сначала войди в админку через Telegram.';
+            ? ${js('Этот Telegram-аккаунт не назначен владельцем бота.')}
+            : ${js('Сначала войди в админку через Telegram.')};
       } catch(identityError) {
         el('error').textContent=identityError.message;
       }
@@ -239,7 +241,7 @@ el('provider').onchange=()=>{el('model').value='';};
 el('save').onclick=async ()=>{
   try {
     const storageMode = selectedStorageMode();
-    if (!storageMode) throw Error('Выбери режим хранения сообщений.');
+    if (!storageMode) throw Error(${js('Выбери режим хранения сообщений.')});
     await api('settings','PATCH',{
       storageMode,
       activityTrackingEnabled:el('activity').checked,
@@ -258,7 +260,7 @@ refresh();
 export async function handleSetupRequest(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   if (url.pathname === '/admin/setup' && req.method === 'GET') {
-    return new Response(renderSetupHtml(), { headers: {
+    return new Response(renderSetupHtml(resolveAdminLanguage(req)), { headers: {
       'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store',
     } });
   }

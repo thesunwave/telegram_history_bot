@@ -1,4 +1,7 @@
+import { AdminLanguage, adminClientI18n, createAdminTranslator } from './admin-i18n';
+
 interface AdminHtmlOptions {
+  language?: AdminLanguage;
   botUsername?: string | null; // Legacy caller compatibility; OIDC uses a Client ID instead.
   canAccessSetup?: boolean;
   principal: {
@@ -29,17 +32,19 @@ function navIcon(name: keyof typeof NAV_ICONS): string {
 }
 
 export function renderAdminHtml(options: AdminHtmlOptions): string {
+  const language = options.language || 'ru';
+  const { h, js, forms } = createAdminTranslator(language);
   const principal = JSON.stringify(options.principal || null);
   const isTelegram = options.principal?.type === 'telegram';
   const setupLink = isTelegram && options.canAccessSetup
-    ? `<a class="navLink" href="/admin/setup" title="Настройки всего экземпляра бота, доступные владельцу">${navIcon('setup')}<span>Настройки бота</span></a>`
+    ? `<a class="navLink" href="/admin/setup" title="${h('Настройки всего экземпляра бота, доступные владельцу')}">${navIcon('setup')}<span>${h('Настройки бота')}</span></a>`
     : '';
   return `<!doctype html>
-<html lang="ru">
+<html lang="${language}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>История чатов · админка</title>
+  <title>${h('История чатов · админка')}</title>
   <script>
     (() => {
       try {
@@ -226,7 +231,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       margin-top: auto; display: flex; flex-direction: column; gap: 10px;
       padding: 12px 6px 0; border-top: 1px solid var(--line-soft);
     }
-    .sidebarFooterRow { display: flex; align-items: center; gap: 8px; }
+    .sidebarFooterRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .themeControl { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
     .themeControl select {
       min-height: 36px; border: 1px solid var(--line); border-radius: 9px; background: var(--input); padding: 4px 8px;
@@ -619,40 +624,46 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 <body>
   <div class="app">
     <aside class="sidebar${isTelegram ? '' : ' hidden'}" id="sidebar">
-      <div class="brand"><span class="brandMark">И</span>История чатов</div>
-      <label class="chatSwitcher"><span class="navLabel">Чат</span>
-        <select id="chatSelect" name="chatId" aria-label="Чат">
-          <option value="">Загрузка чатов...</option>
+      <div class="brand"><span class="brandMark">${h('И')}</span>${h('История чатов')}</div>
+      <label class="chatSwitcher"><span class="navLabel">${h('Чат')}</span>
+        <select id="chatSelect" name="chatId" aria-label="${h('Чат')}">
+          <option value="">${h('Загрузка чатов...')}</option>
         </select>
       </label>
-      <nav class="navGroup" aria-label="Разделы">
-        <a class="navLink" href="#overview" data-view-link="overview">${navIcon('overview')}<span>Обзор</span></a>
-        <a class="navLink" href="#people" data-view-link="people">${navIcon('people')}<span>Люди</span></a>
-        <a class="navLink" href="#media" data-view-link="media">${navIcon('media')}<span>Голос</span></a>
-        <a class="navLink" href="#profanity" data-view-link="profanity">${navIcon('profanity')}<span>Мат</span></a>
-        <a class="navLink" href="#criminal" data-view-link="criminal">${navIcon('criminal')}<span>УК РФ</span></a>
+      <nav class="navGroup" aria-label="${h('Разделы')}">
+        <a class="navLink" href="#overview" data-view-link="overview">${navIcon('overview')}<span>${h('Обзор')}</span></a>
+        <a class="navLink" href="#people" data-view-link="people">${navIcon('people')}<span>${h('Люди')}</span></a>
+        <a class="navLink" href="#media" data-view-link="media">${navIcon('media')}<span>${h('Голос')}</span></a>
+        <a class="navLink" href="#profanity" data-view-link="profanity">${navIcon('profanity')}<span>${h('Мат')}</span></a>
+        <a class="navLink" href="#criminal" data-view-link="criminal">${navIcon('criminal')}<span>${h('УК РФ')}</span></a>
       </nav>
       <div class="navDivider"></div>
-      <div class="navLabel">Настройки чата</div>
-      <nav class="navGroup settings" aria-label="Настройки">
-        <a class="navLink" href="#chats" data-view-link="chats">${navIcon('chats')}<span>Все чаты</span></a>
-        <a class="navLink" href="#modules" data-view-link="modules">${navIcon('modules')}<span>Модули</span></a>
-        <a class="navLink" href="#notifications" data-view-link="notifications">${navIcon('notifications')}<span>Уведомления</span></a>
-        <a class="navLink" href="#lab" data-view-link="lab">${navIcon('lab')}<span>Модели</span></a>
+      <div class="navLabel">${h('Настройки чата')}</div>
+      <nav class="navGroup settings" aria-label="${h('Настройки')}">
+        <a class="navLink" href="#chats" data-view-link="chats">${navIcon('chats')}<span>${h('Все чаты')}</span></a>
+        <a class="navLink" href="#modules" data-view-link="modules">${navIcon('modules')}<span>${h('Модули')}</span></a>
+        <a class="navLink" href="#notifications" data-view-link="notifications">${navIcon('notifications')}<span>${h('Уведомления')}</span></a>
+        <a class="navLink" href="#lab" data-view-link="lab">${navIcon('lab')}<span>${h('Модели')}</span></a>
         ${setupLink}
       </nav>
       <div class="sidebarFooter">
         <div class="muted" id="sessionLabel"></div>
         <div class="sidebarFooterRow">
-          <label class="themeControl">Тема
-            <select id="themeSelect" aria-label="Тема оформления">
-              <option value="system">Система</option>
-              <option value="light">День</option>
-              <option value="dark">Ночь</option>
+          <label class="themeControl">${h('Тема')}
+            <select id="themeSelect" aria-label="${h('Тема оформления')}">
+              <option value="system">${h('Система')}</option>
+              <option value="light">${h('День', 'theme')}</option>
+              <option value="dark">${h('Ночь', 'theme')}</option>
+            </select>
+          </label>
+          <label class="themeControl">${h('Язык')}
+            <select id="languageSelect" aria-label="${h('Язык интерфейса')}">
+              <option value="ru"${language === 'ru' ? ' selected' : ''}>Русский</option>
+              <option value="en"${language === 'en' ? ' selected' : ''}>English</option>
             </select>
           </label>
           ${isTelegram ? `<form class="logoutForm" action="/admin/logout" method="post">
-          <button type="submit" class="secondary logoutButton">Выйти</button>
+          <button type="submit" class="secondary logoutButton">${h('Выйти')}</button>
         </form>` : ''}
         </div>
       </div>
@@ -660,32 +671,33 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     <main class="main" id="main">
       <section class="card login hidden" id="loginPanel">
-        <h2>Вход через Telegram</h2>
-        <p>После входа будут показаны только чаты, где ваш Telegram-пользователь состоит участником.</p>
-        <div id="telegramLogin"><button type="button" class="primary" id="telegramLoginButton" disabled>Войти через Telegram</button></div>
+        <h2>${h('Вход через Telegram')}</h2>
+        <p>${h('После входа будут показаны только чаты, где ваш Telegram-пользователь состоит участником.')}</p>
+        <div id="telegramLogin"><button type="button" class="primary" id="telegramLoginButton" disabled>${h('Войти через Telegram')}</button></div>
         <p class="muted" id="loginHint"></p>
+        <button type="button" class="secondary" data-set-language="${language === 'ru' ? 'en' : 'ru'}">${language === 'ru' ? 'English' : 'Русский'}</button>
       </section>
 
       <div class="pageHeader hidden" id="pageHeader">
         <div class="pageTitle">
-          <h1 id="viewTitle">Обзор</h1>
+          <h1 id="viewTitle">${h('Обзор')}</h1>
           <div id="status" class="status hidden"></div>
         </div>
         <form class="controls" id="controls">
           <input type="hidden" id="period" name="period" value="week">
-          <div class="seg" role="group" aria-label="Период" id="periodSeg">
-            <button type="button" data-period="today" title="Сегодня · live">Сегодня</button>
-            <button type="button" data-period="week" title="Неделя · 7 дней, включая сегодня">7 дней</button>
-            <button type="button" data-period="month" title="Месяц · 30 дней, включая сегодня">30 дней</button>
-            <button type="button" data-period="custom">Период…</button>
+          <div class="seg" role="group" aria-label="${h('Период')}" id="periodSeg">
+            <button type="button" data-period="today" title="${h('Сегодня · live')}">${h('Сегодня')}</button>
+            <button type="button" data-period="week" title="${h('Неделя · 7 дней, включая сегодня')}">${h('7 дней')}</button>
+            <button type="button" data-period="month" title="${h('Месяц · 30 дней, включая сегодня')}">${h('30 дней')}</button>
+            <button type="button" data-period="custom">${h('Период…')}</button>
           </div>
-          <label class="customPeriod hidden">С
+          <label class="customPeriod hidden">${h('С')}
             <input id="dateFrom" name="from" type="date">
           </label>
-          <label class="customPeriod hidden">по
+          <label class="customPeriod hidden">${h('по')}
             <input id="dateTo" name="to" type="date">
           </label>
-          <button id="refreshButton" class="secondary customPeriod hidden" type="submit">Показать</button>
+          <button id="refreshButton" class="secondary customPeriod hidden" type="submit">${h('Показать')}</button>
         </form>
       </div>
 
@@ -693,8 +705,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         <h2 id="statsErrorTitle"></h2>
         <p id="statsErrorMessage"></p>
         <div class="statsErrorActions">
-          <button type="button" id="statsErrorWeek" class="secondary hidden">Показать неделю, включая сегодня</button>
-          <button type="button" id="statsErrorRetry" class="secondary hidden">Повторить</button>
+          <button type="button" id="statsErrorWeek" class="secondary hidden">${h('Показать неделю, включая сегодня')}</button>
+          <button type="button" id="statsErrorRetry" class="secondary hidden">${h('Повторить')}</button>
         </div>
       </div>
 
@@ -705,47 +717,47 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             <div class="grid">
               <section class="card span-8">
                 <div class="cardHead">
-                  <h2>Сообщения по дням</h2>
+                  <h2>${h('Сообщения по дням')}</h2>
                   <span class="cardHint" id="dailyMessagesHint"></span>
                 </div>
-                <div class="chartBox"><canvas id="dailyMessagesChart" aria-label="Сообщения по дням" role="img"></canvas></div>
-                <div class="chartEmpty hidden" id="dailyMessagesEmpty">Нет данных</div>
+                <div class="chartBox"><canvas id="dailyMessagesChart" aria-label="${h('Сообщения по дням')}" role="img"></canvas></div>
+                <div class="chartEmpty hidden" id="dailyMessagesEmpty">${h('Нет данных')}</div>
               </section>
               <section class="card span-4">
                 <div class="cardHead">
-                  <h2>Когда пишут</h2>
-                  <label class="chartHeadControls">Зона
+                  <h2>${h('Когда пишут')}</h2>
+                  <label class="chartHeadControls">${h('Зона')}
                     <select id="hourlyTimezone"></select>
                   </label>
                 </div>
-                <div class="cardHint" id="hourlyTitle">Средняя активность по часам</div>
-                <div class="chartBox short"><canvas id="hourlyChart" aria-label="Средняя активность по часам" role="img"></canvas></div>
-                <div class="chartEmpty hidden" id="hourlyEmpty">Нет данных</div>
+                <div class="cardHint" id="hourlyTitle">${h('Средняя активность по часам')}</div>
+                <div class="chartBox short"><canvas id="hourlyChart" aria-label="${h('Средняя активность по часам')}" role="img"></canvas></div>
+                <div class="chartEmpty hidden" id="hourlyEmpty">${h('Нет данных')}</div>
                 <div class="bucketList" id="timeBuckets"></div>
               </section>
             </div>
             <div class="grid">
               <section class="card span-8">
                 <div class="cardHead">
-                  <h2>Лидеры</h2>
-                  <div class="tabs" role="tablist" aria-label="Метрика" id="leaderTabs">
-                    <button type="button" class="tab" role="tab" data-metric="messages">Сообщения</button>
-                    <button type="button" class="tab" role="tab" data-metric="words">Слова</button>
-                    <button type="button" class="tab" role="tab" data-metric="voice">Голосовые, мин</button>
-                    <button type="button" class="tab" role="tab" data-metric="videoNote">Кружочки, мин</button>
-                    <button type="button" class="tab" role="tab" data-metric="profanity">Мат</button>
+                  <h2>${h('Лидеры')}</h2>
+                  <div class="tabs" role="tablist" aria-label="${h('Метрика')}" id="leaderTabs">
+                    <button type="button" class="tab" role="tab" data-metric="messages">${h('Сообщения')}</button>
+                    <button type="button" class="tab" role="tab" data-metric="words">${h('Слова')}</button>
+                    <button type="button" class="tab" role="tab" data-metric="voice">${h('Голосовые, мин')}</button>
+                    <button type="button" class="tab" role="tab" data-metric="videoNote">${h('Кружочки, мин')}</button>
+                    <button type="button" class="tab" role="tab" data-metric="profanity">${h('Мат')}</button>
                   </div>
                 </div>
                 <div class="rankList" id="leaderList" role="tabpanel"></div>
-                <a class="seeAll" href="#people" id="leaderSeeAll">Все участники и ритм по дням →</a>
+                <a class="seeAll" href="#people" id="leaderSeeAll">${h('Все участники и ритм по дням →')}</a>
               </section>
               <div class="stack span-4">
                 <section class="card">
-                  <div class="cardHead"><h2>УК РФ</h2><a class="cardHint" href="#criminal">подробнее</a></div>
+                  <div class="cardHead"><h2>${h('УК РФ')}</h2><a class="cardHint" href="#criminal">${h('подробнее')}</a></div>
                   <div id="overviewCriminal"></div>
                 </section>
                 <section class="card">
-                  <div class="cardHead"><h2>Мат</h2><span class="cardHint" id="overviewProfanityShare"></span></div>
+                  <div class="cardHead"><h2>${h('Мат')}</h2><span class="cardHint" id="overviewProfanityShare"></span></div>
                   <div class="chips" id="overviewProfanityWords"></div>
                   <p class="muted" id="overviewProfanityLeader" style="margin:10px 0 0"></p>
                 </section>
@@ -758,14 +770,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           <div class="stack">
             <section class="card">
               <div class="cardHead">
-                <h2>Все участники</h2>
-                <span class="cardHint peopleHint">Нажмите на заголовок столбца, чтобы отсортировать</span>
-                <label class="peopleSort">Сортировка
-                  <select id="peopleSortSelect" class="selectInput" aria-label="Сортировка участников"></select>
+                <h2>${h('Все участники')}</h2>
+                <span class="cardHint peopleHint">${h('Нажмите на заголовок столбца, чтобы отсортировать')}</span>
+                <label class="peopleSort">${h('Сортировка')}
+                  <select id="peopleSortSelect" class="selectInput" aria-label="${h('Сортировка участников')}"></select>
                 </label>
               </div>
               <div class="tableScroll">
-                <table class="peopleTable" aria-label="Участники">
+                <table class="peopleTable" aria-label="${h('Участники')}">
                   <thead><tr id="peopleHead"></tr></thead>
                   <tbody id="peopleRows"></tbody>
                 </table>
@@ -774,13 +786,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             <section class="card">
               <div class="cardHead">
                 <div>
-                  <h2>Ритм участников</h2>
-                  <p class="cardHint" style="margin:4px 0 0">В каждом дне четыре клетки: ночь, утро, день, вечер. Время — UTC.</p>
+                  <h2>${h('Ритм участников')}</h2>
+                  <p class="cardHint" style="margin:4px 0 0">${h('В каждом дне четыре клетки: ночь, утро, день, вечер. Время — UTC.')}</p>
                 </div>
-                <div class="heatmapLegend" aria-label="Обозначения активности">
-                  <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-inactive"></span>Нет активности</span>
-                  <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-active"></span>Активен</span>
-                  <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-talkative"></span>Активно общается</span>
+                <div class="heatmapLegend" aria-label="${h('Обозначения активности')}">
+                  <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-inactive"></span>${h('Нет активности')}</span>
+                  <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-active"></span>${h('Активен')}</span>
+                  <span class="heatmapLegendItem"><span class="heatmapLegendSwatch heatmap-talkative"></span>${h('Активно общается')}</span>
                 </div>
               </div>
               <div class="tableScroll" id="activityHeatmap" aria-live="polite"></div>
@@ -793,22 +805,22 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             <div class="grid" id="mediaKpis"></div>
             <section class="card">
               <div class="cardHead">
-                <h2>Минуты по дням</h2>
+                <h2>${h('Минуты по дням')}</h2>
                 <div class="legend">
-                  <span><span class="swatch" style="background:var(--accent)"></span>голосовые</span>
-                  <span><span class="swatch" style="background:var(--orange)"></span>кружочки</span>
+                  <span><span class="swatch" style="background:var(--accent)"></span>${h('голосовые')}</span>
+                  <span><span class="swatch" style="background:var(--orange)"></span>${h('кружочки')}</span>
                 </div>
               </div>
-              <div class="chartBox"><canvas id="mediaDailyChart" aria-label="Минуты голосовых и кружочков по дням" role="img"></canvas></div>
-              <div class="chartEmpty hidden" id="mediaDailyEmpty">Нет данных</div>
+              <div class="chartBox"><canvas id="mediaDailyChart" aria-label="${h('Минуты голосовых и кружочков по дням')}" role="img"></canvas></div>
+              <div class="chartEmpty hidden" id="mediaDailyEmpty">${h('Нет данных')}</div>
             </section>
             <div class="mediaGrid">
               <section class="card">
-                <div class="cardHead"><h2>Голосовые</h2><span class="cardHint">кто больше наговорил</span></div>
+                <div class="cardHead"><h2>${h('Голосовые')}</h2><span class="cardHint">${h('кто больше наговорил')}</span></div>
                 <div id="activityVoiceUsers"></div>
               </section>
               <section class="card">
-                <div class="cardHead"><h2>Кружочки</h2><span class="cardHint">кто больше снял</span></div>
+                <div class="cardHead"><h2>${h('Кружочки')}</h2><span class="cardHint">${h('кто больше снял')}</span></div>
                 <div id="activityVideoNoteUsers"></div>
               </section>
             </div>
@@ -821,22 +833,22 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             <div class="grid">
               <section class="card span-7">
                 <div class="cardHead">
-                  <h2>Кто ругается</h2>
-                  <div class="tabs" role="tablist" aria-label="Сортировка">
-                    <button type="button" class="tab warm" role="tab" data-profanity-sort="rate">Доля</button>
-                    <button type="button" class="tab warm" role="tab" data-profanity-sort="count">Количество</button>
+                  <h2>${h('Кто ругается')}</h2>
+                  <div class="tabs" role="tablist" aria-label="${h('Сортировка')}">
+                    <button type="button" class="tab warm" role="tab" data-profanity-sort="rate">${h('Доля')}</button>
+                    <button type="button" class="tab warm" role="tab" data-profanity-sort="count">${h('Количество')}</button>
                   </div>
                 </div>
                 <div class="tableScroll">
-                  <table aria-label="Мат по участникам">
-                    <thead><tr><th>Участник</th><th>Доля мата</th><th>Мат</th><th>Слова</th></tr></thead>
+                  <table aria-label="${h('Мат по участникам')}">
+                    <thead><tr><th>${h('Участник')}</th><th>${h('Доля мата')}</th><th>${h('Мат')}</th><th>${h('Слова')}</th></tr></thead>
                     <tbody id="profanityRateUsers"></tbody>
                   </table>
                 </div>
-                <p class="cardHint" style="margin:10px 0 0">Доля считается для тех, кто написал хотя бы 100 слов за период.</p>
+                <p class="cardHint" style="margin:10px 0 0">${h('Доля считается для тех, кто написал хотя бы 100 слов за период.')}</p>
               </section>
               <section class="card span-5">
-                <div class="cardHead"><h2>Популярные слова</h2></div>
+                <div class="cardHead"><h2>${h('Популярные слова')}</h2></div>
                 <div id="profanityWords"></div>
               </section>
             </div>
@@ -846,15 +858,15 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         <section class="view hidden" data-view="criminal">
           <div class="criminalLayout">
             <section class="card criminalList">
-              <div class="cardHead" style="padding:8px 8px 0"><h2>Рейтинг</h2><span class="cardHint" id="criminalSummary"></span></div>
+              <div class="cardHead" style="padding:8px 8px 0"><h2>${h('Рейтинг')}</h2><span class="cardHint" id="criminalSummary"></span></div>
               <div id="criminalUsers"></div>
             </section>
             <section class="card criminalDetails" id="criminalDetails" aria-live="polite">
               <div class="criminalDetailsHeader">
-                <h3 id="criminalDetailsTitle">Выберите участника</h3>
-                <button class="secondary hidden" id="criminalDetailsClose" type="button">Закрыть</button>
+                <h3 id="criminalDetailsTitle">${h('Выберите участника')}</h3>
+                <button class="secondary hidden" id="criminalDetailsClose" type="button">${h('Закрыть')}</button>
               </div>
-              <p class="criminalConfidenceNote">Уверенность модели — это confidence конкретного анализа, а не измеренная точность классификатора.</p>
+              <p class="criminalConfidenceNote">${h('Уверенность модели — это confidence конкретного анализа, а не измеренная точность классификатора.')}</p>
               <div class="criminalViolationList" id="criminalViolationList"></div>
             </section>
           </div>
@@ -862,57 +874,57 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
         <section class="view hidden" data-view="chats">
           <div class="stack">
-            <p class="muted" style="margin:0">Чаты, где вы состоите. Цифры за последние 7 дней, включая сегодня.</p>
+            <p class="muted" style="margin:0">${h('Чаты, где вы состоите. Цифры за последние 7 дней, включая сегодня.')}</p>
             <div class="chatGrid" id="chatCards"></div>
           </div>
         </section>
 
         <section class="view hidden" data-view="modules">
           <div class="stack narrow">
-            <p class="muted" style="margin:0">Что бот делает в этом чате. <span id="chatSettingsMeta"></span></p>
+            <p class="muted" style="margin:0">${h('Что бот делает в этом чате.')} <span id="chatSettingsMeta"></span></p>
             <section class="card">
               <label class="switchRow">
-                <span class="switchText"><strong>Анализ мата</strong><span id="chatProfanityHint">Считать мат и любимые слова участников</span></span>
+                <span class="switchText"><strong>${h('Анализ мата')}</strong><span id="chatProfanityHint">${h('Считать мат и любимые слова участников')}</span></span>
                 <input type="checkbox" class="switch" role="switch" id="chatProfanity" data-chat-setting="profanityEnabled" data-module="profanity">
               </label>
               <label class="switchRow">
-                <span class="switchText"><strong>УК РФ</strong><span id="chatCriminalHint">Искать в сообщениях «статьи» и считать сроки</span></span>
+                <span class="switchText"><strong>${h('УК РФ')}</strong><span id="chatCriminalHint">${h('Искать в сообщениях «статьи» и считать сроки')}</span></span>
                 <input type="checkbox" class="switch" role="switch" id="chatCriminal" data-chat-setting="criminalEnabled" data-module="criminal">
               </label>
               <label class="switchRow">
-                <span class="switchText"><strong>Ночная AI-сводка</strong><span id="chatSummaryHint">Каждую ночь бот пишет в чат, что обсуждали за день</span></span>
+                <span class="switchText"><strong>${h('Ночная AI-сводка')}</strong><span id="chatSummaryHint">${h('Каждую ночь бот пишет в чат, что обсуждали за день')}</span></span>
                 <input type="checkbox" class="switch" role="switch" id="chatSummary" data-chat-setting="summaryEnabled" data-module="summary">
               </label>
             </section>
             <section class="card">
               <label class="switchRow">
-                <span class="switchText"><strong>Кто видит дашборд</strong><span>Участники без доступа не увидят этот чат в списке</span></span>
+                <span class="switchText"><strong>${h('Кто видит дашборд')}</strong><span>${h('Участники без доступа не увидят этот чат в списке')}</span></span>
                 <select id="chatDashboardAccess" class="selectInput">
-                  <option value="members">Все участники</option>
-                  <option value="admins">Только админы</option>
+                  <option value="members">${h('Все участники')}</option>
+                  <option value="admins">${h('Только админы')}</option>
                 </select>
               </label>
             </section>
             <div class="formActions">
               <span class="muted" id="chatSettingsDirty"></span>
-              <button class="primary" id="saveChatSettings" type="button">Сохранить</button>
+              <button class="primary" id="saveChatSettings" type="button">${h('Сохранить')}</button>
             </div>
           </div>
         </section>
 
         <section class="view hidden" data-view="notifications">
           <div class="stack narrow">
-            <p class="muted" style="margin:0">Что бот сам присылает в этот чат. <span id="notificationMeta">Настройки еще не сохранялись</span></p>
+            <p class="muted" style="margin:0">${h('Что бот сам присылает в этот чат.')} <span id="notificationMeta">${h('Настройки еще не сохранялись')}</span></p>
             <section class="card">
               <label class="switchRow">
-                <span class="switchText"><strong>Уведомления в этом чате</strong><span id="notificationsEnabledHint">Общий выключатель для всех сводок и отчётов</span></span>
+                <span class="switchText"><strong>${h('Уведомления в этом чате')}</strong><span id="notificationsEnabledHint">${h('Общий выключатель для всех сводок и отчётов')}</span></span>
                 <input type="checkbox" class="switch" role="switch" id="notificationsEnabled">
               </label>
             </section>
             <section class="card" id="notificationTypes"></section>
             <div class="formActions">
               <span class="muted" id="notificationsDirty"></span>
-              <button class="primary" id="saveNotifications" type="button">Сохранить</button>
+              <button class="primary" id="saveNotifications" type="button">${h('Сохранить')}</button>
             </div>
           </div>
         </section>
@@ -920,24 +932,24 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         <section class="view hidden" data-view="lab">
           <div class="stack">
             <div class="cardHead" style="margin:0">
-              <p class="muted" style="margin:0">OpenAI и Qwen получают один и тот же вход. Совпадение не означает правильность.</p>
+              <p class="muted" style="margin:0">${h('OpenAI и Qwen получают один и тот же вход. Совпадение не означает правильность.')}</p>
               <div class="controls" style="width:auto">
-                <div class="seg" role="group" aria-label="Окно" id="shadowDaysSeg">
-                  <button type="button" data-shadow-days="1">24 часа</button>
-                  <button type="button" data-shadow-days="3">3 дня</button>
-                  <button type="button" data-shadow-days="7">7 дней</button>
+                <div class="seg" role="group" aria-label="${h('Окно')}" id="shadowDaysSeg">
+                  <button type="button" data-shadow-days="1">${h('24 часа')}</button>
+                  <button type="button" data-shadow-days="3">${h('3 дня')}</button>
+                  <button type="button" data-shadow-days="7">${h('7 дней')}</button>
                 </div>
                 <input type="hidden" id="shadowDays" value="3">
-                <button class="secondary" id="shadowRefresh" type="button">Обновить</button>
+                <button class="secondary" id="shadowRefresh" type="button">${h('Обновить')}</button>
               </div>
             </div>
             <div class="shadowSummary" id="shadowSummary"></div>
             <section class="card">
               <div class="cardHead">
-                <h2>Сравнения</h2>
-                <div class="tabs" role="tablist" aria-label="Фильтр">
-                  <button type="button" class="tab" role="tab" data-shadow-filter="diff">Только расхождения</button>
-                  <button type="button" class="tab" role="tab" data-shadow-filter="all">Все</button>
+                <h2>${h('Сравнения')}</h2>
+                <div class="tabs" role="tablist" aria-label="${h('Фильтр')}">
+                  <button type="button" class="tab" role="tab" data-shadow-filter="diff">${h('Только расхождения')}</button>
+                  <button type="button" class="tab" role="tab" data-shadow-filter="all">${h('Все')}</button>
                 </div>
               </div>
               <div class="shadowList" id="shadowComparisons" aria-live="polite"></div>
@@ -954,27 +966,27 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         <h2 id="memberName"></h2>
         <div class="muted memberMeta" id="memberMeta"></div>
       </div>
-      <button type="button" class="iconButton" id="memberClose" aria-label="Закрыть">✕</button>
+      <button type="button" class="iconButton" id="memberClose" aria-label="${h('Закрыть')}">✕</button>
     </div>
     <div class="memberBody" id="memberBody">
       <div class="grid" id="memberKpis"></div>
       <section class="card">
-        <div class="cardHead"><h2>Сообщения по дням</h2><span class="cardHint" id="memberDailyHint"></span></div>
-        <div class="chartBox short"><canvas id="memberDailyChart" aria-label="Сообщения участника по дням" role="img"></canvas></div>
-        <div class="chartEmpty hidden" id="memberDailyEmpty">Нет данных</div>
+        <div class="cardHead"><h2>${h('Сообщения по дням')}</h2><span class="cardHint" id="memberDailyHint"></span></div>
+        <div class="chartBox short"><canvas id="memberDailyChart" aria-label="${h('Сообщения участника по дням')}" role="img"></canvas></div>
+        <div class="chartEmpty hidden" id="memberDailyEmpty">${h('Нет данных')}</div>
       </section>
       <div class="memberCols">
         <section class="card">
-          <div class="cardHead"><h2>Когда пишет</h2><span class="cardHint">доля сообщений, UTC</span></div>
+          <div class="cardHead"><h2>${h('Когда пишет')}</h2><span class="cardHint">${h('доля сообщений, UTC')}</span></div>
           <div class="memberBuckets" id="memberBuckets"></div>
         </section>
         <section class="card">
-          <div class="cardHead"><h2>Любимые слова</h2><span class="cardHint" id="memberWordsHint"></span></div>
+          <div class="cardHead"><h2>${h('Любимые слова')}</h2><span class="cardHint" id="memberWordsHint"></span></div>
           <div class="chips" id="memberWords"></div>
         </section>
       </div>
       <div class="formActions">
-        <button type="button" class="secondary hidden" id="memberCriminalButton">Показать нарушения УК</button>
+        <button type="button" class="secondary hidden" id="memberCriminalButton">${h('Показать нарушения УК')}</button>
       </div>
     </div>
     <p class="muted hidden" id="memberStatus"></p>
@@ -982,21 +994,22 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script>
     const principal = ${principal};
+    ${adminClientI18n(language)}
     const HOURLY_TIMEZONE_STORAGE_KEY = 'telegramStatsAdmin.hourlyTimezoneOffset';
     const THEME_STORAGE_KEY = 'telegramStatsAdmin.theme';
     const PERIOD_STORAGE_KEY = 'telegramStatsAdmin.period';
     const THEME_MODES = ['system', 'light', 'dark'];
     const PERIODS = ['today', 'week', 'month', 'custom'];
     const VIEWS = {
-      overview: 'Обзор',
-      people: 'Люди',
-      media: 'Голос и кружки',
-      profanity: 'Мат',
-      criminal: 'УК РФ',
-      notifications: 'Автоуведомления',
-      lab: 'Лаборатория моделей',
-      chats: 'Все чаты',
-      modules: 'Модули чата'
+      overview: ${js('Обзор')},
+      people: ${js('Люди')},
+      media: ${js('Голос и кружки')},
+      profanity: ${js('Мат')},
+      criminal: ${js('УК РФ')},
+      notifications: ${js('Автоуведомления')},
+      lab: ${js('Лаборатория моделей')},
+      chats: ${js('Все чаты')},
+      modules: ${js('Модули чата')}
     };
     // Views that do not depend on the stats period.
     const SETTINGS_VIEWS = ['notifications', 'lab', 'chats', 'modules'];
@@ -1027,24 +1040,24 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     };
     const chartInstances = {};
     const labels = {
-      criminal_reports: 'УК РФ',
-      profanity_reports: 'Мат',
-      activity_summary: 'Активность',
-      daily_summary: 'Дневная сводка',
-      weekly_summary: 'Недельная сводка',
-      monthly_summary: 'Месячная сводка'
+      criminal_reports: ${js('УК РФ')},
+      profanity_reports: ${js('Мат')},
+      activity_summary: ${js('Активность')},
+      daily_summary: ${js('Дневная сводка')},
+      weekly_summary: ${js('Недельная сводка')},
+      monthly_summary: ${js('Месячная сводка')}
     };
     const NOTIFICATION_GROUPS = [
-      { title: 'Сводки', types: ['daily_summary', 'weekly_summary', 'monthly_summary'] },
-      { title: 'Отчёты', types: ['criminal_reports', 'profanity_reports', 'activity_summary'] }
+      { title: ${js('Сводки')}, types: ['daily_summary', 'weekly_summary', 'monthly_summary'] },
+      { title: ${js('Отчёты')}, types: ['criminal_reports', 'profanity_reports', 'activity_summary'] }
     ];
     const NOTIFICATION_DESCRIPTIONS = {
-      daily_summary: 'Итоги дня',
-      weekly_summary: 'Итоги недели',
-      monthly_summary: 'Итоги месяца',
-      criminal_reports: 'Найденные «нарушения» и сроки',
-      profanity_reports: 'Кто сколько ругался',
-      activity_summary: 'Сводка активности участников'
+      daily_summary: ${js('Итоги дня')},
+      weekly_summary: ${js('Итоги недели')},
+      monthly_summary: ${js('Итоги месяца')},
+      criminal_reports: ${js('Найденные «нарушения» и сроки')},
+      profanity_reports: ${js('Кто сколько ругался')},
+      activity_summary: ${js('Сводка активности участников')}
     };
 
     function readCssVar(name) {
@@ -1142,15 +1155,15 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     function emptyNote(text) {
-      return el('p', 'muted', text || 'Нет данных');
+      return el('p', 'muted', text || ${js('Нет данных')});
     }
 
     function formatNumber(value) {
-      return (Number(value) || 0).toLocaleString('ru-RU');
+      return (Number(value) || 0).toLocaleString(LOCALE);
     }
 
     function formatDecimal(value, digits = 1) {
-      return (Number(value) || 0).toLocaleString('ru-RU', { maximumFractionDigits: digits });
+      return (Number(value) || 0).toLocaleString(LOCALE, { maximumFractionDigits: digits });
     }
 
     function formatRate(value) {
@@ -1164,6 +1177,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     function pluralRu(value, forms) {
+      if (LANGUAGE !== 'ru') return Math.abs(Number(value)) === 1 ? forms[0] : forms[2];
       const n = Math.abs(Number(value) || 0) % 100;
       const last = n % 10;
       if (n > 10 && n < 20) return forms[2];
@@ -1173,11 +1187,11 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     function formatSentence(row) {
-      if (Number(row.lifeSentences) > 0) return 'пожизненно';
+      if (Number(row.lifeSentences) > 0) return ${js('пожизненно')};
       const years = Number(row.totalYears) || 0;
       if (!years) return '';
       const rounded = Math.round(years);
-      return rounded + ' ' + pluralRu(rounded, ['год', 'года', 'лет']);
+      return rounded + ' ' + pluralRu(rounded, ${forms('год|года|лет')});
     }
 
     function isCurrentUser(userId) {
@@ -1198,7 +1212,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     function personButton(row) {
       const button = el('button', 'personButton');
       button.type = 'button';
-      button.title = 'Открыть карточку участника';
+      button.title = ${js('Открыть карточку участника')};
       button.append(avatarNode(row.username), nameNode(row));
       button.addEventListener('click', () => openMember(row.userId, row.username));
       return button;
@@ -1242,36 +1256,36 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     const STATS_ERROR_COPY = {
       LIVE_ANALYSIS_FAILED: {
-        title: 'Анализ текущего дня не завершён',
+        title: ${js('Анализ текущего дня не завершён')},
         message:
-          'Анализ сообщений за текущий день (UTC) пока не завершился. ' +
-          'Данные появятся после завершения анализа.',
+          ${js('Анализ сообщений за текущий день (UTC) пока не завершился. ')} +
+          ${js('Данные появятся после завершения анализа.')},
         showWeek: false,
         showRetry: true
       },
       LIVE_PROGRESS_UNKNOWN: {
-        title: 'Данные за сегодня пока недоступны',
+        title: ${js('Данные за сегодня пока недоступны')},
         message:
-          'Прогресс обработки текущего дня (UTC) пока неизвестен. Попробуйте позже.',
+          ${js('Прогресс обработки текущего дня (UTC) пока неизвестен. Попробуйте позже.')},
         showWeek: false,
         showRetry: true
       },
       HISTORICAL_STATS_NOT_READY: {
-        title: 'Данные пока не готовы',
-        message: 'Статистика за выбранный период пока не готова. Попробуйте позже.',
+        title: ${js('Данные пока не готовы')},
+        message: ${js('Статистика за выбранный период пока не готова. Попробуйте позже.')},
         showWeek: false,
         showRetry: true
       },
       ADMIN_UNAVAILABLE: {
-        title: 'Сервис временно недоступен',
-        message: 'Статистика временно недоступна. Попробуйте позже.',
+        title: ${js('Сервис временно недоступен')},
+        message: ${js('Статистика временно недоступна. Попробуйте позже.')},
         showWeek: false,
         showRetry: true
       }
     };
     const STATS_ERROR_GENERIC = {
-      title: 'Не удалось загрузить статистику',
-      message: 'Произошла ошибка при загрузке статистики. Попробуйте ещё раз.',
+      title: ${js('Не удалось загрузить статистику')},
+      message: ${js('Произошла ошибка при загрузке статистики. Попробуйте ещё раз.')},
       showWeek: false,
       showRetry: true
     };
@@ -1290,8 +1304,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const copy = STATS_ERROR_COPY[code] || STATS_ERROR_GENERIC;
       let message = copy.message;
       if (code === 'HISTORICAL_STATS_NOT_READY' && errorPayload?.from && errorPayload?.to) {
-        message = 'Статистика за период с ' + errorPayload.from + ' по ' + errorPayload.to +
-          ' пока не готова. Попробуйте позже.';
+        message = ${js('Статистика за период с ')} + errorPayload.from + ${js(' по ')} + errorPayload.to +
+          ${js(' пока не готова. Попробуйте позже.')};
       }
       document.getElementById('statsErrorTitle').textContent = copy.title;
       document.getElementById('statsErrorMessage').textContent = message;
@@ -1362,10 +1376,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const from = document.getElementById('dateFrom').value;
         const to = document.getElementById('dateTo').value;
         if (!from || !to) {
-          throw new Error('Выберите даты начала и конца периода');
+          throw new Error(${js('Выберите даты начала и конца периода')});
         }
         if (from > to) {
-          throw new Error('Дата начала должна быть раньше или равна дате конца');
+          throw new Error(${js('Дата начала должна быть раньше или равна дате конца')});
         }
         url.searchParams.set('from', from);
         url.searchParams.set('to', to);
@@ -1461,7 +1475,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       document.getElementById('pageHeader').classList.add('hidden');
       document.getElementById('views').classList.add('hidden');
       document.getElementById('status').classList.add('hidden');
-      document.getElementById('sessionLabel').textContent = 'Не авторизован';
+      document.getElementById('sessionLabel').textContent = ${js('Не авторизован')};
 
       const hint = document.getElementById('loginHint');
       const button = document.getElementById('telegramLoginButton');
@@ -1480,7 +1494,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         button.disabled = false;
       }
 
-      hint.textContent = 'Подготовка входа через Telegram...';
+      hint.textContent = ${js('Подготовка входа через Telegram...')};
       try {
         await refreshChallenge();
         // The old iframe widget points to a deprecated Telegram endpoint.
@@ -1491,7 +1505,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         sdk.onload = () => {
           if (!window.Telegram?.Login?.auth) {
             button.disabled = true;
-            hint.textContent = 'Не удалось инициализировать Telegram Login. Обновите страницу.';
+            hint.textContent = ${js('Не удалось инициализировать Telegram Login. Обновите страницу.')};
             return;
           }
           button.disabled = false;
@@ -1499,7 +1513,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         };
         sdk.onerror = () => {
           button.disabled = true;
-          hint.textContent = 'Не удалось загрузить Telegram Login. Попробуйте обновить страницу.';
+          hint.textContent = ${js('Не удалось загрузить Telegram Login. Попробуйте обновить страницу.')};
         };
         button.disabled = true;
         document.head.append(sdk);
@@ -1513,15 +1527,15 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             nonce: challenge.nonce,
           }, async result => {
             if (!result?.id_token) {
-              hint.textContent = 'Вход не завершён. Можно попробовать ещё раз.';
+              hint.textContent = ${js('Вход не завершён. Можно попробовать ещё раз.')};
               try { await refreshChallenge(); }
-              catch (_error) { hint.textContent = 'Не удалось обновить вход. Перезагрузите страницу.'; }
+              catch (_error) { hint.textContent = ${js('Не удалось обновить вход. Перезагрузите страницу.')}; }
               return;
             }
             if (submitting) return;
             submitting = true;
             button.disabled = true;
-            hint.textContent = 'Проверяем вход...';
+            hint.textContent = ${js('Проверяем вход...')};
             try {
               const response = await fetch('/auth/telegram', {
                 method: 'POST',
@@ -1533,9 +1547,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
               if (!payload.ok || payload.redirectTo !== '/admin') throw new Error('Unexpected login response');
               window.location.assign('/admin');
             } catch (_error) {
-              hint.textContent = 'Не удалось подтвердить вход. Попробуйте ещё раз.';
+              hint.textContent = ${js('Не удалось подтвердить вход. Попробуйте ещё раз.')};
               try { await refreshChallenge(); }
-              catch (_error) { hint.textContent = 'Не удалось обновить вход. Перезагрузите страницу.'; }
+              catch (_error) { hint.textContent = ${js('Не удалось обновить вход. Перезагрузите страницу.')}; }
             } finally {
               submitting = false;
             }
@@ -1543,7 +1557,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         });
       } catch (_error) {
         button.disabled = true;
-        hint.textContent = 'Telegram Login недоступен. Проверьте настройку бота и обновите страницу.';
+        hint.textContent = ${js('Telegram Login недоступен. Проверьте настройку бота и обновите страницу.')};
       }
     }
 
@@ -1553,7 +1567,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       document.getElementById('views').classList.remove('hidden');
       const name = principal?.displayName || principal?.username || 'Telegram user';
       const sessionLabel = document.getElementById('sessionLabel');
-      sessionLabel.textContent = 'Вошли как ';
+      sessionLabel.textContent = ${js('Вошли как ')};
       const user = document.createElement('strong');
       user.textContent = name;
       sessionLabel.append(user);
@@ -1566,12 +1580,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const now = Number(current) || 0;
       const before = Number(previous) || 0;
       if (before === 0) {
-        return now > 0 ? { text: 'раньше не было', tone: 'up' } : { text: 'без изменений', tone: '' };
+        return now > 0 ? { text: ${js('раньше не было')}, tone: 'up' } : { text: ${js('без изменений')}, tone: '' };
       }
       const change = Math.round(((now - before) / before) * 100);
-      if (change === 0) return { text: 'как в прошлом периоде', tone: '' };
+      if (change === 0) return { text: ${js('как в прошлом периоде')}, tone: '' };
       return {
-        text: (change > 0 ? '▲ ' : '▼ ') + Math.abs(change) + '% к прошлому периоду',
+        text: (change > 0 ? '▲ ' : '▼ ') + Math.abs(change) + ${js('% к прошлому периоду')},
         tone: change > 0 ? 'up' : 'down'
       };
     }
@@ -1621,38 +1635,38 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const dailyMedia = activity.dailyMedia || [];
       renderKpis('overviewKpis', [
         {
-          label: 'Сообщения',
+          label: ${js('Сообщения')},
           value: formatNumber(activity.total),
           delta: deltaInfo(activity.total, previous?.total),
           spark: (activity.dailyMessages || []).map(row => row.count),
-          hint: formatNumber(activity.totalWords) + ' слов · ' + formatDecimal(activity.wordsPerMessage) + ' на сообщение'
+          hint: formatNumber(activity.totalWords) + ${js(' слов · ')} + formatDecimal(activity.wordsPerMessage) + ${js(' на сообщение')}
         },
         {
-          label: 'Активные участники',
+          label: ${js('Активные участники')},
           value: formatNumber(activity.activeUsers),
           delta: deltaInfo(activity.activeUsers, previous?.activeUsers),
           spark: (activity.dailyActiveUsers || []).map(row => row.count),
-          hint: 'в среднем ' + formatDecimal(activity.averageDailyActiveUsers) + ' в день'
+          hint: ${js('в среднем ')} + formatDecimal(activity.averageDailyActiveUsers) + ${js(' в день')}
         },
         {
-          label: 'Голосовые',
+          label: ${js('Голосовые')},
           value: formatNumber(activity.totalVoiceCount),
           delta: deltaInfo(activity.totalVoiceCount, previous?.totalVoiceCount),
           spark: dailyMedia.map(row => row.voiceCount),
-          hint: formatDecimal(activity.totalVoiceMinutes) + ' мин'
+          hint: formatDecimal(activity.totalVoiceMinutes) + ${js(' мин')}
         },
         {
-          label: 'Кружочки',
+          label: ${js('Кружочки')},
           value: formatNumber(activity.totalVideoNoteCount),
           delta: deltaInfo(activity.totalVideoNoteCount, previous?.totalVideoNoteCount),
           spark: dailyMedia.map(row => row.videoNoteCount),
-          hint: formatDecimal(activity.totalVideoNoteMinutes) + ' мин'
+          hint: formatDecimal(activity.totalVideoNoteMinutes) + ${js(' мин')}
         }
       ]);
 
       document.getElementById('dailyMessagesHint').textContent =
-        'в среднем ' + formatDecimal(activity.averageDailyMessages) + ' в день · ' +
-        formatDecimal(activity.averageHourlyMessages, 2) + ' в час';
+        ${js('в среднем ')} + formatDecimal(activity.averageDailyMessages) + ${js(' в день · ')} +
+        formatDecimal(activity.averageHourlyMessages, 2) + ${js(' в час')};
       renderTimeBuckets(activity.timeBuckets || []);
       renderLeaders(stats);
       renderOverviewSide(stats);
@@ -1665,7 +1679,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const row = el('div', 'bucketRow');
         const leader = (bucket.topUsers || [])[0];
         row.append(
-          el('span', 'bucketName', bucket.label),
+          el('span', 'bucketName', serverLabel(bucket.label)),
           el('span', 'bucketLeader', leader ? leader.username : '—'),
           el('span', 'num muted', leader ? formatNumber(leader.count) : '')
         );
@@ -1719,12 +1733,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const criminal = document.getElementById('overviewCriminal');
       criminal.replaceChildren();
       const criminalRows = (stats.criminal?.topUsers || []).slice(0, 3);
-      if (!criminalRows.length) criminal.append(emptyNote('Нарушений нет'));
+      if (!criminalRows.length) criminal.append(emptyNote(${js('Нарушений нет')}));
       for (const row of criminalRows) {
         const line = el('div', 'miniRow');
         line.append(
           nameNode(row),
-          el('span', 'muted num', formatNumber(row.count) + ' нар.'),
+          el('span', 'muted num', formatNumber(row.count) + ${js(' нар.')}),
           el('span', 'years', formatSentence(row))
         );
         criminal.append(line);
@@ -1733,12 +1747,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const profanity = stats.profanity || {};
       const totalWords = Number(stats.activity?.totalWords) || 0;
       document.getElementById('overviewProfanityShare').textContent = totalWords > 0
-        ? formatRate((Number(profanity.total) || 0) / totalWords * 100) + ' всех слов'
+        ? formatRate((Number(profanity.total) || 0) / totalWords * 100) + ${js(' всех слов')}
         : '';
       const words = document.getElementById('overviewProfanityWords');
       words.replaceChildren();
       const topWords = (profanity.topWords || []).slice(0, 6);
-      if (!topWords.length) words.append(emptyNote('Чисто'));
+      if (!topWords.length) words.append(emptyNote(${js('Чисто')}));
       for (const word of topWords) {
         const chip = el('span', 'chip', word.word + ' ');
         chip.append(el('b', 'num', formatNumber(word.count)));
@@ -1746,23 +1760,23 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }
       const leader = (profanity.topRateUsers || [])[0];
       document.getElementById('overviewProfanityLeader').textContent = leader
-        ? 'Чаще всех: ' + leader.username + ' · ' + formatRate(leader.rate) + ' слов'
+        ? ${js('Чаще всех: ')} + leader.username + ' · ' + formatRate(leader.rate) + ${js(' слов')}
         : '';
     }
 
     // ---------- people ----------
 
     const PEOPLE_COLUMNS = [
-      { key: 'username', label: 'Участник' },
-      { key: 'messages', label: 'Сообщения' },
-      { key: 'words', label: 'Слова' },
-      { key: 'wordsPerMessage', label: 'Слов/сообщ.' },
-      { key: 'voiceMinutes', label: 'Голос, мин' },
-      { key: 'videoNoteMinutes', label: 'Кружки, мин' },
-      { key: 'profanity', label: 'Мат' },
-      { key: 'rate', label: 'Доля мата' },
-      { key: 'criminal', label: 'УК РФ' },
-      { key: 'rhythm', label: 'Ритм по дням недели', sortable: false }
+      { key: 'username', label: ${js('Участник')} },
+      { key: 'messages', label: ${js('Сообщения')} },
+      { key: 'words', label: ${js('Слова')} },
+      { key: 'wordsPerMessage', label: ${js('Слов/сообщ.')} },
+      { key: 'voiceMinutes', label: ${js('Голос, мин')} },
+      { key: 'videoNoteMinutes', label: ${js('Кружки, мин')} },
+      { key: 'profanity', label: ${js('Мат')} },
+      { key: 'rate', label: ${js('Доля мата')} },
+      { key: 'criminal', label: ${js('УК РФ')} },
+      { key: 'rhythm', label: ${js('Ритм по дням недели')}, sortable: false }
     ];
 
     function mergePeople(stats) {
@@ -1855,7 +1869,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const people = mergePeople(stats);
       if (!people.length) {
         const tr = el('tr');
-        const td = el('td', 'muted peopleEmpty peopleWide', 'Нет данных');
+        const td = el('td', 'muted peopleEmpty peopleWide', ${js('Нет данных')});
         td.colSpan = PEOPLE_COLUMNS.length;
         tr.append(td);
         tbody.append(tr);
@@ -1932,10 +1946,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     function activityLevelLabel(level) {
       return {
-        inactive: 'Нет активности',
-        active: 'Активен',
-        talkative: 'Активно общается'
-      }[level] || 'Нет активности';
+        inactive: ${js('Нет активности')},
+        active: ${js('Активен')},
+        talkative: ${js('Активно общается')}
+      }[level] || ${js('Нет активности')};
     }
 
     function activityLevel(level) {
@@ -1943,7 +1957,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     function readableHeatmapDay(day) {
-      return new Intl.DateTimeFormat('ru-RU', {
+      return new Intl.DateTimeFormat(LOCALE, {
         weekday: 'short',
         day: 'numeric',
         month: 'short',
@@ -1952,12 +1966,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     const ACTIVITY_TIME_BUCKETS = [
-      { bucket: 'night', label: 'Ночь · 22–05' },
-      { bucket: 'morning', label: 'Утро · 05–12' },
-      { bucket: 'noon', label: 'День · 12–17' },
-      { bucket: 'evening', label: 'Вечер · 17–22' }
+      { bucket: 'night', label: ${js('Ночь · 22–05')} },
+      { bucket: 'morning', label: ${js('Утро · 05–12')} },
+      { bucket: 'noon', label: ${js('День · 12–17')} },
+      { bucket: 'evening', label: ${js('Вечер · 17–22')} }
     ];
-    const ACTIVITY_WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    const ACTIVITY_WEEKDAYS = [${js('Пн')}, ${js('Вт')}, ${js('Ср')}, ${js('Чт')}, ${js('Пт')}, ${js('Сб')}, ${js('Вс')}];
 
     function weekdayIndex(day) {
       return (new Date(day + 'T00:00:00Z').getUTCDay() + 6) % 7;
@@ -1986,18 +2000,18 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         (participant.dailyLevels || []).map(level => level.day).filter(Boolean)
       ))).sort().slice(-90);
       if (!participants.length || !days.length) {
-        box.append(emptyNote('Нет данных об активности за выбранный период'));
+        box.append(emptyNote(${js('Нет данных об активности за выбранный период')}));
         return;
       }
       const availableBuckets = new Set((timeline?.timeBuckets || []).map(bucket => bucket?.bucket));
       const timeBuckets = ACTIVITY_TIME_BUCKETS.filter(timeBucket => availableBuckets.has(timeBucket.bucket));
       if (timeBuckets.length !== ACTIVITY_TIME_BUCKETS.length) {
-        box.append(emptyNote('Нет данных об активности по времени суток за выбранный период'));
+        box.append(emptyNote(${js('Нет данных об активности по времени суток за выбранный период')}));
         return;
       }
 
       const table = el('table', 'rhythmHeatmap');
-      table.setAttribute('aria-label', 'Активность участников по дням и времени суток');
+      table.setAttribute('aria-label', ${js('Активность участников по дням и времени суток')});
       const head = el('thead');
       const header = el('tr');
       const corner = el('th');
@@ -2016,7 +2030,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
       const body = el('tbody');
       for (const participant of participants) {
-        const username = participant.username || 'Участник';
+        const username = serverLabel(participant.username) || ${js('Участник')};
         const row = el('tr');
         const name = el('th', '', username);
         name.scope = 'row';
@@ -2027,7 +2041,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           const group = el('span', 'rhythmDay');
           for (const timeBucket of timeBuckets) {
             const level = bucketLevel(levelsByDay.get(day), timeBucket.bucket);
-            const description = username + ', ' + readableHeatmapDay(day) + ', ' + timeBucket.label + ': ' + activityLevelLabel(level);
+            const description = username + ', ' + readableHeatmapDay(day) + ', ' + serverLabel(timeBucket.label) + ': ' + activityLevelLabel(level);
             const mark = el('span', 'heatmapCell heatmap-' + level);
             mark.title = description;
             mark.setAttribute('role', 'img');
@@ -2054,34 +2068,34 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const colors = getThemeColors();
       renderKpis('mediaKpis', [
         {
-          label: 'Голосовые',
+          label: ${js('Голосовые')},
           swatch: colors.accent,
           value: formatNumber(activity.totalVoiceCount),
           delta: deltaInfo(activity.totalVoiceCount, previous?.totalVoiceCount),
-          hint: formatDecimal(activity.totalVoiceMinutes) + ' мин за период'
+          hint: formatDecimal(activity.totalVoiceMinutes) + ${js(' мин за период')}
         },
         {
-          label: 'Средняя длина голосового',
+          label: ${js('Средняя длина голосового')},
           swatch: colors.accent,
           value: avg(activity.totalVoiceMinutes, Number(activity.totalVoiceCount) || 0),
           hint: longestVoice
-            ? 'самое длинное ' + formatDuration(longestVoice.seconds) + ', ' + longestVoice.username
-            : 'самое длинное пока не известно'
+            ? ${js('самое длинное ')} + formatDuration(longestVoice.seconds) + ', ' + longestVoice.username
+            : ${js('самое длинное пока не известно')}
         },
         {
-          label: 'Кружочки',
+          label: ${js('Кружочки')},
           swatch: colors.orange,
           value: formatNumber(activity.totalVideoNoteCount),
           delta: deltaInfo(activity.totalVideoNoteCount, previous?.totalVideoNoteCount),
-          hint: formatDecimal(activity.totalVideoNoteMinutes) + ' мин за период'
+          hint: formatDecimal(activity.totalVideoNoteMinutes) + ${js(' мин за период')}
         },
         {
-          label: 'Средняя длина кружочка',
+          label: ${js('Средняя длина кружочка')},
           swatch: colors.orange,
           value: avg(activity.totalVideoNoteMinutes, Number(activity.totalVideoNoteCount) || 0),
           hint: longestVideoNote
-            ? 'самый длинный ' + formatDuration(longestVideoNote.seconds) + ', ' + longestVideoNote.username
-            : 'самый длинный пока не известен'
+            ? ${js('самый длинный ')} + formatDuration(longestVideoNote.seconds) + ', ' + longestVideoNote.username
+            : ${js('самый длинный пока не известен')}
         }
       ]);
       renderMediaRows('activityVoiceUsers', activity.topVoiceUsers || [], 'voice');
@@ -2100,8 +2114,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const maxKey = type === 'voice' ? 'voiceMaxSeconds' : 'videoNoteMaxSeconds';
       const head = el('div', 'mediaRow head');
       head.append(
-        el('span'), el('span', '', 'Участник'), el('span', 'barHead', 'Минуты'),
-        el('span', 'r', 'Мин'), el('span', 'r', 'Штук'), el('span', 'r', 'Средн.'), el('span', 'r', 'Макс.')
+        el('span'), el('span', '', ${js('Участник')}), el('span', 'barHead', ${js('Минуты')}),
+        el('span', 'r', ${js('Мин')}), el('span', 'r', ${js('Штук')}), el('span', 'r', ${js('Средн.')}), el('span', 'r', ${js('Макс.')})
       );
       box.append(head);
       const max = Math.max(...rows.map(row => Number(row[minutesKey]) || 0), 0);
@@ -2134,22 +2148,22 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       renderKpis('profanityKpis', [
         {
           span: 'span-4',
-          label: 'Матерных слов',
+          label: ${js('Матерных слов')},
           value: formatNumber(total),
           delta: deltaInfo(total, stats.previous?.profanityTotal ?? null)
         },
         {
           span: 'span-4',
-          label: 'Доля мата в чате',
+          label: ${js('Доля мата в чате')},
           value: formatRate(share),
-          hint: share > 0 ? 'примерно каждое ' + formatNumber(Math.round(100 / share)) + '-е слово' : ''
+          hint: share > 0 ? fmt(${js('примерно каждое {n}-е слово')}, { n: formatNumber(Math.round(100 / share)) }) : ''
         },
         {
           span: 'span-4',
-          label: 'Самое частое слово',
+          label: ${js('Самое частое слово')},
           value: topWord ? topWord.word : '—',
           hint: topWord
-            ? formatNumber(topWord.count) + ' раз' + (topWord.contributors?.[0] ? ', чаще всех ' + topWord.contributors[0].username : '')
+            ? formatNumber(topWord.count) + ${js(' раз')} + (topWord.contributors?.[0] ? ${js(', чаще всех ')} + topWord.contributors[0].username : '')
             : ''
         }
       ]);
@@ -2184,7 +2198,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       tbody.replaceChildren();
       if (!rows.length) {
         const tr = el('tr');
-        const td = el('td', 'muted', 'Нет данных');
+        const td = el('td', 'muted', ${js('Нет данных')});
         td.colSpan = 4;
         tr.append(td);
         tbody.append(tr);
@@ -2232,7 +2246,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         if (contributors.length && total > 0) {
           const parts = contributors.slice(0, 2).map(row => ({ name: row.username, value: Number(row.count) || 0 }));
           const rest = Math.max(0, total - parts.reduce((sum, part) => sum + part.value, 0));
-          if (rest > 0) parts.push({ name: 'другие', value: rest });
+          if (rest > 0) parts.push({ name: ${js('другие')}, value: rest });
           const stacked = el('div', 'stacked');
           stacked.setAttribute('aria-hidden', 'true');
           for (const part of parts) {
@@ -2257,13 +2271,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         .replace(/\\s+УК\\s+РФ$/i, '');
       const subarticle = violation?.subarticle ? '.' + violation.subarticle : '';
       const title = violation?.articleTitle ? ' · ' + violation.articleTitle : '';
-      return 'Ст. ' + article + subarticle + ' УК РФ' + title;
+      return ${js('Ст. ')} + article + subarticle + ${js(' УК РФ')} + title;
     }
 
     function formatCriminalConfidence(value) {
-      if (value === null || value === undefined || value === '') return 'нет данных';
+      if (value === null || value === undefined || value === '') return ${js('нет данных')};
       const numeric = Number(value);
-      if (!Number.isFinite(numeric)) return 'нет данных';
+      if (!Number.isFinite(numeric)) return ${js('нет данных')};
       const confidence = Math.min(1, Math.max(0, numeric));
       return Math.round(confidence * 100) + '%';
     }
@@ -2283,37 +2297,37 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         for (const message of contextMessages) {
           const item = el('div', 'criminalContextMessage');
           item.append(
-            el('div', 'criminalContextMeta', (Number(message.relativePosition) < 0 ? 'До' : 'После') + ' · ' +
+            el('div', 'criminalContextMeta', (Number(message.relativePosition) < 0 ? ${js('До')} : ${js('После')}) + ' · ' +
               (message.username || 'unknown')),
             el('div', '', message.text || '')
           );
           context.append(item);
         }
-        field.append(el('div', 'criminalFieldLabel', 'Контекст переписки'), context);
+        field.append(el('div', 'criminalFieldLabel', ${js('Контекст переписки')}), context);
         card.append(field);
       } else if (!violation.contextSummary) {
         const field = el('div', 'criminalField');
         field.append(
-          el('div', 'criminalFieldLabel', 'Контекст переписки'),
-          el('div', 'muted', 'Исходный контекст недоступен. История сообщений хранится до 7 дней.')
+          el('div', 'criminalFieldLabel', ${js('Контекст переписки')}),
+          el('div', 'muted', ${js('Исходный контекст недоступен. История сообщений хранится до 7 дней.')})
         );
         card.append(field);
       }
 
       if (violation.contextSummary) {
-        appendCriminalField(card, 'Контекст, который учла модель', violation.contextSummary);
+        appendCriminalField(card, ${js('Контекст, который учла модель')}, violation.contextSummary);
       }
     }
 
     function renderCriminalDetails(username, payload) {
       const list = document.getElementById('criminalViolationList');
-      document.getElementById('criminalDetailsTitle').textContent = 'Нарушения: ' + username;
+      document.getElementById('criminalDetailsTitle').textContent = ${js('Нарушения: ')} + username;
       document.getElementById('criminalDetailsClose').classList.remove('hidden');
       list.replaceChildren();
       const violations = Array.isArray(payload?.violations) ? payload.violations : [];
 
       if (!violations.length) {
-        list.append(emptyNote('Детали нарушений за этот период не найдены.'));
+        list.append(emptyNote(${js('Детали нарушений за этот период не найдены.')}));
         return;
       }
 
@@ -2323,15 +2337,15 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const titleBox = el('div');
         titleBox.append(el('div', 'criminalViolationTitle', formatCriminalArticle(violation)));
         if (violation.occurredAt) {
-          titleBox.append(el('div', 'criminalOccurredAt', new Date(Number(violation.occurredAt) * 1000).toLocaleString('ru-RU')));
+          titleBox.append(el('div', 'criminalOccurredAt', new Date(Number(violation.occurredAt) * 1000).toLocaleString(LOCALE)));
         }
         const badges = el('div', 'criminalBadges');
         const severityValue = Number(violation.severity) || 0;
         if (severityValue > 0) {
-          badges.append(el('span', 'criminalBadge' + (severityValue >= 7 ? ' severe' : ''), 'Серьёзность ' + violation.severity + '/10'));
+          badges.append(el('span', 'criminalBadge' + (severityValue >= 7 ? ' severe' : ''), ${js('Серьёзность ')} + violation.severity + '/10'));
         }
-        const confidence = el('span', 'criminalBadge', 'Уверенность модели ' + formatCriminalConfidence(violation.confidence));
-        confidence.title = 'Confidence анализа, а не измеренная точность классификатора';
+        const confidence = el('span', 'criminalBadge', ${js('Уверенность модели ')} + formatCriminalConfidence(violation.confidence));
+        confidence.title = ${js('Confidence анализа, а не измеренная точность классификатора')};
         badges.append(confidence);
         head.append(titleBox, badges);
         card.append(head);
@@ -2339,34 +2353,34 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const triggerField = el('div', 'criminalField');
         const triggerSource = violation.trigger?.source;
         const triggerLabel = el('div', 'criminalFieldLabel', triggerSource === 'history'
-          ? 'Сообщение-триггер'
+          ? ${js('Сообщение-триггер')}
           : triggerSource === 'preview'
-            ? 'Сохранённый фрагмент сообщения'
-            : 'Фрагмент, который выделила модель');
-        const trigger = el('blockquote', 'criminalTrigger', violation.trigger?.text || violation.quote || 'Текст недоступен');
+            ? ${js('Сохранённый фрагмент сообщения')}
+            : ${js('Фрагмент, который выделила модель')});
+        const trigger = el('blockquote', 'criminalTrigger', violation.trigger?.text || violation.quote || ${js('Текст недоступен')});
         triggerField.append(triggerLabel, trigger);
         card.append(triggerField);
 
         appendCriminalField(
           card,
-          'Возможное наказание',
-          violation.punishment || 'Модель не указала наказание',
+          ${js('Возможное наказание')},
+          violation.punishment || ${js('Модель не указала наказание')},
         );
         if (violation.sentence?.display && violation.sentence.display !== 'срок не распознан') {
           appendCriminalField(
             card,
-            'Максимум лишения свободы по тексту наказания',
+            ${js('Максимум лишения свободы по тексту наказания')},
             violation.sentence.display,
           );
         }
         const explanation = violation.evidence?.whyNotBenign || violation.evidence?.intent || '';
-        appendCriminalField(card, 'Почему модель сочла это нарушением', explanation);
+        appendCriminalField(card, ${js('Почему модель сочла это нарушением')}, explanation);
         appendCriminalContext(card, violation);
         list.append(card);
       }
 
       if (payload?.hasMore) {
-        list.append(emptyNote('Показаны последние 50 нарушений за выбранный период.'));
+        list.append(emptyNote(${js('Показаны последние 50 нарушений за выбранный период.')}));
       }
     }
 
@@ -2382,7 +2396,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     function closeCriminalDetails() {
       state.criminalDetailsRequestId += 1;
       state.selectedCriminalUserId = null;
-      document.getElementById('criminalDetailsTitle').textContent = 'Выберите участника';
+      document.getElementById('criminalDetailsTitle').textContent = ${js('Выберите участника')};
       document.getElementById('criminalDetailsClose').classList.add('hidden');
       document.getElementById('criminalViolationList').replaceChildren();
       syncCriminalDetailButtons();
@@ -2393,9 +2407,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       state.selectedCriminalUserId = row.userId;
       syncCriminalDetailButtons();
       const list = document.getElementById('criminalViolationList');
-      document.getElementById('criminalDetailsTitle').textContent = 'Нарушения: ' + row.username;
+      document.getElementById('criminalDetailsTitle').textContent = ${js('Нарушения: ')} + row.username;
       document.getElementById('criminalDetailsClose').classList.remove('hidden');
-      list.replaceChildren(emptyNote('Загрузка деталей...'));
+      list.replaceChildren(emptyNote(${js('Загрузка деталей...')}));
 
       try {
         const url = buildCriminalDetailsUrl(
@@ -2416,7 +2430,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         if (requestId !== state.criminalDetailsRequestId) return;
         state.selectedCriminalUserId = null;
         syncCriminalDetailButtons();
-        list.replaceChildren(emptyNote('Не удалось загрузить детали нарушений. Попробуйте ещё раз.'));
+        list.replaceChildren(emptyNote(${js('Не удалось загрузить детали нарушений. Попробуйте ещё раз.')}));
       }
     }
 
@@ -2425,11 +2439,11 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       box.replaceChildren();
       const total = rows.reduce((sum, row) => sum + (Number(row.count) || 0), 0);
       document.getElementById('criminalSummary').textContent = rows.length
-        ? formatNumber(total) + ' ' + pluralRu(total, ['нарушение', 'нарушения', 'нарушений']) + ' · ' +
-          rows.length + ' ' + pluralRu(rows.length, ['человек', 'человека', 'человек'])
+        ? formatNumber(total) + ' ' + pluralRu(total, ${forms('нарушение|нарушения|нарушений')}) + ' · ' +
+          rows.length + ' ' + pluralRu(rows.length, ${forms('человек|человека|человек')})
         : '';
       if (!rows.length) {
-        box.append(emptyNote('Нарушений за период нет'));
+        box.append(emptyNote(${js('Нарушений за период нет')}));
         closeCriminalDetails();
         return;
       }
@@ -2441,7 +2455,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         button.setAttribute('aria-controls', 'criminalDetails');
         button.setAttribute('aria-expanded', 'false');
         const meta = el('span', 'criminalUserMeta');
-        meta.append(nameNode(row), el('small', '', formatNumber(row.count) + ' ' + pluralRu(row.count, ['нарушение', 'нарушения', 'нарушений'])));
+        meta.append(nameNode(row), el('small', '', formatNumber(row.count) + ' ' + pluralRu(row.count, ${forms('нарушение|нарушения|нарушений')})));
         button.append(avatarNode(row.username), meta, el('span', 'years', formatSentence(row)));
         button.addEventListener('click', () => {
           if (String(state.selectedCriminalUserId) === String(row.userId)) {
@@ -2469,7 +2483,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     function formatShadowWords(result) {
       const words = Array.isArray(result?.profanity?.words) ? result.profanity.words : [];
-      if (!words.length) return 'нет';
+      if (!words.length) return ${js('нет', 'words')};
       return words.map(word => word.word + ' ×' + word.count).join(', ');
     }
 
@@ -2487,24 +2501,24 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       panel.append(el('h3', '', label + (record?.model ? ' · ' + record.model : '')));
 
       if (!record) {
-        panel.append(el('div', 'muted', 'Результат ещё не сохранён'));
+        panel.append(el('div', 'muted', ${js('Результат ещё не сохранён')}));
         return panel;
       }
 
       if (record.status !== 'ok' || !record.parsedOutput) {
-        panel.append(el('div', 'shadowProviderLine', 'Ошибка: ' + (record.error || 'неизвестная ошибка')));
+        panel.append(el('div', 'shadowProviderLine', ${js('Ошибка: ')} + (record.error || ${js('неизвестная ошибка')})));
       } else {
         panel.append(
-          el('div', 'shadowProviderLine', 'УК: ' + (record.parsedOutput.shouldAnalyze ? 'анализ' : 'пропуск') +
+          el('div', 'shadowProviderLine', ${js('УК: ')} + (record.parsedOutput.shouldAnalyze ? ${js('анализ')} : ${js('пропуск')}) +
             ' · ' + record.parsedOutput.reason +
-            ' · уверенность ' + Math.round((Number(record.parsedOutput.confidence) || 0) * 100) + '%'),
-          el('div', 'shadowProviderLine', 'Мат: ' +
-            (record.parsedOutput.profanity?.hasProfanity ? 'есть' : 'нет') +
+            ${js(' · уверенность ')} + Math.round((Number(record.parsedOutput.confidence) || 0) * 100) + '%'),
+          el('div', 'shadowProviderLine', ${js('Мат: ')} +
+            (record.parsedOutput.profanity?.hasProfanity ? ${js('есть')} : ${js('нет')}) +
             ' · ' + formatShadowWords(record.parsedOutput))
         );
       }
 
-      panel.append(el('div', 'shadowProviderLine muted', 'Задержка: ' + record.latencyMs + ' мс' +
+      panel.append(el('div', 'shadowProviderLine muted', ${js('Задержка: ')} + record.latencyMs + ${js(' мс')} +
         (record.usage?.totalTokens ? ' · tokens ' + record.usage.totalTokens : '') +
         (record.usage?.cachedTokens ? ' · cache read ' + record.usage.cachedTokens : '') +
         (record.usage?.cacheCreationTokens ? ' · cache create ' + record.usage.cacheCreationTokens : '')));
@@ -2513,7 +2527,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     function shadowMatchChip(label, value) {
-      if (value === null || value === undefined) return el('span', 'matchChip', label + ': нет пары');
+      if (value === null || value === undefined) return el('span', 'matchChip', label + ${js(': нет пары')});
       return el('span', 'matchChip ' + (value ? 'ok' : 'miss'), label + (value ? ' ✓' : ' ✗'));
     }
 
@@ -2533,31 +2547,31 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       summaryContainer.replaceChildren();
       list.replaceChildren();
       const summary = payload?.summary || {};
-      appendShadowMetric(summaryContainer, String(summary.completePairs || 0), 'Полных пар');
+      appendShadowMetric(summaryContainer, String(summary.completePairs || 0), ${js('Полных пар')});
       appendShadowMetric(
         summaryContainer,
         formatShadowRatio(summary.crimeDecisionMatches || 0, summary.crimeDecisionCompared || 0),
-        'УК: анализировать или нет'
+        ${js('УК: анализировать или нет')}
       );
       appendShadowMetric(
         summaryContainer,
         formatShadowRatio(summary.crimeReasonMatches || 0, summary.crimeReasonCompared || 0),
-        'УК: причина'
+        ${js('УК: причина')}
       );
       appendShadowMetric(
         summaryContainer,
         formatShadowRatio(summary.profanityPresenceMatches || 0, summary.profanityPresenceCompared || 0),
-        'Мат: есть или нет'
+        ${js('Мат: есть или нет')}
       );
       appendShadowMetric(
         summaryContainer,
         formatShadowRatio(summary.profanityWordsMatches || 0, summary.profanityWordsCompared || 0),
-        'Мат: какие слова'
+        ${js('Мат: какие слова')}
       );
       appendShadowMetric(
         summaryContainer,
-        (summary.openaiAverageLatencyMs ?? '—') + ' / ' + (summary.qwenAverageLatencyMs ?? '—') + ' мс',
-        'Задержка OpenAI / Qwen'
+        (summary.openaiAverageLatencyMs ?? '—') + ' / ' + (summary.qwenAverageLatencyMs ?? '—') + ${js(' мс')},
+        ${js('Задержка OpenAI / Qwen')}
       );
 
       const allComparisons = Array.isArray(payload?.comparisons) ? payload.comparisons : [];
@@ -2566,8 +2580,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         : allComparisons;
       if (!comparisons.length) {
         list.append(emptyNote(allComparisons.length
-          ? 'Расхождений за выбранное окно нет.'
-          : 'Shadow-данных за выбранное окно пока нет.'));
+          ? ${js('Расхождений за выбранное окно нет.')}
+          : ${js('Shadow-данных за выбранное окно пока нет.')}));
         return;
       }
 
@@ -2575,7 +2589,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const card = el('article', 'shadowCard');
         const head = el('div', 'shadowCardHead');
         head.append(
-          el('span', '', new Date(comparison.createdAt).toLocaleString('ru-RU')),
+          el('span', '', new Date(comparison.createdAt).toLocaleString(LOCALE)),
           el('span', 'mono', comparison.evaluationId)
         );
 
@@ -2588,10 +2602,10 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const match = comparison.comparison || {};
         const matchLine = el('div', 'shadowCompareLine');
         matchLine.append(
-          shadowMatchChip('решение', match.crimeDecisionMatch),
-          shadowMatchChip('причина', match.crimeReasonMatch),
-          shadowMatchChip('мат', match.profanityPresenceMatch),
-          shadowMatchChip('слова', match.profanityWordsMatch)
+          shadowMatchChip(${js('решение')}, match.crimeDecisionMatch),
+          shadowMatchChip(${js('причина')}, match.crimeReasonMatch),
+          shadowMatchChip(${js('мат')}, match.profanityPresenceMatch),
+          shadowMatchChip(${js('слова')}, match.profanityWordsMatch)
         );
 
         const exactInput = [
@@ -2621,7 +2635,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       if (!state.chatId || state.shadowLoading) return;
       state.shadowLoading = true;
       const list = document.getElementById('shadowComparisons');
-      list.replaceChildren(emptyNote('Загрузка A/B результатов...'));
+      list.replaceChildren(emptyNote(${js('Загрузка A/B результатов...')}));
       try {
         const days = document.getElementById('shadowDays').value || '3';
         const url = '/admin/api/shadow-evaluations?chatId=' + encodeURIComponent(state.chatId) +
@@ -2635,7 +2649,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         renderShadowComparisons(await response.json());
       } catch (_error) {
         document.getElementById('shadowSummary').replaceChildren();
-        list.replaceChildren(emptyNote('Не удалось загрузить A/B результаты.'));
+        list.replaceChildren(emptyNote(${js('Не удалось загрузить A/B результаты.')}));
       } finally {
         state.shadowLoading = false;
       }
@@ -2789,8 +2803,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const peakHour = hourlyAverages.find(row => (Number(row.count) || 0) === hourlyPeak);
 
       document.getElementById('hourlyTitle').textContent =
-        'Средняя активность по часам, ' + formatTimezoneOffset(getHourlyTimezoneOffset()) +
-        (hourlyPeak > 0 && peakHour ? ' · пик в ' + peakHour.hour + ':00' : '');
+        ${js('Средняя активность по часам, ')} + formatTimezoneOffset(getHourlyTimezoneOffset()) +
+        (hourlyPeak > 0 && peakHour ? ${js(' · пик в ')} + peakHour.hour + ':00' : '');
 
       setChartEmpty('dailyMessages', dailyMessages.length === 0);
       setChartEmpty('hourly', (activity.hourlyAverages || []).length === 0);
@@ -2855,8 +2869,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         data: {
           labels: dailyMedia.map(row => compactDayLabel(row.day)),
           datasets: [
-            { label: 'Голосовые, мин', data: dailyMedia.map(row => Number(row.voiceMinutes) || 0), backgroundColor: colors.accent, borderRadius: 4, maxBarThickness: 52, stack: 'media' },
-            { label: 'Кружочки, мин', data: dailyMedia.map(row => Number(row.videoNoteMinutes) || 0), backgroundColor: colors.orange, borderRadius: 4, maxBarThickness: 52, stack: 'media' }
+            { label: ${js('Голосовые, мин')}, data: dailyMedia.map(row => Number(row.voiceMinutes) || 0), backgroundColor: colors.accent, borderRadius: 4, maxBarThickness: 52, stack: 'media' },
+            { label: ${js('Кружочки, мин')}, data: dailyMedia.map(row => Number(row.videoNoteMinutes) || 0), backgroundColor: colors.orange, borderRadius: 4, maxBarThickness: 52, stack: 'media' }
           ]
         },
         options: commonChartOptions({
@@ -2873,17 +2887,17 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     function formatNotificationEditMeta(settings, canEdit) {
       if (!settings?.updatedAt) {
         return canEdit
-          ? 'Настройки еще не сохранялись'
-          : 'Настройки еще не сохранялись. Редактировать может только администратор чата.';
+          ? ${js('Настройки еще не сохранялись')}
+          : ${js('Настройки еще не сохранялись. Редактировать может только администратор чата.')};
       }
 
       const date = new Date(settings.updatedAt);
       const formattedDate = Number.isNaN(date.getTime())
         ? String(settings.updatedAt)
-        : date.toLocaleString('ru-RU');
-      const editor = settings.updatedByName || settings.updatedBy || 'неизвестный пользователь';
-      const suffix = canEdit ? '' : '. Редактировать может только администратор чата.';
-      return 'Последнее изменение: ' + editor + ', ' + formattedDate + suffix;
+        : date.toLocaleString(LOCALE);
+      const editor = settings.updatedByName || settings.updatedBy || ${js('неизвестный пользователь')};
+      const suffix = canEdit ? '' : ${js('. Редактировать может только администратор чата.')};
+      return ${js('Последнее изменение: ')} + editor + ', ' + formattedDate + suffix;
     }
 
     function setNotificationEditAllowed(canEdit) {
@@ -2896,7 +2910,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     function setNotificationsDirty(dirty) {
       state.notificationsDirty = dirty;
-      document.getElementById('notificationsDirty').textContent = dirty ? 'Есть несохранённые изменения' : '';
+      document.getElementById('notificationsDirty').textContent = dirty ? ${js('Есть несохранённые изменения')} : '';
     }
 
     function renderNotifications(settings, types, canEdit) {
@@ -2911,7 +2925,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       }));
       const known = new Set(NOTIFICATION_GROUPS.flatMap(group => group.types));
       const other = types.filter(type => !known.has(type));
-      if (other.length) groups.push({ title: 'Другое', types: other });
+      if (other.length) groups.push({ title: ${js('Другое')}, types: other });
       for (const group of groups.filter(item => item.types.length)) {
         box.append(el('h2', 'notificationGroupTitle', group.title));
         for (const type of group.types) {
@@ -2930,7 +2944,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           box.append(row);
         }
       }
-      if (!types.length) box.append(emptyNote('Нет доступных уведомлений'));
+      if (!types.length) box.append(emptyNote(${js('Нет доступных уведомлений')}));
       setNotificationEditAllowed(Boolean(canEdit));
       setNotificationsDirty(false);
     }
@@ -2938,17 +2952,17 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     // ---------- all chats ----------
 
     function formatLastActive(day) {
-      if (!day) return 'не было';
+      if (!day) return ${js('не было')};
       const today = new Date().toISOString().slice(0, 10);
-      if (day === today) return 'сегодня';
+      if (day === today) return ${js('сегодня')};
       const diff = Math.round((Date.parse(today) - Date.parse(day)) / 86400000);
-      return diff === 1 ? 'вчера' : diff + ' ' + pluralRu(diff, ['день', 'дня', 'дней']) + ' назад';
+      return diff === 1 ? ${js('вчера')} : diff + ' ' + pluralRu(diff, ${forms('день|дня|дней')}) + ${js(' назад')};
     }
 
     function moduleChip(label, enabledHere, enabledByOwner) {
       const on = enabledHere && enabledByOwner !== false;
       const chip = el('span', 'moduleChip' + (on ? '' : ' off'), label);
-      if (enabledByOwner === false) chip.title = 'Выключено владельцем бота';
+      if (enabledByOwner === false) chip.title = ${js('Выключено владельцем бота')};
       return chip;
     }
 
@@ -2962,7 +2976,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const box = document.getElementById('chatCards');
       box.replaceChildren();
       if (!state.chats.length) {
-        box.append(emptyNote('Чаты пока не найдены'));
+        box.append(emptyNote(${js('Чаты пока не найдены')}));
         return;
       }
       const modules = state.modules || {};
@@ -2971,7 +2985,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         card.setAttribute('aria-current', String(String(chat.chatId) === String(state.chatId)));
         const head = el('div', 'chatCardHead');
         head.append(avatarNode(chat.title), el('h2', '', chat.title || String(chat.chatId)));
-        if (chat.role) head.append(el('span', 'roleBadge' + (chat.role === 'admin' ? ' admin' : ''), chat.role === 'admin' ? 'админ' : 'участник'));
+        if (chat.role) head.append(el('span', 'roleBadge' + (chat.role === 'admin' ? ' admin' : ''), chat.role === 'admin' ? ${js('админ')} : ${js('участник')}));
         card.append(head);
 
         const pulse = el('div', 'chatPulse');
@@ -2982,32 +2996,32 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         };
         if (chat.pulse) {
           pulse.append(
-            metric(formatNumber(chat.pulse.messages), pluralRu(chat.pulse.messages, ['сообщение', 'сообщения', 'сообщений'])),
-            metric(formatNumber(chat.pulse.activeUsers), 'активных'),
-            metric(formatLastActive(chat.pulse.lastActiveDay), 'последняя активность', 'lastActive')
+            metric(formatNumber(chat.pulse.messages), pluralRu(chat.pulse.messages, ${forms('сообщение|сообщения|сообщений')})),
+            metric(formatNumber(chat.pulse.activeUsers), ${js('активных')}),
+            metric(formatLastActive(chat.pulse.lastActiveDay), ${js('последняя активность')}, 'lastActive')
           );
           card.append(pulse);
         } else {
-          card.append(emptyNote('Активность временно недоступна'));
+          card.append(emptyNote(${js('Активность временно недоступна')}));
         }
 
         const settings = chat.settings || {};
         const chips = el('div', 'moduleChips');
         chips.append(
-          moduleChip('мат', settings.profanityEnabled !== false, modules.profanity),
-          moduleChip('УК РФ', settings.criminalEnabled !== false, modules.criminal),
-          moduleChip('сводка', settings.summaryEnabled !== false, modules.summary)
+          moduleChip(${js('мат')}, settings.profanityEnabled !== false, modules.profanity),
+          moduleChip(${js('УК РФ')}, settings.criminalEnabled !== false, modules.criminal),
+          moduleChip(${js('сводка')}, settings.summaryEnabled !== false, modules.summary)
         );
-        if (settings.dashboardAccess === 'admins') chips.append(el('span', 'moduleChip note', 'дашборд только админам'));
+        if (settings.dashboardAccess === 'admins') chips.append(el('span', 'moduleChip note', ${js('дашборд только админам')}));
         card.append(chips);
 
         const actions = el('div', 'formActions');
-        const open = el('button', 'primary', 'Открыть');
+        const open = el('button', 'primary', ${js('Открыть')});
         open.type = 'button';
         open.addEventListener('click', () => openChat(chat.chatId));
         actions.append(open);
         if (chat.role === 'admin') {
-          const configure = el('button', 'secondary', 'Модули');
+          const configure = el('button', 'secondary', ${js('Модули')});
           configure.type = 'button';
           configure.addEventListener('click', () => {
             document.getElementById('chatSelect').value = String(chat.chatId);
@@ -3023,11 +3037,11 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     // ---------- chat modules ----------
 
-    const MODULE_OFF_HINT = 'Выключено владельцем бота для всех чатов';
+    const MODULE_OFF_HINT = ${js('Выключено владельцем бота для всех чатов')};
 
     function setChatSettingsDirty(dirty) {
       state.chatSettingsDirty = dirty;
-      document.getElementById('chatSettingsDirty').textContent = dirty ? 'Есть несохранённые изменения' : '';
+      document.getElementById('chatSettingsDirty').textContent = dirty ? ${js('Есть несохранённые изменения')} : '';
     }
 
     function renderChatSettings(payload) {
@@ -3062,7 +3076,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           ? current[input.dataset.chatSetting] !== false
           : input.checked;
       }
-      setStatus('Сохранение...');
+      setStatus(${js('Сохранение...')});
       const res = await fetch('/admin/api/chat-settings?chatId=' + encodeURIComponent(state.chatId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3073,7 +3087,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         return;
       }
       if (!res.ok) {
-        setStatus('Не удалось сохранить модули. Попробуйте ещё раз.', true);
+        setStatus(${js('Не удалось сохранить модули. Попробуйте ещё раз.')}, true);
         return;
       }
       const saved = await res.json();
@@ -3081,7 +3095,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const chat = state.chats.find(item => String(item.chatId) === String(state.chatId));
       if (chat) chat.settings = saved.settings;
       renderChatCards();
-      setStatus('Сохранено');
+      setStatus(${js('Сохранено')});
     }
 
     // ---------- participant card ----------
@@ -3100,8 +3114,11 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       if (chatValue === null || chatValue === undefined || !(Number(chatValue) > 0)) return '';
       if (!(Number(value) > 0)) return '';
       const ratio = Number(value) / Number(chatValue);
-      if (ratio >= 0.95 && ratio <= 1.05) return 'как в среднем по чату';
-      return (ratio > 1 ? 'в ' + formatDecimal(ratio) + ' раза больше' : 'в ' + formatDecimal(1 / ratio) + ' раза меньше') + ' ' + unit;
+      if (ratio >= 0.95 && ratio <= 1.05) return ${js('как в среднем по чату')};
+      return fmt(ratio > 1 ? ${js('в {n} раза больше {unit}')} : ${js('в {n} раза меньше {unit}')}, {
+        n: formatDecimal(ratio > 1 ? ratio : 1 / ratio),
+        unit
+      });
     }
 
     function renderMember(payload) {
@@ -3114,41 +3131,41 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       avatarBox.textContent = avatar.textContent;
       avatarBox.style.background = avatar.style.background;
       const meta = [];
-      if (chat.rank) meta.push(chat.rank + '-е место из ' + chat.activeUsers + ' по сообщениям');
-      if (payload.firstSeenDay) meta.push('в чате с ' + new Date(payload.firstSeenDay + 'T00:00:00Z').toLocaleDateString('ru-RU', { timeZone: 'UTC' }));
-      if (payload.lastMessageTs) meta.push('последнее сообщение ' + new Date(Number(payload.lastMessageTs) * 1000).toLocaleString('ru-RU'));
+      if (chat.rank) meta.push(fmt(${js('{rank}-е место из {total} по сообщениям')}, { rank: chat.rank, total: chat.activeUsers }));
+      if (payload.firstSeenDay) meta.push(${js('в чате с ')} + new Date(payload.firstSeenDay + 'T00:00:00Z').toLocaleDateString(LOCALE, { timeZone: 'UTC' }));
+      if (payload.lastMessageTs) meta.push(${js('последнее сообщение ')} + new Date(Number(payload.lastMessageTs) * 1000).toLocaleString(LOCALE));
       document.getElementById('memberMeta').textContent = meta.join(' · ');
 
       renderKpis('memberKpis', [
         {
-          label: 'Сообщения',
+          label: ${js('Сообщения')},
           value: formatNumber(totals.messages),
           delta: deltaInfo(totals.messages, previous ? previous.messages : null),
-          hint: formatDecimal(chat.share) + '% всех сообщений чата'
+          hint: formatDecimal(chat.share) + ${js('% всех сообщений чата')}
         },
         {
-          label: 'Слов на сообщение',
+          label: ${js('Слов на сообщение')},
           value: formatDecimal(totals.wordsPerMessage),
-          hint: memberRelative(totals.wordsPerMessage, chat.wordsPerMessage, 'чем в среднем') || formatNumber(totals.words) + ' слов'
+          hint: memberRelative(totals.wordsPerMessage, chat.wordsPerMessage, ${js('чем в среднем')}) || formatNumber(totals.words) + ${js(' слов')}
         },
         {
-          label: 'Активных дней',
-          value: formatNumber(totals.activeDays) + ' из ' + formatNumber(payload.range?.days),
-          hint: formatDecimal(totals.voiceMinutes) + ' мин голосовых · ' + formatDecimal(totals.videoNoteMinutes) + ' мин кружков'
+          label: ${js('Активных дней')},
+          value: formatNumber(totals.activeDays) + ${js(' из ')} + formatNumber(payload.range?.days),
+          hint: formatDecimal(totals.voiceMinutes) + ${js(' мин голосовых · ')} + formatDecimal(totals.videoNoteMinutes) + ${js(' мин кружков')}
         },
         {
-          label: 'Доля мата',
+          label: ${js('Доля мата')},
           value: totals.profanityRate === null ? '—' : formatRate(totals.profanityRate),
           hint: totals.profanityRate === null
-            ? formatNumber(totals.profanity) + ' ' + pluralRu(totals.profanity, ['слово', 'слова', 'слов']) + ', слишком мало текста для доли'
-            : (memberRelative(totals.profanityRate, chat.profanityRate, 'чем по чату') || formatNumber(totals.profanity) + ' слов')
+            ? formatNumber(totals.profanity) + ' ' + pluralRu(totals.profanity, ${forms('слово|слова|слов')}) + ${js(', слишком мало текста для доли')}
+            : (memberRelative(totals.profanityRate, chat.profanityRate, ${js('чем по чату')}) || formatNumber(totals.profanity) + ${js(' слов')})
         }
       ]);
 
       const daily = payload.daily || [];
       const activeDays = daily.filter(row => row.messages > 0).length;
       document.getElementById('memberDailyHint').textContent = activeDays
-        ? 'в среднем ' + formatDecimal((Number(totals.messages) || 0) / activeDays) + ' в активный день'
+        ? ${js('в среднем ')} + formatDecimal((Number(totals.messages) || 0) / activeDays) + ${js(' в активный день')}
         : '';
       const hasDaily = daily.some(row => row.messages > 0);
       setChartEmpty('memberDaily', !hasDaily);
@@ -3169,7 +3186,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const userTotal = (payload.buckets || []).reduce((sum, row) => sum + (Number(row.count) || 0), 0);
       const chatTotal = (payload.buckets || []).reduce((sum, row) => sum + (Number(row.chatCount) || 0), 0);
       if (!userTotal) {
-        buckets.append(emptyNote('Нет сообщений за период'));
+        buckets.append(emptyNote(${js('Нет сообщений за период')}));
       } else {
         for (const row of payload.buckets) {
           const own = (Number(row.count) || 0) / userTotal * 100;
@@ -3177,19 +3194,19 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           const line = el('div', 'memberBucket');
           const bars = el('div', 'bars');
           bars.append(barNode(own), barNode(all, 'thin chat'));
-          line.append(el('span', 'muted', row.label), bars, el('span', 'num', Math.round(own) + '%'));
-          line.title = row.label + ': ' + Math.round(own) + '% сообщений участника, ' + Math.round(all) + '% по чату';
+          line.append(el('span', 'muted', serverLabel(row.label)), bars, el('span', 'num', Math.round(own) + '%'));
+          line.title = serverLabel(row.label) + ': ' + Math.round(own) + ${js('% сообщений участника, ')} + Math.round(all) + ${js('% по чату')};
           buckets.append(line);
         }
         const legend = el('div', 'memberLegend');
         const own = el('span');
         const ownSwatch = el('span', 'swatch');
         ownSwatch.style.background = 'var(--accent)';
-        own.append(ownSwatch, document.createTextNode('участник'));
+        own.append(ownSwatch, document.createTextNode(${js('участник')}));
         const all = el('span');
         const allSwatch = el('span', 'swatch');
         allSwatch.style.background = 'var(--line)';
-        all.append(allSwatch, document.createTextNode('весь чат'));
+        all.append(allSwatch, document.createTextNode(${js('весь чат')}));
         legend.append(own, all);
         buckets.append(legend);
       }
@@ -3200,13 +3217,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         words.append(el('span', 'chip', word.word + ' · ' + formatNumber(word.count)));
       }
       document.getElementById('memberWordsHint').textContent = totals.profanity
-        ? formatNumber(totals.profanity) + ' за период'
+        ? formatNumber(totals.profanity) + ${js(' за период')}
         : '';
-      if (!(payload.topWords || []).length) words.append(emptyNote('Без мата за этот период'));
+      if (!(payload.topWords || []).length) words.append(emptyNote(${js('Без мата за этот период')}));
 
       const criminalButton = document.getElementById('memberCriminalButton');
       criminalButton.classList.toggle('hidden', !(Number(totals.criminal) > 0));
-      criminalButton.textContent = 'Показать нарушения УК (' + formatNumber(totals.criminal) + ')';
+      criminalButton.textContent = ${js('Показать нарушения УК (')} + formatNumber(totals.criminal) + ')';
     }
 
     function closeMember() {
@@ -3224,7 +3241,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const dialog = document.getElementById('memberDialog');
       const status = document.getElementById('memberStatus');
       const body = document.getElementById('memberBody');
-      document.getElementById('memberName').textContent = username || 'Участник';
+      document.getElementById('memberName').textContent = username || ${js('Участник')};
       document.getElementById('memberMeta').textContent = '';
       const avatar = avatarNode(username);
       const avatarBox = document.getElementById('memberAvatar');
@@ -3232,7 +3249,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       avatarBox.style.background = avatar.style.background;
       body.classList.add('hidden');
       status.classList.remove('hidden');
-      status.textContent = 'Загрузка...';
+      status.textContent = ${js('Загрузка...')};
       if (!dialog.open) dialog.showModal();
       try {
         const res = await fetch(buildMemberUrl(state.chatId, userId, state.loadedCriminalRange));
@@ -3248,7 +3265,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         renderMember(payload);
       } catch (_error) {
         if (requestId !== state.memberRequestId) return;
-        status.textContent = 'Не удалось загрузить карточку участника. Попробуйте ещё раз.';
+        status.textContent = ${js('Не удалось загрузить карточку участника. Попробуйте ещё раз.')};
       }
     }
 
@@ -3261,7 +3278,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       if (!chats.length) {
         const option = document.createElement('option');
         option.value = '';
-        option.textContent = 'Чаты пока не найдены';
+        option.textContent = ${js('Чаты пока не найдены')};
         select.append(option);
         return;
       }
@@ -3291,7 +3308,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
 
     async function loadChats() {
-      setStatus('Загрузка чатов...');
+      setStatus(${js('Загрузка чатов...')});
       renderDashboardSkeleton();
       try {
         const res = await fetch('/admin/api/chats');
@@ -3308,12 +3325,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           await loadDashboard();
         } else {
           document.getElementById('views').classList.add('hidden');
-          setStatus('Чаты появятся после новых сообщений или после обнаружения старых счетчиков.');
+          setStatus(${js('Чаты появятся после новых сообщений или после обнаружения старых счетчиков.')});
         }
       } catch (error) {
         finishDashboardLoading();
         renderEmptyDashboard();
-        setStatus('Не удалось загрузить список чатов. Попробуйте обновить страницу.', true);
+        setStatus(${js('Не удалось загрузить список чатов. Попробуйте обновить страницу.')}, true);
       }
     }
 
@@ -3327,7 +3344,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
       try {
         const statsUrl = buildStatsUrl(chatId, period);
-        setStatus('Загрузка...');
+        setStatus(${js('Загрузка...')});
         renderDashboardSkeleton();
         const [statsRes, notificationsRes, chatSettingsRes] = await Promise.all([
           fetch(statsUrl),
@@ -3373,7 +3390,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
             canEdit: false
           });
         if (!chatSettingsRes.ok) {
-          document.getElementById('chatSettingsMeta').textContent = 'Настройки чата временно недоступны.';
+          document.getElementById('chatSettingsMeta').textContent = ${js('Настройки чата временно недоступны.')};
         }
         renderChatCards();
         if (state.view === 'lab') void loadShadowComparisons();
@@ -3384,20 +3401,20 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const pendingAnalysis = stats.progress
           ? (Number(stats.progress.pendingAnalysis) || 0)
           : 0;
-        const liveBadge = provisional ? 'включая сегодня · live' : '';
+        const liveBadge = provisional ? ${js('включая сегодня · live')} : '';
         const pendingBadge = provisional && pendingAnalysis > 0
-          ? 'анализ продолжается (' + pendingAnalysis + ')'
+          ? ${js('анализ продолжается (')} + pendingAnalysis + ')'
           : '';
         const statusLine = [
           notificationsError
-            ? 'Статистика загружена · ' + servedRange
-            : 'Обновлено · период ' + servedRange,
+            ? ${js('Статистика загружена · ')} + servedRange
+            : ${js('Обновлено · период ')} + servedRange,
           liveBadge,
           pendingBadge
         ].filter(Boolean).join(' · ');
         setLiveStatus(
           notificationsError
-            ? statusLine + '. Настройки уведомлений временно недоступны.'
+            ? statusLine + ${js('. Настройки уведомлений временно недоступны.')}
             : statusLine,
           provisional
         );
@@ -3413,7 +3430,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       for (const input of document.querySelectorAll('#notificationTypes input')) {
         notifications[input.dataset.type] = { enabled: input.checked };
       }
-      setStatus('Сохранение...');
+      setStatus(${js('Сохранение...')});
       const res = await fetch('/admin/api/notifications?chatId=' + encodeURIComponent(state.chatId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3427,7 +3444,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         return;
       }
       if (!res.ok) {
-        setStatus('Не удалось сохранить настройки. Попробуйте ещё раз.', true);
+        setStatus(${js('Не удалось сохранить настройки. Попробуйте ещё раз.')}, true);
         return;
       }
       await loadDashboard();
@@ -3483,6 +3500,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       writeThemeMode(mode);
       refreshThemedCharts();
     });
+    document.getElementById('languageSelect').addEventListener('change', event => {
+      setLanguage(event.target.value);
+    });
+    for (const button of document.querySelectorAll('[data-set-language]')) {
+      button.addEventListener('click', () => setLanguage(button.dataset.setLanguage));
+    }
     document.getElementById('hourlyTimezone').addEventListener('change', event => {
       writeTimezoneOffset(clampTimezoneOffset(event.target.value));
       if (state.currentActivity) {
