@@ -33,10 +33,11 @@ admin and Telegram webhook routes stay exclusively in this bot Worker.
 2. Click **Deploy to Cloudflare**, select your own Cloudflare account, and enter
    the `TOKEN` secret. The source repository is copied into your own GitHub
    repository; it is not linked to the owner's production account.
-3. Confirm the build/deploy command is **`npm run deploy`** (not just
+3. Leave the pre-filled deploy command as **`npm run deploy`** (Cloudflare
+   reads it from `package.json`; do not replace it with plain
    `wrangler deploy`). It provisions the KV, D1 and Durable Objects bindings,
-   then applies the D1 migrations. Verify both deployment and migrations
-   succeeded in the build logs.
+   then applies the D1 migrations. Nothing else needs to be configured: no
+   extra secrets, AI keys or manual migrations are required for Basic mode.
 4. Open your new Worker's URL. It redirects to `/admin/setup`. Sign in with
    the same BotFather token and verify that D1 is ready. **Choose and save your
    storage mode**, then enable any features you want before selecting
