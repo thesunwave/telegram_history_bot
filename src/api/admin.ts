@@ -30,6 +30,7 @@ import {
   LiveProgressUnavailable,
 } from '../features/stats/admin-stats-errors';
 import { renderAdminHtml } from './admin-html';
+import { resolveAdminLanguage } from './admin-i18n';
 import { canAccessSetupLink, handleSetupRequest } from './setup';
 
 const ADMIN_PATH = '/admin';
@@ -316,10 +317,12 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     return new Response(renderAdminHtml({
       principal,
       canAccessSetup,
+      language: resolveAdminLanguage(req),
     }), {
       headers: {
         'Content-Type': 'text/html; charset=UTF-8',
         'Cache-Control': 'no-store',
+        Vary: 'Accept-Language, Cookie',
       },
     });
   }
