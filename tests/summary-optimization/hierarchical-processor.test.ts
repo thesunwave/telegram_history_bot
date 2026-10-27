@@ -5,9 +5,8 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { HierarchicalProcessor } from "../../src/features/summary/optimization/hierarchical-processor";
-import { TelegramMessage } from "../../src/core/telegram";
+import { TelegramMessage } from "../../src/core/providers/ai-provider";
 import { Env } from "../../src/core/env";
-import { SummaryConfig } from "../../src/features/summary/optimization/types";
 
 describe("HierarchicalProcessor", () => {
   let processor: HierarchicalProcessor;

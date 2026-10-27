@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { NotificationService } from '../src/core/services/notification-service';
 import { NotificationRepository } from '../src/core/repositories/notification-repository';
 import type { Env } from '../src/core/env';
-import type { ChatNotificationSettings, NotificationType } from '../src/models/notification-settings';
+import type { ChatNotificationSettings, NotificationType } from '../src/core/models/notification-settings';
 
 // Мокаем зависимости
 vi.mock('../src/core/telegram', () => ({

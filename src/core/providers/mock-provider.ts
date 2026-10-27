@@ -1,4 +1,4 @@
-import { AIProvider, SummaryRequest, SummaryOptions, ProviderInfo, ProfanityAnalysisResult, CriminalAnalysisResult } from './ai-provider';
+import { AIProvider, SummaryRequest, SummaryOptions, ProviderInfo, ProfanityAnalysisResult, CriminalAnalysisResult, CriminalViolation } from './ai-provider';
 
 export class MockProvider implements AIProvider {
   async summarize(request: SummaryRequest, options: SummaryOptions, env?: any): Promise<string> {
@@ -41,13 +41,15 @@ export class MockProvider implements AIProvider {
     const threatWords = ['убью', 'убить', 'угроза', 'убийство'];
     const lowerText = text.toLowerCase();
     
-    const violations = [];
+    const violations: CriminalViolation[] = [];
     let totalSeverity = 0;
     
     for (const word of threatWords) {
       if (lowerText.includes(word)) {
         const violation = {
           article: 'Статья 119 УК РФ',
+          subarticle: null,
+          articleTitle: 'Угроза убийством или причинением тяжкого вреда здоровью',
           quote: `Обнаружена угроза: "${word}"`,
           punishment: 'Штраф до 40 000 рублей или исправительные работы до 2 лет',
           severity: 6,

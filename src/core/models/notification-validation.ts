@@ -14,6 +14,7 @@ import {
   NotificationResult,
   DEFAULT_NOTIFICATION_SETTINGS
 } from './notification-settings';
+import { getErrorMessage } from '../errors';
 
 /**
  * Ошибка валидации уведомлений
@@ -92,7 +93,7 @@ export function validateNotificationTypeSettings(settings: any): settings is Not
     try {
       validateNotificationTime(settings.time);
     } catch (error) {
-      throw new NotificationValidationError(`Invalid time: ${error.message}`, 'time');
+      throw new NotificationValidationError(`Invalid time: ${getErrorMessage(error)}`, 'time');
     }
   }
 
@@ -165,7 +166,7 @@ export function validateChatNotificationSettings(settings: any): settings is Cha
     try {
       validateNotificationTypeSettings(settings.notifications[type]);
     } catch (error) {
-      throw new NotificationValidationError(`Invalid settings for ${type}: ${error.message}`, 'notifications');
+      throw new NotificationValidationError(`Invalid settings for ${type}: ${getErrorMessage(error)}`, 'notifications');
     }
   }
 
@@ -183,7 +184,7 @@ export function validateChatNotificationSettings(settings: any): settings is Cha
       validateNotificationTime(settings.quietHours.startTime);
       validateNotificationTime(settings.quietHours.endTime);
     } catch (error) {
-      throw new NotificationValidationError(`Invalid quietHours time: ${error.message}`, 'quietHours');
+      throw new NotificationValidationError(`Invalid quietHours time: ${getErrorMessage(error)}`, 'quietHours');
     }
   }
 

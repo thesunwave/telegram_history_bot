@@ -12,7 +12,7 @@ import type {
   GeneralStats,
   ViolationCount,
   UserViolationCount
-} from '../../src/models/statistics';
+} from '../../src/core/models/statistics';
 
 // Мок репозитория
 const mockViolationRepository: IViolationRepository = {
@@ -366,6 +366,8 @@ describe('StatisticsService', () => {
       // Arrange
       const violation: Violation = {
         article: 'Статья 105 УК РФ',
+        subarticle: null,
+        articleTitle: 'Test article title',
         quote: 'Убийство',
         punishment: 'Лишение свободы',
         severity: 10,
@@ -387,6 +389,8 @@ describe('StatisticsService', () => {
       // Arrange
       const violation: Violation = {
         article: 'Статья 105 УК РФ',
+        subarticle: null,
+        articleTitle: 'Test article title',
         quote: 'Убийство',
         punishment: 'Лишение свободы',
         severity: 10,

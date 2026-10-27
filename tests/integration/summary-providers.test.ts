@@ -24,6 +24,8 @@ interface Env {
   SUMMARY_TEMPERATURE?: number;
   SUMMARY_TOP_P?: number;
   SUMMARY_FREQUENCY_PENALTY?: number;
+  DAY_BLOCK_MANAGER_DO: any;
+  CRIMINAL_CODE_ANALYZER_DO: any;
 }
 
 function createCountersNamespace(env: Env) {
@@ -98,7 +100,7 @@ describe("Summary Providers Integration Tests", () => {
       SUMMARY_TEMPERATURE: 0.2,
       SUMMARY_TOP_P: 0.95,
       SUMMARY_FREQUENCY_PENALTY: 0.1,
-    };
+    } as unknown as Env;
 
     env.COUNTERS_DO = createCountersNamespace(env);
 

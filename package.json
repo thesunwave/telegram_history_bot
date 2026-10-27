@@ -18,6 +18,7 @@
 		"dev": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"test": "vitest run",
+		"typecheck": "tsc --noEmit",
 		"test:onboarding": "node scripts/check-public-onboarding.mjs",
 		"test:release-preflight": "vitest run tests/scripts/preflight-production.test.ts",
 		"dev:remote": "wrangler dev --remote --var ENVIRONMENT:development",

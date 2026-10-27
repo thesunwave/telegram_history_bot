@@ -130,7 +130,7 @@ class FakeD1Database {
 
 async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database }> {
   const sqlite = new Database(':memory:');
-  const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url));
+  const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url).href);
   for (const file of [
     '0002_activity.sql',
     '0009_stats_daily_aggregates.sql',

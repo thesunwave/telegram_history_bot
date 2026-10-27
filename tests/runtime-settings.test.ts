@@ -216,7 +216,7 @@ describe('runtime settings', () => {
 
   it('validates AI provider settings regardless of the case used in Wrangler', async () => {
     const db = makeSettingsDb();
-    const env = makeEnv({ DB: db as any, PROFANITY_PROVIDER: 'OPENAI', OPENAI_API_KEY: undefined });
+    const env = makeEnv({ DB: db as any, PROFANITY_PROVIDER: 'OPENAI' as ProviderType, OPENAI_API_KEY: undefined });
     await expect(saveRuntimeSettings(env, {
       storageMode: 'stats_only', activityTrackingEnabled: true,
       profanityEnabled: true, criminalEnabled: false,

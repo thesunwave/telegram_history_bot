@@ -35,7 +35,7 @@ describe('Profanity Counter System', () => {
       SECRET: 'test-secret',
       SUMMARY_MODEL: 'test-model',
       SUMMARY_PROMPT: 'test-prompt'
-    };
+    } as Env;
 
     mockState = {
       blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
@@ -269,7 +269,7 @@ describe('Profanity Counter System', () => {
       
       const mockStateLocal = {
         blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
-      };
+      } as any;
       
       const countersDOLocal = new CountersDO(mockStateLocal, mockEnvLocal);
       
@@ -310,7 +310,7 @@ describe('Profanity Counter System', () => {
       
       const mockStateLocal = {
         blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
-      };
+      } as any;
       
       const countersDOLocal = new CountersDO(mockStateLocal, mockEnvLocal);
       

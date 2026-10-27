@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MessageFormatter } from '../src/core/message-formatter';
-import { UserStats, PeriodStats, GeneralStats } from '../src/models/statistics';
+import { UserStats, PeriodStats, GeneralStats } from '../src/core/models/statistics';
 
 describe('ViolationCount Fields Test', () => {
   let formatter: MessageFormatter;

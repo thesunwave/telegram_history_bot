@@ -34,6 +34,7 @@ export interface Env {
   PROFANITY_USER_PROMPT?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
+  OPENAI_MAX_TOKENS?: string | number;
   CLOUDFLARE_MODEL?: string;
   OPENROUTER_API_KEY?: string;
   OPENROUTER_BASE_URL?: string;
@@ -99,6 +100,7 @@ export interface Env {
   CRIMINAL_PREFILTER_DAILY_CAP?: string | number;
   LEGAL_RAG_DAILY_QUERY_CAP?: string | number;
   LEGAL_RAG_TOP_K?: string | number;
+  LEGAL_RAG_QUERY_VARIANTS?: string | number;
   LEGAL_RAG_MIN_SCORE?: string | number;
   LEGAL_RAG_LAW_CODE?: string;
   LEGAL_RAG_EMBEDDING_MODEL?: string;
