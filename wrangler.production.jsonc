@@ -83,6 +83,8 @@
   ],
   "vars": {
     "ENVIRONMENT": "production",
+    // Receives anonymous self-host install pings into telemetry_installs.
+    "TELEMETRY_RECEIVER": true,
     "ADMIN_BASIC_USER": "admin",
     "TELEGRAM_LOGIN_CLIENT_ID": "7807841637",
     "TELEGRAM_BOT_USERNAME": "stat_history_bot",

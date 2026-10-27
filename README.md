@@ -206,6 +206,22 @@ npm run dev
 The root config is intentionally portable and has no pre-existing resource IDs.
 Your installation's generated IDs must be retained when upgrading.
 
+### Anonymous usage ping
+
+To count how many self-hosted bots are running, each install sends one
+anonymous request a day (after the daily summary cron) to
+`https://tghistory.thesunwave.space/telemetry/v1/ping`. It contains only:
+
+- a random install id generated on first run and stored in your D1 `app_settings`;
+- how many chats and groups were active in the last 7 days, as a range
+  (`0`, `1`, `2-5`, `6-20`, `21-100`, `100+`).
+
+It never contains chat or user ids, messages, usernames, your bot token or
+bot name, and the receiver does not store IP addresses. The source is in
+`src/features/telemetry/telemetry.ts`. To opt out, set the Worker variable
+`TELEMETRY_DISABLED=true` (Cloudflare dashboard → your Worker → Settings →
+Variables, or `vars` in `wrangler.jsonc`).
+
 ## Development
 
 Run unit tests with:

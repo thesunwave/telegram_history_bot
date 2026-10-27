@@ -14,6 +14,10 @@ export interface Env {
   AI: any;
   LEGAL_RAG_INDEX?: any;
   ENVIRONMENT?: string;
+  // Opt out of the daily anonymous install ping (see README).
+  TELEMETRY_DISABLED?: string | boolean;
+  // Set only on the hosted instance that receives install pings.
+  TELEMETRY_RECEIVER?: string | boolean;
   TOKEN: string;
   SECRET?: string;
   SUMMARY_MODEL?: string;

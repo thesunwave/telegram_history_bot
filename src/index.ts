@@ -31,6 +31,7 @@ import {
   runDailyAggregateBackfill,
 } from "./features/stats/daily-backfill";
 import { handleLegalRagIngestBatch, handleLegalRagSearch } from "./features/legal-rag/ingest";
+import { TELEMETRY_PATH, handleTelemetryPing, sendTelemetryPing } from "./features/telemetry/telemetry";
 import type {
   ExecutionContext,
   ScheduledEvent,
@@ -114,6 +115,10 @@ export default {
       await recordMessage(message, env, ctx);
       ctx.waitUntil(handleUpdate(message, env));
       return Response.json({});
+    }
+
+    if (url.pathname === TELEMETRY_PATH && req.method === "POST") {
+      return handleTelemetryPing(req, env);
     }
 
     if (isPublicRead &&
@@ -837,6 +842,9 @@ export default {
     } catch (e: any) {
       Logger.error("Daily cleanup failed", { error: e.message || String(e) });
     }
+
+    const telemetry = await sendTelemetryPing(env);
+    Logger.info(env, "Anonymous telemetry ping", { result: telemetry });
   },
 };
 
