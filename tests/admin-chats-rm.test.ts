@@ -39,6 +39,7 @@ import { handleUpdate } from '../src/api/update';
 import worker from '../src/index';
 import { createMockEnv, disableConsoleLogging } from './test-utils';
 import { createKVBindings } from './helpers/miniflare-kv';
+import { createRealD1, seedUserDay } from './helpers/real-d1';
 
 vi.mock('../src/core/telegram', () => ({
   sendMessage: vi.fn().mockResolvedValue('123'),
@@ -65,7 +66,6 @@ beforeEach(async () => {
   bindings = await createKVBindings();
   env = createMockEnv({
     HISTORY: bindings.history as any,
-    COUNTERS: bindings.counters as any,
     TOKEN: 't',
     SECRET: 's',
     TELEGRAM_BOT_USERNAME: 'test_bot',
@@ -375,7 +375,9 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
   });
 
   it('omits an indeterminate counter-only fallback chat', async () => {
-    await env.COUNTERS.put('stats_v2:184486882:2026-09-01:42', '1');
+    const d1 = createRealD1();
+    seedUserDay(d1, { chatId: 184486882, userId: 42, day: '2026-09-01', messages: 1 });
+    env.DB = d1.db;
     mockGetChatMemberByChatId(() => errorResponse(429, 'Too Many Requests'));
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
@@ -384,7 +386,9 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
   });
 
   it('keeps a counter-only fallback chat when membership is positively verified', async () => {
-    await env.COUNTERS.put('stats_v2:-1002860305983:2026-09-01:42', '1');
+    const d1 = createRealD1();
+    seedUserDay(d1, { chatId: -1002860305983, userId: 42, day: '2026-09-01', messages: 1 });
+    env.DB = d1.db;
     mockGetChatMemberByChatId(() => memberResponse());
 
     const chats = await listAdminChatsForTelegramUser(env, 42);

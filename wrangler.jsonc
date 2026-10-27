@@ -9,8 +9,7 @@
 
   // Portable resources: Cloudflare provisions these for each new account.
   "kv_namespaces": [
-    { "binding": "HISTORY" },
-    { "binding": "COUNTERS" }
+    { "binding": "HISTORY" }
   ],
   "d1_databases": [
     { "binding": "DB", "database_name": "telegram-history-bot-db", "migrations_dir": "migrations" }

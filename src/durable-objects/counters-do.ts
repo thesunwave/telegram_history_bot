@@ -10,6 +10,15 @@ import {
   writeProfanityAggregates,
 } from '../features/stats/d1-aggregate-writer';
 import {
+  readBaseCounterTotals,
+  readCriminalCounterTotals,
+  readProfanityCounterTotals,
+  type BaseCounterTotals,
+  type CriminalCounterTotals,
+  type ProfanityCounterTotals,
+} from '../features/stats/d1-counter-reader';
+import { deleteChatStats, type StatsResetScope } from '../features/stats/stats-d1-queries';
+import {
   applyCompletion,
   applyFailure,
   armIntegrityAttempt,
@@ -31,21 +40,6 @@ import {
   type ProgressOutcome,
   type ProgressState,
 } from '../features/stats/pipeline-progress';
-
-const STATS_PREFIX = 'stats';
-const USER_PREFIX = 'user';
-const ACTIVITY_PREFIX = 'activity';
-const ACTIVITY_HOUR_PREFIX = 'activity_hour';
-const ACTIVITY_TIME_BUCKET_PREFIX = 'activity_time_bucket';
-const WORD_STATS_PREFIX = 'word_stats';
-const WORD_ACTIVITY_PREFIX = 'word_activity';
-const LAST_MESSAGE_PREFIX = 'last_message';
-const PROFANITY_USER_PREFIX = 'profanity';
-const PROFANITY_WORDS_PREFIX = 'profanity_words';
-const PROFANITY_WORD_USERS_PREFIX = 'profanity_word_users';
-const CRIMINAL_USER_PREFIX = 'criminal';
-const CRIMINAL_ARTICLE_PREFIX = 'criminal_article';
-const CRIMINAL_SEVERITY_PREFIX = 'criminal_severity';
 
 function safeErrorClass(error: unknown): 'Error' | 'ThrownString' | 'UnknownError' {
   if (error instanceof Error) return 'Error';
@@ -81,6 +75,27 @@ function getTimeBucket(hour: number): 'night' | 'morning' | 'noon' | 'evening' {
   if (hour >= 17 && hour < 22) return 'evening';
   return 'night';
 }
+
+type BaseUserTotals = Pick<
+  BaseCounterTotals,
+  'messageCount' | 'wordCount' | 'voiceCount' | 'voiceDurationSeconds' | 'videoNoteCount' | 'videoNoteDurationSeconds'
+>;
+type BaseChatTotals = Pick<BaseCounterTotals, 'activityCount' | 'chatDayWords'>;
+
+const ZERO_BASE_TOTALS: BaseCounterTotals = {
+  messageCount: 0,
+  wordCount: 0,
+  voiceCount: 0,
+  voiceDurationSeconds: 0,
+  videoNoteCount: 0,
+  videoNoteDurationSeconds: 0,
+  activityCount: 0,
+  chatDayWords: 0,
+  hourCount: 0,
+  bucketCount: 0,
+};
+
+const RESET_SCOPES: readonly StatsResetScope[] = ['all', 'profanity', 'criminal'];
 
 export interface IncrementPayload {
   chatId: number;
@@ -176,6 +191,28 @@ export class CountersDO {
     };
   }
 
+  /** Deletes every storage key with the given prefix (durable or in-memory). */
+  private async deleteStorageByPrefix(prefix: string): Promise<void> {
+    const durable = (this.state as unknown as {
+      storage?: {
+        list?: (options: { prefix: string }) => Promise<Map<string, unknown>>;
+        delete?: (keys: string[]) => Promise<number>;
+      };
+    }).storage;
+    if (durable && typeof durable.list === 'function' && typeof durable.delete === 'function') {
+      const keys = [...(await durable.list({ prefix })).keys()];
+      // Durable Object storage deletes at most 128 keys per call.
+      for (let i = 0; i < keys.length; i += 128) {
+        await durable.delete(keys.slice(i, i + 128));
+      }
+      return;
+    }
+    if (!this.memoryStorage) return;
+    for (const key of [...this.memoryStorage.keys()]) {
+      if (key.startsWith(prefix)) this.memoryStorage.delete(key);
+    }
+  }
+
   private async storageGetNumber(key: string): Promise<number> {
     const value = await this.storage().get<number>(key);
     return typeof value === 'number' && Number.isFinite(value) ? value : 0;
@@ -214,6 +251,42 @@ export class CountersDO {
 
   private criminalDoneKey(day: string, messageId: number): string {
     return `crimDone:${day}:${messageId}`;
+  }
+
+  // Running totals. DO storage holds the current totals for every row this
+  // chat's DO has written; D1 mirrors them through absolute upserts. A failed
+  // D1 batch therefore loses nothing: the next successful write for the same
+  // row carries the full total. A key that is missing is seeded from D1.
+  private totUserKey(day: string, userId: number): string {
+    return `tot:u:${day}:${userId}`;
+  }
+
+  private totChatKey(day: string): string {
+    return `tot:a:${day}`;
+  }
+
+  private totHourKey(day: string, hour: number): string {
+    return `tot:h:${day}:${hour}`;
+  }
+
+  private totBucketKey(day: string, bucket: string, userId: number): string {
+    return `tot:b:${day}:${bucket}:${userId}`;
+  }
+
+  private totProfanityUserKey(day: string, userId: number): string {
+    return `tot:p:${day}:${userId}`;
+  }
+
+  private totProfanityWordKey(day: string, word: string): string {
+    return `tot:pw:${day}:${word}`;
+  }
+
+  private totProfanityWordUserKey(day: string, word: string, userId: number): string {
+    return `tot:pwu:${day}:${word}:${userId}`;
+  }
+
+  private totCriminalKey(day: string, userId: number): string {
+    return `tot:c:${day}:${userId}`;
   }
 
   private async loadProgressState(day: string, category: ProgressCategory): Promise<ProgressState> {
@@ -480,6 +553,25 @@ export class CountersDO {
         logCounterOperationError('pipeline-snapshots', err);
         return new Response('error', { status: 500 });
       }
+    } else if (endpoint === '/reset') {
+      let chatId: number;
+      let scope: StatsResetScope;
+      try {
+        const body = (await request.json()) as { chatId?: unknown; scope?: unknown };
+        if (typeof body.chatId !== 'number' || !RESET_SCOPES.includes(body.scope as StatsResetScope))
+          throw new Error('invalid reset payload');
+        chatId = body.chatId;
+        scope = body.scope as StatsResetScope;
+      } catch {
+        return new Response('Bad request', { status: 400 });
+      }
+      try {
+        await this.state.blockConcurrencyWhile(() => this.resetTotals(chatId, scope));
+        return new Response('ok');
+      } catch (err: unknown) {
+        logCounterOperationError('reset', err);
+        return new Response('error', { status: 500 });
+      }
     } else if (endpoint === '/batch') {
       return await this.processBatchRequest(request);
     }
@@ -590,30 +682,36 @@ export class CountersDO {
       const existing = await this.storage().get<number>(this.msgSeqKey(day, messageId as number));
       if (typeof existing === 'number' && Number.isFinite(existing) && existing > 0) {
         // Duplicate: read-only reconstruction of the current counters, no writes.
-        const statsKey = `${STATS_PREFIX}:${chatId}:${userId}:${day}`;
-        const count = parseInt((await this.env.COUNTERS.get(statsKey)) || '0', 10);
-        const wordStatsKey = `${WORD_STATS_PREFIX}:${chatId}:${userId}:${day}`;
-        const userDayWordCount = parseInt((await this.env.COUNTERS.get(wordStatsKey)) || '0', 10);
-        const activityKey = `${ACTIVITY_PREFIX}:${chatId}:${day}`;
-        const actCnt = parseInt((await this.env.COUNTERS.get(activityKey)) || '0', 10);
-        const wordActivityKey = `${WORD_ACTIVITY_PREFIX}:${chatId}:${day}`;
-        const chatDayWords = parseInt((await this.env.COUNTERS.get(wordActivityKey)) || '0', 10);
+        const current = await this.readBaseTotals({ chatId, userId, day });
         return {
-          userDayCount: count,
-          chatDayActivity: actCnt,
-          userDayWordCount,
-          chatDayWords,
+          userDayCount: current.messageCount,
+          chatDayActivity: current.activityCount,
+          userDayWordCount: current.wordCount,
+          chatDayWords: current.chatDayWords,
           day,
           sequence: existing,
         };
       }
     }
 
+    // Read the current totals before anything becomes durable: if the D1 seed
+    // read fails, the request fails without a message->sequence mapping, so a
+    // retry is processed as new instead of as a duplicate.
+    const validHour =
+      hour !== undefined && Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : undefined;
+    const current = await this.readBaseTotals({
+      chatId,
+      userId,
+      day,
+      hour: validHour,
+      bucket: validHour !== undefined ? getTimeBucket(validHour) : undefined,
+    });
+
     const currentSeq = await this.storageGetNumber(this.seqKey(day));
     sequence = currentSeq + 1;
     // Integrity fence: arm and persist the all-category base D1 attempt BEFORE
     // any acceptance becomes durable (sequence, message->sequence map, proof
-    // marker, KV counters, D1 work). A crash after arm but before acceptance
+    // marker, running totals, D1 work). A crash after arm but before acceptance
     // leaves an active attempt that the next invocation recovers as sticky
     // ambiguous poison, so a later sequence can never make a missing aggregate
     // look exact.
@@ -629,81 +727,50 @@ export class CountersDO {
       await this.storage().put(this.msgSeqKey(day, messageId as number), sequence);
     }
 
-    const statsKey = `${STATS_PREFIX}:${chatId}:${userId}:${day}`;
-    const count = parseInt((await this.env.COUNTERS.get(statsKey)) || '0', 10) + 1;
-    await this.env.COUNTERS.put(statsKey, String(count));
 
-    // New optimized key format: stats_v2:chatId:day:userId
-    // This allows listing all users for a specific day efficiently
-    const statsV2Key = `stats_v2:${chatId}:${day}:${userId}`;
-    await this.env.COUNTERS.put(statsV2Key, String(count));
-
-    const wordStatsKey = `${WORD_STATS_PREFIX}:${chatId}:${userId}:${day}`;
-    const userDayWordCount =
-      parseInt((await this.env.COUNTERS.get(wordStatsKey)) || '0', 10) + wordCount;
-    await this.env.COUNTERS.put(wordStatsKey, String(userDayWordCount));
-
-    const wordStatsV2Key = `${WORD_STATS_PREFIX}_v2:${chatId}:${day}:${userId}`;
-    await this.env.COUNTERS.put(wordStatsV2Key, String(userDayWordCount));
-
-    const voiceTotals = await this.incrementMediaMetric(
-      chatId,
-      day,
-      userId,
-      'voice',
+    const count = current.messageCount + 1;
+    const userDayWordCount = current.wordCount + wordCount;
+    const actCnt = current.activityCount + 1;
+    const chatDayWords = current.chatDayWords + wordCount;
+    const voiceTotals = this.nextMediaTotals(
+      current.voiceCount,
+      current.voiceDurationSeconds,
       voiceCount,
       voiceDurationSeconds,
     );
-    const videoNoteTotals = await this.incrementMediaMetric(
-      chatId,
-      day,
-      userId,
-      'video_note',
+    const videoNoteTotals = this.nextMediaTotals(
+      current.videoNoteCount,
+      current.videoNoteDurationSeconds,
       videoNoteCount,
       videoNoteDurationSeconds,
     );
+    const hourCount = validHour !== undefined ? current.hourCount + 1 : undefined;
+    const bucketCount = validHour !== undefined ? current.bucketCount + 1 : undefined;
+    const bucket = validHour !== undefined ? getTimeBucket(validHour) : undefined;
 
-    await this.env.COUNTERS.put(`${USER_PREFIX}:${userId}`, username);
-
-    const activityKey = `${ACTIVITY_PREFIX}:${chatId}:${day}`;
-    const actCnt = parseInt((await this.env.COUNTERS.get(activityKey)) || '0', 10) + 1;
-    await this.env.COUNTERS.put(activityKey, String(actCnt));
-
-    const wordActivityKey = `${WORD_ACTIVITY_PREFIX}:${chatId}:${day}`;
-    const chatDayWords =
-      parseInt((await this.env.COUNTERS.get(wordActivityKey)) || '0', 10) + wordCount;
-    await this.env.COUNTERS.put(wordActivityKey, String(chatDayWords));
-
-    let hourCount: number | undefined;
-    let bucketCount: number | undefined;
-    if (hour !== undefined && Number.isInteger(hour) && hour >= 0 && hour <= 23) {
-      const activityHourKey = `${ACTIVITY_HOUR_PREFIX}:${chatId}:${day}:${hour.toString().padStart(2, '0')}`;
-      const hourCnt = parseInt((await this.env.COUNTERS.get(activityHourKey)) || '0', 10) + 1;
-      await this.env.COUNTERS.put(activityHourKey, String(hourCnt));
-      hourCount = hourCnt;
-
-      const bucket = getTimeBucket(hour);
-      const timeBucketKey = `${ACTIVITY_TIME_BUCKET_PREFIX}:${chatId}:${day}:${bucket}:${userId}`;
-      const bucketCnt = parseInt((await this.env.COUNTERS.get(timeBucketKey)) || '0', 10) + 1;
-      await this.env.COUNTERS.put(timeBucketKey, String(bucketCnt));
-      bucketCount = bucketCnt;
-    }
-
-    if (ts !== undefined) {
-      const lastMessageKey = `${LAST_MESSAGE_PREFIX}:${chatId}:${userId}`;
-      const previousTs = parseInt((await this.env.COUNTERS.get(lastMessageKey)) || '0', 10);
-      if (ts > previousTs) {
-        await this.env.COUNTERS.put(lastMessageKey, String(ts));
-      }
-    }
+    // Persist the new totals before the D1 batch so a failed write keeps them.
+    await this.saveBaseTotals(
+      { userId, day, hour: validHour, bucket },
+      {
+        messageCount: count,
+        wordCount: userDayWordCount,
+        voiceCount: voiceTotals?.count ?? current.voiceCount,
+        voiceDurationSeconds: voiceTotals?.duration ?? current.voiceDurationSeconds,
+        videoNoteCount: videoNoteTotals?.count ?? current.videoNoteCount,
+        videoNoteDurationSeconds: videoNoteTotals?.duration ?? current.videoNoteDurationSeconds,
+        activityCount: actCnt,
+        chatDayWords,
+        hourCount: hourCount ?? 0,
+        bucketCount: bucketCount ?? 0,
+      },
+    );
 
     if (this.env.DB) {
       try {
         // One D1 batch total for a normal base message (aggregates + legacy
         // activity upsert share a single transaction). The all-category base
         // attempt was already armed and persisted before the sequence write.
-        const validHourForD1 =
-          hour !== undefined && Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : undefined;
+        const validHourForD1 = validHour;
         await writeActivityAggregates(this.env.DB, {
           chatId,
           userId,
@@ -751,25 +818,116 @@ export class CountersDO {
     };
   }
 
-  private async incrementMediaMetric(
-    chatId: number,
-    day: string,
-    userId: number,
-    type: 'voice' | 'video_note',
+  private nextMediaTotals(
+    currentCount: number,
+    currentDuration: number,
     countDelta: number,
     durationDelta: number,
-  ): Promise<{ count: number; duration: number } | null> {
+  ): { count: number; duration: number } | null {
     if (countDelta <= 0 && durationDelta <= 0) return null;
+    return { count: currentCount + countDelta, duration: currentDuration + durationDelta };
+  }
 
-    const countKey = `media_stats_v2:${chatId}:${day}:${userId}:${type}`;
-    const nextCount = parseInt((await this.env.COUNTERS.get(countKey)) || '0', 10) + countDelta;
-    await this.env.COUNTERS.put(countKey, String(nextCount));
+  // Cached totals first; any row missing from DO storage is read from D1.
+  private async readBaseTotals(input: {
+    chatId: number;
+    userId: number;
+    day: string;
+    hour?: number;
+    bucket?: string;
+  }): Promise<BaseCounterTotals> {
+    const { userId, day, hour, bucket } = input;
+    const s = this.storage();
+    const [user, chat, hourCount, bucketCount] = await Promise.all([
+      s.get<BaseUserTotals>(this.totUserKey(day, userId)),
+      s.get<BaseChatTotals>(this.totChatKey(day)),
+      hour === undefined ? Promise.resolve(undefined) : s.get<number>(this.totHourKey(day, hour)),
+      bucket === undefined ? Promise.resolve(undefined) : s.get<number>(this.totBucketKey(day, bucket, userId)),
+    ]);
+    const complete =
+      user !== undefined &&
+      chat !== undefined &&
+      (hour === undefined || hourCount !== undefined) &&
+      (bucket === undefined || bucketCount !== undefined);
+    const seed = !complete && this.env.DB ? await readBaseCounterTotals(this.env.DB, input) : ZERO_BASE_TOTALS;
+    return {
+      ...seed,
+      ...(user ?? {}),
+      ...(chat ?? {}),
+      hourCount: hourCount ?? seed.hourCount,
+      bucketCount: bucketCount ?? seed.bucketCount,
+    };
+  }
 
-    const durationKey = `media_duration_v2:${chatId}:${day}:${userId}:${type}`;
-    const nextDuration =
-      parseInt((await this.env.COUNTERS.get(durationKey)) || '0', 10) + durationDelta;
-    await this.env.COUNTERS.put(durationKey, String(nextDuration));
-    return { count: nextCount, duration: nextDuration };
+  private async saveBaseTotals(
+    input: { userId: number; day: string; hour?: number; bucket?: string },
+    totals: BaseCounterTotals,
+  ): Promise<void> {
+    const { userId, day, hour, bucket } = input;
+    const s = this.storage();
+    const user: BaseUserTotals = {
+      messageCount: totals.messageCount,
+      wordCount: totals.wordCount,
+      voiceCount: totals.voiceCount,
+      voiceDurationSeconds: totals.voiceDurationSeconds,
+      videoNoteCount: totals.videoNoteCount,
+      videoNoteDurationSeconds: totals.videoNoteDurationSeconds,
+    };
+    const chat: BaseChatTotals = { activityCount: totals.activityCount, chatDayWords: totals.chatDayWords };
+    await s.put(this.totUserKey(day, userId), user);
+    await s.put(this.totChatKey(day), chat);
+    if (hour !== undefined) await s.put(this.totHourKey(day, hour), totals.hourCount);
+    if (bucket !== undefined) await s.put(this.totBucketKey(day, bucket, userId), totals.bucketCount);
+  }
+
+  private async readProfanityTotals(
+    chatId: number,
+    userId: number,
+    day: string,
+    words: string[],
+  ): Promise<ProfanityCounterTotals> {
+    const s = this.storage();
+    const [userCount, ...wordTotals] = await Promise.all([
+      s.get<number>(this.totProfanityUserKey(day, userId)),
+      ...words.map((word) =>
+        Promise.all([
+          s.get<number>(this.totProfanityWordKey(day, word)),
+          s.get<number>(this.totProfanityWordUserKey(day, word, userId)),
+        ]),
+      ),
+    ]);
+    const complete = userCount !== undefined && wordTotals.every(([c, u]) => c !== undefined && u !== undefined);
+    const seed = !complete && this.env.DB
+      ? await readProfanityCounterTotals(this.env.DB, { chatId, userId, day, words })
+      : { userCount: 0, words: new Map<string, { count: number; userCount: number }>() };
+    const totals = new Map<string, { count: number; userCount: number }>();
+    words.forEach((word, i) => {
+      const [count, wordUserCount] = wordTotals[i];
+      const seeded = seed.words.get(word) ?? { count: 0, userCount: 0 };
+      totals.set(word, { count: count ?? seeded.count, userCount: wordUserCount ?? seeded.userCount });
+    });
+    return { userCount: userCount ?? seed.userCount, words: totals };
+  }
+
+  private async readCriminalTotals(chatId: number, userId: number, day: string): Promise<CriminalCounterTotals> {
+    const cached = await this.storage().get<CriminalCounterTotals>(this.totCriminalKey(day, userId));
+    if (cached) return cached;
+    return this.env.DB ? readCriminalCounterTotals(this.env.DB, { chatId, userId, day }) : { count: 0, severity: 0 };
+  }
+
+  /**
+   * Clears the running totals and the D1 aggregate rows for one scope. The
+   * cache goes first: if the D1 delete then fails, later increments re-seed
+   * from the untouched D1 rows instead of resurrecting cleared totals.
+   */
+  private async resetTotals(chatId: number, scope: StatsResetScope): Promise<void> {
+    const prefixes = scope === 'all'
+      ? ['tot:']
+      : scope === 'profanity'
+        ? ['tot:p:', 'tot:pw:', 'tot:pwu:']
+        : ['tot:c:'];
+    for (const prefix of prefixes) await this.deleteStorageByPrefix(prefix);
+    if (this.env.DB) await deleteChatStats(this.env, chatId, scope);
   }
 
   private async incrementProfanityCounters(payload: ProfanityIncrementPayload) {
@@ -789,27 +947,21 @@ export class CountersDO {
       uniqueWords: words.length,
     });
 
-    const profanityUserKey = `${PROFANITY_USER_PREFIX}:${chatId}:${userId}:${day}`;
-
-    // Update user profanity count in KV
-    const currentUserCount = parseInt((await this.env.COUNTERS.get(profanityUserKey)) || '0', 10);
-    const nextUserCount = currentUserCount + count;
-    await this.env.COUNTERS.put(profanityUserKey, String(nextUserCount));
-    await this.env.COUNTERS.put(`${USER_PREFIX}:${userId}`, username);
-
-    // Update word-specific counts in KV and retain the exact post-KV totals for D1.
-    const exactWords: Array<{ word: string; count: number; userCount: number }> = [];
-    for (const word of words) {
-      const wordKey = `${PROFANITY_WORDS_PREFIX}:${chatId}:${word.word}:${day}`;
-      const currentWordCount = parseInt((await this.env.COUNTERS.get(wordKey)) || '0', 10);
-      const nextWordCount = currentWordCount + word.count;
-      await this.env.COUNTERS.put(wordKey, String(nextWordCount));
-
-      const wordUserKey = `${PROFANITY_WORD_USERS_PREFIX}:${chatId}:${word.word}:${day}:${userId}`;
-      const currentWordUserCount = parseInt((await this.env.COUNTERS.get(wordUserKey)) || '0', 10);
-      const nextWordUserCount = currentWordUserCount + word.count;
-      await this.env.COUNTERS.put(wordUserKey, String(nextWordUserCount));
-      exactWords.push({ word: word.word, count: nextWordCount, userCount: nextWordUserCount });
+    // Exact new totals = current totals + this message's counts.
+    const current = await this.readProfanityTotals(chatId, userId, day, words.map((word) => word.word));
+    const nextUserCount = current.userCount + count;
+    const exactWords = words.map((word) => {
+      const totals = current.words.get(word.word) ?? { count: 0, userCount: 0 };
+      return {
+        word: word.word,
+        count: totals.count + word.count,
+        userCount: totals.userCount + word.count,
+      };
+    });
+    await this.storage().put(this.totProfanityUserKey(day, userId), nextUserCount);
+    for (const word of exactWords) {
+      await this.storage().put(this.totProfanityWordKey(day, word.word), word.count);
+      await this.storage().put(this.totProfanityWordUserKey(day, word.word, userId), word.userCount);
     }
 
     if (this.env.DB) {
@@ -906,25 +1058,12 @@ export class CountersDO {
       violationCount: violations.length,
     });
 
-    const criminalUserKey = `${CRIMINAL_USER_PREFIX}:${chatId}:${userId}:${day}`;
-    const criminalSeverityKey = `${CRIMINAL_SEVERITY_PREFIX}:${chatId}:${userId}:${day}`;
-
-    // Update user criminal violations count in KV
-    const currentUserCount = parseInt((await this.env.COUNTERS.get(criminalUserKey)) || '0', 10);
-    const nextUserCount = currentUserCount + violations.length;
-    await this.env.COUNTERS.put(criminalUserKey, String(nextUserCount));
-
-    // Update user total severity in KV
-    const currentSeverity = parseInt((await this.env.COUNTERS.get(criminalSeverityKey)) || '0', 10);
-    const nextSeverity = currentSeverity + totalSeverity;
-    await this.env.COUNTERS.put(criminalSeverityKey, String(nextSeverity));
-
-    // Update article-specific counts in KV
-    for (const violation of violations) {
-      const articleKey = `${CRIMINAL_ARTICLE_PREFIX}:${chatId}:${violation.article}:${day}`;
-      const currentArticleCount = parseInt((await this.env.COUNTERS.get(articleKey)) || '0', 10);
-      await this.env.COUNTERS.put(articleKey, String(currentArticleCount + violation.count));
-    }
+    // Exact new totals = current totals + this message's violations.
+    // Per-article counts live in criminal_violations (ViolationRepository).
+    const current = await this.readCriminalTotals(chatId, userId, day);
+    const nextUserCount = current.count + violations.length;
+    const nextSeverity = current.severity + totalSeverity;
+    await this.storage().put(this.totCriminalKey(day, userId), { count: nextUserCount, severity: nextSeverity });
 
     if (this.env.DB) {
       // Sequence-bearing criminal event: the aggregate batch also acks the

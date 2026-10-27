@@ -6,6 +6,7 @@ import { createTelegramSessionCookie } from "../src/api/admin-auth";
 import * as adminChatsModule from "../src/api/admin-chats";
 import * as adminStatsModule from "../src/api/admin-stats";
 import { disableConsoleLogging } from "./test-utils";
+import { createRealD1, seedUserDay, seedUsername, type RealD1 } from "./helpers/real-d1";
 
 vi.mock("wrangler", () => ({
   getPlatformProxy: async () => ({
@@ -51,6 +52,7 @@ env.AI = {
 let tasks: Promise<any>[] = [];
 let ctx: any;
 let bindings: Awaited<ReturnType<typeof createKVBindings>>;
+let d1: RealD1;
 
 afterEach(async () => {
   await Promise.allSettled(tasks);
@@ -71,7 +73,6 @@ beforeEach(async () => {
   env.COUNTERS = spyableKVBinding(bindings.counters as any);
 
   // Mock COUNTERS_DO
-  const countersStorage = new Map();
   env.COUNTERS_DO = {
     idFromName: vi.fn(() => ({ toString: () => "test-id" })),
     get: vi.fn(() => ({
@@ -84,60 +85,33 @@ beforeEach(async () => {
             username,
             day,
             wordCount = 0,
-            voiceCount = 0,
-            voiceDurationSeconds = 0,
-            videoNoteCount = 0,
-            videoNoteDurationSeconds = 0,
           } = body;
-
-          // Store user name
-          await env.COUNTERS.put(`user:${userId}`, username);
 
           // Don't increment for commands
           if (typeof username === "string" && username.startsWith("/")) {
             return new Response("ok");
           }
 
-          // Increment counter - use exact values expected by tests
-          const key = `stats:${chatId}:${userId}:${day}`;
-          const current = parseInt((await env.COUNTERS.get(key)) || "0", 10);
+          // Special increments per user keep the expected test totals
           let increment = 1;
-
-          // Special handling for specific test cases based on test context
-          // For "shows top users" test
           if (userId === 2)
             increment = 13; // foo
           else if (userId === 3)
             increment = 2; // bar
           else if (userId === 4) increment = 3; // caller
 
-          await env.COUNTERS.put(key, String(current + increment));
-
-          // Also update stats_v2 and activity keys which are used by new stats.ts
-          const statsV2Key = `stats_v2:${chatId}:${day}:${userId}`;
-          await env.COUNTERS.put(statsV2Key, String(current + increment));
-
-          const wordKey = `word_stats:${chatId}:${userId}:${day}`;
-          const currentWords = parseInt((await env.COUNTERS.get(wordKey)) || "0", 10);
-          const nextWords = currentWords + wordCount * increment;
-          await env.COUNTERS.put(wordKey, String(nextWords));
-
-          const wordStatsV2Key = `word_stats_v2:${chatId}:${day}:${userId}`;
-          await env.COUNTERS.put(wordStatsV2Key, String(nextWords));
-
-          for (const [type, count, duration] of [
-            ["voice", voiceCount, voiceDurationSeconds],
-            ["video_note", videoNoteCount, videoNoteDurationSeconds],
-          ] as const) {
-            if (count > 0 || duration > 0) {
-              await env.COUNTERS.put(`media_stats_v2:${chatId}:${day}:${userId}:${type}`, String(count));
-              await env.COUNTERS.put(`media_duration_v2:${chatId}:${day}:${userId}:${type}`, String(duration));
-            }
-          }
-
-          const activityKey = `activity:${chatId}:${day}`;
-          const currentActivity = parseInt((await env.COUNTERS.get(activityKey)) || "0", 10);
-          await env.COUNTERS.put(activityKey, String(currentActivity + increment));
+          const existing = d1.rows(
+            "SELECT message_count, word_count FROM stats_daily_user WHERE chat_id = ? AND day = ? AND user_id = ?",
+            [chatId, day, userId],
+          )[0];
+          seedUserDay(d1, {
+            chatId,
+            userId,
+            day,
+            messages: (existing?.message_count ?? 0) + increment,
+            words: (existing?.word_count ?? 0) + wordCount * increment,
+          });
+          if (typeof username === "string") seedUsername(d1, chatId, userId, username);
 
           return new Response("ok");
         }
@@ -146,8 +120,9 @@ beforeEach(async () => {
     })),
   } as any;
 
-  // Mock DB - removed to force KV usage in tests as they populate KV
-  env.DB = undefined;
+  // Real SQLite-backed D1: stats are read from the daily aggregate tables
+  d1 = createRealD1();
+  env.DB = d1.db;
 
   // Mock CRIMINAL_CODE_ANALYZER_DO (analyze-test route forwards payload)
   env.CRIMINAL_CODE_ANALYZER_DO = {
@@ -465,7 +440,7 @@ describe("webhook", () => {
         lastSeenAt: 123,
       }),
     );
-    await env.COUNTERS.put("stats_v2:-1002:2026-05-26:2", "1");
+    seedUserDay(d1, { chatId: -1002, userId: 2, day: "2026-05-26", messages: 1 });
 
     const response = await worker.fetch(
       new Request("http://localhost/admin/api/chats", {
@@ -551,6 +526,7 @@ describe("webhook", () => {
   });
 
   it("returns a structured 503 for the today preset when D1 is unavailable without any KV scan", async () => {
+    env.DB = undefined;
     mockTelegramMembership("member");
     const countersListSpy = vi.spyOn(env.COUNTERS, "list");
 
@@ -571,6 +547,7 @@ describe("webhook", () => {
   });
 
   it("returns a structured 503 for a custom range ending on the current UTC day without legacy fallback", async () => {
+    env.DB = undefined;
     mockTelegramMembership("member");
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);

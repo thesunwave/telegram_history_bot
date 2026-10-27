@@ -97,7 +97,7 @@ Cloudflare Worker that stores Telegram chat messages (7 days in KV), generates s
 - Optional message history in Durable Objects/KV, with seven-day default
   retention (daily blocks + fallback single-message storage). Stats Only does
   not write raw messages to those stores.
-- Per-user counters via Durable Objects and KV.
+- Per-user counters via Durable Objects, stored as daily aggregates in D1.
 - **🚀 Optimized Summary System** with parallel processing and context management.
 - **🛡️ Automatic fallback** to legacy summarization on errors.
 - Optional profanity and criminal-code analysis with notification flows.

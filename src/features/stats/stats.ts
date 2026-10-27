@@ -1,10 +1,20 @@
 import { Env, DAY, MONTH_DAYS, WEEK_DAYS } from '../../core/env';
-import type { KVNamespace } from '@cloudflare/workers-types';
 import { sendMessage, sendPhoto } from '../../core/telegram';
 import { summariseChat } from '../summary/summary';
 import { ViolationRepository } from '../../core/repositories/violation-repository';
 import { getStatsPeriodRange } from '../../core/stats-period';
 import { readChatSettings } from '../../core/chat-settings';
+import {
+  queryActiveChats,
+  queryDailyTotals,
+  queryHourTotals,
+  queryProfanityWordTotals,
+  queryProfanityWordUsers,
+  queryUserDailyTotals,
+  queryUsernames,
+  queryUserTotals,
+  type StatsResetScope,
+} from './stats-d1-queries';
 import {
   formatChatCriminalReport,
   formatCriminalTopReport,
@@ -148,60 +158,25 @@ export interface UserActivityStat {
 async function aggregateUserActivity(
   env: Env,
   chatId: number,
-  days: string[],
+  range: ActivityDateRange,
 ): Promise<Record<string, { messages: number; words: number }>> {
   const totals: Record<string, { messages: number; words: number }> = {};
-
-  for (const day of days) {
-    const messagePrefix = `stats_v2:${chatId}:${day}:`;
-    let cursor: string | undefined;
-    do {
-      const list: any = await env.COUNTERS.list({
-        prefix: messagePrefix,
-        cursor,
-      });
-      cursor = !list.list_complete ? list.cursor : undefined;
-
-      const BATCH_SIZE = 10;
-      for (let i = 0; i < list.keys.length; i += BATCH_SIZE) {
-        const batch = list.keys.slice(i, i + BATCH_SIZE);
-        const messageValues = await Promise.all(
-          batch.map((k: any) => env.COUNTERS.get(k.name)),
-        );
-        const wordValues = await Promise.all(
-          batch.map((k: any) => {
-            const [, , , userId] = k.name.split(':');
-            return env.COUNTERS.get(`word_stats_v2:${chatId}:${day}:${userId}`);
-          }),
-        );
-
-        for (let j = 0; j < batch.length; j++) {
-          const [, , , userId] = batch[j].name.split(':');
-          const messages = parseInt(messageValues[j] || '0', 10);
-          const words = parseInt(wordValues[j] || '0', 10);
-          const current = totals[userId] || { messages: 0, words: 0 };
-          totals[userId] = {
-            messages: current.messages + messages,
-            words: current.words + words,
-          };
-        }
-      }
-    } while (cursor);
+  const rows = await queryUserTotals(env, chatId, range.startDate, range.endDate);
+  for (const [userId, stat] of rows) {
+    totals[userId] = { messages: stat.messages, words: stat.words };
   }
-
   return totals;
 }
 
 async function hydrateUserActivityStats(
   env: Env,
+  chatId: number,
   entries: Array<[string, { messages: number; words: number }]>,
 ): Promise<UserActivityStat[]> {
-  const names = await Promise.all(
-    entries.map(([userId]) => env.COUNTERS.get(`user:${userId}`)),
-  );
-  return entries.map(([userId, stat], index) => ({
+  const names = await queryUsernames(env, chatId, entries.map(([userId]) => userId));
+  return entries.map(([userId, stat]) => ({
     userId,
-    username: names[index] || `id${userId}`,
+    username: names.get(userId) || `id${userId}`,
     messages: stat.messages,
     words: stat.words,
     wordsPerMessage: stat.messages > 0 ? Number((stat.words / stat.messages).toFixed(1)) : 0,
@@ -214,42 +189,14 @@ export async function topChat(
   n: number,
   day: string,
 ): Promise<string | void> {
-  // Use new optimized key format: stats_v2:chatId:day:userId
-  // This allows listing only keys for the specific day, avoiding full history scan
-  const prefix = `stats_v2:${chatId}:${day}:`;
-  let cursor: string | undefined = undefined;
-  const counts: Record<string, number> = {};
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-
-    const BATCH_SIZE = 10;
-    for (let i = 0; i < list.keys.length; i += BATCH_SIZE) {
-      const batch = list.keys.slice(i, i + BATCH_SIZE);
-      const values = await Promise.all(
-        batch.map((k: any) => env.COUNTERS.get(k.name)),
-      );
-      for (let j = 0; j < batch.length; j++) {
-        const key = batch[j];
-        const [_, chat, d, user] = key.name.split(':');
-        // No need to check d === day because prefix ensures it
-        const c = parseInt(values[j] || '0');
-        counts[user] = (counts[user] || 0) + c;
-      }
-    }
-  } while (cursor);
-  const sorted = Object.entries(counts)
+  const totals = await queryUserTotals(env, chatId, day, day);
+  const sorted = [...totals.entries()]
+    .map(([userId, stat]) => [userId, stat.messages] as [string, number])
+    .filter(([, count]) => count > 0)
     .sort((a, b) => b[1] - a[1])
     .slice(0, n);
-  const lines = [];
-  const names = await Promise.all(
-    sorted.map(([u]) => env.COUNTERS.get(`user:${u}`)),
-  );
-  for (let i = 0; i < sorted.length; i++) {
-    const [u, c] = sorted[i];
-    const name = names[i] || `id${u}`;
-    lines.push(`${i + 1}. ${name}: ${c}`);
-  }
+  const names = await queryUsernames(env, chatId, sorted.map(([userId]) => userId));
+  const lines = sorted.map(([u, c], i) => `${i + 1}. ${names.get(u) || `id${u}`}: ${c}`);
   const text = lines.join('\n') || 'Нет данных';
   return await sendMessage(env, chatId, text);
 }
@@ -267,11 +214,7 @@ export async function topTalkers(
     return await sendMessage(env, chatId, error.message || 'Неверный период');
   }
 
-  const totals = await aggregateUserActivity(
-    env,
-    chatId,
-    listActivityDays(range),
-  );
+  const totals = await aggregateUserActivity(env, chatId, range);
   const sorted = Object.entries(totals)
     .filter(([, stat]) => stat.messages > 0)
     .sort((a, b) => b[1].words - a[1].words || b[1].messages - a[1].messages)
@@ -285,7 +228,7 @@ export async function topTalkers(
     );
   }
 
-  const stats = await hydrateUserActivityStats(env, sorted);
+  const stats = await hydrateUserActivityStats(env, chatId, sorted);
   const lines = stats.map((stat, index) =>
     `${index + 1}. ${stat.username}: ${stat.words} слов, ${stat.messages} сообщений, ${stat.wordsPerMessage} слов/сообщение`,
   );
@@ -297,156 +240,36 @@ export async function topTalkers(
   );
 }
 
+// Resets run inside the chat's CountersDO so its running totals and the D1
+// rows are cleared together, serialized with in-flight increments.
+async function resetChatStats(env: Env, chatId: number, scope: StatsResetScope): Promise<void> {
+  const id = env.COUNTERS_DO.idFromName(String(chatId));
+  const response = await env.COUNTERS_DO.get(id).fetch('https://do/reset', {
+    method: 'POST',
+    body: JSON.stringify({ chatId, scope }),
+  });
+  if (!response.ok) throw new Error(`counters reset failed: ${response.status}`);
+}
+
 export async function resetCounters(env: Env, chatId: number) {
-  const prefix = `stats:${chatId}:`;
-  let cursor: string | undefined = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-  const v2Prefix = `stats_v2:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: v2Prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-  const aPrefix = `activity:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: aPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-  const hourPrefix = `activity_hour:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: hourPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-
-  const timeBucketPrefix = `activity_time_bucket:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: timeBucketPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-
-  const lastMessagePrefix = `last_message:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: lastMessagePrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-
-  const wordPrefix = `word_stats:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: wordPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-
-  const wordV2Prefix = `word_stats_v2:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: wordV2Prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-
-  const wordActivityPrefix = `word_activity:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: wordActivityPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-
-  // Reset profanity user counters
-  const pPrefix = `profanity:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: pPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-
-  // Reset profanity word counters
-  const pwPrefix = `profanity_words:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: pwPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-
-  const pwuPrefix = `profanity_word_users:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: pwuPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-
-  if (env.DB) {
-    try {
-      await env.DB.prepare('DELETE FROM activity WHERE chat_id = ?')
-        .bind(chatId)
-        .run();
-    } catch (e) {
-      console.error('activity reset db error', {
-        chat: chatId.toString(36),
-        err: (e as Error).message || String(e),
-      });
-    }
+  if (!env.DB) return;
+  try {
+    await resetChatStats(env, chatId, 'all');
+  } catch (e) {
+    console.error('stats reset db error', {
+      chat: chatId.toString(36),
+      err: (e as Error).message || String(e),
+    });
   }
 }
 
 export async function dailySummary(env: Env) {
+  if (!env.DB) return;
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const start = Math.floor((today.getTime() - DAY * 1000) / 1000);
   const date = new Date(start * 1000).toISOString().slice(0, 10);
-  const prefix = 'stats:';
-  let cursor: string | undefined = undefined;
-  const chats = new Set<number>();
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      const [_, chat, , d] = key.name.split(':');
-      if (d === date) chats.add(parseInt(chat));
-    }
-  } while (cursor);
+  const chats = await queryActiveChats(env, date);
   for (const c of chats) {
     if (!(await readChatSettings(env, c)).summaryEnabled) continue;
     await summariseChat(env, c, 1);
@@ -564,7 +387,6 @@ export async function activityChart(
   }
 
   const totals: Record<string, number> = {};
-  let dbOk = false;
   if (env.DB) {
     try {
       const res = await env.DB.prepare(
@@ -576,7 +398,6 @@ export async function activityChart(
       for (const row of rows) {
         totals[row.day] = row.count;
       }
-      dbOk = rows.length > 0;
     } catch (e) {
       console.error('activity db read error', {
         chat: chatId.toString(36),
@@ -584,26 +405,6 @@ export async function activityChart(
       });
     }
   }
-  if (!dbOk) {
-    const days = listActivityDays(range);
-
-    // Process in chunks to avoid hitting subrequest limits
-    const BATCH_SIZE = 10;
-    for (let i = 0; i < days.length; i += BATCH_SIZE) {
-      const batchDays = days.slice(i, i + BATCH_SIZE);
-      const keys = batchDays.map(day => `activity:${chatId}:${day}`);
-      const values = await Promise.all(
-        keys.map(key => env.COUNTERS.get(key))
-      );
-
-      for (let j = 0; j < batchDays.length; j++) {
-        const day = batchDays[j];
-        const count = parseInt(values[j] || '0', 10);
-        totals[day] = count;
-      }
-    }
-  }
-
   let data: { label: string; value: number }[] = [];
   const days = listActivityDays(range);
   if (range.dayCount <= 31) {
@@ -636,44 +437,17 @@ export async function activityByUser(
     return await sendMessage(env, chatId, error.message || 'Неверный период');
   }
 
-  const totals: Record<string, number> = {};
-
-  // Limit KV scans to the required date range to avoid exceeding subrequest limits
-  const days = listActivityDays(range);
-
-  for (const day of days) {
-    const prefix = `stats_v2:${chatId}:${day}:`;
-    let cursor: string | undefined;
-    do {
-      const list: any = await env.COUNTERS.list({ prefix, cursor });
-      cursor = !list.list_complete ? list.cursor : undefined;
-
-      const BATCH_SIZE = 10;
-      for (let i = 0; i < list.keys.length; i += BATCH_SIZE) {
-        const batch = list.keys.slice(i, i + BATCH_SIZE);
-        const values = await Promise.all(
-          batch.map((k: any) => env.COUNTERS.get(k.name)),
-        );
-        for (let j = 0; j < batch.length; j++) {
-          const [, , , user] = batch[j].name.split(':');
-          const c = parseInt(values[j] || '0', 10);
-          totals[user] = (totals[user] || 0) + c;
-        }
-      }
-    }
-    while (cursor);
-  }
-
-  const sorted = Object.entries(totals)
+  const totals = await queryUserTotals(env, chatId, range.startDate, range.endDate);
+  const sorted = [...totals.entries()]
+    .map(([userId, stat]) => [userId, stat.messages] as [string, number])
+    .filter(([, count]) => count > 0)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10);
   if (sorted.length === 0) {
     return await sendMessage(env, chatId, `${formatRangeTitle('Активность пользователей', range)}\nНет данных`);
   }
-  const names = await Promise.all(
-    sorted.map(([u]) => env.COUNTERS.get(`user:${u}`)),
-  );
-  const labels = names.map((n: string | null, i: number) => sanitizeLabel(n || `id${sorted[i][0]}`));
+  const names = await queryUsernames(env, chatId, sorted.map(([userId]) => userId));
+  const labels = sorted.map(([u]) => sanitizeLabel(names.get(u) || `id${u}`));
   const data = sorted.map(([, c]) => c);
   const title = formatRangeTitle('Активность пользователей', range);
   const url = createBarChartUrl(labels, data, 'Messages', title);
@@ -693,24 +467,8 @@ export async function activityHours(
   }
 
   const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
-  const totals: Record<string, number> = Object.fromEntries(hours.map(hour => [hour, 0]));
-  let foundData = false;
-  const days = listActivityDays(range);
-
-  for (const day of days) {
-    const keys = hours.map(hour => `activity_hour:${chatId}:${day}:${hour}`);
-    const BATCH_SIZE = 12;
-    for (let i = 0; i < keys.length; i += BATCH_SIZE) {
-      const batch = keys.slice(i, i + BATCH_SIZE);
-      const values = await Promise.all(batch.map(key => env.COUNTERS.get(key)));
-      for (let j = 0; j < batch.length; j++) {
-        const value = parseInt(values[j] || '0', 10);
-        if (value > 0) foundData = true;
-        const hour = batch[j].split(':')[3];
-        totals[hour] += value;
-      }
-    }
-  }
+  const hourTotals = await queryHourTotals(env, chatId, range.startDate, range.endDate);
+  const foundData = [...hourTotals.values()].some(value => value > 0);
 
   if (!foundData) {
     return await sendMessage(
@@ -720,7 +478,7 @@ export async function activityHours(
     );
   }
 
-  const data = hours.map(hour => Number((totals[hour] / range.dayCount).toFixed(2)));
+  const data = hours.map((_, hour) => Number(((hourTotals.get(hour) || 0) / range.dayCount).toFixed(2)));
   const url = createBarChartUrl(hours, data, 'Avg messages/day', formatRangeTitle('Почасовая активность', range));
   return await sendPhoto(env, chatId, url);
 }
@@ -784,45 +542,13 @@ async function getTopProfanityWordUsers(
   limit: number,
   period: string,
 ): Promise<UserProfanityStat[]> {
-  const { startStr } = getDateRange(period);
-  const prefix = `profanity_word_users:${chatId}:${word}:`;
-  let cursor: string | undefined = undefined;
-  const totals: Record<string, number> = {};
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-
-    const keysToFetch = list.keys.filter((k: any) => {
-      const parts = k.name.split(':');
-      // format: profanity_word_users:chatId:word:day:userId
-      if (parts.length !== 5) return false;
-      return isInProfanityPeriod(parts[3], startStr, period);
-    });
-
-    for (let i = 0; i < keysToFetch.length; i += 10) {
-      const batch = keysToFetch.slice(i, i + 10);
-      const values = await Promise.all(batch.map((k: any) => env.COUNTERS.get(k.name)));
-
-      for (let j = 0; j < batch.length; j++) {
-        const parts = batch[j].name.split(':');
-        const userId = parts[4];
-        const count = parseInt(values[j] || '0', 10);
-        totals[userId] = (totals[userId] || 0) + count;
-      }
-    }
-  } while (cursor);
-
-  const sorted = Object.entries(totals)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit);
-
-  const names = await Promise.all(sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`)));
-
-  return sorted.map(([userId, count], index) => ({
-    userId: parseInt(userId, 10),
-    username: names[index] || `id${userId}`,
-    count,
+  const { startStr, endStr } = getDateRange(period);
+  const rows = await queryProfanityWordUsers(env, chatId, word, startStr, endStr, limit);
+  const names = await queryUsernames(env, chatId, rows.map((row) => row.userId));
+  return rows.map((row) => ({
+    userId: parseInt(row.userId, 10),
+    username: names.get(row.userId) || `id${row.userId}`,
+    count: row.count,
   }));
 }
 
@@ -833,58 +559,15 @@ export async function getTopProfanityUsers(
   limit: number = 5,
   period: string = 'today'
 ): Promise<UserProfanityStat[]> {
-  const { startStr } = getDateRange(period);
-  const prefix = `profanity:${chatId}:`;
-  let cursor: string | undefined = undefined;
-  const totals: Record<string, number> = {};
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-
-    // Filter keys BEFORE fetching values to reduce subrequests
-    const keysToFetch = list.keys.filter((k: any) => {
-      const parts = k.name.split(':');
-      // format: profanity:chatId:userId:day
-      if (parts.length !== 4) return false;
-      const day = parts[3];
-
-      return isInProfanityPeriod(day, startStr, period);
-    });
-
-    if (keysToFetch.length === 0) continue;
-
-    // Process in chunks to avoid hitting subrequest limits
-    const BATCH_SIZE = 10;
-    for (let i = 0; i < keysToFetch.length; i += BATCH_SIZE) {
-      const batch = keysToFetch.slice(i, i + BATCH_SIZE);
-      const values = await Promise.all(
-        batch.map((k: any) => env.COUNTERS.get(k.name))
-      );
-
-      for (let j = 0; j < batch.length; j++) {
-        const key = batch[j];
-        const parts = key.name.split(':');
-        const userId = parts[2];
-        const count = parseInt(values[j] || '0', 10);
-        totals[userId] = (totals[userId] || 0) + count;
-      }
-    }
-  } while (cursor);
-
-  // Sort and limit results
+  const totals = await aggregateProfanityUserTotals(env, chatId, period);
   const sorted = Object.entries(totals)
+    .filter(([, count]) => count > 0)
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit);
-
-  // Get usernames
-  const names = await Promise.all(
-    sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`))
-  );
-
-  return sorted.map(([userId, count], index) => ({
+  const names = await queryUsernames(env, chatId, sorted.map(([userId]) => userId));
+  return sorted.map(([userId, count]) => ({
     userId: parseInt(userId, 10),
-    username: names[index] || `id${userId}`,
+    username: names.get(userId) || `id${userId}`,
     count,
   }));
 }
@@ -894,34 +577,12 @@ async function aggregateProfanityUserTotals(
   chatId: number,
   period: string,
 ): Promise<Record<string, number>> {
-  const { startStr } = getDateRange(period);
-  const prefix = `profanity:${chatId}:`;
-  let cursor: string | undefined = undefined;
+  const { startStr, endStr } = getDateRange(period);
+  const rows = await queryUserTotals(env, chatId, startStr, endStr);
   const totals: Record<string, number> = {};
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-
-    const keysToFetch = list.keys.filter((k: any) => {
-      const parts = k.name.split(':');
-      if (parts.length !== 4) return false;
-      return isInProfanityPeriod(parts[3], startStr, period);
-    });
-
-    for (let i = 0; i < keysToFetch.length; i += 10) {
-      const batch = keysToFetch.slice(i, i + 10);
-      const values = await Promise.all(batch.map((k: any) => env.COUNTERS.get(k.name)));
-
-      for (let j = 0; j < batch.length; j++) {
-        const parts = batch[j].name.split(':');
-        const userId = parts[2];
-        const count = parseInt(values[j] || '0', 10);
-        totals[userId] = (totals[userId] || 0) + count;
-      }
-    }
-  } while (cursor);
-
+  for (const [userId, stat] of rows) {
+    if (stat.profanity > 0) totals[userId] = stat.profanity;
+  }
   return totals;
 }
 
@@ -930,35 +591,12 @@ async function aggregateUserWordTotals(
   chatId: number,
   period: string,
 ): Promise<Record<string, number>> {
-  const { startStr } = getDateRange(period);
-  const prefix = `word_stats_v2:${chatId}:`;
-  let cursor: string | undefined = undefined;
+  const { startStr, endStr } = getDateRange(period);
+  const rows = await queryUserTotals(env, chatId, startStr, endStr);
   const totals: Record<string, number> = {};
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-
-    const keysToFetch = list.keys.filter((k: any) => {
-      const parts = k.name.split(':');
-      // format: word_stats_v2:chatId:day:userId
-      if (parts.length !== 4) return false;
-      return isInProfanityPeriod(parts[2], startStr, period);
-    });
-
-    for (let i = 0; i < keysToFetch.length; i += 10) {
-      const batch = keysToFetch.slice(i, i + 10);
-      const values = await Promise.all(batch.map((k: any) => env.COUNTERS.get(k.name)));
-
-      for (let j = 0; j < batch.length; j++) {
-        const parts = batch[j].name.split(':');
-        const userId = parts[3];
-        const count = parseInt(values[j] || '0', 10);
-        totals[userId] = (totals[userId] || 0) + count;
-      }
-    }
-  } while (cursor);
-
+  for (const [userId, stat] of rows) {
+    if (stat.words > 0) totals[userId] = stat.words;
+  }
   return totals;
 }
 
@@ -992,13 +630,11 @@ export async function getTopProfanityRateUsers(
     )
     .slice(0, limit);
 
-  const names = await Promise.all(
-    ranked.map((stat) => env.COUNTERS.get(`user:${stat.userId}`)),
-  );
+  const names = await queryUsernames(env, chatId, ranked.map((stat) => stat.userId));
 
-  return ranked.map((stat, index) => ({
+  return ranked.map((stat) => ({
     userId: parseInt(stat.userId, 10),
-    username: names[index] || `id${stat.userId}`,
+    username: names.get(stat.userId) || `id${stat.userId}`,
     profanityCount: stat.profanityCount,
     wordCount: stat.wordCount,
     rate: stat.rate,
@@ -1012,60 +648,41 @@ export async function getTopProfanityWords(
   limit: number = 10,
   period: string = 'today'
 ): Promise<WordProfanityStat[]> {
-  const { startStr } = getDateRange(period);
-  const prefix = `profanity_words:${chatId}:`;
-  let cursor: string | undefined = undefined;
-  const totals: Record<string, number> = {};
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-
-    // Filter keys BEFORE fetching values to reduce subrequests
-    const keysToFetch = list.keys.filter((k: any) => {
-      const parts = k.name.split(':');
-      // format: profanity_words:chatId:word:day
-      if (parts.length !== 4) return false;
-      const day = parts[3];
-
-      return isInProfanityPeriod(day, startStr, period);
-    });
-
-    if (keysToFetch.length === 0) continue;
-
-    // Process in chunks to avoid hitting subrequest limits
-    const BATCH_SIZE = 10;
-    for (let i = 0; i < keysToFetch.length; i += BATCH_SIZE) {
-      const batch = keysToFetch.slice(i, i + BATCH_SIZE);
-      const values = await Promise.all(
-        batch.map((k: any) => env.COUNTERS.get(k.name))
-      );
-
-      for (let j = 0; j < batch.length; j++) {
-        const key = batch[j];
-        const parts = key.name.split(':');
-        const word = parts[2];
-        const count = parseInt(values[j] || '0', 10);
-        totals[word] = (totals[word] || 0) + count;
-      }
-    }
-  } while (cursor);
-
-  // Sort and limit results
-  const sorted = Object.entries(totals)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit);
+  const { startStr, endStr } = getDateRange(period);
+  const sorted = await queryProfanityWordTotals(env, chatId, startStr, endStr, limit);
 
   const contributorsByWord = await Promise.all(
-    sorted.map(([word]) => getTopProfanityWordUsers(env, chatId, word, 10, period))
+    sorted.map(({ word }) => getTopProfanityWordUsers(env, chatId, word, 10, period))
   );
 
-  return sorted.map(([word, count], index) => ({
+  return sorted.map(({ word, count }, index) => ({
     word,
     count,
     censored: censorWord(word),
     contributors: contributorsByWord[index],
   }));
+}
+
+async function personalPeriodTotals(
+  env: Env,
+  chatId: number,
+  userId: number,
+  column: 'profanity_count' | 'criminal_count',
+): Promise<{ today: number; week: number; month: number }> {
+  const { endStr: todayStr } = getDateRange('today');
+  const { startStr: weekStartStr } = getDateRange('week');
+  const { startStr: monthStartStr } = getDateRange('month');
+  const byDay = await queryUserDailyTotals(env, chatId, userId, column, monthStartStr, todayStr);
+
+  let today = 0;
+  let week = 0;
+  let month = 0;
+  for (const [day, count] of byDay) {
+    if (day === todayStr) today += count;
+    if (day >= weekStartStr) week += count;
+    if (day >= monthStartStr) month += count;
+  }
+  return { today, week, month };
 }
 
 // Get personal profanity statistics for a user
@@ -1074,88 +691,13 @@ export async function getUserProfanityStats(
   chatId: number,
   userId: number
 ): Promise<UserPersonalProfanityStats> {
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().slice(0, 10);
-
-  const weekStart = new Date(today);
-  weekStart.setUTCDate(weekStart.getUTCDate() - WEEK_DAYS);
-  const weekStartStr = weekStart.toISOString().slice(0, 10);
-
-  const monthStart = new Date(today);
-  monthStart.setUTCDate(monthStart.getUTCDate() - MONTH_DAYS);
-  const monthStartStr = monthStart.toISOString().slice(0, 10);
-
-  const prefix = `profanity:${chatId}:${userId}:`;
-  let cursor: string | undefined = undefined;
-  let todayCount = 0;
-  let weekCount = 0;
-  let monthCount = 0;
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    const values = await Promise.all(
-      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
-    );
-
-    for (let i = 0; i < list.keys.length; i++) {
-      const key = list.keys[i];
-      const [_, chat, user, day] = key.name.split(':');
-      const count = parseInt(values[i] || '0', 10);
-
-      if (day === todayStr) {
-        todayCount += count;
-      }
-      if (day >= weekStartStr) {
-        weekCount += count;
-      }
-      if (day >= monthStartStr) {
-        monthCount += count;
-      }
-    }
-  } while (cursor);
-
-  return {
-    today: todayCount,
-    week: weekCount,
-    month: monthCount,
-  };
+  return personalPeriodTotals(env, chatId, userId, 'profanity_count');
 }
 
 // Reset only profanity counters for a chat
 export async function resetProfanityCounters(env: Env, chatId: number) {
-  // Reset profanity user counters
-  const pPrefix = `profanity:${chatId}:`;
-  let cursor: string | undefined = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: pPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-
-  // Reset profanity word counters
-  const pwPrefix = `profanity_words:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: pwPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-
-  const pwuPrefix = `profanity_word_users:${chatId}:`;
-  cursor = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: pwuPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
+  if (!env.DB) return;
+  await resetChatStats(env, chatId, 'profanity');
 }
 
 // Command handler for profanity top users
@@ -1403,9 +945,6 @@ export async function profanityChart(
   chatId: number,
   period: 'week' | 'month',
 ): Promise<{ text: string; imageUrl?: string } | void> {
-  const prefix = `profanity:${chatId}:`;
-  let cursor: string | undefined = undefined;
-  const dailyTotals: Record<string, number> = {};
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const start = new Date(today);
@@ -1413,40 +952,11 @@ export async function profanityChart(
     start.getUTCDate() - (period === 'month' ? MONTH_DAYS : WEEK_DAYS),
   );
   const startStr = start.toISOString().slice(0, 10);
+  const todayStr = today.toISOString().slice(0, 10);
 
-  // Collect profanity data from KV storage
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-
-    // Filter keys BEFORE fetching values to reduce subrequests
-    const keysToFetch = list.keys.filter((k: any) => {
-      const parts = k.name.split(':');
-      // format: profanity:chatId:userId:day
-      if (parts.length !== 4) return false;
-      const day = parts[3];
-      return day >= startStr;
-    });
-
-    if (keysToFetch.length === 0) continue;
-
-    // Process in chunks to avoid hitting subrequest limits
-    const BATCH_SIZE = 10;
-    for (let i = 0; i < keysToFetch.length; i += BATCH_SIZE) {
-      const batch = keysToFetch.slice(i, i + BATCH_SIZE);
-      const values = await Promise.all(
-        batch.map((k: any) => env.COUNTERS.get(k.name))
-      );
-
-      for (let j = 0; j < batch.length; j++) {
-        const key = batch[j];
-        const parts = key.name.split(':');
-        const day = parts[3];
-        const count = parseInt(values[j] || '0', 10);
-        dailyTotals[day] = (dailyTotals[day] || 0) + count;
-      }
-    }
-  } while (cursor);
+  const dailyTotals: Record<string, number> = Object.fromEntries(
+    await queryDailyTotals(env, chatId, 'profanity_count', startStr, todayStr),
+  );
 
   let data: { label: string; value: number }[] = [];
 
@@ -1550,64 +1060,19 @@ export async function getTopCriminalUsers(
   limit: number = 5,
   period: string = 'today'
 ): Promise<UserCriminalStat[]> {
-  const { startStr } = getDateRange(period);
-  const prefix = `criminal:${chatId}:`;
-  let cursor: string | undefined = undefined;
-  const totals: Record<string, number> = {};
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-
-    // Filter keys BEFORE fetching values to reduce subrequests
-    const keysToFetch = list.keys.filter((k: any) => {
-      const parts = k.name.split(':');
-      // format: criminal:chatId:userId:day
-      if (parts.length !== 4) return false;
-      const day = parts[3];
-      return day >= startStr;
-    });
-
-    if (keysToFetch.length === 0) continue;
-
-    // Process in chunks to avoid hitting subrequest limits
-    const BATCH_SIZE = 10;
-    for (let i = 0; i < keysToFetch.length; i += BATCH_SIZE) {
-      const batch = keysToFetch.slice(i, i + BATCH_SIZE);
-      const values = await Promise.all(
-        batch.map((k: any) => env.COUNTERS.get(k.name))
-      );
-
-      for (let j = 0; j < batch.length; j++) {
-        const key = batch[j];
-        const parts = key.name.split(':');
-        const user = parts[2];
-        const count = parseInt(values[j] || '0', 10);
-        totals[user] = (totals[user] || 0) + count;
-      }
-    }
-  } while (cursor);
-
-  const sorted = Object.entries(totals)
+  const { startStr, endStr } = getDateRange(period);
+  const rows = await queryUserTotals(env, chatId, startStr, endStr);
+  const sorted = [...rows.entries()]
+    .map(([userId, stat]) => [userId, stat.criminal] as [string, number])
+    .filter(([, count]) => count > 0)
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit);
-
-  const result: UserCriminalStat[] = [];
-  const usernames = await Promise.all(
-    sorted.map(([userId]) => env.COUNTERS.get(`user:${userId}`)),
-  );
-
-  for (let i = 0; i < sorted.length; i++) {
-    const [userId, count] = sorted[i];
-    const username = usernames[i] || `id${userId}`;
-    result.push({
-      userId: parseInt(userId, 10),
-      username,
-      count,
-    });
-  }
-
-  return result;
+  const names = await queryUsernames(env, chatId, sorted.map(([userId]) => userId));
+  return sorted.map(([userId, count]) => ({
+    userId: parseInt(userId, 10),
+    username: names.get(userId) || `id${userId}`,
+    count,
+  }));
 }
 
 export async function getTopCriminalUsersBySentence(
@@ -1616,9 +1081,7 @@ export async function getTopCriminalUsersBySentence(
   limit: number = 5,
   period: string = 'today'
 ): Promise<UserCriminalStat[]> {
-  if (!env.DB) {
-    return getTopCriminalUsers(env, chatId, limit, period);
-  }
+  if (!env.DB) return [];
 
   const repository = new ViolationRepository(env);
   const sentenceUsers = await repository.getTopUsersBySentenceStats(
@@ -1630,13 +1093,11 @@ export async function getTopCriminalUsersBySentence(
     return getTopCriminalUsers(env, chatId, limit, period);
   }
 
-  const usernames = await Promise.all(
-    sentenceUsers.map(user => env.COUNTERS.get(`user:${user.userId}`)),
-  );
+  const usernames = await queryUsernames(env, chatId, sentenceUsers.map(user => user.userId));
 
-  return sentenceUsers.map((user, index) => ({
+  return sentenceUsers.map((user) => ({
     userId: parseInt(user.userId, 10),
-    username: usernames[index] || `id${user.userId}`,
+    username: usernames.get(String(user.userId)) || `id${user.userId}`,
     count: user.count,
     totalYears: user.totalYears || 0,
     lifeSentences: user.lifeSentences || 0,
@@ -1649,51 +1110,7 @@ export async function getUserCriminalStats(
   chatId: number,
   userId: number
 ): Promise<UserPersonalCriminalStats> {
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().slice(0, 10);
-
-  const weekStart = new Date(today);
-  weekStart.setUTCDate(weekStart.getUTCDate() - WEEK_DAYS);
-  const weekStartStr = weekStart.toISOString().slice(0, 10);
-
-  const monthStart = new Date(today);
-  monthStart.setUTCDate(monthStart.getUTCDate() - MONTH_DAYS);
-  const monthStartStr = monthStart.toISOString().slice(0, 10);
-
-  const prefix = `criminal:${chatId}:${userId}:`;
-  let cursor: string | undefined = undefined;
-  let todayCount = 0;
-  let weekCount = 0;
-  let monthCount = 0;
-
-  do {
-    const list: any = await env.COUNTERS.list({ prefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    const values = await Promise.all(
-      list.keys.map((k: any) => env.COUNTERS.get(k.name)),
-    );
-    for (let i = 0; i < list.keys.length; i++) {
-      const [_, chat, user, day] = list.keys[i].name.split(':');
-      const count = parseInt(values[i] || '0', 10);
-
-      if (day === todayStr) {
-        todayCount += count;
-      }
-      if (day >= weekStartStr) {
-        weekCount += count;
-      }
-      if (day >= monthStartStr) {
-        monthCount += count;
-      }
-    }
-  } while (cursor);
-
-  return {
-    today: todayCount,
-    week: weekCount,
-    month: monthCount,
-  };
+  return personalPeriodTotals(env, chatId, userId, 'criminal_count');
 }
 
 // Command handler for criminal code top users
@@ -1780,32 +1197,14 @@ export async function criminalCodeStats(
 
 // Reset only criminal code counters for a chat
 export async function resetCriminalCounters(env: Env, chatId: number) {
-  // Reset criminal user counters
-  const cPrefix = `criminal:${chatId}:`;
-  let cursor: string | undefined = undefined;
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: cPrefix, cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-    for (const key of list.keys) {
-      await env.COUNTERS.delete(key.name);
-    }
-  } while (cursor);
-
-  // Reset criminal violations in database if available
-  if (env.DB) {
-    try {
-      await env.DB.prepare('DELETE FROM criminal_violations WHERE chat_id = ?')
-        .bind(chatId)
-        .run();
-      await env.DB.prepare('DELETE FROM violation_stats WHERE chat_id = ?')
-        .bind(chatId)
-        .run();
-    } catch (e) {
-      console.error('criminal reset db error', {
-        chat: chatId.toString(36),
-        err: (e as Error).message || String(e),
-      });
-    }
+  if (!env.DB) return;
+  try {
+    await resetChatStats(env, chatId, 'criminal');
+  } catch (e) {
+    console.error('criminal reset db error', {
+      chat: chatId.toString(36),
+      err: (e as Error).message || String(e),
+    });
   }
 }
 

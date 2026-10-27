@@ -392,7 +392,7 @@ export class ProfanityAnalyzer {
     const retrievalStart = Date.now();
 
     try {
-      const cached = await env.COUNTERS.get(cacheKey);
+      const cached = await env.HISTORY.get(cacheKey);
       const retrievalTime = Date.now() - retrievalStart;
 
       if (cached) {
@@ -451,7 +451,7 @@ export class ProfanityAnalyzer {
 
       // Store in KV storage
       const putStart = Date.now();
-      await env.COUNTERS.put(
+      await env.HISTORY.put(
         cacheKey,
         serializedResult,
         { expirationTtl: this.getCacheTTL(env) }

@@ -89,22 +89,17 @@ async function listStoredChatMeta(env: Env): Promise<AdminChatMeta[]> {
   return chats;
 }
 
-async function listCounterChatIds(env: Env): Promise<Set<number>> {
+async function listStatsChatIds(env: Env): Promise<Set<number>> {
   const chatIds = new Set<number>();
-  let cursor: string | undefined;
 
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: 'stats_v2:', cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-
-    for (const key of list.keys) {
-      const [, chatId] = key.name.split(':');
-      const parsed = Number(chatId);
-      if (Number.isFinite(parsed)) {
-        chatIds.add(parsed);
-      }
+  if (!env.DB) return chatIds;
+  const res = await env.DB.prepare('SELECT DISTINCT chat_id FROM activity').all<{ chat_id: number }>();
+  for (const row of (res.results as Array<{ chat_id: number }> | undefined) ?? []) {
+    const parsed = Number(row.chat_id);
+    if (Number.isFinite(parsed)) {
+      chatIds.add(parsed);
     }
-  } while (cursor);
+  }
 
   return chatIds;
 }
@@ -122,8 +117,8 @@ async function listAdminChatCandidates(env: Env): Promise<AdminChatCandidate[]> 
     byId.set(chat.chatId, { chat, hasStoredMeta: true });
   }
 
-  const counterChatIds = await listCounterChatIds(env);
-  for (const chatId of counterChatIds) {
+  const statsChatIds = await listStatsChatIds(env);
+  for (const chatId of statsChatIds) {
     if (!byId.has(chatId)) {
       byId.set(chatId, {
         chat: {

@@ -58,7 +58,7 @@ describe('Profanity Empty Cache Behavior', () => {
         kvStorage = new Map();
 
         mockEnv = {
-            COUNTERS: {
+            HISTORY: {
                 get: async (key: string) => kvStorage.get(key) || null,
                 put: async (key: string, value: string, options?: any) => {
                     kvStorage.set(key, value);

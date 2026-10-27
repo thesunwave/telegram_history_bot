@@ -2403,19 +2403,28 @@ export class CriminalCodeAnalyzerDO {
   }
 
   private async canSpendDailyCounter(key: string, cap: number): Promise<boolean> {
-    if (!this.env.COUNTERS?.get) {
+    if (!this.env.HISTORY?.get) {
       return true;
     }
-    const count = parseInt(await this.env.COUNTERS.get(key) || '0', 10);
-    return count < cap;
+    return (await this.readDailyCounter(key)) < cap;
   }
 
   private async recordDailyCounter(key: string): Promise<void> {
-    if (!this.env.COUNTERS?.get || !this.env.COUNTERS?.put) {
+    if (!this.env.HISTORY?.get || !this.env.HISTORY?.put) {
       return;
     }
-    const count = parseInt(await this.env.COUNTERS.get(key) || '0', 10);
-    await this.env.COUNTERS.put(key, String(count + 1), { expirationTtl: 2 * 24 * 60 * 60 } as any);
+    const count = await this.readDailyCounter(key);
+    await this.env.HISTORY.put(key, String(count + 1), { expirationTtl: 2 * 24 * 60 * 60 } as any);
+  }
+
+  // Daily caps moved from COUNTERS to HISTORY. Until today's key exists in
+  // HISTORY, continue from the legacy COUNTERS value so a deploy mid-day does
+  // not reset the budget.
+  private async readDailyCounter(key: string): Promise<number> {
+    const current = await this.env.HISTORY.get(key);
+    const raw = current ?? (await this.env.COUNTERS?.get?.(key)) ?? '0';
+    const count = parseInt(raw, 10);
+    return Number.isFinite(count) ? count : 0;
   }
 
   private getPrefilterUsageKey(): string {
