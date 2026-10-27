@@ -12,7 +12,7 @@ import type {
   GeneralStats,
   ViolationCount,
   UserViolationCount
-} from '../../src/models/statistics';
+} from '../../src/core/models/statistics';
 
 // Мок репозитория
 const mockViolationRepository: IViolationRepository = {
@@ -370,7 +370,7 @@ describe('StatisticsService', () => {
         punishment: 'Лишение свободы',
         severity: 10,
         confidence: 0.9
-      };
+      } as Violation;
       const userId = '123';
       const chatId = '456';
 
@@ -391,7 +391,7 @@ describe('StatisticsService', () => {
         punishment: 'Лишение свободы',
         severity: 10,
         confidence: 0.9
-      };
+      } as Violation;
       const userId = '123';
       const chatId = '456';
       const error = new Error('Save error');

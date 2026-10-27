@@ -45,7 +45,7 @@ describe('ViolationRepository Integration Tests', () => {
         punishment: 'штраф до 500 тысяч рублей',
         severity: 7,
         confidence: 0.85
-      };
+      } as Violation;
 
       mockStmt.run.mockResolvedValue({ success: true });
 
@@ -74,7 +74,7 @@ describe('ViolationRepository Integration Tests', () => {
         punishment: 'test',
         severity: 5,
         confidence: 0.8
-      };
+      } as Violation;
 
       await expect(repositoryWithoutDB.save(violation, '123', '456'))
         .rejects.toThrow('Database not available');
@@ -478,7 +478,7 @@ describe('ViolationRepository Integration Tests', () => {
         punishment: 'test',
         severity: 5,
         confidence: 0.8
-      };
+      } as Violation;
 
       await expect(repository.save(violation, '123', '456'))
         .rejects.toThrow('Failed to save violation: Database error');

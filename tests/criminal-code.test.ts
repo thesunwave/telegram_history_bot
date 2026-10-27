@@ -36,7 +36,7 @@ describe('Criminal Code Analysis System', () => {
       SECRET: 'test-secret',
       SUMMARY_MODEL: 'test-model',
       SUMMARY_PROMPT: 'test-prompt'
-    };
+    } as Env;
 
     mockState = {
       blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
@@ -195,7 +195,7 @@ describe('Criminal Code Analysis System', () => {
 
       const mockStateLocal = {
         blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
-      };
+      } as any;
 
       const countersInstance = new CountersDO(mockStateLocal, mockEnvLocal);
 

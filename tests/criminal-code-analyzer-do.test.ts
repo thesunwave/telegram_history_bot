@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CriminalCodeAnalyzerDO } from '../src/durable-objects/criminal-code-analyzer-do';
 import type { CriminalAnalysisResult } from '../src/core/env';
+import type { CriminalPrefilterReason } from '../src/features/criminal/prefilter';
 import { ProviderFactory } from "../src/core/providers/provider-factory";
 import { Logger } from '../src/core/logger';
 import { buildContextMessages } from "../src/features/criminal/analyzer/context-messages";
@@ -187,7 +188,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         messageId: 123, day: '2026-10-16', sequence: 1 }),
     }));
     expect(response.status).toBe(200);
-    const paths = counterFetch.mock.calls.map(([url]) => new URL(String(url)).pathname);
+    const paths = counterFetch.mock.calls.map(([url]: any[]) => new URL(String(url)).pathname);
     expect(paths).not.toContain('/profanity');
   });
 
@@ -209,7 +210,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         userId: 67890, messageId: 234, day: '2026-10-16', sequence: 2 }),
     }));
     expect(response.status).toBe(200);
-    const events = counterFetch.mock.calls.map(([url, options]) => ({
+    const events = counterFetch.mock.calls.map(([url, options]: any[]) => ({
       path: new URL(String(url)).pathname,
       body: JSON.parse((options as RequestInit).body as string),
     }));
@@ -236,7 +237,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         userId: 67890, messageId: 235, day: '2026-10-16', sequence: 3 }),
     }));
     expect(response.status).toBe(200);
-    const events = counterFetch.mock.calls.map(([url, options]) => ({
+    const events = counterFetch.mock.calls.map(([url, options]: any[]) => ({
       path: new URL(String(url)).pathname,
       body: JSON.parse((options as RequestInit).body as string),
     }));
@@ -1095,7 +1096,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       };
 
       const payload = buildSemanticPrefilterPayload(input);
-      const positions = payload.messages.map((message: any) => message.relativePosition);
+      const positions = (payload.messages as any[]).map((message: any) => message.relativePosition);
       const prompt = buildSemanticPrefilterSystemPrompt(false);
 
       expect(positions).toEqual([-2, -1, 0, 1]);
@@ -1192,7 +1193,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         messageId: 150,
         username: "targetuser",
         ts: 1500,
-        reasons: ["semantic_prefilter"],
+        reasons: ["semantic_prefilter"] as CriminalPrefilterReason[],
         enqueuedAt: Date.now(),
       };
 
@@ -2488,7 +2489,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       });
 
       const response = await analyzer.fetch(request);
-      const result = await response.json();
+      const result = await response.json<any>();
 
       expect(response.status).toBe(200);
       expect(result.userStats).toBeDefined();

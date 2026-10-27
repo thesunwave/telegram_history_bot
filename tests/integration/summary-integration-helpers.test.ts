@@ -66,7 +66,7 @@ const createMockEnv = (overrides: Partial<Env> = {}): Env => ({
   SUMMARY_PROVIDER: "cloudflare",
   DEBUG_LOGS: "false",
   ...overrides,
-});
+} as Env);
 
 const createTestMessages = (count: number) => {
   return Array.from({ length: count }, (_, i) => ({

@@ -246,7 +246,7 @@ export async function getAdminCriminalViolationDetails(
   const result = await statement
     .bind(chatId, userId, range.from, range.to, range.from, range.to, MAX_DETAILS + 1)
     .all<CriminalDetailRow>();
-  if (result.error || result.success === false) {
+  if (result.error || (result as { success?: boolean }).success === false) {
     throw new Error('criminal violation detail query failed');
   }
   const rows = result.results || [];

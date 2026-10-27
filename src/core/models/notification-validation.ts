@@ -91,7 +91,7 @@ export function validateNotificationTypeSettings(settings: any): settings is Not
   if (settings.time !== undefined) {
     try {
       validateNotificationTime(settings.time);
-    } catch (error) {
+    } catch (error: any) {
       throw new NotificationValidationError(`Invalid time: ${error.message}`, 'time');
     }
   }
@@ -164,7 +164,7 @@ export function validateChatNotificationSettings(settings: any): settings is Cha
 
     try {
       validateNotificationTypeSettings(settings.notifications[type]);
-    } catch (error) {
+    } catch (error: any) {
       throw new NotificationValidationError(`Invalid settings for ${type}: ${error.message}`, 'notifications');
     }
   }
@@ -182,7 +182,7 @@ export function validateChatNotificationSettings(settings: any): settings is Cha
     try {
       validateNotificationTime(settings.quietHours.startTime);
       validateNotificationTime(settings.quietHours.endTime);
-    } catch (error) {
+    } catch (error: any) {
       throw new NotificationValidationError(`Invalid quietHours time: ${error.message}`, 'quietHours');
     }
   }

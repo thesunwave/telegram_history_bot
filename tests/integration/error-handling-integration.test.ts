@@ -44,7 +44,7 @@ describe("Error Handling Integration Tests", () => {
       KV_BATCH_SIZE: DEFAULT_KV_BATCH_SIZE,
       KV_BATCH_DELAY: DEFAULT_KV_BATCH_DELAY,
       SUMMARY_OPT_ENABLED: "false", // Disable optimized system for tests
-    };
+    } as Env;
 
     // Setup default mocks
     mockProviderInitializer.isProviderInitialized.mockReturnValue(true);
@@ -55,7 +55,7 @@ describe("Error Handling Integration Tests", () => {
       analyzeProfanity: vi
         .fn()
         .mockResolvedValue({ hasProfanity: false, words: [] }),
-    });
+    } as any);
     mockSendMessage.mockResolvedValue(undefined);
   });
 
@@ -158,7 +158,7 @@ describe("Error Handling Integration Tests", () => {
         analyzeProfanity: vi
           .fn()
           .mockResolvedValue({ hasProfanity: false, words: [] }),
-      };
+      } as any;
       mockProviderInitializer.getProvider.mockReturnValue(mockProvider);
 
       await summariseChat(env, chatId, days);
@@ -197,7 +197,7 @@ describe("Error Handling Integration Tests", () => {
         analyzeProfanity: vi
           .fn()
           .mockResolvedValue({ hasProfanity: false, words: [] }),
-      };
+      } as any;
       mockProviderInitializer.getProvider.mockReturnValue(mockProvider);
 
       await summariseChatMessages(env, chatId, count);
@@ -394,7 +394,7 @@ describe("Error Handling Integration Tests", () => {
         analyzeProfanity: vi
           .fn()
           .mockResolvedValue({ hasProfanity: false, words: [] }),
-      };
+      } as any;
       mockProviderInitializer.getProvider.mockReturnValue(mockProvider);
 
       await summariseChatMessages(env, chatId, count);

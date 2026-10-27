@@ -23,7 +23,7 @@ describe('Statistics Models', () => {
         punishment: 'Штраф до 300 000 рублей',
         severity: 7,
         confidence: 0.85
-      };
+      } as Violation;
 
       expect(violation.article).toBe('Статья 282 УК РФ');
       expect(violation.quote).toBe('Пример цитаты из сообщения');
@@ -44,7 +44,7 @@ describe('Statistics Models', () => {
             punishment: 'Штраф',
             severity: 7,
             confidence: 0.85
-          }
+          } as Violation
         ],
         totalSeverity: 7,
         riskLevel: 'high',
@@ -136,12 +136,12 @@ describe('Statistics Models', () => {
             article: 'Статья 282 УК РФ',
             count: 5,
             averageSeverity: 6.5
-          },
+          } as ViolationCount,
           {
             article: 'Статья 280 УК РФ',
             count: 5,
             averageSeverity: 7.0
-          }
+          } as ViolationCount
         ],
         averageSeverity: 6.75,
         riskLevel: 'high',
@@ -205,12 +205,12 @@ describe('Statistics Models', () => {
             article: 'Статья 282 УК РФ',
             count: 30,
             averageSeverity: 6.5
-          },
+          } as ViolationCount,
           {
             article: 'Статья 280 УК РФ',
             count: 20,
             averageSeverity: 7.0
-          }
+          } as ViolationCount
         ],
         averageSeverity: 6.7,
         uniqueUsers: 15,
@@ -256,12 +256,12 @@ describe('Statistics Models', () => {
             article: 'Статья 282 УК РФ',
             count: 40,
             averageSeverity: 6.5
-          },
+          } as ViolationCount,
           {
             article: 'Статья 280 УК РФ',
             count: 30,
             averageSeverity: 7.0
-          }
+          } as ViolationCount
         ],
         topUsers: [
           {
@@ -287,7 +287,7 @@ describe('Statistics Models', () => {
             punishment: 'Лишение свободы',
             severity: 9,
             confidence: 0.95
-          }
+          } as Violation
         ]
       };
 

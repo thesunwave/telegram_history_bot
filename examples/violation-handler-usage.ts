@@ -3,8 +3,9 @@
  * Демонстрирует основные возможности обработчика нарушений
  */
 
-import { ViolationHandler } from '../src/violation-handler';
-import type { ViolationAnalysis, Env } from '../src/env';
+import { ViolationHandler } from '../src/features/stats/violation-handler';
+import type { Env } from '../src/core/env';
+import type { ViolationAnalysis } from '../src/core/models/statistics';
 
 // Пример mock окружения для демонстрации
 const mockEnv: Env = {
@@ -34,6 +35,8 @@ async function demonstrateViolationHandler() {
     violations: [
       {
         article: '282',
+        subarticle: null,
+        articleTitle: 'Возбуждение ненависти либо вражды',
         quote: 'Пример текста, содержащего экстремистские высказывания',
         punishment: 'Штраф в размере до трехсот тысяч рублей или лишение свободы на срок до четырех лет',
         severity: 8,
@@ -41,6 +44,8 @@ async function demonstrateViolationHandler() {
       },
       {
         article: '130',
+        subarticle: null,
+        articleTitle: 'Оскорбление',
         quote: 'Оскорбительные высказывания в адрес группы лиц',
         punishment: 'Штраф в размере до сорока тысяч рублей',
         severity: 4,

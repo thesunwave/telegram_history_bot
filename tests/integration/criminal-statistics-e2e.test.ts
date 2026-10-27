@@ -9,7 +9,7 @@
  * 4. Форматирование и отправку результата
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach, type Mock } from 'vitest';
 import { handleUpdate, recordMessage } from '../../src/api/update';
 import { sendMessage } from '../../src/core/telegram';
 import type { Env } from '../../src/core/env';
@@ -724,7 +724,7 @@ describe('Criminal Statistics E2E Integration Tests', () => {
       };
 
       // Настраиваем мок HISTORY.get для возврата настроек уведомлений
-      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(enabledNotificationSettings));
+      vi.mocked(mockEnv.HISTORY.get as Mock).mockResolvedValue(JSON.stringify(enabledNotificationSettings));
 
       // isTestEnvironment уже настроен в beforeEach для возврата false
 

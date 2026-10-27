@@ -27,7 +27,7 @@ const { legacyChatSpy, legacyMessagesSpy, optimizedChatSpy, optimizedMessagesSpy
 }));
 
 vi.mock("../../src/features/summary/summary", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<Record<string, unknown>>();
   
   return {
     ...actual,
@@ -37,7 +37,7 @@ vi.mock("../../src/features/summary/summary", async (importOriginal) => {
 });
 
 vi.mock("../../src/features/summary/optimization", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<Record<string, unknown>>();
   const MockOptimizedSummaryController = vi.fn().mockImplementation(() => ({
     summarizeChat: optimizedChatSpy,
     summarizeChatMessages: optimizedMessagesSpy,

@@ -311,7 +311,7 @@ export class NotificationRepository implements INotificationRepository {
             // Запись истекла по TTL или была удалена — убираем id из списка
             await this.removeNotificationFromList(id);
           }
-        } catch (error) {
+        } catch (error: any) {
           Logger.error('Failed to parse scheduled notification', { id, error: error.message });
           // Удаляем поврежденное уведомление из списка
           await this.removeNotificationFromList(id);
@@ -519,7 +519,7 @@ export class NotificationRepository implements INotificationRepository {
           expirationTtl: 365 * 24 * 60 * 60 // 1 год
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       Logger.error('Failed to add chat to list', { chatId, error: error.message });
     }
   }
@@ -540,7 +540,7 @@ export class NotificationRepository implements INotificationRepository {
           expirationTtl: 365 * 24 * 60 * 60
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       Logger.error('Failed to remove chat from list', { chatId, error: error.message });
     }
   }
@@ -560,7 +560,7 @@ export class NotificationRepository implements INotificationRepository {
           expirationTtl: 365 * 24 * 60 * 60 // 1 год
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       Logger.error('Failed to add notification to list', { notificationId, error: error.message });
     }
   }
@@ -582,7 +582,7 @@ export class NotificationRepository implements INotificationRepository {
           expirationTtl: 365 * 24 * 60 * 60
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       Logger.error('Failed to remove notification from list', { notificationId, error: error.message });
     }
   }

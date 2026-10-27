@@ -189,7 +189,7 @@ describe('criminal semantic prefilter shadow evaluation', () => {
     expect(qwenRequest.body.response_format.json_schema.schema.additionalProperties).toBe(false);
     expect(qwenRequest.body.response_format.json_schema.schema.required).toContain('profanity');
 
-    const batchFormat = buildQwenPrefilterResponseFormat(true);
+    const batchFormat = buildQwenPrefilterResponseFormat(true) as any;
     expect(batchFormat.type).toBe('json_schema');
     expect(batchFormat.json_schema.strict).toBe(true);
     expect(batchFormat.json_schema.schema.required).toEqual(['items']);

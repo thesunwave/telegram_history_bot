@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { getPlatformProxy } from "wrangler";
 import { createKVBindings, spyableKVBinding } from "./helpers/miniflare-kv";
 import worker from "../src/index";
@@ -540,7 +540,7 @@ describe("webhook", () => {
 
     expect(response.status).toBe(503);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    const body = await response.json();
+    const body = await response.json<any>();
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe("ADMIN_UNAVAILABLE");
     expect(countersListSpy).not.toHaveBeenCalled();
@@ -621,7 +621,7 @@ describe("webhook", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBeNull();
-    const body = await response.json();
+    const body = await response.json<any>();
     expect(body.chatId).toBe(1);
     expect(body.period).toBe("custom");
     expect(body.range).toEqual({ from: "2026-05-01", to: "2026-05-04", days: 4 });
@@ -878,7 +878,7 @@ describe("webhook", () => {
       .spyOn(global, "fetch")
       .mockResolvedValue(new Response(null, { status: 200 }));
     const summaryEnv = { ...env, ENABLE_SUMMARY: true };
-    const aiSpy = env.AI.run as vi.Mock;
+    const aiSpy = env.AI.run as Mock;
     aiSpy.mockClear();
 
     const now = Math.floor(Date.now() / 1000);

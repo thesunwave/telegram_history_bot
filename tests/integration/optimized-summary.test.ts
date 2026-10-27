@@ -59,7 +59,7 @@ const createMockEnv = (overrides: Partial<Env> = {}): Env => ({
   SUMMARY_OPT_TRACK_TOKEN_USAGE: true,
 
   ...overrides,
-});
+} as Env);
 
 const createTestMessages = (count: number) => {
   return Array.from({ length: count }, (_, i) => ({

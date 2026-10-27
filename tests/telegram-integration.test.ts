@@ -435,7 +435,7 @@ describe('Telegram Integration Tests', () => {
       mockEnv.COUNTERS_DO = {
         idFromName: vi.fn().mockReturnValue('test-id'),
         get: vi.fn().mockReturnValue({ fetch: countersFetch }),
-      };
+      } as any;
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const pending: Promise<any>[] = [];
       const ctx = { waitUntil: (p: Promise<any>) => { pending.push(p); } };

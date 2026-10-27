@@ -93,7 +93,7 @@ export default {
     if (isPublicRead && isLegacyEnglish) {
       const canonical = new URL("/", req.url);
       canonical.search = url.search;
-      return Response.redirect(canonical, 301);
+      return Response.redirect(canonical.toString(), 301);
     }
     const isLandingPage = [
       '/', '/index.html', '/ru', '/ru/', '/ru/index.html',
@@ -123,7 +123,7 @@ export default {
       if (env.LANDING) return env.LANDING.fetch(req);
       if (isLandingPage) {
         const needsSetup = env.TOKEN && !env.TELEGRAM_LOGIN_CLIENT_ID && !env.ADMIN_BASIC_USER;
-        return Response.redirect(new URL(needsSetup ? "/admin/setup" : "/admin", req.url), 302);
+        return Response.redirect(new URL(needsSetup ? "/admin/setup" : "/admin", req.url).toString(), 302);
       }
       return new Response("Not found", { status: 404 });
     }

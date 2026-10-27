@@ -71,7 +71,7 @@ export class ViolationRepository implements IViolationRepository {
         violation.confidence
       ).run();
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error saving violation:', error);
       throw new Error(`Failed to save violation: ${error.message}`);
     }
@@ -105,7 +105,7 @@ export class ViolationRepository implements IViolationRepository {
         confidence: row.confidence
       }));
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error getting user violations:', error);
       throw new Error(`Failed to get user violations: ${error.message}`);
     }
@@ -139,7 +139,7 @@ export class ViolationRepository implements IViolationRepository {
         confidence: row.confidence
       }));
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error getting period violations:', error);
       throw new Error(`Failed to get period violations: ${error.message}`);
     }
@@ -173,7 +173,7 @@ export class ViolationRepository implements IViolationRepository {
         confidence: row.confidence
       }));
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error getting all violations:', error);
       throw new Error(`Failed to get all violations: ${error.message}`);
     }

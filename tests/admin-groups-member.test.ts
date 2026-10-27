@@ -42,7 +42,7 @@ class FakeStatement {
 
 function createD1(): { db: D1Database; sqlite: Database.Database } {
   const sqlite = new Database(':memory:');
-  const dir = fileURLToPath(new URL('../migrations/', import.meta.url));
+  const dir = fileURLToPath(new URL('../migrations/', import.meta.url).href);
   for (const file of [
     '0002_activity.sql',
     '0009_stats_daily_aggregates.sql',

@@ -11,10 +11,11 @@ import { ViolationRepository } from '../src/core/repositories/violation-reposito
 import type { 
   ViolationAnalysis, 
   Violation, 
+  ViolationCount,
   UserStats, 
   PeriodStats, 
   GeneralStats 
-} from '../src/models/statistics';
+} from '../src/core/models/statistics';
 import type { Env } from '../src/core/env';
 
 // Mock environment
@@ -69,7 +70,7 @@ describe('ViolationHandler Integration Tests', () => {
             punishment: 'Штраф до 300 000 рублей',
             severity: 7,
             confidence: 0.85
-          }
+          } as Violation
         ],
         totalSeverity: 7,
         riskLevel: 'high',
@@ -113,7 +114,7 @@ describe('ViolationHandler Integration Tests', () => {
             punishment: 'Предупреждение',
             severity: 3,
             confidence: 0.65 // Низкий уровень доверия
-          }
+          } as Violation
         ],
         totalSeverity: 3,
         riskLevel: 'low',
@@ -136,14 +137,14 @@ describe('ViolationHandler Integration Tests', () => {
             punishment: 'Штраф',
             severity: 8,
             confidence: 0.9
-          },
+          } as Violation,
           {
             article: '205',
             quote: 'Второе нарушение',
             punishment: 'Лишение свободы',
             severity: 10,
             confidence: 0.95
-          }
+          } as Violation
         ],
         totalSeverity: 18,
         riskLevel: 'high',
@@ -207,8 +208,8 @@ describe('ViolationHandler Integration Tests', () => {
         chatId: '-100123456789',
         totalViolations: 5,
         violationsByArticle: [
-          { article: '282', count: 3, averageSeverity: 6.5 },
-          { article: '130', count: 2, averageSeverity: 4.0 }
+          { article: '282', count: 3, averageSeverity: 6.5 } as ViolationCount,
+          { article: '130', count: 2, averageSeverity: 4.0 } as ViolationCount
         ],
         averageSeverity: 5.5,
         riskLevel: 'medium',
@@ -305,8 +306,8 @@ describe('ViolationHandler Integration Tests', () => {
         endDate: new Date('2024-01-07'),
         totalViolations: 10,
         violationsByArticle: [
-          { article: '282', count: 6, averageSeverity: 7.0 },
-          { article: '205', count: 4, averageSeverity: 9.0 }
+          { article: '282', count: 6, averageSeverity: 7.0 } as ViolationCount,
+          { article: '205', count: 4, averageSeverity: 9.0 } as ViolationCount
         ],
         averageSeverity: 7.8,
         uniqueUsers: 3,
@@ -364,9 +365,9 @@ describe('ViolationHandler Integration Tests', () => {
         chatId: '-100123456789',
         totalViolations: 50,
         topViolations: [
-          { article: '282', count: 20, averageSeverity: 6.5 },
-          { article: '205', count: 15, averageSeverity: 9.0 },
-          { article: '130', count: 10, averageSeverity: 4.0 }
+          { article: '282', count: 20, averageSeverity: 6.5 } as ViolationCount,
+          { article: '205', count: 15, averageSeverity: 9.0 } as ViolationCount,
+          { article: '130', count: 10, averageSeverity: 4.0 } as ViolationCount
         ],
         topUsers: [
           { userId: '123', count: 15, averageSeverity: 7.0, riskLevel: 'high' },
@@ -381,7 +382,7 @@ describe('ViolationHandler Integration Tests', () => {
             punishment: 'Лишение свободы',
             severity: 10,
             confidence: 0.95
-          }
+          } as Violation
         ]
       };
 

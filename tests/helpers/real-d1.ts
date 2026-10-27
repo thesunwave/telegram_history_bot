@@ -53,7 +53,7 @@ export interface RealD1 {
 
 export function createRealD1(): RealD1 {
   const sqlite = new Database(':memory:');
-  const migrationsDir = fileURLToPath(new URL('../../migrations/', import.meta.url));
+  const migrationsDir = fileURLToPath(new URL('../../migrations/', import.meta.url).href);
   for (const file of readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort()) {
     sqlite.exec(readFileSync(join(migrationsDir, file), 'utf8'));
   }
