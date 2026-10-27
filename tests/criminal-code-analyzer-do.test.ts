@@ -1493,6 +1493,54 @@ describe("CriminalCodeAnalyzerDO", () => {
       vi.unstubAllGlobals();
     });
 
+    it("continues today's prefilter cap from the legacy COUNTERS key until HISTORY has one", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_PREFILTER_DAILY_CAP = 1;
+      mockEnv.HISTORY = {
+        get: vi.fn().mockResolvedValue(null),
+        put: vi.fn().mockResolvedValue(undefined),
+      };
+      mockEnv.COUNTERS = {
+        get: vi.fn((key: string) => Promise.resolve(
+          key.startsWith("criminal_prefilter_daily:") ? "1" : null
+        )),
+      };
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "угрожаю причинить вред людям, это сообщение достаточно длинное для проверки лимита",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 118,
+          username: "testuser",
+          day: "2026-05-18"
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mockEnv.HISTORY.put).toHaveBeenCalledWith(
+        expect.stringContaining("criminal_prefilter_skipped_daily:"),
+        "1",
+        expect.any(Object)
+      );
+      delete mockEnv.COUNTERS;
+      vi.unstubAllGlobals();
+    });
+
     it("should skip legal-rag final analysis when the daily cap is exhausted", async () => {
       const storage = new Map<string, any>();
       mockState.storage = {
