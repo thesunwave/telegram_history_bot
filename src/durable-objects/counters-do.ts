@@ -694,11 +694,24 @@ export class CountersDO {
       }
     }
 
+    // Read the current totals before anything becomes durable: if the D1 seed
+    // read fails, the request fails without a message->sequence mapping, so a
+    // retry is processed as new instead of as a duplicate.
+    const validHour =
+      hour !== undefined && Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : undefined;
+    const current = await this.readBaseTotals({
+      chatId,
+      userId,
+      day,
+      hour: validHour,
+      bucket: validHour !== undefined ? getTimeBucket(validHour) : undefined,
+    });
+
     const currentSeq = await this.storageGetNumber(this.seqKey(day));
     sequence = currentSeq + 1;
     // Integrity fence: arm and persist the all-category base D1 attempt BEFORE
     // any acceptance becomes durable (sequence, message->sequence map, proof
-    // marker, KV counters, D1 work). A crash after arm but before acceptance
+    // marker, running totals, D1 work). A crash after arm but before acceptance
     // leaves an active attempt that the next invocation recovers as sticky
     // ambiguous poison, so a later sequence can never make a missing aggregate
     // look exact.
@@ -714,15 +727,6 @@ export class CountersDO {
       await this.storage().put(this.msgSeqKey(day, messageId as number), sequence);
     }
 
-    const validHour =
-      hour !== undefined && Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : undefined;
-    const current = await this.readBaseTotals({
-      chatId,
-      userId,
-      day,
-      hour: validHour,
-      bucket: validHour !== undefined ? getTimeBucket(validHour) : undefined,
-    });
 
     const count = current.messageCount + 1;
     const userDayWordCount = current.wordCount + wordCount;

@@ -43,6 +43,10 @@ class FakeD1Statement {
 
   all<T = unknown>(): { results: T[]; success: boolean; meta: Record<string, unknown> } {
     this.owner.logPrepared(this);
+    if (this.owner.failNextRead) {
+      this.owner.failNextRead = false;
+      throw new Error('d1 read failed');
+    }
     const results = this.owner.sqlite.prepare(this.sql).all(...this.params) as T[];
     return { results, success: true, meta: {} };
   }
@@ -52,6 +56,7 @@ class FakeD1Database {
   readonly sqlite: Sqlite;
   batchCalls = 0;
   failNextBatch = false;
+  failNextRead = false;
   preparedLog: PreparedStatementLogEntry[] = [];
 
   constructor(sqlite: Sqlite) {
@@ -554,6 +559,14 @@ describe('CountersDO D1 aggregate writes', () => {
     )[0]).toEqual({ message_count: 3, word_count: 12, voice_count: 3 });
     expect(rows(harness.sqlite, 'SELECT count FROM activity WHERE chat_id = 123')[0].count).toBe(3);
     expect(rows(harness.sqlite, 'SELECT message_count FROM stats_daily_hour WHERE chat_id = 123 AND hour = 13')[0].message_count).toBe(3);
+  });
+
+  it('a failed seed read leaves no message mapping, so the retry is counted', async () => {
+    harness.failNextRead = true;
+    expect((await post(counters, '/inc', basePayload({ messageId: 7 }))).status).toBe(500);
+
+    expect((await post(counters, '/inc', basePayload({ messageId: 7 }))).status).toBe(200);
+    expect(rows(harness.sqlite, 'SELECT message_count FROM stats_daily_user WHERE chat_id = 123 AND user_id = 456')[0].message_count).toBe(1);
   });
 
   it('reset clears the running totals together with the D1 rows', async () => {

@@ -12,10 +12,15 @@ describe("Profanity Stats Optimization", () => {
   let mockEnv: Env;
   let d1: RealD1;
   const chatId = 123;
-  const today = () => new Date().toISOString().slice(0, 10);
-  const yesterday = () => new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  let todayStr: string;
+  let yesterdayStr: string;
+  const today = () => todayStr;
+  const yesterday = () => yesterdayStr;
 
   beforeEach(() => {
+    const now = Date.now();
+    todayStr = new Date(now).toISOString().slice(0, 10);
+    yesterdayStr = new Date(now - 86400000).toISOString().slice(0, 10);
     d1 = createRealD1();
     mockEnv = {
       DB: d1.db,
@@ -42,14 +47,14 @@ describe("Profanity Stats Optimization", () => {
       ]);
     });
 
-    it("returns every user up to the requested limit", async () => {
+    it("caps the result at the requested limit", async () => {
       for (let i = 1; i <= 15; i++) {
         seedUserDay(d1, { chatId, userId: i, day: today(), profanity: 1 });
       }
 
-      const result = await getTopProfanityUsers(mockEnv, chatId, 20, "today");
+      const result = await getTopProfanityUsers(mockEnv, chatId, 10, "today");
 
-      expect(result).toHaveLength(15);
+      expect(result).toHaveLength(10);
     });
   });
 

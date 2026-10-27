@@ -1081,9 +1081,7 @@ export async function getTopCriminalUsersBySentence(
   limit: number = 5,
   period: string = 'today'
 ): Promise<UserCriminalStat[]> {
-  if (!env.DB) {
-    return getTopCriminalUsers(env, chatId, limit, period);
-  }
+  if (!env.DB) return [];
 
   const repository = new ViolationRepository(env);
   const sentenceUsers = await repository.getTopUsersBySentenceStats(

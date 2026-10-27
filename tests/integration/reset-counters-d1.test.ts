@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { resetCounters, resetCriminalCounters, resetProfanityCounters } from '../../src/features/stats/stats';
 import { createMockEnv } from '../test-utils';
-import { createRealD1, seedHour, seedProfanityWord, seedUserDay } from '../helpers/real-d1';
+import { createRealD1, seedHour, seedProfanityWord, seedUserDay, seedUsername } from '../helpers/real-d1';
 import { withRealCountersDO } from '../helpers/real-counters-do';
 
 describe('stats reset — D1 aggregates', () => {
@@ -11,14 +11,20 @@ describe('stats reset — D1 aggregates', () => {
 
     seedUserDay(d1, { chatId: 42, userId: 7, day: '2026-10-15', messages: 3, profanity: 1 });
     seedHour(d1, 42, '2026-10-15', 10, 3);
+    seedUsername(d1, 42, 7, 'alice');
     seedProfanityWord(d1, 42, '2026-10-15', 'word', 7, 1);
+    d1.sqlite
+      .prepare("INSERT INTO stats_daily_bucket_user (chat_id, day, bucket, user_id, message_count) VALUES (42, '2026-10-15', 'noon', 7, 3)")
+      .run();
     seedUserDay(d1, { chatId: 99, userId: 7, day: '2026-10-15', messages: 5 });
 
     await resetCounters(env, 42);
 
-    for (const table of ['stats_daily_user', 'stats_daily_hour', 'stats_daily_profanity_word', 'stats_daily_profanity_word_user', 'activity']) {
+    for (const table of ['stats_daily_user', 'stats_daily_hour', 'stats_daily_bucket_user', 'stats_daily_profanity_word', 'stats_daily_profanity_word_user', 'activity']) {
       expect(d1.rows(`SELECT * FROM ${table} WHERE chat_id = 42`)).toEqual([]);
     }
+    expect(d1.rows('SELECT username, last_message_ts FROM stats_chat_user_profile WHERE chat_id = 42'))
+      .toEqual([{ username: 'alice', last_message_ts: null }]);
     expect(d1.rows('SELECT message_count FROM stats_daily_user WHERE chat_id = 99')).toEqual([{ message_count: 5 }]);
   });
 

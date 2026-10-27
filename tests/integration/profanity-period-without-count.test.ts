@@ -63,6 +63,7 @@ describe('profanity commands — period without count (regression)', () => {
 
   afterEach(async () => {
     await bindings.mf.dispose();
+    d1.sqlite.close();
   });
 
   function createMessage(text: string, userId = 123456, username = 'alice') {

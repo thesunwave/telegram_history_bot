@@ -365,6 +365,8 @@ describe('Profanity Counter System', () => {
 
       expect(d1.rows('SELECT message_count, profanity_count FROM stats_daily_user WHERE chat_id = 123'))
         .toEqual([{ message_count: 4, profanity_count: 0 }]);
+      expect(d1.rows("SELECT count FROM activity WHERE chat_id = 123 AND day = '2025-01-01'"))
+        .toEqual([{ count: 4 }]);
       expect(d1.rows('SELECT * FROM stats_daily_profanity_word WHERE chat_id = 123')).toEqual([]);
       expect(d1.rows('SELECT * FROM stats_daily_profanity_word_user WHERE chat_id = 123')).toEqual([]);
       expect(d1.rows('SELECT profanity_count FROM stats_daily_user WHERE chat_id = 456')).toEqual([{ profanity_count: 2 }]);

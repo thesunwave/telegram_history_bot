@@ -212,6 +212,7 @@ export async function deleteChatStats(env: Env, chatId: number, scope: StatsRese
       'DELETE FROM stats_daily_profanity_word WHERE chat_id = ?',
       'DELETE FROM stats_daily_profanity_word_user WHERE chat_id = ?',
       'DELETE FROM activity WHERE chat_id = ?',
+      'UPDATE stats_chat_user_profile SET last_message_ts = NULL WHERE chat_id = ?',
     );
   } else if (scope === 'profanity') {
     statements.push(

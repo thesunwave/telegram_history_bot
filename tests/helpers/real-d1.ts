@@ -57,6 +57,8 @@ export function createRealD1(): RealD1 {
   for (const file of readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort()) {
     sqlite.exec(readFileSync(join(migrationsDir, file), 'utf8'));
   }
+  // 0003_criminal_code.sql ships sample violations; tests seed their own rows.
+  sqlite.exec('DELETE FROM criminal_violations; DELETE FROM violation_stats;');
 
   const db = {
     prepare: (sql: string) => new RealD1Statement(sqlite, sql),
@@ -95,7 +97,7 @@ export interface UserDayRow {
   criminalSeverity?: number;
 }
 
-/** Seeds one stats_daily_user row (and the legacy activity total for its day). */
+/** Seeds one stats_daily_user row and recomputes the legacy activity total for its day. */
 export function seedUserDay(d1: RealD1, row: UserDayRow): void {
   d1.sqlite
     .prepare(
@@ -119,10 +121,11 @@ export function seedUserDay(d1: RealD1, row: UserDayRow): void {
   if (row.messages) {
     d1.sqlite
       .prepare(
-        `INSERT INTO activity (chat_id, day, count) VALUES (?, ?, ?)
-         ON CONFLICT(chat_id, day) DO UPDATE SET count = activity.count + excluded.count`,
+        `INSERT INTO activity (chat_id, day, count)
+         VALUES (?, ?, (SELECT COALESCE(SUM(message_count), 0) FROM stats_daily_user WHERE chat_id = ? AND day = ?))
+         ON CONFLICT(chat_id, day) DO UPDATE SET count = excluded.count`,
       )
-      .run(row.chatId, row.day, row.messages);
+      .run(row.chatId, row.day, row.chatId, row.day);
   }
 }
 

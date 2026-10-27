@@ -111,10 +111,6 @@ beforeEach(async () => {
             messages: (existing?.message_count ?? 0) + increment,
             words: (existing?.word_count ?? 0) + wordCount * increment,
           });
-          // seedUserDay adds the full row total to activity; keep activity additive
-          d1.sqlite
-            .prepare("UPDATE activity SET count = count - ? WHERE chat_id = ? AND day = ?")
-            .run(existing?.message_count ?? 0, chatId, day);
           if (typeof username === "string") seedUsername(d1, chatId, userId, username);
 
           return new Response("ok");
