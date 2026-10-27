@@ -114,6 +114,9 @@ export function parseTelemetryPayload(raw: unknown): TelemetryPayload | null {
 // UTC day; no IP address, user agent or other request metadata.
 export async function handleTelemetryPing(req: Request, env: Env): Promise<Response> {
   if (!isTrue(env.TELEMETRY_RECEIVER)) return new Response('Not found', { status: 404 });
+  if (Number(req.headers.get('Content-Length')) > MAX_BODY_BYTES) {
+    return new Response('Payload too large', { status: 413 });
+  }
   const text = await req.text();
   if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return new Response('Payload too large', { status: 413 });
   let raw: unknown;
