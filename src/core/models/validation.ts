@@ -12,6 +12,7 @@ import {
   UserViolationCount,
   PeriodComparison
 } from './statistics';
+import { getErrorMessage } from '../errors';
 
 /**
  * Ошибка валидации
@@ -82,8 +83,8 @@ export function validateViolationAnalysis(analysis: any): analysis is ViolationA
   analysis.violations.forEach((violation: any, index: number) => {
     try {
       validateViolation(violation);
-    } catch (error: any) {
-      throw new ValidationError(`Invalid violation at index ${index}: ${error.message}`);
+    } catch (error) {
+      throw new ValidationError(`Invalid violation at index ${index}: ${getErrorMessage(error)}`);
     }
   });
 
@@ -221,8 +222,8 @@ export function validateUserStats(userStats: any): userStats is UserStats {
   userStats.violationsByArticle.forEach((violation: any, index: number) => {
     try {
       validateViolationCount(violation);
-    } catch (error: any) {
-      throw new ValidationError(`Invalid violationCount at index ${index}: ${error.message}`);
+    } catch (error) {
+      throw new ValidationError(`Invalid violationCount at index ${index}: ${getErrorMessage(error)}`);
     }
   });
 
@@ -316,8 +317,8 @@ export function validatePeriodStats(periodStats: any): periodStats is PeriodStat
   periodStats.violationsByArticle.forEach((violation: any, index: number) => {
     try {
       validateViolationCount(violation);
-    } catch (error: any) {
-      throw new ValidationError(`Invalid violationCount at index ${index}: ${error.message}`);
+    } catch (error) {
+      throw new ValidationError(`Invalid violationCount at index ${index}: ${getErrorMessage(error)}`);
     }
   });
 
@@ -344,8 +345,8 @@ export function validatePeriodStats(periodStats: any): periodStats is PeriodStat
   if (periodStats.comparisonWithPreviousPeriod !== undefined) {
     try {
       validatePeriodComparison(periodStats.comparisonWithPreviousPeriod);
-    } catch (error: any) {
-      throw new ValidationError(`Invalid period comparison: ${error.message}`);
+    } catch (error) {
+      throw new ValidationError(`Invalid period comparison: ${getErrorMessage(error)}`);
     }
   }
 
@@ -375,8 +376,8 @@ export function validateGeneralStats(generalStats: any): generalStats is General
   generalStats.topViolations.forEach((violation: any, index: number) => {
     try {
       validateViolationCount(violation);
-    } catch (error: any) {
-      throw new ValidationError(`Invalid topViolation at index ${index}: ${error.message}`);
+    } catch (error) {
+      throw new ValidationError(`Invalid topViolation at index ${index}: ${getErrorMessage(error)}`);
     }
   });
 
@@ -387,8 +388,8 @@ export function validateGeneralStats(generalStats: any): generalStats is General
   generalStats.topUsers.forEach((user: any, index: number) => {
     try {
       validateUserViolationCount(user);
-    } catch (error: any) {
-      throw new ValidationError(`Invalid topUser at index ${index}: ${error.message}`);
+    } catch (error) {
+      throw new ValidationError(`Invalid topUser at index ${index}: ${getErrorMessage(error)}`);
     }
   });
 
@@ -420,8 +421,8 @@ export function validateGeneralStats(generalStats: any): generalStats is General
   generalStats.criticalViolations.forEach((violation: any, index: number) => {
     try {
       validateViolation(violation);
-    } catch (error: any) {
-      throw new ValidationError(`Invalid criticalViolation at index ${index}: ${error.message}`);
+    } catch (error) {
+      throw new ValidationError(`Invalid criticalViolation at index ${index}: ${getErrorMessage(error)}`);
     }
   });
 
