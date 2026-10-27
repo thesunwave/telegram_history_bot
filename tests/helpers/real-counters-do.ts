@@ -9,8 +9,14 @@ export function withRealCountersDO<T extends Record<string, any>>(env: T): T {
   const instances = new Map<string, CountersDO>();
   const createState = () => {
     const map = new Map<string, unknown>();
+    // Serializes callbacks like the runtime does for one Durable Object.
+    let queue: Promise<unknown> = Promise.resolve();
     return {
-      blockConcurrencyWhile: <R>(fn: () => Promise<R>) => fn(),
+      blockConcurrencyWhile: <R>(fn: () => Promise<R>): Promise<R> => {
+        const run = queue.then(fn);
+        queue = run.catch(() => undefined);
+        return run;
+      },
       storage: {
         get: async (key: string) => map.get(key),
         put: async (key: string, value: unknown) => {

@@ -236,11 +236,16 @@ describe('Criminal Code Analysis System', () => {
     it('should reset criminal counters', async () => {
       const d1 = createRealD1();
       seedUserDay(d1, { chatId: 123, userId: 456, day: '2025-01-01', messages: 2, criminal: 3, criminalSeverity: 9 });
+      d1.sqlite
+        .prepare("INSERT INTO criminal_violations (user_id, chat_id, article, quote, severity, confidence) VALUES (456, 123, '282', 'q', 5, 0.9)")
+        .run();
 
       await resetCriminalCounters(withRealCountersDO({ ...mockEnv, DB: d1.db }), 123);
 
       expect(d1.rows('SELECT message_count, criminal_count, criminal_severity FROM stats_daily_user WHERE chat_id = 123'))
         .toEqual([{ message_count: 2, criminal_count: 0, criminal_severity: 0 }]);
+      expect(d1.rows('SELECT * FROM criminal_violations WHERE chat_id = 123')).toEqual([]);
+      expect(d1.rows('SELECT * FROM violation_stats WHERE chat_id = 123')).toEqual([]);
     });
   });
 });

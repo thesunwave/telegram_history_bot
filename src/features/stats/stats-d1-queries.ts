@@ -199,7 +199,8 @@ export type StatsResetScope = 'all' | 'profanity' | 'criminal';
 
 /**
  * Erases one chat's aggregate counters. 'all' removes every daily aggregate
- * row; 'profanity'/'criminal' zero that category and drop its word tables.
+ * row; 'profanity'/'criminal' zero that category and drop its detail tables
+ * (profanity words, criminal violations) in the same batch.
  */
 export async function deleteChatStats(env: Env, chatId: number, scope: StatsResetScope): Promise<void> {
   const db = requireDb(env);
@@ -223,6 +224,8 @@ export async function deleteChatStats(env: Env, chatId: number, scope: StatsRese
   } else {
     statements.push(
       'UPDATE stats_daily_user SET criminal_count = 0, criminal_severity = 0 WHERE chat_id = ?',
+      'DELETE FROM criminal_violations WHERE chat_id = ?',
+      'DELETE FROM violation_stats WHERE chat_id = ?',
     );
   }
   await db.batch(statements.map((sql) => db.prepare(sql).bind(chatId)));

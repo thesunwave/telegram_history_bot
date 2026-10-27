@@ -101,18 +101,14 @@ async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database
   const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url));
   for (const file of [
     '0002_activity.sql',
+    '0003_criminal_code.sql',
     '0009_stats_daily_aggregates.sql',
     '0010_stats_backfill_state.sql',
     '0011_stats_chat_user_profile.sql',
     '0012_stats_daily_pipeline_progress.sql',
     '0015_stats_daily_media_max_duration.sql',
   ]) {
-    const sql = readFileSync(join(migrationsDir, file), 'utf8');
-    for (const statement of sql.split(';')) {
-      if (statement.trim()) {
-        sqlite.exec(statement);
-      }
-    }
+    sqlite.exec(readFileSync(join(migrationsDir, file), 'utf8'));
   }
   const harness = new FakeD1Database(sqlite);
   return { db: harness as unknown as D1Database, harness };

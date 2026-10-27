@@ -1200,12 +1200,6 @@ export async function resetCriminalCounters(env: Env, chatId: number) {
   if (!env.DB) return;
   try {
     await resetChatStats(env, chatId, 'criminal');
-    await env.DB.prepare('DELETE FROM criminal_violations WHERE chat_id = ?')
-      .bind(chatId)
-      .run();
-    await env.DB.prepare('DELETE FROM violation_stats WHERE chat_id = ?')
-      .bind(chatId)
-      .run();
   } catch (e) {
     console.error('criminal reset db error', {
       chat: chatId.toString(36),
