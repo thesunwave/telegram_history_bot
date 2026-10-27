@@ -3,7 +3,9 @@ export type ProviderType = "cloudflare" | "openai" | "openai-premium" | "openrou
 export interface Env {
   LANDING?: { fetch(request: Request): Promise<Response> };
   HISTORY: import("@cloudflare/workers-types").KVNamespace;
-  COUNTERS: import("@cloudflare/workers-types").KVNamespace;
+  // Legacy stats KV. Counters live in D1; only the one-off KV -> D1 daily
+  // aggregate backfill still reads it on installations that have it bound.
+  COUNTERS?: import("@cloudflare/workers-types").KVNamespace;
   COUNTERS_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
   // Added DayBlockManager Durable Object binding
   DAY_BLOCK_MANAGER_DO: import("@cloudflare/workers-types").DurableObjectNamespace;

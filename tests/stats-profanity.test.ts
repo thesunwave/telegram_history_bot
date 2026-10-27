@@ -6,20 +6,19 @@ import {
   getTopProfanityWords
 } from '../src/features/stats/stats';
 import { Env } from '../src/core/env';
+import { createRealD1, seedProfanityWord, seedUserDay, seedUsername, type RealD1 } from './helpers/real-d1';
 
 describe("Profanity Stats Optimization", () => {
   let mockEnv: Env;
-  let mockCounters: any;
+  let d1: RealD1;
+  const chatId = 123;
+  const today = () => new Date().toISOString().slice(0, 10);
+  const yesterday = () => new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
   beforeEach(() => {
-    mockCounters = {
-      list: vi.fn(),
-      get: vi.fn(),
-      put: vi.fn(),
-      delete: vi.fn(),
-    };
+    d1 = createRealD1();
     mockEnv = {
-      COUNTERS: mockCounters,
+      DB: d1.db,
       COUNTERS_DO: {
         idFromName: vi.fn(),
         get: vi.fn(),
@@ -28,112 +27,40 @@ describe("Profanity Stats Optimization", () => {
   });
 
   describe("getTopProfanityUsers", () => {
-    it("should filter keys by date before fetching values for 'today'", async () => {
-      const today = new Date().toISOString().slice(0, 10);
-      const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-      const chatId = 123;
+    it("only counts rows inside the 'today' period", async () => {
+      seedUserDay(d1, { chatId, userId: 1, day: today(), profanity: 5 });
+      seedUserDay(d1, { chatId, userId: 2, day: yesterday(), profanity: 10 });
+      seedUserDay(d1, { chatId, userId: 3, day: today(), profanity: 5 });
+      seedUsername(d1, chatId, 1, "one");
+      seedUsername(d1, chatId, 3, "three");
 
-      // Mock list response with keys from today and yesterday
-      mockCounters.list.mockResolvedValue({
-        keys: [
-          { name: `profanity:${chatId}:1:${today}` },
-          { name: `profanity:${chatId}:2:${yesterday}` },
-          { name: `profanity:${chatId}:3:${today}` },
-        ],
-        list_complete: true,
-      });
+      const result = await getTopProfanityUsers(mockEnv, chatId, 5, "today");
 
-      // Mock get response
-      mockCounters.get.mockImplementation((key: string) => {
-        if (key.includes(today)) return Promise.resolve("5");
-        return Promise.resolve("10");
-      });
-
-      // Call function
-      await getTopProfanityUsers(mockEnv, chatId, 5, "today");
-
-      // Verify list was called
-      expect(mockCounters.list).toHaveBeenCalledWith({
-        prefix: `profanity:${chatId}:`,
-        cursor: undefined,
-      });
-
-      // Verify get was called ONLY for today's keys
-      expect(mockCounters.get).toHaveBeenCalledWith(`profanity:${chatId}:1:${today}`);
-      expect(mockCounters.get).toHaveBeenCalledWith(`profanity:${chatId}:3:${today}`);
-      expect(mockCounters.get).not.toHaveBeenCalledWith(`profanity:${chatId}:2:${yesterday}`);
-      
-      // We also expect get calls for usernames at the end
-      expect(mockCounters.get).toHaveBeenCalledWith(`user:1`);
-      expect(mockCounters.get).toHaveBeenCalledWith(`user:3`);
+      expect(result.map((u) => [u.userId, u.username, u.count])).toEqual([
+        [1, "one", 5],
+        [3, "three", 5],
+      ]);
     });
 
-    it("should process keys in batches", async () => {
-      const today = new Date().toISOString().slice(0, 10);
-      const chatId = 123;
-      
-      // Generate 15 keys (batch size is 10)
-      const keys = [];
+    it("returns every user up to the requested limit", async () => {
       for (let i = 1; i <= 15; i++) {
-        keys.push({ name: `profanity:${chatId}:${i}:${today}` });
+        seedUserDay(d1, { chatId, userId: i, day: today(), profanity: 1 });
       }
 
-      mockCounters.list.mockResolvedValue({
-        keys,
-        list_complete: true,
-      });
+      const result = await getTopProfanityUsers(mockEnv, chatId, 20, "today");
 
-      mockCounters.get.mockResolvedValue("1");
-
-      await getTopProfanityUsers(mockEnv, chatId, 20, "today");
-
-      // Verify all gets were called (15 for stats + 15 for usernames)
-      // Note: we can't easily verify batching via spy, but we verify functionality holds
-      expect(mockCounters.get).toHaveBeenCalledTimes(15 + 15);
+      expect(result).toHaveLength(15);
     });
   });
 
   describe("getTopProfanityRateUsers", () => {
     it("should rank users by profanity share and ignore users below the word threshold", async () => {
-      const today = new Date().toISOString().slice(0, 10);
-      const chatId = 123;
-
-      mockCounters.list.mockImplementation(({ prefix }: { prefix: string }) => {
-        if (prefix === `profanity:${chatId}:`) {
-          return Promise.resolve({
-            keys: [
-              { name: `profanity:${chatId}:1:${today}` },
-              { name: `profanity:${chatId}:2:${today}` },
-              { name: `profanity:${chatId}:3:${today}` },
-            ],
-            list_complete: true,
-          });
-        }
-        if (prefix === `word_stats_v2:${chatId}:`) {
-          return Promise.resolve({
-            keys: [
-              { name: `word_stats_v2:${chatId}:${today}:1` },
-              { name: `word_stats_v2:${chatId}:${today}:2` },
-              { name: `word_stats_v2:${chatId}:${today}:3` },
-            ],
-            list_complete: true,
-          });
-        }
-        return Promise.resolve({ keys: [], list_complete: true });
-      });
-
-      mockCounters.get.mockImplementation((key: string) => {
-        if (key === `profanity:${chatId}:1:${today}`) return Promise.resolve("50");
-        if (key === `profanity:${chatId}:2:${today}`) return Promise.resolve("20");
-        if (key === `profanity:${chatId}:3:${today}`) return Promise.resolve("1");
-        if (key === `word_stats_v2:${chatId}:${today}:1`) return Promise.resolve("5000");
-        if (key === `word_stats_v2:${chatId}:${today}:2`) return Promise.resolve("400");
-        if (key === `word_stats_v2:${chatId}:${today}:3`) return Promise.resolve("2");
-        if (key === "user:1") return Promise.resolve("anna");
-        if (key === "user:2") return Promise.resolve("boris");
-        if (key === "user:3") return Promise.resolve("short");
-        return Promise.resolve(null);
-      });
+      seedUserDay(d1, { chatId, userId: 1, day: today(), profanity: 50, words: 5000 });
+      seedUserDay(d1, { chatId, userId: 2, day: today(), profanity: 20, words: 400 });
+      seedUserDay(d1, { chatId, userId: 3, day: today(), profanity: 1, words: 2 });
+      seedUsername(d1, chatId, 1, "anna");
+      seedUsername(d1, chatId, 2, "boris");
+      seedUsername(d1, chatId, 3, "short");
 
       const result = await getTopProfanityRateUsers(mockEnv, chatId, 10, "today", 100);
 
@@ -155,72 +82,23 @@ describe("Profanity Stats Optimization", () => {
       ]);
     });
   });
-  
+
   describe("getTopProfanityWords", () => {
-      it("should filter keys by date before fetching values", async () => {
-      const today = new Date().toISOString().slice(0, 10);
-      const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-      const chatId = 123;
+    it("only counts words inside the period", async () => {
+      seedProfanityWord(d1, chatId, today(), "заебал", null, 5);
+      seedProfanityWord(d1, chatId, yesterday(), "пиздец", null, 5);
+      seedProfanityWord(d1, chatId, today(), "ебаный", null, 5);
 
-      // Mock list response with keys from today and yesterday
-      mockCounters.list.mockResolvedValue({
-        keys: [
-          { name: `profanity_words:${chatId}:заебал:${today}` },
-          { name: `profanity_words:${chatId}:пиздец:${yesterday}` },
-          { name: `profanity_words:${chatId}:ебаный:${today}` },
-        ],
-        list_complete: true,
-      });
+      const result = await getTopProfanityWords(mockEnv, chatId, 5, "today");
 
-      // Mock get response
-      mockCounters.get.mockResolvedValue("5");
-
-      // Call function
-      await getTopProfanityWords(mockEnv, chatId, 5, "today");
-
-      // Verify list was called
-      expect(mockCounters.list).toHaveBeenCalledWith({
-        prefix: `profanity_words:${chatId}:`,
-        cursor: undefined,
-      });
-
-      // Verify get was called ONLY for today's keys
-      expect(mockCounters.get).toHaveBeenCalledWith(`profanity_words:${chatId}:заебал:${today}`);
-      expect(mockCounters.get).toHaveBeenCalledWith(`profanity_words:${chatId}:ебаный:${today}`);
-      expect(mockCounters.get).not.toHaveBeenCalledWith(`profanity_words:${chatId}:пиздец:${yesterday}`);
+      expect(result.map((w) => w.word).sort()).toEqual(["ебаный", "заебал"]);
     });
 
     it("should include top users for each profanity word", async () => {
-      const today = new Date().toISOString().slice(0, 10);
-      const chatId = 123;
-
-      mockCounters.list.mockImplementation(({ prefix }: { prefix: string }) => {
-        if (prefix === `profanity_words:${chatId}:`) {
-          return Promise.resolve({
-            keys: [{ name: `profanity_words:${chatId}:заебал:${today}` }],
-            list_complete: true,
-          });
-        }
-        if (prefix === `profanity_word_users:${chatId}:заебал:`) {
-          return Promise.resolve({
-            keys: [
-              { name: `profanity_word_users:${chatId}:заебал:${today}:1` },
-              { name: `profanity_word_users:${chatId}:заебал:${today}:2` },
-            ],
-            list_complete: true,
-          });
-        }
-        return Promise.resolve({ keys: [], list_complete: true });
-      });
-
-      mockCounters.get.mockImplementation((key: string) => {
-        if (key === `profanity_words:${chatId}:заебал:${today}`) return Promise.resolve("92");
-        if (key === `profanity_word_users:${chatId}:заебал:${today}:1`) return Promise.resolve("60");
-        if (key === `profanity_word_users:${chatId}:заебал:${today}:2`) return Promise.resolve("32");
-        if (key === "user:1") return Promise.resolve("alice");
-        if (key === "user:2") return Promise.resolve("bob");
-        return Promise.resolve(null);
-      });
+      seedProfanityWord(d1, chatId, today(), "заебал", 1, 60);
+      seedProfanityWord(d1, chatId, today(), "заебал", 2, 32);
+      seedUsername(d1, chatId, 1, "alice");
+      seedUsername(d1, chatId, 2, "bob");
 
       const result = await getTopProfanityWords(mockEnv, chatId, 5, "today");
 
@@ -240,40 +118,43 @@ describe("Profanity Stats Optimization", () => {
 
   describe("getTopCriminalUsersBySentence", () => {
     it("should rank criminal users by sentence totals from D1", async () => {
-      const chatId = 123;
-      mockCounters.get.mockImplementation((key: string) => {
-        if (key === 'user:1') return Promise.resolve('first_user');
-        if (key === 'user:2') return Promise.resolve('life_user');
-        return Promise.resolve(null);
-      });
+      const sentenceRows = [
+        {
+          user_id: 1,
+          article: '205',
+          subarticle: null,
+          article_title: 'Терроризм',
+          punishment: 'лишение свободы на срок до 15 лет',
+          count: 2,
+          average_severity: 9,
+        },
+        {
+          user_id: 2,
+          article: '105',
+          subarticle: null,
+          article_title: 'Убийство',
+          punishment: 'пожизненное лишение свободы',
+          count: 1,
+          average_severity: 10,
+        },
+      ];
+      const usernameRows = [
+        { user_id: 1, username: 'first_user' },
+        { user_id: 2, username: 'life_user' },
+      ];
 
       mockEnv.DB = {
-        prepare: vi.fn().mockReturnValue({
+        prepare: vi.fn((sql: string) => ({
           bind: vi.fn().mockReturnValue({
             all: vi.fn().mockResolvedValue({
-              results: [
-                {
-                  user_id: 1,
-                  article: '205',
-                  subarticle: null,
-                  article_title: 'Терроризм',
-                  punishment: 'лишение свободы на срок до 15 лет',
-                  count: 2,
-                  average_severity: 9,
-                },
-                {
-                  user_id: 2,
-                  article: '105',
-                  subarticle: null,
-                  article_title: 'Убийство',
-                  punishment: 'пожизненное лишение свободы',
-                  count: 1,
-                  average_severity: 10,
-                },
-              ],
+              results: sql.includes('stats_chat_user_profile')
+                ? usernameRows
+                : sql.includes('stats_user_profile')
+                  ? []
+                  : sentenceRows,
             }),
           }),
-        }),
+        })),
       } as any;
 
       const result = await getTopCriminalUsersBySentence(mockEnv, chatId, 2, 'today');

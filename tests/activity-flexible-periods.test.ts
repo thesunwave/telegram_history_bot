@@ -9,6 +9,7 @@ import {
 } from '../src/features/stats/stats';
 import { CountersDO } from '../src/durable-objects/counters-do';
 import { Env } from '../src/core/env';
+import { createRealD1, seedHour, seedUserDay, seedUsername, type RealD1 } from './helpers/real-d1';
 
 const mocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -20,39 +21,15 @@ vi.mock('../src/core/telegram', () => ({
   sendPhoto: mocks.sendPhoto,
 }));
 
-const createMockKV = (data: Map<string, string>, listCalls: string[] = []) => ({
-  get: vi.fn(async (key: string) => data.get(key) ?? null),
-  put: vi.fn(async (key: string, value: string) => {
-    data.set(key, value);
-  }),
-  delete: vi.fn(async (key: string) => {
-    data.delete(key);
-  }),
-  list: vi.fn(async (options?: { prefix?: string; cursor?: string }) => {
-    const prefix = options?.prefix ?? '';
-    listCalls.push(prefix);
-    const keys = Array.from(data.keys())
-      .filter((key) => key.startsWith(prefix))
-      .sort()
-      .map((name) => ({ name }));
-    return { keys, list_complete: true };
-  }),
-});
-
 const chartConfigFromUrl = (url: string) => JSON.parse(decodeURIComponent(url.split('c=')[1]));
 
 describe('activity flexible periods', () => {
-  let kvData: Map<string, string>;
-  let listCalls: string[];
+  let d1: RealD1;
   let env: Env;
 
   beforeEach(() => {
-    kvData = new Map();
-    listCalls = [];
-    env = {
-      COUNTERS: createMockKV(kvData, listCalls) as any,
-      DB: null as any,
-    } as Env;
+    d1 = createRealD1();
+    env = { DB: d1.db } as Env;
     mocks.sendMessage.mockClear();
     mocks.sendPhoto.mockClear();
     vi.useFakeTimers();
@@ -95,9 +72,9 @@ describe('activity flexible periods', () => {
   });
 
   it('renders activity chart with explicit period title and 30-day month', async () => {
-    kvData.set('activity:123:2026-04-08', '5');
-    kvData.set('activity:123:2026-04-07', '100');
-    kvData.set('activity:123:2026-05-07', '3');
+    seedUserDay(d1, { chatId: 123, userId: 1, day: '2026-04-08', messages: 5 });
+    seedUserDay(d1, { chatId: 123, userId: 1, day: '2026-04-07', messages: 100 });
+    seedUserDay(d1, { chatId: 123, userId: 1, day: '2026-05-07', messages: 3 });
 
     await activityChart(env, 123, 'month');
 
@@ -111,7 +88,6 @@ describe('activity flexible periods', () => {
     const all = vi.fn(async () => ({ results: [{ day: '2026-05-07', count: 7 }] }));
     const bind = vi.fn(() => ({ all }));
     env.DB = { prepare: vi.fn(() => ({ bind })) } as any;
-    kvData.set('activity:123:2026-05-07', '99');
 
     await activityChart(env, 123, ['week']);
 
@@ -120,16 +96,14 @@ describe('activity flexible periods', () => {
     expect(text).toContain('Total: 7');
   });
 
-  it('aggregates users for 2m without scanning outside the requested days', async () => {
-    kvData.set('stats_v2:123:2026-03-09:1', '5');
-    kvData.set('stats_v2:123:2026-03-08:1', '100');
-    kvData.set('stats_v2:123:2026-05-07:1', '4');
-    kvData.set('user:1', 'alice');
+  it('aggregates users for 2m without counting days outside the range', async () => {
+    seedUserDay(d1, { chatId: 123, userId: 1, day: '2026-03-09', messages: 5 });
+    seedUserDay(d1, { chatId: 123, userId: 1, day: '2026-03-08', messages: 100 });
+    seedUserDay(d1, { chatId: 123, userId: 1, day: '2026-05-07', messages: 4 });
+    seedUsername(d1, 123, 1, 'alice');
 
     await activityByUser(env, 123, ['2m']);
 
-    expect(listCalls).toContain('stats_v2:123:2026-03-09:');
-    expect(listCalls).not.toContain('stats_v2:123:2026-03-08:');
     const config = chartConfigFromUrl(mocks.sendPhoto.mock.calls[0][2]);
     expect(config.options.plugins.title.text).toBe('Активность пользователей: 2026-03-09 - 2026-05-07');
     expect(config.options.title.text).toBe('Активность пользователей: 2026-03-09 - 2026-05-07');
@@ -138,15 +112,12 @@ describe('activity flexible periods', () => {
   });
 
   it('does not include current month for prev_month user activity', async () => {
-    kvData.set('stats_v2:123:2026-04-10:1', '5');
-    kvData.set('stats_v2:123:2026-05-01:1', '100');
-    kvData.set('user:1', 'alice');
+    seedUserDay(d1, { chatId: 123, userId: 1, day: '2026-04-10', messages: 5 });
+    seedUserDay(d1, { chatId: 123, userId: 1, day: '2026-05-01', messages: 100 });
+    seedUsername(d1, 123, 1, 'alice');
 
     await activityByUser(env, 123, ['prev_month']);
 
-    expect(listCalls).toContain('stats_v2:123:2026-04-01:');
-    expect(listCalls).toContain('stats_v2:123:2026-04-30:');
-    expect(listCalls).not.toContain('stats_v2:123:2026-05-01:');
     const config = chartConfigFromUrl(mocks.sendPhoto.mock.calls[0][2]);
     expect(config.data.datasets[0].data).toEqual([5]);
   });
@@ -169,21 +140,21 @@ describe('activity flexible periods', () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(kvData.get('activity_hour:123:2026-05-07:13')).toBe('1');
-    expect(kvData.get('activity_time_bucket:123:2026-05-07:noon:456')).toBe('1');
-    expect(kvData.get('last_message:123:456')).toBe('1778158800');
-    expect(kvData.get('word_stats:123:456:2026-05-07')).toBe('4');
-    expect(kvData.get('word_stats_v2:123:2026-05-07:456')).toBe('4');
-    expect(kvData.get('word_activity:123:2026-05-07')).toBe('4');
+    expect(d1.rows('SELECT message_count FROM stats_daily_hour WHERE chat_id = 123 AND day = ? AND hour = 13', ['2026-05-07']))
+      .toEqual([{ message_count: 1 }]);
+    expect(d1.rows("SELECT message_count FROM stats_daily_bucket_user WHERE chat_id = 123 AND day = ? AND bucket = 'noon' AND user_id = 456", ['2026-05-07']))
+      .toEqual([{ message_count: 1 }]);
+    expect(d1.rows('SELECT last_message_ts FROM stats_chat_user_profile WHERE chat_id = 123 AND user_id = 456'))
+      .toEqual([{ last_message_ts: 1778158800 }]);
+    expect(d1.rows('SELECT word_count FROM stats_daily_user WHERE chat_id = 123 AND day = ? AND user_id = 456', ['2026-05-07']))
+      .toEqual([{ word_count: 4 }]);
   });
 
   it('renders talkers sorted by total words with words per message rate', async () => {
-    kvData.set('stats_v2:123:2026-05-06:1', '5');
-    kvData.set('word_stats_v2:123:2026-05-06:1', '20');
-    kvData.set('stats_v2:123:2026-05-07:2', '2');
-    kvData.set('word_stats_v2:123:2026-05-07:2', '50');
-    kvData.set('user:1', 'shorty');
-    kvData.set('user:2', 'speaker');
+    seedUserDay(d1, { chatId: 123, userId: 1, day: '2026-05-06', messages: 5, words: 20 });
+    seedUserDay(d1, { chatId: 123, userId: 2, day: '2026-05-07', messages: 2, words: 50 });
+    seedUsername(d1, 123, 1, 'shorty');
+    seedUsername(d1, 123, 2, 'speaker');
 
     await topTalkers(env, 123, 2, ['week']);
 
@@ -195,8 +166,8 @@ describe('activity flexible periods', () => {
   });
 
   it('renders hourly average chart over selected period', async () => {
-    kvData.set('activity_hour:123:2026-05-01:13', '2');
-    kvData.set('activity_hour:123:2026-05-02:13', '5');
+    seedHour(d1, 123, '2026-05-01', 13, 2);
+    seedHour(d1, 123, '2026-05-02', 13, 5);
 
     await activityHours(env, 123, ['week']);
 

@@ -2403,19 +2403,19 @@ export class CriminalCodeAnalyzerDO {
   }
 
   private async canSpendDailyCounter(key: string, cap: number): Promise<boolean> {
-    if (!this.env.COUNTERS?.get) {
+    if (!this.env.HISTORY?.get) {
       return true;
     }
-    const count = parseInt(await this.env.COUNTERS.get(key) || '0', 10);
+    const count = parseInt(await this.env.HISTORY.get(key) || '0', 10);
     return count < cap;
   }
 
   private async recordDailyCounter(key: string): Promise<void> {
-    if (!this.env.COUNTERS?.get || !this.env.COUNTERS?.put) {
+    if (!this.env.HISTORY?.get || !this.env.HISTORY?.put) {
       return;
     }
-    const count = parseInt(await this.env.COUNTERS.get(key) || '0', 10);
-    await this.env.COUNTERS.put(key, String(count + 1), { expirationTtl: 2 * 24 * 60 * 60 } as any);
+    const count = parseInt(await this.env.HISTORY.get(key) || '0', 10);
+    await this.env.HISTORY.put(key, String(count + 1), { expirationTtl: 2 * 24 * 60 * 60 } as any);
   }
 
   private getPrefilterUsageKey(): string {

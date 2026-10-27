@@ -125,12 +125,6 @@ describe('Criminal Statistics E2E Integration Tests', () => {
         list: vi.fn().mockResolvedValue({ keys: [] }),
         delete: vi.fn()
       } as any,
-      COUNTERS: {
-        get: vi.fn(),
-        put: vi.fn(),
-        list: vi.fn().mockResolvedValue({ keys: [] }),
-        delete: vi.fn()
-      } as any,
       COUNTERS_DO: mockCountersDO,
       DAY_BLOCK_MANAGER_DO: {} as any,
       CRIMINAL_CODE_ANALYZER_DO: mockCriminalAnalyzerDO,
@@ -457,12 +451,11 @@ describe('Criminal Statistics E2E Integration Tests', () => {
         }
       ];
 
-      mockEnv.COUNTERS.get = vi.fn().mockImplementation((key: string) => {
-        if (key === 'user:111') return Promise.resolve('user111');
-        if (key === 'user:222') return Promise.resolve('user222');
-        if (key === 'user:333') return Promise.resolve('user333');
-        return Promise.resolve(null);
-      });
+      const usernameRows = [
+        { user_id: 111, username: 'user111' },
+        { user_id: 222, username: 'user222' },
+        { user_id: 333, username: 'user333' },
+      ];
 
       mockDB.prepare.mockImplementation((query: string) => {
         const mockStmt = {
@@ -473,7 +466,13 @@ describe('Criminal Statistics E2E Integration Tests', () => {
           })
         };
 
-        if (query.includes('GROUP BY user_id')) {
+        if (query.includes('stats_chat_user_profile')) {
+          mockStmt.bind.mockReturnValue({
+            first: vi.fn().mockResolvedValue(null),
+            all: vi.fn().mockResolvedValue({ results: usernameRows }),
+            run: vi.fn().mockResolvedValue({ success: true })
+          });
+        } else if (query.includes('GROUP BY user_id')) {
           mockStmt.bind.mockReturnValue({
             first: vi.fn().mockResolvedValue(null),
             all: vi.fn().mockResolvedValue({ results: mockTopUsers }),
@@ -559,27 +558,19 @@ describe('Criminal Statistics E2E Integration Tests', () => {
         }
       ];
 
-      const mockUsernames = ['user111', 'user222', 'user333'];
+      const usernameRows = ['111', '222', '333'].map((id) => ({ user_id: Number(id), username: `user${id}` }));
 
       mockDB.prepare.mockImplementation((query: string) => ({
         bind: vi.fn().mockReturnValue({
           first: vi.fn().mockResolvedValue(null),
           all: vi.fn().mockResolvedValue({
-            results: query.includes('GROUP BY user_id') ? mockTopUsers : [],
+            results: query.includes('stats_chat_user_profile')
+              ? usernameRows
+              : query.includes('GROUP BY user_id') ? mockTopUsers : [],
           }),
           run: vi.fn().mockResolvedValue({ success: true }),
         }),
       }));
-
-      mockEnv.COUNTERS.get = vi.fn()
-        .mockImplementation((key: string) => {
-          if (key.startsWith('user:')) {
-            const userId = key.split(':')[1];
-            const index = ['111', '222', '333'].indexOf(userId);
-            return Promise.resolve(index >= 0 ? mockUsernames[index] : null);
-          }
-          return Promise.resolve(null);
-        });
 
       const testMessage = {
         message: {
@@ -609,11 +600,6 @@ describe('Criminal Statistics E2E Integration Tests', () => {
     it('должен обработать команду /criminal_top без данных', async () => {
       // Arrange: Пустые данные
       const testChatId = -100777888999;
-
-      mockEnv.COUNTERS.list = vi.fn().mockResolvedValue({
-        keys: [],
-        list_complete: true
-      });
 
       const testMessage = {
         message: {

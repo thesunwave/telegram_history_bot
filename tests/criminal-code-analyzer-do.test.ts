@@ -824,7 +824,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         setAlarm: vi.fn().mockResolvedValue(undefined),
       };
       mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn().mockResolvedValue("0"),
         put: vi.fn().mockResolvedValue(undefined),
       };
@@ -847,7 +847,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(response.status).toBe(200);
       expect(result.queued).toBe(true);
       expect(ProviderFactory.createProvider).toHaveBeenCalled();
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+      expect(mockEnv.HISTORY.put).toHaveBeenCalledWith(
         expect.stringContaining('criminal_prefilter_daily:'),
         '1',
         expect.any(Object)
@@ -1287,7 +1287,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       ProviderFactory.createProvider = vi.fn().mockReturnValue(legalRagProvider);
       mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
       mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn().mockResolvedValue("0"),
         put: vi.fn().mockResolvedValue(undefined),
       };
@@ -1334,7 +1334,9 @@ describe("CriminalCodeAnalyzerDO", () => {
       };
       const kv = new Map<string, string>();
       mockEnv.HISTORY = {
-        get: vi.fn((key: string) => Promise.resolve(kv.has(key) ? JSON.parse(kv.get(key)!) : null)),
+        get: vi.fn((key: string, type?: string) => Promise.resolve(
+          !kv.has(key) ? null : type === 'json' ? JSON.parse(kv.get(key)!) : kv.get(key)!
+        )),
         put: vi.fn((key: string, value: string) => {
           kv.set(key, value);
           return Promise.resolve();
@@ -1349,10 +1351,6 @@ describe("CriminalCodeAnalyzerDO", () => {
       ProviderFactory.createProvider = vi.fn().mockReturnValue(legalRagProvider);
       mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
       mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
-      mockEnv.COUNTERS = {
-        get: vi.fn().mockResolvedValue("0"),
-        put: vi.fn().mockResolvedValue(undefined),
-      };
       const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
         output_text: JSON.stringify({
           shouldAnalyze: false,
@@ -1412,7 +1410,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
       mockEnv.CRIMINAL_PREFILTER_BATCH_ENABLED = true;
       mockEnv.CRIMINAL_PREFILTER_BATCH_SIZE = 8;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn().mockResolvedValue("0"),
         put: vi.fn().mockResolvedValue(undefined),
       };
@@ -1463,7 +1461,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       };
       mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
       mockEnv.CRIMINAL_PREFILTER_DAILY_CAP = 1;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn((key: string) => Promise.resolve(
           key.startsWith("criminal_prefilter_daily:") ? "1" : "0"
         )),
@@ -1487,7 +1485,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       }));
 
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+      expect(mockEnv.HISTORY.put).toHaveBeenCalledWith(
         expect.stringContaining("criminal_prefilter_skipped_daily:"),
         "1",
         expect.any(Object)
@@ -1523,7 +1521,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
       mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
       mockEnv.LEGAL_RAG_DAILY_QUERY_CAP = 1;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn((key: string) => Promise.resolve(
           key.startsWith("legal_rag_daily:") ? "1" : "0"
         )),
@@ -1545,7 +1543,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       }));
 
       expect(legalRagProvider.analyzeCriminalCodeWithContext).not.toHaveBeenCalled();
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+      expect(mockEnv.HISTORY.put).toHaveBeenCalledWith(
         expect.stringContaining("legal_rag_skipped_daily:"),
         "1",
         expect.any(Object)
@@ -1599,7 +1597,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
       mockEnv.CRIMINAL_FINAL_JUDGE_MODEL = "gpt-5-nano";
       mockEnv.CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE = 0.75;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn().mockResolvedValue("0"),
         put: vi.fn().mockResolvedValue(undefined),
       };
@@ -2201,7 +2199,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
       mockEnv.CRIMINAL_FINAL_JUDGE_MODEL = "gpt-5-nano";
       mockEnv.CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE = 0.7;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn().mockResolvedValue("0"),
         put: vi.fn().mockResolvedValue(undefined),
       };
@@ -2306,7 +2304,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       };
       mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
       mockEnv.CRIMINAL_QUEUE_ASYNC_FLUSH_ENABLED = true;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn().mockResolvedValue("0"),
         put: vi.fn().mockResolvedValue(undefined),
       };
@@ -2328,7 +2326,7 @@ describe("CriminalCodeAnalyzerDO", () => {
 
       expect(response.status).toBe(200);
       expect(storage.get("criminal_analysis_queue")).toHaveLength(1);
-      expect(mockEnv.COUNTERS.put).not.toHaveBeenCalled();
+      expect(mockEnv.HISTORY.put).not.toHaveBeenCalled();
       expect(setAlarm).toHaveBeenCalledTimes(1);
       const alarmAt = setAlarm.mock.calls[0][0] as number;
       expect(alarmAt).toBeGreaterThanOrEqual(before);

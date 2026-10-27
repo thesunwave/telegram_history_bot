@@ -1,4 +1,3 @@
-import { migrateStatsBatch, MIGRATION_PAGE } from "./features/migration/migrate";
 import { Env } from "./core/env";
 import { dailySummary } from "./features/stats/stats";
 import { summariseChat, summariseChatMessages } from "./features/summary/summary";
@@ -168,38 +167,6 @@ export default {
         });
         return adminUnavailableResponse(requestId);
       }
-    }
-
-    // Migration endpoints
-    if (url.pathname === "/migrate") {
-      const key = url.searchParams.get("key");
-      if (key !== env.SECRET) {
-        return new Response("Unauthorized", { status: 403 });
-      }
-      return new Response(MIGRATION_PAGE, {
-        headers: { "Content-Type": "text/html" },
-      });
-    }
-
-    if (url.pathname === "/api/migrate" && req.method === "POST") {
-      const key = url.searchParams.get("key");
-      if (key !== env.SECRET) {
-        return new Response("Unauthorized", { status: 403 });
-      }
-      const cursor = url.searchParams.get("cursor") || undefined;
-      const result = await migrateStatsBatch(env, cursor);
-      return Response.json(result);
-    }
-
-    if (url.pathname === "/api/reset-activity" && req.method === "POST") {
-      const key = url.searchParams.get("key");
-      if (key !== env.SECRET) {
-        return new Response("Unauthorized", { status: 403 });
-      }
-      const { resetActivityBatch } = await import("./features/migration/migrate");
-      const cursor = url.searchParams.get("cursor") || undefined;
-      const result = await resetActivityBatch(env, cursor);
-      return Response.json(result);
     }
 
     if (url.pathname === "/api/legal-rag/ingest-batch" && req.method === "POST") {

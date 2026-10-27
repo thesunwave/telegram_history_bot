@@ -44,6 +44,7 @@ function createD1(): { db: D1Database; sqlite: Database.Database } {
   const sqlite = new Database(':memory:');
   const dir = fileURLToPath(new URL('../migrations/', import.meta.url));
   for (const file of [
+    '0002_activity.sql',
     '0009_stats_daily_aggregates.sql',
     '0011_stats_chat_user_profile.sql',
     '0014_app_settings.sql',

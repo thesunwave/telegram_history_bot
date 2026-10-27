@@ -355,7 +355,7 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
         profanityEnabled: settings.profanityEnabled,
         criminalEnabled: settings.criminalEnabled,
       },
-      bindings: { history: Boolean(env.HISTORY), counters: Boolean(env.COUNTERS),
+      bindings: { history: Boolean(env.HISTORY),
         database: Boolean(env.DB), workersAi: Boolean(env.AI) },
       providerKeys: { openai: Boolean(env.OPENAI_API_KEY), openrouter: Boolean(env.OPENROUTER_API_KEY) },
       advanced: { criminal: settings.criminalEnabled, rag: Boolean(env.LEGAL_RAG_INDEX) },

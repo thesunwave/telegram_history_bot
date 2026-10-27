@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CountersDO, CriminalIncrementPayload } from '../src/durable-objects/counters-do';
 import { Env } from '../src/core/env';
 import { resetCriminalCounters } from '../src/features/stats/stats';
+import { createRealD1, seedUserDay } from './helpers/real-d1';
 
 describe('Criminal Code Analysis System', () => {
   let countersDO: CountersDO;
@@ -101,179 +102,74 @@ describe('Criminal Code Analysis System', () => {
   });
 
   describe('Criminal code counter increments', () => {
+    function d1Counters() {
+      const d1 = createRealD1();
+      const env = { ...mockEnv, DB: d1.db };
+      const state = { blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn()) };
+      return { d1, counters: new CountersDO(state as any, env) };
+    }
+
+    function post(counters: CountersDO, payload: CriminalIncrementPayload) {
+      return counters.fetch(new Request('http://localhost/criminal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }) as any);
+    }
+
+    const userRow = (d1: ReturnType<typeof createRealD1>) =>
+      d1.rows("SELECT criminal_count, criminal_severity FROM stats_daily_user WHERE chat_id = 123 AND user_id = 456 AND day = '2025-01-01'");
+
     it('should increment user criminal violation counter', async () => {
-      const mockStorage = new Map<string, string>();
-      const mockEnvLocal = {
-        ...mockEnv,
-        COUNTERS: {
-          get: vi.fn((key: string) => Promise.resolve(mockStorage.get(key) || null)),
-          put: vi.fn((key: string, value: string) => {
-            mockStorage.set(key, value);
-            return Promise.resolve();
-          }),
-          delete: vi.fn((key: string) => {
-            mockStorage.delete(key);
-            return Promise.resolve();
-          }),
-          list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
-        } as any
-      };
+      const { d1, counters } = d1Counters();
 
-      const mockStateLocal = {
-        blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
-      };
-
-      const countersInstance = new CountersDO(mockStateLocal, mockEnvLocal);
-
-      const payload: CriminalIncrementPayload = {
+      const response = await post(counters, {
         chatId: 123,
         userId: 456,
         username: 'testuser',
         day: '2025-01-01',
-        violations: [
-          {
-            article: '282',
-            severity: 5,
-            count: 1
-          }
-        ],
+        violations: [{ article: '282', severity: 5, count: 1 }],
         totalSeverity: 5
-      };
+      });
 
-      const request = new Request('http://localhost/criminal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }) as any;
-
-      const response = await countersInstance.fetch(request);
       expect(response.status).toBe(200);
-
-      // Check that criminal counters were stored in COUNTERS
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledTimes(3);
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenNthCalledWith(1, 'criminal:123:456:2025-01-01', '1');
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenNthCalledWith(2, 'criminal_severity:123:456:2025-01-01', '5');
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenNthCalledWith(3, 'criminal_article:123:282:2025-01-01', '1');
+      expect(userRow(d1)).toEqual([{ criminal_count: 1, criminal_severity: 5 }]);
     });
 
-    it('should increment article-specific counters', async () => {
-      const mockStorage = new Map<string, string>();
-      const mockEnvLocal = {
-        ...mockEnv,
-        COUNTERS: {
-          get: vi.fn((key: string) => Promise.resolve(mockStorage.get(key) || null)),
-          put: vi.fn((key: string, value: string) => {
-            mockStorage.set(key, value);
-            return Promise.resolve();
-          }),
-          delete: vi.fn((key: string) => {
-            mockStorage.delete(key);
-            return Promise.resolve();
-          }),
-          list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
-        } as any
-      };
+    it('should count every violation of a multi-article message', async () => {
+      const { d1, counters } = d1Counters();
 
-      const mockStateLocal = {
-        blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
-      };
-
-      const countersInstance = new CountersDO(mockStateLocal, mockEnvLocal);
-
-      const payload: CriminalIncrementPayload = {
+      const response = await post(counters, {
         chatId: 123,
         userId: 456,
         username: 'testuser',
         day: '2025-01-01',
         violations: [
-          {
-            article: '282',
-            severity: 5,
-            count: 1
-          },
-          {
-            article: '319',
-            severity: 3,
-            count: 1
-          }
+          { article: '282', severity: 5, count: 1 },
+          { article: '319', severity: 3, count: 1 }
         ],
         totalSeverity: 8
-      };
+      });
 
-      const request = new Request('http://localhost/criminal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }) as any;
-
-      const response = await countersInstance.fetch(request);
       expect(response.status).toBe(200);
-
-      // Check that article-specific counters were stored
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledTimes(4); // user count + severity + 2 articles
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith('criminal:123:456:2025-01-01', '2'); // violations.length = 2
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith('criminal_severity:123:456:2025-01-01', '8');
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith('criminal_article:123:282:2025-01-01', '1');
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith('criminal_article:123:319:2025-01-01', '1');
+      expect(userRow(d1)).toEqual([{ criminal_count: 2, criminal_severity: 8 }]);
     });
 
     it('should accumulate existing criminal counters', async () => {
-      // Mock existing counter value in COUNTERS
-      const mockStorage = new Map<string, string>();
-      mockStorage.set('criminal:123:456:2025-01-01', '3');
-      mockStorage.set('criminal_severity:123:456:2025-01-01', '3');
-      mockStorage.set('criminal_article:123:282:2025-01-01', '3');
+      const { d1, counters } = d1Counters();
+      seedUserDay(d1, { chatId: 123, userId: 456, day: '2025-01-01', criminal: 3, criminalSeverity: 3 });
 
-      const mockEnvLocal = {
-        ...mockEnv,
-        COUNTERS: {
-          get: vi.fn((key: string) => Promise.resolve(mockStorage.get(key) || null)),
-          put: vi.fn((key: string, value: string) => {
-            mockStorage.set(key, value);
-            return Promise.resolve();
-          }),
-          delete: vi.fn((key: string) => {
-            mockStorage.delete(key);
-            return Promise.resolve();
-          }),
-          list: vi.fn(() => Promise.resolve({ keys: [], list_complete: true, cacheStatus: null }))
-        } as any
-      };
-
-      const mockStateLocal = {
-        blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn())
-      };
-
-      const countersInstance = new CountersDO(mockStateLocal, mockEnvLocal);
-
-      const payload: CriminalIncrementPayload = {
+      const response = await post(counters, {
         chatId: 123,
         userId: 456,
         username: 'testuser',
         day: '2025-01-01',
-        violations: [
-          {
-            article: '282',
-            severity: 5,
-            count: 1
-          }
-        ],
-        totalSeverity: 5
-      };
-
-      const request = new Request('https://test.com/criminal', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      }) as any;
-
-      const response = await countersInstance.fetch(request);
+        violations: [{ article: '282', severity: 4, count: 1 }],
+        totalSeverity: 4
+      });
 
       expect(response.status).toBe(200);
-      // Should accumulate: existing 3 + new 5 = 8 (totalSeverity), user count: 3 + 1 = 4 (violations.length)
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledTimes(3);
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith('criminal:123:456:2025-01-01', '4'); // 3 + violations.length(1) = 4
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith('criminal_severity:123:456:2025-01-01', '8'); // 3 + 5 = 8
-      expect(mockEnvLocal.COUNTERS.put).toHaveBeenCalledWith('criminal_article:123:282:2025-01-01', '4'); // 3 + 1 = 4
+      expect(userRow(d1)).toEqual([{ criminal_count: 4, criminal_severity: 7 }]);
     });
   });
 
@@ -337,15 +233,13 @@ describe('Criminal Code Analysis System', () => {
 
   describe('Reset functionality', () => {
     it('should reset criminal counters', async () => {
-      const mockDB = {
-        prepare: vi.fn().mockReturnValue({
-          run: vi.fn().mockResolvedValue({ success: true })
-        })
-      };
+      const d1 = createRealD1();
+      seedUserDay(d1, { chatId: 123, userId: 456, day: '2025-01-01', messages: 2, criminal: 3, criminalSeverity: 9 });
 
-      await resetCriminalCounters(mockEnv, mockDB as any);
+      await resetCriminalCounters({ ...mockEnv, DB: d1.db }, 123);
 
-      expect(mockEnv.COUNTERS.list).toHaveBeenCalled();
+      expect(d1.rows('SELECT message_count, criminal_count, criminal_severity FROM stats_daily_user WHERE chat_id = 123'))
+        .toEqual([{ message_count: 2, criminal_count: 0, criminal_severity: 0 }]);
     });
   });
 });
