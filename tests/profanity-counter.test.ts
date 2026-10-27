@@ -3,6 +3,7 @@ import { CountersDO, ProfanityIncrementPayload } from '../src/durable-objects/co
 import { Env } from '../src/core/env';
 import { resetProfanityCounters, resetCounters } from '../src/features/stats/stats';
 import { createRealD1, seedProfanityWord, seedUserDay } from './helpers/real-d1';
+import { withRealCountersDO } from './helpers/real-counters-do';
 
 describe('Profanity Counter System', () => {
   let countersDO: CountersDO;
@@ -167,7 +168,7 @@ describe('Profanity Counter System', () => {
   describe('Profanity counter increments', () => {
     function d1Counters() {
       const d1 = createRealD1();
-      const env = { ...mockEnv, DB: d1.db };
+      const env = withRealCountersDO({ ...mockEnv, DB: d1.db });
       const state = { blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn()) };
       return { d1, counters: new CountersDO(state as any, env) };
     }
@@ -354,7 +355,7 @@ describe('Profanity Counter System', () => {
   describe('Profanity reset functionality', () => {
     it('should reset only profanity counters for a chat', async () => {
       const d1 = createRealD1();
-      const env = { ...mockEnv, DB: d1.db };
+      const env = withRealCountersDO({ ...mockEnv, DB: d1.db });
       seedUserDay(d1, { chatId: 123, userId: 456, day: '2025-01-01', messages: 4, profanity: 5 });
       seedProfanityWord(d1, 123, '2025-01-01', 'хуй', 456, 5);
       seedUserDay(d1, { chatId: 456, userId: 123, day: '2025-01-01', profanity: 2 });
@@ -372,12 +373,12 @@ describe('Profanity Counter System', () => {
 
     it('should handle empty profanity data gracefully', async () => {
       const d1 = createRealD1();
-      await expect(resetProfanityCounters({ ...mockEnv, DB: d1.db }, 123)).resolves.toBeUndefined();
+      await expect(resetProfanityCounters(withRealCountersDO({ ...mockEnv, DB: d1.db }), 123)).resolves.toBeUndefined();
     });
 
     it('should reset profanity counters when general reset is called', async () => {
       const d1 = createRealD1();
-      const env = { ...mockEnv, DB: d1.db };
+      const env = withRealCountersDO({ ...mockEnv, DB: d1.db });
       seedUserDay(d1, { chatId: 123, userId: 456, day: '2025-01-01', messages: 4, profanity: 5 });
       seedProfanityWord(d1, 123, '2025-01-01', 'хуй', 456, 5);
       seedUserDay(d1, { chatId: 456, userId: 123, day: '2025-01-01', messages: 1, profanity: 2 });

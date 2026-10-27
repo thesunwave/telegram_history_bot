@@ -5,7 +5,6 @@ import { ViolationRepository } from '../../core/repositories/violation-repositor
 import { getStatsPeriodRange } from '../../core/stats-period';
 import { readChatSettings } from '../../core/chat-settings';
 import {
-  deleteChatStats,
   queryActiveChats,
   queryDailyTotals,
   queryHourTotals,
@@ -14,6 +13,7 @@ import {
   queryUserDailyTotals,
   queryUsernames,
   queryUserTotals,
+  type StatsResetScope,
 } from './stats-d1-queries';
 import {
   formatChatCriminalReport,
@@ -240,10 +240,21 @@ export async function topTalkers(
   );
 }
 
+// Resets run inside the chat's CountersDO so its running totals and the D1
+// rows are cleared together, serialized with in-flight increments.
+async function resetChatStats(env: Env, chatId: number, scope: StatsResetScope): Promise<void> {
+  const id = env.COUNTERS_DO.idFromName(String(chatId));
+  const response = await env.COUNTERS_DO.get(id).fetch('https://do/reset', {
+    method: 'POST',
+    body: JSON.stringify({ chatId, scope }),
+  });
+  if (!response.ok) throw new Error(`counters reset failed: ${response.status}`);
+}
+
 export async function resetCounters(env: Env, chatId: number) {
   if (!env.DB) return;
   try {
-    await deleteChatStats(env, chatId, 'all');
+    await resetChatStats(env, chatId, 'all');
   } catch (e) {
     console.error('stats reset db error', {
       chat: chatId.toString(36),
@@ -686,7 +697,7 @@ export async function getUserProfanityStats(
 // Reset only profanity counters for a chat
 export async function resetProfanityCounters(env: Env, chatId: number) {
   if (!env.DB) return;
-  await deleteChatStats(env, chatId, 'profanity');
+  await resetChatStats(env, chatId, 'profanity');
 }
 
 // Command handler for profanity top users
@@ -1190,7 +1201,7 @@ export async function criminalCodeStats(
 export async function resetCriminalCounters(env: Env, chatId: number) {
   if (!env.DB) return;
   try {
-    await deleteChatStats(env, chatId, 'criminal');
+    await resetChatStats(env, chatId, 'criminal');
     await env.DB.prepare('DELETE FROM criminal_violations WHERE chat_id = ?')
       .bind(chatId)
       .run();

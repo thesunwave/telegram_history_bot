@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { resetCounters, resetCriminalCounters, resetProfanityCounters } from '../../src/features/stats/stats';
 import { createMockEnv } from '../test-utils';
 import { createRealD1, seedHour, seedProfanityWord, seedUserDay } from '../helpers/real-d1';
+import { withRealCountersDO } from '../helpers/real-counters-do';
 
 describe('stats reset — D1 aggregates', () => {
   it('removes every aggregate row of one chat while preserving other chats', async () => {
     const d1 = createRealD1();
-    const env = createMockEnv({ DB: d1.db as any });
+    const env = withRealCountersDO(createMockEnv({ DB: d1.db as any }));
 
     seedUserDay(d1, { chatId: 42, userId: 7, day: '2026-10-15', messages: 3, profanity: 1 });
     seedHour(d1, 42, '2026-10-15', 10, 3);
@@ -23,7 +24,7 @@ describe('stats reset — D1 aggregates', () => {
 
   it('category resets zero only their own counters', async () => {
     const d1 = createRealD1();
-    const env = createMockEnv({ DB: d1.db as any });
+    const env = withRealCountersDO(createMockEnv({ DB: d1.db as any }));
     seedUserDay(d1, { chatId: 42, userId: 7, day: '2026-10-15', messages: 3, profanity: 2, criminal: 1, criminalSeverity: 4 });
     seedProfanityWord(d1, 42, '2026-10-15', 'word', 7, 2);
 

@@ -3,6 +3,7 @@ import { CountersDO, CriminalIncrementPayload } from '../src/durable-objects/cou
 import { Env } from '../src/core/env';
 import { resetCriminalCounters } from '../src/features/stats/stats';
 import { createRealD1, seedUserDay } from './helpers/real-d1';
+import { withRealCountersDO } from './helpers/real-counters-do';
 
 describe('Criminal Code Analysis System', () => {
   let countersDO: CountersDO;
@@ -236,7 +237,7 @@ describe('Criminal Code Analysis System', () => {
       const d1 = createRealD1();
       seedUserDay(d1, { chatId: 123, userId: 456, day: '2025-01-01', messages: 2, criminal: 3, criminalSeverity: 9 });
 
-      await resetCriminalCounters({ ...mockEnv, DB: d1.db }, 123);
+      await resetCriminalCounters(withRealCountersDO({ ...mockEnv, DB: d1.db }), 123);
 
       expect(d1.rows('SELECT message_count, criminal_count, criminal_severity FROM stats_daily_user WHERE chat_id = 123'))
         .toEqual([{ message_count: 2, criminal_count: 0, criminal_severity: 0 }]);

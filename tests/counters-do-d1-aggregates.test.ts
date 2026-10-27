@@ -51,6 +51,7 @@ class FakeD1Statement {
 class FakeD1Database {
   readonly sqlite: Sqlite;
   batchCalls = 0;
+  failNextBatch = false;
   preparedLog: PreparedStatementLogEntry[] = [];
 
   constructor(sqlite: Sqlite) {
@@ -67,6 +68,10 @@ class FakeD1Database {
 
   async batch(statements: FakeD1Statement[]): Promise<unknown[]> {
     this.batchCalls += 1;
+    if (this.failNextBatch) {
+      this.failNextBatch = false;
+      throw new Error('d1 unavailable');
+    }
     this.sqlite.exec('BEGIN');
     try {
       for (const stmt of statements) {
@@ -121,6 +126,9 @@ function makeState(storageMap?: Map<string, unknown>) {
       put: vi.fn(async (key: string, value: unknown) => {
         map.set(key, value);
       }),
+      list: vi.fn(async ({ prefix }: { prefix: string }) =>
+        new Map([...map].filter(([key]) => key.startsWith(prefix)))),
+      delete: vi.fn(async (keys: string[]) => keys.filter((key) => map.delete(key)).length),
     },
   } as any;
 }
@@ -167,12 +175,13 @@ function basePayload(overrides: Record<string, unknown> = {}): Record<string, un
 describe('CountersDO D1 aggregate writes', () => {
   let harness: FakeD1Database;
   let counters: CountersDO;
+  let doEnv: any;
 
   beforeEach(async () => {
     const { db, harness: h } = await createRealD1();
     harness = h;
-    const { env } = makeEnv(db);
-    counters = new CountersDO(makeState(), env);
+    doEnv = makeEnv(db).env;
+    counters = new CountersDO(makeState(), doEnv);
   });
 
   afterEach(() => {
@@ -446,7 +455,7 @@ describe('CountersDO D1 aggregate writes', () => {
 
   });
 
-  it('builds each new total on top of the current D1 row', async () => {
+  it('seeds totals from the current D1 rows when DO storage has none', async () => {
     await post(counters, '/inc', basePayload());
     harness.sqlite
       .prepare(
@@ -466,9 +475,8 @@ describe('CountersDO D1 aggregate writes', () => {
       .run('2026-05-07');
     harness.sqlite.prepare('UPDATE activity SET count = 2 WHERE chat_id = 123 AND day = ?').run('2026-05-07');
 
-    // D1 is the only counter store: the next write adds its delta to whatever
-    // the row currently holds (e.g. a backfill or manual correction).
-    await post(counters, '/inc', basePayload());
+    // A DO with empty storage (e.g. right after deploy) starts from D1.
+    await post(new CountersDO(makeState(), doEnv), '/inc', basePayload());
     const base = rows(
       harness.sqlite,
       `SELECT message_count, word_count, voice_count, voice_duration_seconds
@@ -503,7 +511,7 @@ describe('CountersDO D1 aggregate writes', () => {
     harness.sqlite
       .prepare(`UPDATE stats_daily_profanity_word_user SET count = 2 WHERE chat_id = 123 AND day = ? AND word = 'заебал' AND user_id = 456`)
       .run('2026-05-07');
-    await post(counters, '/profanity', profanityPayload);
+    await post(new CountersDO(makeState(), doEnv), '/profanity', profanityPayload);
     expect(rows(harness.sqlite, 'SELECT profanity_count FROM stats_daily_user WHERE chat_id = 123 AND day = ? AND user_id = 456', ['2026-05-07'])[0].profanity_count).toBe(3);
     expect(rows(harness.sqlite, `SELECT count FROM stats_daily_profanity_word WHERE chat_id = 123 AND day = ? AND word = 'заебал'`, ['2026-05-07'])[0].count).toBe(3);
     expect(rows(harness.sqlite, `SELECT count FROM stats_daily_profanity_word_user WHERE chat_id = 123 AND day = ? AND word = 'заебал' AND user_id = 456`, ['2026-05-07'])[0].count).toBe(3);
@@ -523,13 +531,57 @@ describe('CountersDO D1 aggregate writes', () => {
          WHERE chat_id = 123 AND day = ? AND user_id = 456`,
       )
       .run('2026-05-07');
-    await post(counters, '/criminal', criminalPayload);
+    await post(new CountersDO(makeState(), doEnv), '/criminal', criminalPayload);
     const criminal = rows(
       harness.sqlite,
       'SELECT criminal_count, criminal_severity FROM stats_daily_user WHERE chat_id = 123 AND day = ? AND user_id = 456',
       ['2026-05-07'],
     )[0];
     expect(criminal).toEqual({ criminal_count: 3, criminal_severity: 15 });
+  });
+
+  it('keeps the delta of a failed D1 write and repairs the row on the next write', async () => {
+    await post(counters, '/inc', basePayload({ messageId: 1 }));
+    harness.failNextBatch = true;
+    expect((await post(counters, '/inc', basePayload({ messageId: 2 }))).status).toBe(200);
+    expect(rows(harness.sqlite, 'SELECT message_count FROM stats_daily_user WHERE chat_id = 123 AND user_id = 456')[0].message_count).toBe(1);
+
+    await post(counters, '/inc', basePayload({ messageId: 3 }));
+
+    expect(rows(
+      harness.sqlite,
+      'SELECT message_count, word_count, voice_count FROM stats_daily_user WHERE chat_id = 123 AND user_id = 456',
+    )[0]).toEqual({ message_count: 3, word_count: 12, voice_count: 3 });
+    expect(rows(harness.sqlite, 'SELECT count FROM activity WHERE chat_id = 123')[0].count).toBe(3);
+    expect(rows(harness.sqlite, 'SELECT message_count FROM stats_daily_hour WHERE chat_id = 123 AND hour = 13')[0].message_count).toBe(3);
+  });
+
+  it('reset clears the running totals together with the D1 rows', async () => {
+    await post(counters, '/inc', basePayload());
+    await post(counters, '/inc', basePayload());
+    await post(counters, '/criminal', {
+      chatId: 123,
+      userId: 456,
+      username: 'testuser',
+      day: '2026-05-07',
+      violations: [{ article: '282', severity: 5, count: 1 }],
+      totalSeverity: 5,
+    });
+
+    expect((await post(counters, '/reset', { chatId: 123, scope: 'criminal' })).status).toBe(200);
+    expect(rows(harness.sqlite, 'SELECT message_count, criminal_count FROM stats_daily_user WHERE chat_id = 123')[0])
+      .toEqual({ message_count: 2, criminal_count: 0 });
+
+    expect((await post(counters, '/reset', { chatId: 123, scope: 'all' })).status).toBe(200);
+    expect(rows(harness.sqlite, 'SELECT * FROM stats_daily_user WHERE chat_id = 123')).toEqual([]);
+
+    await post(counters, '/inc', basePayload());
+    expect(rows(harness.sqlite, 'SELECT message_count FROM stats_daily_user WHERE chat_id = 123')[0].message_count).toBe(1);
+    expect(rows(harness.sqlite, 'SELECT count FROM activity WHERE chat_id = 123')[0].count).toBe(1);
+  });
+
+  it('rejects a reset with an unknown scope', async () => {
+    expect((await post(counters, '/reset', { chatId: 123, scope: 'everything' })).status).toBe(400);
   });
 
   it('keeps request success when D1 batch rejects', async () => {

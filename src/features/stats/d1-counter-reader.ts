@@ -2,10 +2,10 @@ import type { D1Database } from '@cloudflare/workers-types';
 
 /**
  * Current aggregate totals read back from D1 by the serialized CountersDO
- * writer. D1 is the only counter store: CountersDO reads the current value,
- * adds the delta and writes the exact new total through the aggregate writer.
- * Every caller runs inside `blockConcurrencyWhile`, so read-then-write cannot
- * interleave for one chat.
+ * writer. CountersDO keeps running totals in its own storage and uses these
+ * reads only to seed a row it has not touched yet, then writes the exact new
+ * total through the aggregate writer. Every caller runs inside
+ * `blockConcurrencyWhile`, so read-then-write cannot interleave for one chat.
  */
 
 export interface BaseCounterTotals {
