@@ -64,7 +64,7 @@ export async function buildTelemetryPayload(env: Env): Promise<TelemetryPayload>
     `SELECT COUNT(DISTINCT chat_id) AS chats,
             COUNT(DISTINCT CASE WHEN chat_id < 0 THEN chat_id END) AS groups
        FROM stats_daily_user
-      WHERE day >= date('now', '-7 day')`,
+      WHERE day >= date('now', '-6 day')`,
   ).first<{ chats: number; groups: number }>();
   return {
     schema: TELEMETRY_SCHEMA,
@@ -115,7 +115,7 @@ export function parseTelemetryPayload(raw: unknown): TelemetryPayload | null {
 export async function handleTelemetryPing(req: Request, env: Env): Promise<Response> {
   if (!isTrue(env.TELEMETRY_RECEIVER)) return new Response('Not found', { status: 404 });
   const text = await req.text();
-  if (text.length > MAX_BODY_BYTES) return new Response('Payload too large', { status: 413 });
+  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return new Response('Payload too large', { status: 413 });
   let raw: unknown;
   try {
     raw = JSON.parse(text);

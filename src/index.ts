@@ -826,25 +826,28 @@ export default {
       }
     }
 
-    // Check for ENABLE_SUMMARY flag (default to true)
-    const summaryEnabled = env.ENABLE_SUMMARY !== 'false' && env.ENABLE_SUMMARY !== false;
-
-    if (summaryEnabled) {
-      await dailySummary(env);
-    } else {
-      console.log('Daily summary skipped (ENABLE_SUMMARY is false)');
-    }
-
-    // Run cleanup job
     try {
-      const cleanupResult = await cleanupOldData(env, 7, 30);
-      Logger.info(env, "Daily cleanup completed", cleanupResult);
-    } catch (e: any) {
-      Logger.error("Daily cleanup failed", { error: e.message || String(e) });
-    }
+      // Check for ENABLE_SUMMARY flag (default to true)
+      const summaryEnabled = env.ENABLE_SUMMARY !== 'false' && env.ENABLE_SUMMARY !== false;
 
-    const telemetry = await sendTelemetryPing(env);
-    Logger.info(env, "Anonymous telemetry ping", { result: telemetry });
+      if (summaryEnabled) {
+        await dailySummary(env);
+      } else {
+        console.log('Daily summary skipped (ENABLE_SUMMARY is false)');
+      }
+
+      // Run cleanup job
+      try {
+        const cleanupResult = await cleanupOldData(env, 7, 30);
+        Logger.info(env, "Daily cleanup completed", cleanupResult);
+      } catch (e: any) {
+        Logger.error("Daily cleanup failed", { error: e.message || String(e) });
+      }
+    } finally {
+      // A failed summary must not suppress the daily install ping.
+      const telemetry = await sendTelemetryPing(env);
+      Logger.info(env, "Anonymous telemetry ping", { result: telemetry });
+    }
   },
 };
 

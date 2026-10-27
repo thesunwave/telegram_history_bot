@@ -103,6 +103,27 @@ describe('anonymous telemetry ping', () => {
     expect((sqlite.prepare('SELECT ping_days FROM telemetry_installs').get() as any).ping_days).toBe(2);
   });
 
+  it('pings from the daily cron even when the summary fails', async () => {
+    vi.resetModules();
+    vi.doMock('../src/features/stats/stats', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../src/features/stats/stats')>()),
+      dailySummary: vi.fn(async () => { throw new Error('summary failed'); }),
+    }));
+    const { default: freshWorker } = await import('../src/index');
+    const { db } = createDb();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
+    try {
+      await expect(freshWorker.scheduled({ cron: '59 23 * * *' } as any, { DB: db, ENABLE_SUMMARY: 'true' } as Env, { waitUntil() {} } as any))
+        .rejects.toThrow('summary failed');
+      const pings = fetchSpy.mock.calls.filter(([url]) => String(url) === TELEMETRY_ENDPOINT);
+      expect(pings).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+      vi.doUnmock('../src/features/stats/stats');
+      vi.resetModules();
+    }
+  });
+
   it('routes the public endpoint through the worker', async () => {
     const { db } = createDb();
     const env = { DB: db, TELEMETRY_RECEIVER: 'true' } as unknown as Env;

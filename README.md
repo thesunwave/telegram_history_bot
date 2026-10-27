@@ -212,7 +212,7 @@ To count how many self-hosted bots are running, each install sends one
 anonymous request a day (after the daily summary cron) to
 `https://tghistory.thesunwave.space/telemetry/v1/ping`. It contains only:
 
-- a random install id generated on first run and stored in your D1 `app_settings`;
+- a random install id, created on the first daily ping and stored in your D1 `app_settings`;
 - how many chats and groups were active in the last 7 days, as a range
   (`0`, `1`, `2-5`, `6-20`, `21-100`, `100+`).
 
