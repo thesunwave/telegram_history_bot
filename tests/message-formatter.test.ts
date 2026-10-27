@@ -617,8 +617,8 @@ describe('MessageFormatter', () => {
         ...mockGeneralStats,
         topViolations: [
           ...mockGeneralStats.topViolations,
-          { article: '111', count: 1, averageSeverity: 3.0 } as ViolationCount,
-          { article: '222', count: 1, averageSeverity: 2.0 } as ViolationCount
+          { article: '111', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 1, averageSeverity: 3.0 },
+          { article: '222', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 1, averageSeverity: 2.0 }
         ]
       };
 

@@ -66,11 +66,13 @@ describe('ViolationHandler Integration Tests', () => {
         violations: [
           {
             article: '282',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Тестовая цитата нарушения',
             punishment: 'Штраф до 300 000 рублей',
             severity: 7,
             confidence: 0.85
-          } as Violation
+          }
         ],
         totalSeverity: 7,
         riskLevel: 'high',
@@ -110,11 +112,13 @@ describe('ViolationHandler Integration Tests', () => {
         violations: [
           {
             article: '130',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Сомнительная цитата',
             punishment: 'Предупреждение',
             severity: 3,
             confidence: 0.65 // Низкий уровень доверия
-          } as Violation
+          }
         ],
         totalSeverity: 3,
         riskLevel: 'low',
@@ -133,18 +137,22 @@ describe('ViolationHandler Integration Tests', () => {
         violations: [
           {
             article: '282',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Первое нарушение',
             punishment: 'Штраф',
             severity: 8,
             confidence: 0.9
-          } as Violation,
+          },
           {
             article: '205',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Второе нарушение',
             punishment: 'Лишение свободы',
             severity: 10,
             confidence: 0.95
-          } as Violation
+          }
         ],
         totalSeverity: 18,
         riskLevel: 'high',
@@ -208,8 +216,8 @@ describe('ViolationHandler Integration Tests', () => {
         chatId: '-100123456789',
         totalViolations: 5,
         violationsByArticle: [
-          { article: '282', count: 3, averageSeverity: 6.5 } as ViolationCount,
-          { article: '130', count: 2, averageSeverity: 4.0 } as ViolationCount
+          { article: '282', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 3, averageSeverity: 6.5 },
+          { article: '130', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 2, averageSeverity: 4.0 }
         ],
         averageSeverity: 5.5,
         riskLevel: 'medium',
@@ -306,8 +314,8 @@ describe('ViolationHandler Integration Tests', () => {
         endDate: new Date('2024-01-07'),
         totalViolations: 10,
         violationsByArticle: [
-          { article: '282', count: 6, averageSeverity: 7.0 } as ViolationCount,
-          { article: '205', count: 4, averageSeverity: 9.0 } as ViolationCount
+          { article: '282', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 6, averageSeverity: 7.0 },
+          { article: '205', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 4, averageSeverity: 9.0 }
         ],
         averageSeverity: 7.8,
         uniqueUsers: 3,
@@ -365,9 +373,9 @@ describe('ViolationHandler Integration Tests', () => {
         chatId: '-100123456789',
         totalViolations: 50,
         topViolations: [
-          { article: '282', count: 20, averageSeverity: 6.5 } as ViolationCount,
-          { article: '205', count: 15, averageSeverity: 9.0 } as ViolationCount,
-          { article: '130', count: 10, averageSeverity: 4.0 } as ViolationCount
+          { article: '282', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 20, averageSeverity: 6.5 },
+          { article: '205', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 15, averageSeverity: 9.0 },
+          { article: '130', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 10, averageSeverity: 4.0 }
         ],
         topUsers: [
           { userId: '123', count: 15, averageSeverity: 7.0, riskLevel: 'high' },
@@ -378,11 +386,13 @@ describe('ViolationHandler Integration Tests', () => {
         criticalViolations: [
           {
             article: '205',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Критическое нарушение',
             punishment: 'Лишение свободы',
             severity: 10,
             confidence: 0.95
-          } as Violation
+          }
         ]
       };
 

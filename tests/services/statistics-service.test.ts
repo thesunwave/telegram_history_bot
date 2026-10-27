@@ -366,11 +366,13 @@ describe('StatisticsService', () => {
       // Arrange
       const violation: Violation = {
         article: 'Статья 105 УК РФ',
+        subarticle: null,
+        articleTitle: 'Test article title',
         quote: 'Убийство',
         punishment: 'Лишение свободы',
         severity: 10,
         confidence: 0.9
-      } as Violation;
+      };
       const userId = '123';
       const chatId = '456';
 
@@ -387,11 +389,13 @@ describe('StatisticsService', () => {
       // Arrange
       const violation: Violation = {
         article: 'Статья 105 УК РФ',
+        subarticle: null,
+        articleTitle: 'Test article title',
         quote: 'Убийство',
         punishment: 'Лишение свободы',
         severity: 10,
         confidence: 0.9
-      } as Violation;
+      };
       const userId = '123';
       const chatId = '456';
       const error = new Error('Save error');

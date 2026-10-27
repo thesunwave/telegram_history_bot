@@ -39,8 +39,10 @@ describe('ViolationRepository Integration Tests', () => {
 
   describe('save()', () => {
     it('должен сохранить нарушение в базу данных', async () => {
-      const violation: Violation = {
+      // Legacy payload without articleTitle: save() must store an empty title.
+      const violation = {
         article: 'Статья 282',
+        subarticle: null,
         quote: 'экстремистские высказывания',
         punishment: 'штраф до 500 тысяч рублей',
         severity: 7,
@@ -70,11 +72,13 @@ describe('ViolationRepository Integration Tests', () => {
       const repositoryWithoutDB = new ViolationRepository({ DB: null } as any);
       const violation: Violation = {
         article: 'Статья 282',
+        subarticle: null,
+        articleTitle: 'Test article title',
         quote: 'test',
         punishment: 'test',
         severity: 5,
         confidence: 0.8
-      } as Violation;
+      };
 
       await expect(repositoryWithoutDB.save(violation, '123', '456'))
         .rejects.toThrow('Database not available');
@@ -474,11 +478,13 @@ describe('ViolationRepository Integration Tests', () => {
 
       const violation: Violation = {
         article: 'Статья 282',
+        subarticle: null,
+        articleTitle: 'Test article title',
         quote: 'test',
         punishment: 'test',
         severity: 5,
         confidence: 0.8
-      } as Violation;
+      };
 
       await expect(repository.save(violation, '123', '456'))
         .rejects.toThrow('Failed to save violation: Database error');

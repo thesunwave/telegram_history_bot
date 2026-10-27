@@ -19,11 +19,13 @@ describe('Statistics Models', () => {
     it('should have correct structure', () => {
       const violation: Violation = {
         article: 'Статья 282 УК РФ',
+        subarticle: null,
+        articleTitle: 'Test article title',
         quote: 'Пример цитаты из сообщения',
         punishment: 'Штраф до 300 000 рублей',
         severity: 7,
         confidence: 0.85
-      } as Violation;
+      };
 
       expect(violation.article).toBe('Статья 282 УК РФ');
       expect(violation.quote).toBe('Пример цитаты из сообщения');
@@ -40,11 +42,13 @@ describe('Statistics Models', () => {
         violations: [
           {
             article: 'Статья 282 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Пример цитаты',
             punishment: 'Штраф',
             severity: 7,
             confidence: 0.85
-          } as Violation
+          }
         ],
         totalSeverity: 7,
         riskLevel: 'high',
@@ -134,14 +138,20 @@ describe('Statistics Models', () => {
         violationsByArticle: [
           {
             article: 'Статья 282 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
+            punishment: 'Test punishment',
             count: 5,
             averageSeverity: 6.5
-          } as ViolationCount,
+          },
           {
             article: 'Статья 280 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
+            punishment: 'Test punishment',
             count: 5,
             averageSeverity: 7.0
-          } as ViolationCount
+          }
         ],
         averageSeverity: 6.75,
         riskLevel: 'high',
@@ -203,14 +213,20 @@ describe('Statistics Models', () => {
         violationsByArticle: [
           {
             article: 'Статья 282 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
+            punishment: 'Test punishment',
             count: 30,
             averageSeverity: 6.5
-          } as ViolationCount,
+          },
           {
             article: 'Статья 280 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
+            punishment: 'Test punishment',
             count: 20,
             averageSeverity: 7.0
-          } as ViolationCount
+          }
         ],
         averageSeverity: 6.7,
         uniqueUsers: 15,
@@ -254,14 +270,20 @@ describe('Statistics Models', () => {
         topViolations: [
           {
             article: 'Статья 282 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
+            punishment: 'Test punishment',
             count: 40,
             averageSeverity: 6.5
-          } as ViolationCount,
+          },
           {
             article: 'Статья 280 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
+            punishment: 'Test punishment',
             count: 30,
             averageSeverity: 7.0
-          } as ViolationCount
+          }
         ],
         topUsers: [
           {
@@ -283,11 +305,13 @@ describe('Statistics Models', () => {
         criticalViolations: [
           {
             article: 'Статья 205 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Критическое нарушение',
             punishment: 'Лишение свободы',
             severity: 9,
             confidence: 0.95
-          } as Violation
+          }
         ]
       };
 
