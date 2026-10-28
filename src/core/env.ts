@@ -60,6 +60,8 @@ export interface Env {
   ADMIN_BASIC_PASSWORD?: string;
   TELEGRAM_BOT_USERNAME?: string;
   TELEGRAM_LOGIN_CLIENT_ID?: string;
+  // Public https origin of this Worker; used for the /dashboard link.
+  PUBLIC_URL?: string;
   DRY_RUN?: string;
 
   // Optimized summary system configuration

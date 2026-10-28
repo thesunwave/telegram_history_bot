@@ -88,6 +88,8 @@
     "ADMIN_BASIC_USER": "admin",
     "TELEGRAM_LOGIN_CLIENT_ID": "7807841637",
     "TELEGRAM_BOT_USERNAME": "stat_history_bot",
+    // Canonical host for the /dashboard link; the webhook may arrive on workers.dev.
+    "PUBLIC_URL": "https://tghistory.thesunwave.space",
     // Available values: "cloudflare", "openai", "openai-premium", "openrouter", "legal-rag", "mock"
     "SUMMARY_PROVIDER": "openai",
     "PROFANITY_PROVIDER": "openai",

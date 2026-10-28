@@ -113,7 +113,7 @@ export default {
       }
       const message = getTextMessage(await req.json());
       await recordMessage(message, env, ctx);
-      ctx.waitUntil(handleUpdate(message, env));
+      ctx.waitUntil(handleUpdate(message, env, url.origin));
       return Response.json({});
     }
 
@@ -316,7 +316,7 @@ export default {
       });
 
       await recordMessage(msg, env, ctx);
-      ctx.waitUntil(handleUpdate(msg, env));
+      ctx.waitUntil(handleUpdate(msg, env, url.origin));
       return Response.json({});
     }
 

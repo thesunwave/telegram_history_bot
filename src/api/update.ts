@@ -29,6 +29,7 @@ import { NotificationRepository } from '../core/repositories/notification-reposi
 import type { NotificationType } from '../core/models/notification-settings';
 import { isTelegramUserChatAdmin, saveAdminChatMeta } from './admin-chats';
 import { readChatSettings } from '../core/chat-settings';
+import { ensureDashboardCommand, resolveDashboardUrl, sendDashboardLink } from './dashboard-link';
 
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
@@ -54,6 +55,8 @@ export function buildHelpText(env: Env): string {
 
   return [
     'Справка по командам чата',
+    '',
+    '/dashboard – ссылка на веб-дашборд со статистикой чатов',
     '',
     'Сводки',
     `/summary <days> – сводка за последние N дней (по умолчанию 1)${summaryLabel}`,
@@ -596,7 +599,7 @@ async function analyzeCriminalCodeAsync(
   }
 }
 
-export async function handleUpdate(msg: any, env: Env) {
+export async function handleUpdate(msg: any, env: Env, origin?: string) {
   if (!msg?.text) return;
   const chatId = msg.chat.id;
   const ts = msg.date;
@@ -628,6 +631,11 @@ export async function handleUpdate(msg: any, env: Env) {
       (env.ENABLE_CRIMINAL_ANALYSIS === false || env.ENABLE_CRIMINAL_ANALYSIS === 'false' ||
        env.RAW_MESSAGE_STORAGE_MODE === 'stats_only')) {
     await sendMessage(env, chatId, 'Уголовный анализ отключён в настройках бота');
+    return;
+  }
+  if (command.name === '/dashboard' || (command.name === '/start' && msg.chat?.type === 'private')) {
+    await sendDashboardLink(env, chatId, resolveDashboardUrl(env, origin));
+    await ensureDashboardCommand(env);
     return;
   }
   if (command.name === '/summary_last') {
