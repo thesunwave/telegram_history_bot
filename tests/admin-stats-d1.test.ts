@@ -1101,11 +1101,13 @@ describe('admin stats backend selector', () => {
       /future/,
     );
     expect(() => parseAdminPeriod('custom', todayStr, daysFromToday(1))).toThrow(/future/);
-    // Custom ranges have no length cap: a full calendar year is accepted.
+    // Custom ranges allow any realistic length: a full calendar year is accepted.
     const year = parseAdminPeriod('custom', '2025-01-01', '2025-12-31');
     expect(year.days).toHaveLength(365);
     expect(year.from).toBe('2025-01-01');
     expect(year.to).toBe('2025-12-31');
+    // Only an absurd range (malformed `from`) hits the ~10-year sanity bound.
+    expect(() => parseAdminPeriod('custom', '0001-01-01', daysFromToday(-1))).toThrow(/3660/);
   });
 
   it('week and month presets are rolling UTC windows including today', () => {
