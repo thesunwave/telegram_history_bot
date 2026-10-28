@@ -154,7 +154,6 @@ const PERIOD_DAYS: Record<AdminPeriod, number> = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MAX_CUSTOM_RANGE_DAYS = 90;
 
 function formatDay(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -215,9 +214,6 @@ function buildCustomRange(fromValue: string | null, toValue: string | null): Adm
   }
 
   const dayCount = Math.floor((to.getTime() - from.getTime()) / DAY_MS) + 1;
-  if (dayCount > MAX_CUSTOM_RANGE_DAYS) {
-    throw new Error(`custom period cannot be longer than ${MAX_CUSTOM_RANGE_DAYS} days`);
-  }
 
   const days = Array.from({ length: dayCount }, (_, index) => {
     const day = new Date(from);
