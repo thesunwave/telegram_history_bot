@@ -6,6 +6,8 @@ import { Env, LOG_ID_RADIX } from '../core/env';
  * menu so it is always one tap away.
  */
 
+const MAX_BOT_COMMANDS = 100;
+
 export const DASHBOARD_COMMAND = {
   command: 'dashboard',
   description: 'Ссылка на дашборд со статистикой',
@@ -27,7 +29,7 @@ export function buildDashboardText(dashboardUrl: string | null): string {
     'Дашборд со статистикой чатов:',
     dashboardUrl,
     '',
-    'Войдите через Telegram, и там будут все чаты, где есть бот и вы. ' +
+    'Войдите через Telegram, и там будут чаты с ботом, к которым у вас есть доступ. ' +
       'Ссылку всегда можно получить снова командой /dashboard.',
   ].join('\n');
 }
@@ -54,8 +56,11 @@ export async function sendDashboardLink(
   }
   try {
     await telegramCall(env, 'sendMessage', args);
-  } catch {
-    console.error('dashboard link send failed', { chat: chatId.toString(LOG_ID_RADIX) });
+  } catch (err) {
+    console.error('dashboard link send failed', {
+      chat: chatId.toString(LOG_ID_RADIX),
+      error: (err as Error).message,
+    });
   }
 }
 
@@ -69,8 +74,13 @@ export async function ensureDashboardCommand(env: Env): Promise<void> {
     const current = await telegramCall(env, 'getMyCommands', {});
     const commands = Array.isArray(current) ? current : [];
     if (commands.some((c: { command?: string }) => c?.command === DASHBOARD_COMMAND.command)) return;
+    if (commands.length >= MAX_BOT_COMMANDS) {
+      // Telegram caps the menu at 100 commands; never drop one the owner set.
+      console.warn('dashboard command not registered: command menu is full');
+      return;
+    }
     await telegramCall(env, 'setMyCommands', { commands: [DASHBOARD_COMMAND, ...commands] });
-  } catch {
-    console.error('dashboard command registration failed');
+  } catch (err) {
+    console.error('dashboard command registration failed', { error: (err as Error).message });
   }
 }
