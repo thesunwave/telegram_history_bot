@@ -154,7 +154,8 @@ const PERIOD_DAYS: Record<AdminPeriod, number> = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MAX_CUSTOM_RANGE_DAYS = 90;
+/** Sanity bound only (~10 years): keeps a malformed `from` from building a huge day array. */
+const MAX_CUSTOM_RANGE_DAYS = 3660;
 
 function formatDay(date: Date): string {
   return date.toISOString().slice(0, 10);
