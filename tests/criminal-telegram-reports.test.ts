@@ -10,21 +10,24 @@ import {
   parseCriminalReportPeriod,
 } from '../src/features/criminal/telegram-reports';
 
+function usernameRows(sql: string): any[] | undefined {
+  if (sql.includes('FROM stats_chat_user_profile')) {
+    return [{ user_id: 1, username: 'vasya' }, { user_id: 2, username: 'petya' }];
+  }
+  if (sql.includes('FROM stats_user_profile')) return [];
+  return undefined;
+}
+
 function createEnv(resolveRows: (sql: string) => any[]): Env {
   const db = {
     prepare: vi.fn((sql: string) => ({
       bind: vi.fn((..._bindings: unknown[]) => ({
-        all: vi.fn().mockResolvedValue({ success: true, results: resolveRows(sql) }),
+        all: vi.fn().mockResolvedValue({ success: true, results: usernameRows(sql) ?? resolveRows(sql) }),
       })),
     })),
   };
 
-  return {
-    DB: db,
-    COUNTERS: {
-      get: vi.fn(async (key: string) => key === 'user:1' ? 'vasya' : key === 'user:2' ? 'petya' : null),
-    },
-  } as unknown as Env;
+  return { DB: db } as unknown as Env;
 }
 
 describe('criminal Telegram reports', () => {

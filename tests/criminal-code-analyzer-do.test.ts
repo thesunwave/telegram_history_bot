@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CriminalCodeAnalyzerDO } from '../src/durable-objects/criminal-code-analyzer-do';
 import type { CriminalAnalysisResult } from '../src/core/env';
+import type { CriminalPrefilterReason } from '../src/features/criminal/prefilter';
 import { ProviderFactory } from "../src/core/providers/provider-factory";
 import { Logger } from '../src/core/logger';
+import { buildContextMessages } from "../src/features/criminal/analyzer/context-messages";
+import { evaluateFinalJudgeMeaning, isQuoteGroundedInTarget, isUsefulFinalJudgeReference, selectFinalJudgeReferences } from "../src/features/criminal/analyzer/legal-references";
+import { buildSemanticPrefilterPayload, buildSemanticPrefilterSystemPrompt, normalizeSemanticPrefilterResult } from "../src/features/criminal/analyzer/semantic-prefilter";
 
 // Mock Logger
 vi.mock("../src/core/logger", () => ({
@@ -184,7 +188,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         messageId: 123, day: '2026-10-16', sequence: 1 }),
     }));
     expect(response.status).toBe(200);
-    const paths = counterFetch.mock.calls.map(([url]) => new URL(String(url)).pathname);
+    const paths = counterFetch.mock.calls.map(([url]: any[]) => new URL(String(url)).pathname);
     expect(paths).not.toContain('/profanity');
   });
 
@@ -206,7 +210,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         userId: 67890, messageId: 234, day: '2026-10-16', sequence: 2 }),
     }));
     expect(response.status).toBe(200);
-    const events = counterFetch.mock.calls.map(([url, options]) => ({
+    const events = counterFetch.mock.calls.map(([url, options]: any[]) => ({
       path: new URL(String(url)).pathname,
       body: JSON.parse((options as RequestInit).body as string),
     }));
@@ -233,13 +237,14 @@ describe("CriminalCodeAnalyzerDO", () => {
         userId: 67890, messageId: 235, day: '2026-10-16', sequence: 3 }),
     }));
     expect(response.status).toBe(200);
-    const events = counterFetch.mock.calls.map(([url, options]) => ({
+    const events = counterFetch.mock.calls.map(([url, options]: any[]) => ({
       path: new URL(String(url)).pathname,
       body: JSON.parse((options as RequestInit).body as string),
     }));
     expect(events.some(({ path, body }) => path === '/ack' &&
       body.category === 'profanity' && body.outcome === 'zero')).toBe(true);
-    expect(first).toHaveBeenCalledTimes(2); // analyzer gate + one profanity decision
+    // analyzer gate + one profanity decision (instance policy, then the chat's own switch)
+    expect(first).toHaveBeenCalledTimes(3);
   });
 
   it('drops queued message text when owner disables criminal analysis before the alarm', async () => {
@@ -269,6 +274,34 @@ describe("CriminalCodeAnalyzerDO", () => {
       method: 'POST', body: JSON.stringify(queue[0]),
     }));
     expect(response.status).toBe(409);
+  });
+
+  it('drops queued message text when the chat turns criminal analysis off before the alarm', async () => {
+    const queue = [{
+      text: 'PRIVATE_SENTINEL', chatId: 12345, messageId: 992,
+      userId: 55, day: '2026-10-16', sequence: 5, ts: 1792100000,
+      enqueuedAt: Date.now(), reasons: ['semantic_prefilter'],
+    }];
+    const storage = new Map<string, any>([['criminal_analysis_queue', queue]]);
+    mockState.storage = {
+      get: vi.fn(async (key: string) => storage.get(key)),
+      put: vi.fn(async (key: string, value: unknown) => { storage.set(key, value); }),
+      setAlarm: vi.fn(async () => {}),
+    };
+    const rows: Record<string, unknown> = {
+      global: { version: 1, storageMode: 'history', criminalEnabled: true },
+      'chat:12345': { version: 1, criminalEnabled: false },
+    };
+    mockEnv.DB.prepare = vi.fn(() => ({
+      bind: vi.fn((scope: string) => ({ first: vi.fn(async () => (
+        rows[scope] ? { settings_json: JSON.stringify(rows[scope]) } : null
+      )) })),
+    }));
+    const instance = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+    const pref = vi.spyOn(instance as any, 'runSemanticPrefilterBatch');
+    await instance.alarm();
+    expect(storage.get('criminal_analysis_queue')).toEqual([]);
+    expect(pref).not.toHaveBeenCalled();
   });
 
   describe("analyze endpoint", () => {
@@ -792,7 +825,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         setAlarm: vi.fn().mockResolvedValue(undefined),
       };
       mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn().mockResolvedValue("0"),
         put: vi.fn().mockResolvedValue(undefined),
       };
@@ -815,7 +848,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       expect(response.status).toBe(200);
       expect(result.queued).toBe(true);
       expect(ProviderFactory.createProvider).toHaveBeenCalled();
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+      expect(mockEnv.HISTORY.put).toHaveBeenCalledWith(
         expect.stringContaining('criminal_prefilter_daily:'),
         '1',
         expect.any(Object)
@@ -883,7 +916,7 @@ describe("CriminalCodeAnalyzerDO", () => {
 
     it("should keep only target-grounded semantic frame evidence", () => {
       const targetText = "не будет скоро вашего образования нахуй";
-      const normalized = (analyzer as any).normalizeSemanticPrefilterResult({
+      const normalized = normalizeSemanticPrefilterResult({
         shouldAnalyze: true,
         reason: "threat",
         confidence: 0.9,
@@ -917,7 +950,7 @@ describe("CriminalCodeAnalyzerDO", () => {
 
     it("should fail closed when a positive semantic prefilter omits semanticFrame", () => {
       const filtered = (analyzer as any).applySemanticPrefilterThreshold(
-        (analyzer as any).normalizeSemanticPrefilterResult({
+        normalizeSemanticPrefilterResult({
           shouldAnalyze: true,
           reason: "threat",
           confidence: 0.9,
@@ -933,7 +966,7 @@ describe("CriminalCodeAnalyzerDO", () => {
     it("should reject weak threat guesses even when the semantic frame looks criminal", () => {
       const targetText = "Будешь просыпаться";
       const filtered = (analyzer as any).applySemanticPrefilterThreshold(
-        (analyzer as any).normalizeSemanticPrefilterResult({
+        normalizeSemanticPrefilterResult({
           shouldAnalyze: true,
           reason: "threat",
           confidence: 0.58,
@@ -956,7 +989,7 @@ describe("CriminalCodeAnalyzerDO", () => {
     });
 
     it("should preserve violent_expression as an analyzable prefilter reason", () => {
-      const normalized = (analyzer as any).normalizeSemanticPrefilterResult({
+      const normalized = normalizeSemanticPrefilterResult({
         shouldAnalyze: true,
         reason: "violent_expression",
         confidence: 0.8,
@@ -980,7 +1013,7 @@ describe("CriminalCodeAnalyzerDO", () => {
 
     it("should pass non-violent criminal endorsements to legal analysis", () => {
       const targetText = "Лет после 13 уже можно ебать";
-      const normalized = (analyzer as any).normalizeSemanticPrefilterResult({
+      const normalized = normalizeSemanticPrefilterResult({
         shouldAnalyze: true,
         reason: "other_criminal",
         confidence: 0.9,
@@ -999,7 +1032,13 @@ describe("CriminalCodeAnalyzerDO", () => {
 
       expect(normalized.reason).toBe("other_criminal");
       expect((analyzer as any).applySemanticPrefilterThreshold(normalized, targetText).shouldAnalyze).toBe(true);
-      expect((analyzer as any).buildSemanticPrefilterSystemPrompt(false)).toContain("сексуальных действий с несовершеннолетними");
+      expect(buildSemanticPrefilterSystemPrompt(false)).toContain("сексуальных действий с несовершеннолетними");
+    });
+
+    it("should not ground a quote that adds words to the target text", () => {
+      expect(isQuoteGroundedInTarget("тебя убью", "я тебя убью")).toBe(true);
+      expect(isQuoteGroundedInTarget("я тебя убью", "я тебя убью")).toBe(true);
+      expect(isQuoteGroundedInTarget("я тебя убью завтра ножом", "я тебя убью")).toBe(false);
     });
 
     it("should require grounded evidence for the final literal meaning", () => {
@@ -1018,16 +1057,20 @@ describe("CriminalCodeAnalyzerDO", () => {
         }],
       };
 
-      expect((analyzer as any).evaluateFinalJudgeMeaning(undefined, input)).toBe("unclear");
-      expect((analyzer as any).evaluateFinalJudgeMeaning({
+      expect(evaluateFinalJudgeMeaning(undefined, input)).toBe("unclear");
+      expect(evaluateFinalJudgeMeaning({
         speechAct: "report",
         evidence: "я тебя убью",
       }, input)).toBe("benign");
-      expect((analyzer as any).evaluateFinalJudgeMeaning({
+      expect(evaluateFinalJudgeMeaning({
         speechAct: "threat",
         evidence: "выдуманная цитата",
       }, input)).toBe("unclear");
-      expect((analyzer as any).evaluateFinalJudgeMeaning({
+      expect(evaluateFinalJudgeMeaning({
+        speechAct: "threat",
+        evidence: "я тебя убью завтра ножом",
+      }, input)).toBe("unclear");
+      expect(evaluateFinalJudgeMeaning({
         speechAct: "threat",
         evidence: "я тебя убью",
       }, input)).toBe("criminal");
@@ -1052,9 +1095,9 @@ describe("CriminalCodeAnalyzerDO", () => {
         ],
       };
 
-      const payload = (analyzer as any).buildSemanticPrefilterPayload(input);
-      const positions = payload.messages.map((message: any) => message.relativePosition);
-      const prompt = (analyzer as any).buildSemanticPrefilterSystemPrompt(false);
+      const payload = buildSemanticPrefilterPayload(input);
+      const positions = (payload.messages as any[]).map((message: any) => message.relativePosition);
+      const prompt = buildSemanticPrefilterSystemPrompt(false);
 
       expect(positions).toEqual([-2, -1, 0, 1]);
       expect(prompt).toContain("Короткий соседний контекст");
@@ -1085,8 +1128,8 @@ describe("CriminalCodeAnalyzerDO", () => {
         ],
       };
 
-      const payload = (analyzer as any).buildSemanticPrefilterPayload(input);
-      const prompt = (analyzer as any).buildSemanticPrefilterSystemPrompt(false);
+      const payload = buildSemanticPrefilterPayload(input);
+      const prompt = buildSemanticPrefilterSystemPrompt(false);
 
       expect(payload.replyTo).toEqual(input.replyTo);
       expect(prompt).toContain("replyTo");
@@ -1150,11 +1193,11 @@ describe("CriminalCodeAnalyzerDO", () => {
         messageId: 150,
         username: "targetuser",
         ts: 1500,
-        reasons: ["semantic_prefilter"],
+        reasons: ["semantic_prefilter"] as CriminalPrefilterReason[],
         enqueuedAt: Date.now(),
       };
 
-      const messages = (analyzer as any).buildContextMessages(recentMessages, task, 15, 5);
+      const messages = buildContextMessages(recentMessages, task, 15, 5);
       const targets = messages.filter((message: any) => message.isTarget);
 
       expect(targets).toHaveLength(1);
@@ -1245,7 +1288,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       ProviderFactory.createProvider = vi.fn().mockReturnValue(legalRagProvider);
       mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
       mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn().mockResolvedValue("0"),
         put: vi.fn().mockResolvedValue(undefined),
       };
@@ -1292,7 +1335,9 @@ describe("CriminalCodeAnalyzerDO", () => {
       };
       const kv = new Map<string, string>();
       mockEnv.HISTORY = {
-        get: vi.fn((key: string) => Promise.resolve(kv.has(key) ? JSON.parse(kv.get(key)!) : null)),
+        get: vi.fn((key: string, type?: string) => Promise.resolve(
+          !kv.has(key) ? null : type === 'json' ? JSON.parse(kv.get(key)!) : kv.get(key)!
+        )),
         put: vi.fn((key: string, value: string) => {
           kv.set(key, value);
           return Promise.resolve();
@@ -1307,10 +1352,6 @@ describe("CriminalCodeAnalyzerDO", () => {
       ProviderFactory.createProvider = vi.fn().mockReturnValue(legalRagProvider);
       mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
       mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
-      mockEnv.COUNTERS = {
-        get: vi.fn().mockResolvedValue("0"),
-        put: vi.fn().mockResolvedValue(undefined),
-      };
       const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
         output_text: JSON.stringify({
           shouldAnalyze: false,
@@ -1370,7 +1411,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       mockEnv.CRIMINAL_PREFILTER_MODEL = "gpt-5-nano";
       mockEnv.CRIMINAL_PREFILTER_BATCH_ENABLED = true;
       mockEnv.CRIMINAL_PREFILTER_BATCH_SIZE = 8;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn().mockResolvedValue("0"),
         put: vi.fn().mockResolvedValue(undefined),
       };
@@ -1421,7 +1462,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       };
       mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
       mockEnv.CRIMINAL_PREFILTER_DAILY_CAP = 1;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn((key: string) => Promise.resolve(
           key.startsWith("criminal_prefilter_daily:") ? "1" : "0"
         )),
@@ -1445,11 +1486,59 @@ describe("CriminalCodeAnalyzerDO", () => {
       }));
 
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+      expect(mockEnv.HISTORY.put).toHaveBeenCalledWith(
         expect.stringContaining("criminal_prefilter_skipped_daily:"),
         "1",
         expect.any(Object)
       );
+      vi.unstubAllGlobals();
+    });
+
+    it("continues today's prefilter cap from the legacy COUNTERS key until HISTORY has one", async () => {
+      const storage = new Map<string, any>();
+      mockState.storage = {
+        get: vi.fn((key: string) => Promise.resolve(storage.get(key))),
+        put: vi.fn((key: string, value: any) => {
+          storage.set(key, value);
+          return Promise.resolve();
+        }),
+        setAlarm: vi.fn().mockResolvedValue(undefined),
+      };
+      mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
+      mockEnv.CRIMINAL_PREFILTER_DAILY_CAP = 1;
+      mockEnv.HISTORY = {
+        get: vi.fn().mockResolvedValue(null),
+        put: vi.fn().mockResolvedValue(undefined),
+      };
+      mockEnv.COUNTERS = {
+        get: vi.fn((key: string) => Promise.resolve(
+          key.startsWith("criminal_prefilter_daily:") ? "1" : null
+        )),
+      };
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const queueAnalyzer = new CriminalCodeAnalyzerDO(mockState, mockEnv);
+
+      await queueAnalyzer.fetch(new Request("http://localhost/enqueue", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "угрожаю причинить вред людям, это сообщение достаточно длинное для проверки лимита",
+          chatId: 12345,
+          userId: 67890,
+          messageId: 118,
+          username: "testuser",
+          day: "2026-05-18"
+        }),
+        headers: { "Content-Type": "application/json" },
+      }));
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mockEnv.HISTORY.put).toHaveBeenCalledWith(
+        expect.stringContaining("criminal_prefilter_skipped_daily:"),
+        "1",
+        expect.any(Object)
+      );
+      delete mockEnv.COUNTERS;
       vi.unstubAllGlobals();
     });
 
@@ -1481,7 +1570,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
       mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
       mockEnv.LEGAL_RAG_DAILY_QUERY_CAP = 1;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn((key: string) => Promise.resolve(
           key.startsWith("legal_rag_daily:") ? "1" : "0"
         )),
@@ -1503,7 +1592,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       }));
 
       expect(legalRagProvider.analyzeCriminalCodeWithContext).not.toHaveBeenCalled();
-      expect(mockEnv.COUNTERS.put).toHaveBeenCalledWith(
+      expect(mockEnv.HISTORY.put).toHaveBeenCalledWith(
         expect.stringContaining("legal_rag_skipped_daily:"),
         "1",
         expect.any(Object)
@@ -1557,7 +1646,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
       mockEnv.CRIMINAL_FINAL_JUDGE_MODEL = "gpt-5-nano";
       mockEnv.CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE = 0.75;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn().mockResolvedValue("0"),
         put: vi.fn().mockResolvedValue(undefined),
       };
@@ -2072,9 +2161,9 @@ describe("CriminalCodeAnalyzerDO", () => {
         vectorId: "uk-rf:119:1:1:punishment",
       };
 
-      expect((analyzer as any).isUsefulFinalJudgeReference(dispositionReference)).toBe(true);
-      expect((analyzer as any).isUsefulFinalJudgeReference(punishmentReference)).toBe(false);
-      expect((analyzer as any).selectFinalJudgeReferences([
+      expect(isUsefulFinalJudgeReference(dispositionReference)).toBe(true);
+      expect(isUsefulFinalJudgeReference(punishmentReference)).toBe(false);
+      expect(selectFinalJudgeReferences([
         punishmentReference,
         dispositionReference,
       ], 1)).toEqual([dispositionReference]);
@@ -2099,7 +2188,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         vectorId: `uk-rf:${reference.article}:${reference.subarticle || "main"}:0:${index}`,
       }));
 
-      const selected = (analyzer as any).selectFinalJudgeReferences(references, 7);
+      const selected = selectFinalJudgeReferences(references, 7);
 
       expect(selected.map((reference: any) => reference.article)).toEqual([
         "165", "167", "168", "160", "296", "164", "158",
@@ -2118,7 +2207,7 @@ describe("CriminalCodeAnalyzerDO", () => {
         vectorId: "uk-rf:282:2:0",
       };
 
-      expect((analyzer as any).isUsefulFinalJudgeReference(reference)).toBe(true);
+      expect(isUsefulFinalJudgeReference(reference)).toBe(true);
     });
 
     it("should reject final judge violations quoted from neighboring context", async () => {
@@ -2159,7 +2248,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       mockEnv.CRIMINAL_AI_PREFILTER_ENABLED = false;
       mockEnv.CRIMINAL_FINAL_JUDGE_MODEL = "gpt-5-nano";
       mockEnv.CRIMINAL_FINAL_JUDGE_MIN_CONFIDENCE = 0.7;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn().mockResolvedValue("0"),
         put: vi.fn().mockResolvedValue(undefined),
       };
@@ -2264,7 +2353,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       };
       mockEnv.CRIMINAL_QUEUE_BATCH_SIZE = 1;
       mockEnv.CRIMINAL_QUEUE_ASYNC_FLUSH_ENABLED = true;
-      mockEnv.COUNTERS = {
+      mockEnv.HISTORY = {
         get: vi.fn().mockResolvedValue("0"),
         put: vi.fn().mockResolvedValue(undefined),
       };
@@ -2286,7 +2375,7 @@ describe("CriminalCodeAnalyzerDO", () => {
 
       expect(response.status).toBe(200);
       expect(storage.get("criminal_analysis_queue")).toHaveLength(1);
-      expect(mockEnv.COUNTERS.put).not.toHaveBeenCalled();
+      expect(mockEnv.HISTORY.put).not.toHaveBeenCalled();
       expect(setAlarm).toHaveBeenCalledTimes(1);
       const alarmAt = setAlarm.mock.calls[0][0] as number;
       expect(alarmAt).toBeGreaterThanOrEqual(before);
@@ -2400,7 +2489,7 @@ describe("CriminalCodeAnalyzerDO", () => {
       });
 
       const response = await analyzer.fetch(request);
-      const result = await response.json();
+      const result = await response.json<any>();
 
       expect(response.status).toBe(200);
       expect(result.userStats).toBeDefined();

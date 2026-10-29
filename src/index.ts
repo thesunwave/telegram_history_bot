@@ -1,4 +1,3 @@
-import { migrateStatsBatch, MIGRATION_PAGE } from "./features/migration/migrate";
 import { Env } from "./core/env";
 import { dailySummary } from "./features/stats/stats";
 import { summariseChat, summariseChatMessages } from "./features/summary/summary";
@@ -32,6 +31,7 @@ import {
   runDailyAggregateBackfill,
 } from "./features/stats/daily-backfill";
 import { handleLegalRagIngestBatch, handleLegalRagSearch } from "./features/legal-rag/ingest";
+import { TELEMETRY_PATH, handleTelemetryPing, sendTelemetryPing } from "./features/telemetry/telemetry";
 import type {
   ExecutionContext,
   ScheduledEvent,
@@ -94,7 +94,7 @@ export default {
     if (isPublicRead && isLegacyEnglish) {
       const canonical = new URL("/", req.url);
       canonical.search = url.search;
-      return Response.redirect(canonical, 301);
+      return Response.redirect(canonical.toString(), 301);
     }
     const isLandingPage = [
       '/', '/index.html', '/ru', '/ru/', '/ru/index.html',
@@ -113,8 +113,12 @@ export default {
       }
       const message = getTextMessage(await req.json());
       await recordMessage(message, env, ctx);
-      ctx.waitUntil(handleUpdate(message, env));
+      ctx.waitUntil(handleUpdate(message, env, url.origin));
       return Response.json({});
+    }
+
+    if (url.pathname === TELEMETRY_PATH && req.method === "POST") {
+      return handleTelemetryPing(req, env);
     }
 
     if (isPublicRead &&
@@ -124,7 +128,7 @@ export default {
       if (env.LANDING) return env.LANDING.fetch(req);
       if (isLandingPage) {
         const needsSetup = env.TOKEN && !env.TELEGRAM_LOGIN_CLIENT_ID && !env.ADMIN_BASIC_USER;
-        return Response.redirect(new URL(needsSetup ? "/admin/setup" : "/admin", req.url), 302);
+        return Response.redirect(new URL(needsSetup ? "/admin/setup" : "/admin", req.url).toString(), 302);
       }
       return new Response("Not found", { status: 404 });
     }
@@ -168,38 +172,6 @@ export default {
         });
         return adminUnavailableResponse(requestId);
       }
-    }
-
-    // Migration endpoints
-    if (url.pathname === "/migrate") {
-      const key = url.searchParams.get("key");
-      if (key !== env.SECRET) {
-        return new Response("Unauthorized", { status: 403 });
-      }
-      return new Response(MIGRATION_PAGE, {
-        headers: { "Content-Type": "text/html" },
-      });
-    }
-
-    if (url.pathname === "/api/migrate" && req.method === "POST") {
-      const key = url.searchParams.get("key");
-      if (key !== env.SECRET) {
-        return new Response("Unauthorized", { status: 403 });
-      }
-      const cursor = url.searchParams.get("cursor") || undefined;
-      const result = await migrateStatsBatch(env, cursor);
-      return Response.json(result);
-    }
-
-    if (url.pathname === "/api/reset-activity" && req.method === "POST") {
-      const key = url.searchParams.get("key");
-      if (key !== env.SECRET) {
-        return new Response("Unauthorized", { status: 403 });
-      }
-      const { resetActivityBatch } = await import("./features/migration/migrate");
-      const cursor = url.searchParams.get("cursor") || undefined;
-      const result = await resetActivityBatch(env, cursor);
-      return Response.json(result);
     }
 
     if (url.pathname === "/api/legal-rag/ingest-batch" && req.method === "POST") {
@@ -344,7 +316,7 @@ export default {
       });
 
       await recordMessage(msg, env, ctx);
-      ctx.waitUntil(handleUpdate(msg, env));
+      ctx.waitUntil(handleUpdate(msg, env, url.origin));
       return Response.json({});
     }
 
@@ -854,21 +826,27 @@ export default {
       }
     }
 
-    // Check for ENABLE_SUMMARY flag (default to true)
-    const summaryEnabled = env.ENABLE_SUMMARY !== 'false' && env.ENABLE_SUMMARY !== false;
-
-    if (summaryEnabled) {
-      await dailySummary(env);
-    } else {
-      console.log('Daily summary skipped (ENABLE_SUMMARY is false)');
-    }
-
-    // Run cleanup job
     try {
-      const cleanupResult = await cleanupOldData(env, 7, 30);
-      Logger.info(env, "Daily cleanup completed", cleanupResult);
-    } catch (e: any) {
-      Logger.error("Daily cleanup failed", { error: e.message || String(e) });
+      // Check for ENABLE_SUMMARY flag (default to true)
+      const summaryEnabled = env.ENABLE_SUMMARY !== 'false' && env.ENABLE_SUMMARY !== false;
+
+      if (summaryEnabled) {
+        await dailySummary(env);
+      } else {
+        console.log('Daily summary skipped (ENABLE_SUMMARY is false)');
+      }
+
+      // Run cleanup job
+      try {
+        const cleanupResult = await cleanupOldData(env, 7, 30);
+        Logger.info(env, "Daily cleanup completed", cleanupResult);
+      } catch (e: any) {
+        Logger.error("Daily cleanup failed", { error: e.message || String(e) });
+      }
+    } finally {
+      // A failed summary must not suppress the daily install ping.
+      const telemetry = await sendTelemetryPing(env);
+      Logger.info(env, "Anonymous telemetry ping", { result: telemetry });
     }
   },
 };

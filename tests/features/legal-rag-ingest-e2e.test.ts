@@ -92,7 +92,7 @@ class FakeD1Database {
 
 async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database }> {
   const sqlite = new Database(":memory:");
-  const migrationsDir = fileURLToPath(new URL("../../migrations/", import.meta.url));
+  const migrationsDir = fileURLToPath(new URL("../../migrations/", import.meta.url).href);
   const sql = readFileSync(join(migrationsDir, "0008_legal_rag_corpus.sql"), "utf8");
   for (const statement of sql.split(";")) {
     if (statement.trim()) sqlite.exec(statement);

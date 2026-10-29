@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MessageFormatter, ViolationAnalysis } from '../src/core/message-formatter';
-import { UserStats, PeriodStats, GeneralStats, ViolationCount, UserViolationCount, Violation } from '../src/models/statistics';
+import { UserStats, PeriodStats, GeneralStats, ViolationCount, UserViolationCount, Violation } from '../src/core/models/statistics';
 import { HTMLBuilder } from '../src/core/html-builder';
 
 describe('MessageFormatter', () => {
@@ -617,8 +617,8 @@ describe('MessageFormatter', () => {
         ...mockGeneralStats,
         topViolations: [
           ...mockGeneralStats.topViolations,
-          { article: '111', count: 1, averageSeverity: 3.0 },
-          { article: '222', count: 1, averageSeverity: 2.0 }
+          { article: '111', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 1, averageSeverity: 3.0 },
+          { article: '222', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 1, averageSeverity: 2.0 }
         ]
       };
 

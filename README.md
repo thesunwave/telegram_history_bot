@@ -33,10 +33,11 @@ admin and Telegram webhook routes stay exclusively in this bot Worker.
 2. Click **Deploy to Cloudflare**, select your own Cloudflare account, and enter
    the `TOKEN` secret. The source repository is copied into your own GitHub
    repository; it is not linked to the owner's production account.
-3. Confirm the build/deploy command is **`npm run deploy`** (not just
+3. Leave the pre-filled deploy command as **`npm run deploy`** (Cloudflare
+   reads it from `package.json`; do not replace it with plain
    `wrangler deploy`). It provisions the KV, D1 and Durable Objects bindings,
-   then applies the D1 migrations. Verify both deployment and migrations
-   succeeded in the build logs.
+   then applies the D1 migrations. Nothing else needs to be configured: no
+   extra secrets, AI keys or manual migrations are required for Basic mode.
 4. Open your new Worker's URL. It redirects to `/admin/setup`. Sign in with
    the same BotFather token and verify that D1 is ready. **Choose and save your
    storage mode**, then enable any features you want before selecting
@@ -96,7 +97,7 @@ Cloudflare Worker that stores Telegram chat messages (7 days in KV), generates s
 - Optional message history in Durable Objects/KV, with seven-day default
   retention (daily blocks + fallback single-message storage). Stats Only does
   not write raw messages to those stores.
-- Per-user counters via Durable Objects and KV.
+- Per-user counters via Durable Objects, stored as daily aggregates in D1.
 - **🚀 Optimized Summary System** with parallel processing and context management.
 - **🛡️ Automatic fallback** to legacy summarization on errors.
 - Optional profanity and criminal-code analysis with notification flows.
@@ -204,6 +205,22 @@ npm run dev
 `npm run deploy` (Wrangler deployment followed by remote D1 migrations).
 The root config is intentionally portable and has no pre-existing resource IDs.
 Your installation's generated IDs must be retained when upgrading.
+
+### Anonymous usage ping
+
+To count how many self-hosted bots are running, each install sends one
+anonymous request a day (after the daily summary cron) to
+`https://tghistory.thesunwave.space/telemetry/v1/ping`. It contains only:
+
+- a random install id, created on the first daily ping and stored in your D1 `app_settings`;
+- how many chats and groups were active in the last 7 days, as a range
+  (`0`, `1`, `2-5`, `6-20`, `21-100`, `100+`).
+
+It never contains chat or user ids, messages, usernames, your bot token or
+bot name, and the receiver does not store IP addresses. The source is in
+`src/features/telemetry/telemetry.ts`. To opt out, set the Worker variable
+`TELEMETRY_DISABLED=true` (Cloudflare dashboard → your Worker → Settings →
+Variables, or `vars` in `wrangler.jsonc`).
 
 ## Development
 

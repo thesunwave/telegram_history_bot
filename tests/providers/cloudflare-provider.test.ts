@@ -30,7 +30,7 @@ describe('CloudflareAIProvider', () => {
       DB: {} as any,
       TOKEN: 'test-token',
       SECRET: 'test-secret'
-    };
+    } as Env;
 
     provider = new CloudflareAIProvider(mockEnv);
   });

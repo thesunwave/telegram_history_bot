@@ -130,7 +130,7 @@ class FakeD1Database {
 
 async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database }> {
   const sqlite = new Database(':memory:');
-  const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url));
+  const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url).href);
   for (const file of [
     '0002_activity.sql',
     '0009_stats_daily_aggregates.sql',
@@ -1081,7 +1081,7 @@ describe('admin stats backend selector', () => {
     expect(env.COUNTERS.list).not.toHaveBeenCalled();
   });
 
-  it('parseAdminPeriod enforces the 90-day custom cap, rejects future custom, defaults to today', () => {
+  it('parseAdminPeriod allows long custom ranges, rejects future custom, defaults to today', () => {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     const todayStr = today.toISOString().slice(0, 10);
@@ -1096,15 +1096,18 @@ describe('admin stats backend selector', () => {
     expect(parseAdminPeriod('today').days).toHaveLength(1);
     expect(parseAdminPeriod('today').from).toBe(todayStr);
     expect(parseAdminPeriod('today').to).toBe(todayStr);
-    // Custom ending in the future is invalid (400), even within the 90-day cap.
+    // Custom ending in the future is invalid (400).
     expect(() => parseAdminPeriod('custom', daysFromToday(-2), daysFromToday(1))).toThrow(
       /future/,
     );
     expect(() => parseAdminPeriod('custom', todayStr, daysFromToday(1))).toThrow(/future/);
-    // 90-day cap still enforced for closed past ranges.
-    expect(() =>
-      parseAdminPeriod('custom', daysFromToday(-95), daysFromToday(-1)),
-    ).toThrow(/90/);
+    // Custom ranges allow any realistic length: a full calendar year is accepted.
+    const year = parseAdminPeriod('custom', '2025-01-01', '2025-12-31');
+    expect(year.days).toHaveLength(365);
+    expect(year.from).toBe('2025-01-01');
+    expect(year.to).toBe('2025-12-31');
+    // Only an absurd range (malformed `from`) hits the ~10-year sanity bound.
+    expect(() => parseAdminPeriod('custom', '0001-01-01', daysFromToday(-1))).toThrow(/3660/);
   });
 
   it('week and month presets are rolling UTC windows including today', () => {

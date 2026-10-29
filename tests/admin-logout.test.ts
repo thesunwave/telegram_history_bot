@@ -98,7 +98,7 @@ describe('admin logout', () => {
     const cookiePair = cookie.split(';', 1)[0];
     const response = await handleAdminRequest(new Request('https://example.com/admin/logout', {
       method: 'POST',
-      headers: { Cookie: cookiePair, ...headers },
+      headers: { Cookie: cookiePair, ...headers } as Record<string, string>,
     }), env);
 
     expect(response.status).toBe(403);

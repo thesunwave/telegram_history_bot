@@ -2,7 +2,7 @@
  * Интеграционные тесты для команды автоматических уведомлений
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { handleUpdate } from '../../src/api/update';
 import type { Env } from '../../src/core/env';
 
@@ -122,7 +122,7 @@ describe('Auto Notifications Integration', () => {
       };
 
       // Настраиваем мок для возврата существующих настроек при первом вызове
-      vi.mocked(mockEnv.HISTORY.get)
+      vi.mocked(mockEnv.HISTORY.get as Mock)
         .mockResolvedValueOnce(JSON.stringify(existingSettings)) // Для getChatSettings
         .mockResolvedValueOnce(JSON.stringify(existingSettings)); // Для canUserModifySettings
 
@@ -224,7 +224,7 @@ describe('Auto Notifications Integration', () => {
         allowedUsers: ['999'] // Только другой пользователь в списке
       };
 
-      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(existingSettings));
+      vi.mocked(mockEnv.HISTORY.get as Mock).mockResolvedValue(JSON.stringify(existingSettings));
 
       const mockMessage = {
         chat: { id: 123 },
@@ -314,7 +314,7 @@ describe('Auto Notifications Integration', () => {
         }
       };
 
-      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(existingSettings));
+      vi.mocked(mockEnv.HISTORY.get as Mock).mockResolvedValue(JSON.stringify(existingSettings));
 
       const mockMessage = {
         chat: { id: 123 },
@@ -360,7 +360,7 @@ describe('Auto Notifications Integration', () => {
 
     it('should handle malformed stored data', async () => {
       // Мокаем поврежденные данные
-      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue('invalid json');
+      vi.mocked(mockEnv.HISTORY.get as Mock).mockResolvedValue('invalid json');
 
       const mockMessage = {
         chat: { id: 123 },

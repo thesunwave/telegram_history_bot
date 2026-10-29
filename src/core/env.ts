@@ -3,7 +3,9 @@ export type ProviderType = "cloudflare" | "openai" | "openai-premium" | "openrou
 export interface Env {
   LANDING?: { fetch(request: Request): Promise<Response> };
   HISTORY: import("@cloudflare/workers-types").KVNamespace;
-  COUNTERS: import("@cloudflare/workers-types").KVNamespace;
+  // Legacy stats KV. Counters live in D1; only the one-off KV -> D1 daily
+  // aggregate backfill still reads it on installations that have it bound.
+  COUNTERS?: import("@cloudflare/workers-types").KVNamespace;
   COUNTERS_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
   // Added DayBlockManager Durable Object binding
   DAY_BLOCK_MANAGER_DO: import("@cloudflare/workers-types").DurableObjectNamespace;
@@ -12,6 +14,10 @@ export interface Env {
   AI: any;
   LEGAL_RAG_INDEX?: any;
   ENVIRONMENT?: string;
+  // Opt out of the daily anonymous install ping (see README).
+  TELEMETRY_DISABLED?: string | boolean;
+  // Set only on the hosted instance that receives install pings.
+  TELEMETRY_RECEIVER?: string | boolean;
   TOKEN: string;
   SECRET?: string;
   SUMMARY_MODEL?: string;
@@ -32,6 +38,7 @@ export interface Env {
   PROFANITY_USER_PROMPT?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
+  OPENAI_MAX_TOKENS?: string | number;
   CLOUDFLARE_MODEL?: string;
   OPENROUTER_API_KEY?: string;
   OPENROUTER_BASE_URL?: string;
@@ -53,6 +60,8 @@ export interface Env {
   ADMIN_BASIC_PASSWORD?: string;
   TELEGRAM_BOT_USERNAME?: string;
   TELEGRAM_LOGIN_CLIENT_ID?: string;
+  // Public https origin of this Worker; used for the /dashboard link.
+  PUBLIC_URL?: string;
   DRY_RUN?: string;
 
   // Optimized summary system configuration
@@ -97,6 +106,7 @@ export interface Env {
   CRIMINAL_PREFILTER_DAILY_CAP?: string | number;
   LEGAL_RAG_DAILY_QUERY_CAP?: string | number;
   LEGAL_RAG_TOP_K?: string | number;
+  LEGAL_RAG_QUERY_VARIANTS?: string | number;
   LEGAL_RAG_MIN_SCORE?: string | number;
   LEGAL_RAG_LAW_CODE?: string;
   LEGAL_RAG_EMBEDDING_MODEL?: string;

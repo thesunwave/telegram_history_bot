@@ -2,7 +2,7 @@
  * Интеграционные тесты для интеграции криминальных уведомлений
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { recordMessage } from '../../src/api/update';
 import type { Env } from '../../src/core/env';
 
@@ -108,7 +108,7 @@ describe('Criminal Notifications Integration', () => {
         adminOnly: true
       };
 
-      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(disabledSettings));
+      vi.mocked(mockEnv.HISTORY.get as Mock).mockResolvedValue(JSON.stringify(disabledSettings));
 
       const mockMessage = {
         chat: { id: 123 },
@@ -147,7 +147,7 @@ describe('Criminal Notifications Integration', () => {
         adminOnly: true
       };
 
-      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(partiallyEnabledSettings));
+      vi.mocked(mockEnv.HISTORY.get as Mock).mockResolvedValue(JSON.stringify(partiallyEnabledSettings));
 
       const mockMessage = {
         chat: { id: 123 },
@@ -186,7 +186,7 @@ describe('Criminal Notifications Integration', () => {
         adminOnly: true
       };
 
-      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(JSON.stringify(enabledSettings));
+      vi.mocked(mockEnv.HISTORY.get as Mock).mockResolvedValue(JSON.stringify(enabledSettings));
 
       const mockMessage = {
         chat: { id: 123 },
@@ -208,7 +208,7 @@ describe('Criminal Notifications Integration', () => {
 
     it('should not send notification when no settings exist (default behavior)', async () => {
       // Настраиваем мок для отсутствующих настроек
-      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null);
+      vi.mocked(mockEnv.HISTORY.get as Mock).mockResolvedValue(null);
 
       const mockMessage = {
         chat: { id: 123 },
