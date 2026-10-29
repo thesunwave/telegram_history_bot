@@ -451,6 +451,41 @@ const ADMIN_EN: Record<string, string> = {
   'Сначала войди в админку через Telegram.': 'Sign in to the dashboard with Telegram first.',
   'Выбери режим хранения сообщений.': 'Choose a message storage mode.',
 
+  'Это настройки провайдера только для AI-сводок. Мат и уголовный анализ могут использовать другие модели.':
+    'These provider settings apply to AI summaries only. Profanity and criminal analysis may use other models.',
+  'Текущая конфигурация (только чтение)': 'Current configuration (read-only)',
+  'Это информационный обзор. Настройки провайдеров мата, уголовного анализа и их дополнительных этапов по-прежнему задаются переменными Cloudflare.':
+    'This is an overview only. Providers for profanity, criminal analysis and their extra stages are still set by Cloudflare variables.',
+  'Сохранить изменения': 'Save changes',
+  'Есть несохранённые изменения. Сохранение создаст переопределение в D1, которое будет иметь приоритет над переменными Cloudflare.':
+    'You have unsaved changes. Saving creates a D1 override that takes precedence over Cloudflare variables.',
+  'Нет несохранённых изменений.': 'No unsaved changes.',
+  'Настройки функций переопределены в D1. Изменения Cloudflare могут не влиять на эти переключатели.':
+    'Feature settings are overridden in D1. Cloudflare changes may not affect these toggles.',
+  'Настройки функций получены из текущих переменных Cloudflare. В D1 нет глобального переопределения.':
+    'Feature settings come from the current Cloudflare variables. There is no global override in D1.',
+  'Не удалось достоверно определить источник настроек. Не сохраняй изменения, пока D1 недоступна.':
+    'Could not reliably determine where settings come from. Do not save changes while D1 is unavailable.',
+  'по настройкам провайдера': 'provider default',
+  'выключен': 'off',
+  'включён': 'on',
+  'включены': 'on',
+  'выключены': 'off',
+  'AI-сводки: ': 'AI summaries: ',
+  '; провайдер: ': '; provider: ',
+  '; модель: ': '; model: ',
+  'Анализ мата: ': 'Profanity analysis: ',
+  'включён, считается внутри уголовного prefilter (локальный словарь и подсказки prefilter), отдельных AI-запросов нет':
+    'on, counted inside the criminal prefilter (local dictionary and prefilter hints), no separate AI requests',
+  'включён, отдельный AI-запрос на сообщение; провайдер: ': 'on, a separate AI request per message; provider: ',
+  'Уголовный анализ: ': 'Criminal analysis: ',
+  '; основной провайдер: ': '; main provider: ',
+  'embedding-модель: ': 'embedding model: ',
+  'модель: ': 'model: ',
+  'D1 недоступна. Настройки не сохранены.': 'D1 is unavailable. Settings were not saved.',
+  'Сохранить изменения глобальных настроек? Это запишет их в D1 и переопределит текущие переменные Cloudflare для функций бота.':
+    'Save changes to global settings? They will be written to D1 and override the current Cloudflare variables for bot features.',
+
   // Time-of-day labels sent by the stats API
   'Утро': 'Morning',
   'День': 'Afternoon',

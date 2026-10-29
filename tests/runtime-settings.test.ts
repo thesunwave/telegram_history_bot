@@ -3,6 +3,7 @@ import type { Env } from '../src/core/env';
 import {
   resetRuntimeSettingsCache,
   resolveRuntimeSettings,
+  runsSeparateProfanityAnalysis,
   saveSummaryRuntimeSettings,
   saveRuntimeSettings,
   withRuntimeSettings,
@@ -73,6 +74,31 @@ describe('runtime settings', () => {
 
     expect(settings.summary).toEqual({ enabled: true, provider: 'openai', model: 'gpt-5-nano' });
     expect(settings.criminalEnabled).toBe(true);
+  });
+
+  it('treats profanity counted by the criminal prefilter as enabled without a separate AI analysis', async () => {
+    const production = makeEnv({
+      ENABLE_PROFANITY_ANALYSIS: false,
+      ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER: true,
+      ENABLE_CRIMINAL_ANALYSIS: true,
+    });
+    const runtimeEnv = await withRuntimeSettings(production);
+    expect(runtimeEnv.ENABLE_PROFANITY_ANALYSIS).toBe(true);
+    expect(runsSeparateProfanityAnalysis(runtimeEnv)).toBe(false);
+
+    const withoutCriminal = await withRuntimeSettings(makeEnv({
+      ENABLE_PROFANITY_ANALYSIS: true, ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER: true,
+    }));
+    expect(runsSeparateProfanityAnalysis(withoutCriminal)).toBe(true);
+  });
+
+  it('keeps the deployment profanity switch for old settings rows without the toggle', async () => {
+    const db = makeSettingsDb(JSON.stringify({ version: 1, summary: { enabled: false } }));
+    const settings = await resolveRuntimeSettings(makeEnv({
+      DB: db as any, ENABLE_PROFANITY_ANALYSIS: false,
+      ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER: true, ENABLE_CRIMINAL_ANALYSIS: true,
+    }));
+    expect(settings.profanityEnabled).toBe(false);
   });
 
   it('lets persisted wizard settings override deploy-time summary settings', async () => {
