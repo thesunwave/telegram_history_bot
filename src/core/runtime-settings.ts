@@ -46,6 +46,27 @@ function parseBoolean(value: string | boolean | undefined, fallback: boolean): b
   return value !== false && value !== 'false';
 }
 
+// Match CriminalCodeAnalyzerDO.getBooleanEnv: only a case-insensitive "false" disables.
+function parseFlag(value: string | boolean | undefined | null, fallback: boolean): boolean {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'boolean') return value;
+  return String(value).toLowerCase() !== 'false';
+}
+
+/**
+ * Profanity counters can come from the criminal prefilter (local dictionary and
+ * prefilter hints) instead of a separate AI call per message.
+ */
+export function profanityViaCriminalPrefilter(env: Env): boolean {
+  return parseFlag(env.ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER, false) &&
+    parseBoolean(env.ENABLE_CRIMINAL_ANALYSIS, false);
+}
+
+/** Whether a separate AI profanity analysis runs per message (expects a runtime env). */
+export function runsSeparateProfanityAnalysis(env: Env): boolean {
+  return parseBoolean(env.ENABLE_PROFANITY_ANALYSIS, true) && !profanityViaCriminalPrefilter(env);
+}
+
 function normalizeProvider(value: unknown): ConfigurableSummaryProvider {
   return value === 'openai' || value === 'openrouter' ? value : 'cloudflare';
 }
@@ -75,7 +96,9 @@ function baseSettingsFromEnv(env: Env): RuntimeSettings {
       provider,
       model: modelForProvider(env, provider),
     },
-    profanityEnabled: parseBoolean(env.ENABLE_PROFANITY_ANALYSIS, false),
+    // Without a saved policy, profanity statistics are collected when either the
+    // separate analysis or the criminal prefilter path is enabled (as the analyzer does).
+    profanityEnabled: parseBoolean(env.ENABLE_PROFANITY_ANALYSIS, false) || profanityViaCriminalPrefilter(env),
     criminalEnabled: parseBoolean(env.ENABLE_CRIMINAL_ANALYSIS, false),
     activityTrackingEnabled: parseBoolean(env.ENABLE_ACTIVITY_TRACKING, true),
   };
@@ -149,7 +172,8 @@ export async function resolveRuntimeSettings(env: Env, fresh = false): Promise<R
   return {
     storageMode,
     activityTrackingEnabled: persisted.activityTrackingEnabled ?? base.activityTrackingEnabled,
-    profanityEnabled: persisted.profanityEnabled ?? base.profanityEnabled,
+    // Old rows without the toggle keep the deployment-level switch, like the analyzer.
+    profanityEnabled: persisted.profanityEnabled ?? parseBoolean(env.ENABLE_PROFANITY_ANALYSIS, false),
     criminalEnabled: history && (persisted.criminalEnabled ?? base.criminalEnabled),
     summary: {
       enabled: history && (persisted.summary?.enabled ?? base.summary.enabled),

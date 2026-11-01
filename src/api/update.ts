@@ -22,6 +22,7 @@ import {
 } from '../features/stats/stats';
 import { sendMessage } from '../core/telegram';
 import { Logger } from '../core/logger';
+import { runsSeparateProfanityAnalysis } from '../core/runtime-settings';
 import { ProfanityAnalyzer } from '../features/profanity/profanity';
 import { ProviderFactory } from '../core/providers/provider-factory';
 import { NotificationService } from '../core/services/notification-service';
@@ -152,7 +153,7 @@ type ProgressOutcome = 'completed' | 'zero' | 'skipped' | 'failed';
 
 /** Whether profanity analysis will actually run for this message. */
 function profanityAnalysisEnabledFor(env: Env, msg: any): boolean {
-  const enabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
+  const enabled = runsSeparateProfanityAnalysis(env);
   return enabled && !!msg?.text && !msg.text.startsWith('/') && !isTestEnvironment(env);
 }
 
@@ -372,7 +373,8 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   });
 
   // Instance policy first, then the chat's own switches (they can only narrow it).
-  const instanceProfanityEnabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
+  // Profanity counted by the criminal prefilter needs no separate AI analysis.
+  const instanceProfanityEnabled = runsSeparateProfanityAnalysis(env);
   const instanceCriminalEnabled = env.ENABLE_CRIMINAL_ANALYSIS !== 'false' && env.ENABLE_CRIMINAL_ANALYSIS !== false;
   const analysableText = Boolean(msg.text) && !msg.text.startsWith('/');
   const chatSettings = analysableText && (instanceProfanityEnabled || instanceCriminalEnabled)
