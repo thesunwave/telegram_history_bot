@@ -96,7 +96,9 @@ Cloudflare Worker that stores Telegram chat messages (7 days in KV), generates s
 ## Privacy and data
 
 The bot needs to see group messages to count them, so here is exactly what it keeps.
-The storage mode is chosen once in `/admin/setup` and applies to the whole instance.
+The storage mode is set in `/admin/setup` for the whole instance. It can be changed
+later, but switching to statistics-only does not purge existing history; it
+expires under the retention policy.
 
 - **Statistics only:** no message text is stored. The bot keeps chat and user
   ids, usernames, the group title and per-day counters (messages, words, media,
@@ -104,8 +106,10 @@ The storage mode is chosen once in `/admin/setup` and applies to the whole insta
 - **Message history + statistics:** in addition, raw message text is kept for
   seven days by default (`RAW_MESSAGE_RETENTION_DAYS`) and then deleted
   automatically. It is needed for AI summaries and context analysis.
-- **Summaries and criminal-analysis results** (both off by default) are removed
-  by the daily cleanup after 30 days; analysis results may include short quotes.
+- **Summaries and criminal-analysis results** are removed by the daily cleanup
+  after 30 days; analysis results may include short quotes. Both are off by
+  default on a new self-hosted install; the hosted @stat_history_bot runs
+  criminal analysis.
 - Counters and usernames do not expire automatically yet.
 
 **Where it lives.** With [@stat_history_bot](https://t.me/stat_history_bot) the
