@@ -107,7 +107,7 @@ expires under the retention policy.
   seven days by default (`RAW_MESSAGE_RETENTION_DAYS`) and then deleted
   automatically. It is needed for AI summaries and context analysis.
 - **Summaries and criminal-analysis results** are removed by the daily cleanup
-  after 30 days; analysis results may include short quotes. Both are off by
+  after 30 days (a failed or skipped cleanup run leaves them longer); analysis results may include short quotes. Both are off by
   default on a new self-hosted install; the hosted @stat_history_bot runs
   criminal analysis.
 - Counters and usernames do not expire automatically yet.
