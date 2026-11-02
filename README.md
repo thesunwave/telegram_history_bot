@@ -4,6 +4,8 @@
 
 **Try it without deploying anything:** [Add @stat_history_bot to your group](https://t.me/stat_history_bot?startgroup=true) · [See screenshots and features](https://tghistory.thesunwave.space/) · [Compare with Combot](https://tghistory.thesunwave.space/combot-alternative)
 
+![History Bot admin dashboard: messages, active members, voice and video stats, messages per day and activity by hour](docs/images/admin-overview.jpg)
+
 Once added, use `/help` to see commands and `/top` or `/activity_week` for group statistics. Statistics build up from messages the bot is allowed to receive; it cannot reconstruct messages sent before it joined. Bot privacy settings may affect which group messages Telegram delivers.
 
 **Prefer full control?** [Deploy your own instance to Cloudflare](https://deploy.workers.cloudflare.com/?url=https://github.com/thesunwave/telegram_history_bot). Self-hosting requires your own Telegram bot token and Cloudflare account; the steps are below. History Bot is primarily a *statistics* tool, not a substitute for moderation or anti-spam bots.
@@ -90,6 +92,41 @@ Provide the `TOKEN` secret from BotFather during setup, then open
 The deploy command applies D1 migrations automatically.
 
 Cloudflare Worker that stores Telegram chat messages (7 days in KV), generates summaries, and optionally runs profanity/criminal analysis with notifications. Supports Cloudflare AI and OpenAI providers, and includes an **optimized summary system** with parallel processing, context optimization, and automatic fallback.
+
+## Privacy and data
+
+The bot needs to see group messages to count them, so here is exactly what it keeps.
+The storage mode is set in `/admin/setup` for the whole instance. It can be changed
+later, but switching to statistics-only does not purge existing history; it
+expires under the retention policy.
+
+- **Statistics only:** no message text is stored. The bot keeps chat and user
+  ids, usernames, the group title and per-day counters (messages, words, media,
+  active hours, and profanity words if that analysis is on).
+- **Message history + statistics:** in addition, raw message text is kept for
+  seven days by default (`RAW_MESSAGE_RETENTION_DAYS`) and then deleted
+  automatically. It is needed for AI summaries and context analysis.
+- **Summaries and criminal-analysis results** are removed by the daily cleanup
+  after 30 days (a failed or skipped cleanup run leaves them longer); analysis results may include short quotes. Both are off by
+  default on a new self-hosted install; the hosted @stat_history_bot runs
+  criminal analysis.
+- Counters and usernames do not expire automatically yet.
+
+**Where it lives.** With [@stat_history_bot](https://t.me/stat_history_bot) the
+data is in the maintainer's Cloudflare account. With your own instance it is only
+in your Cloudflare account (KV, D1, Durable Objects). AI features are off by
+default; when you enable one, the text it processes is sent to the provider you
+configure (Workers AI, OpenAI, OpenRouter, etc.). Telegram and Cloudflare also
+see the data as platforms, and their backups and logs are outside the bot's control.
+
+**Deleting it.** `/reset` clears all counters for the chat; `/profanity_reset`
+and `/criminal_reset` clear those analyses. Removing the bot stops collection,
+and stored message text then expires with the retention period. One-step
+deletion of everything about a chat, including usernames and metadata, is
+tracked in [#173](https://github.com/thesunwave/telegram_history_bot/issues/173).
+On your own instance you can also delete anything from the Cloudflare dashboard.
+
+The anonymous install ping is described [below](#anonymous-usage-ping).
 
 ## Features
 
