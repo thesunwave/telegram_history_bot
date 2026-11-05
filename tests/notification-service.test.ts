@@ -278,16 +278,11 @@ describe('NotificationService', () => {
   });
 
   describe('getAvailableNotificationTypes', () => {
-    it('should return all available notification types', () => {
+    it('should expose only notification types with implemented delivery', () => {
       const types = service.getAvailableNotificationTypes();
 
       expect(types).toEqual([
-        'criminal_reports',
-        'profanity_reports',
-        'activity_summary',
-        'daily_summary',
-        'weekly_summary',
-        'monthly_summary'
+        'activity_summary'
       ]);
     });
   });
