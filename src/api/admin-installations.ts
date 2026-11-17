@@ -1,6 +1,5 @@
 import type { Env } from '../core/env';
-import { listAdminChats, listAdminChatsWithRoleForTelegramUser, saveAdminChatMeta } from './admin-chats';
-import { buildChatOverview } from './admin-groups';
+import { listAdminChats, saveAdminChatMeta } from './admin-chats';
 
 const INSTALLATION_PREFIX = 'bot_membership:';
 const MEMBER_STATUSES = ['creator', 'administrator', 'member', 'restricted', 'left', 'kicked'];
@@ -89,11 +88,9 @@ export async function recordBotMembership(
   await saveAdminChatMeta(env, update.chat, lastSeenAt);
 }
 
-/** Lists known installations, scoped to chat membership for Telegram sessions. */
-export async function listBotInstallations(env: Env, telegramId?: number) {
-  const chats = telegramId === undefined
-    ? await listAdminChats(env)
-    : await buildChatOverview(env, await listAdminChatsWithRoleForTelegramUser(env, telegramId));
+/** Lists all known chat installations; the caller must authenticate the bot owner. */
+export async function listBotInstallations(env: Env) {
+  const chats = await listAdminChats(env);
   const installations = [];
   for (let offset = 0; offset < chats.length; offset += 10) {
     installations.push(...await Promise.all(chats.slice(offset, offset + 10).map(async (chat) => ({

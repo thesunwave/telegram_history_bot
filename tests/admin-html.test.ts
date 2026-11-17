@@ -18,6 +18,18 @@ describe('renderAdminHtml', () => {
     expect(renderAdminHtml({ principal: user, canAccessSetup: false })).not.toContain('href="/admin/setup"');
   });
 
+  it('shows installations only for an explicitly authorized Telegram owner', () => {
+    const principal = { type: 'telegram', username: 'owner', telegramId: 42 };
+    expect(renderAdminHtml({ principal, canAccessInstallations: true }))
+      .toContain('href="/admin/installations"');
+    expect(renderAdminHtml({ principal, canAccessSetup: true }))
+      .not.toContain('href="/admin/installations"');
+    expect(renderAdminHtml({ principal: null, canAccessInstallations: true }))
+      .not.toContain('href="/admin/installations"');
+    expect(renderAdminHtml({ principal: { type: 'basic', username: 'admin' }, canAccessInstallations: true }))
+      .not.toContain('href="/admin/installations"');
+  });
+
   it('does not offer logout on the login screen', () => {
     const html = renderAdminHtml({ botUsername: 'stats_bot', principal: null });
 

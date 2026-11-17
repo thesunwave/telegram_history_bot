@@ -16,7 +16,6 @@ const RUSSIAN_LANGUAGE_TAGS = new Set(['ru', 'uk', 'be', 'kk']);
  */
 const ADMIN_EN: Record<string, string> = {
   'Установки бота': 'Bot installations',
-  'Установки бота · вход администратора': 'Bot installations · admin sign-in',
   // Shell, navigation and sign-in
   'История чатов · админка': 'Chat History · dashboard',
   'И': 'H',

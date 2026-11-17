@@ -56,12 +56,17 @@ export async function canAccessSetupLink(env: Env, telegramId: number): Promise<
   return !ownerId || ownerId === String(telegramId);
 }
 
+/** Grants instance-wide access only to the configured or already paired Telegram owner. */
+export async function isTelegramBotOwner(env: Env, telegramId: number): Promise<boolean> {
+  const ownerId = configuredOwnerId(env) ?? await storedOwnerId(env);
+  return ownerId !== null && ownerId === String(telegramId);
+}
+
 async function setupOwnerAuth(req: Request, env: Env): Promise<OwnerAuthMethod | null> {
   const principal = await authenticateTelegramSession(req, env);
   if (principal?.telegramId) {
     // Ordinary Telegram group admins have no instance-wide permissions.
-    const ownerId = configuredOwnerId(env) ?? await storedOwnerId(env);
-    if (String(principal.telegramId) === ownerId) return 'telegram';
+    if (await isTelegramBotOwner(env, principal.telegramId)) return 'telegram';
   }
   // Token sessions only bootstrap standalone installations without Telegram Login.
   // When Telegram Login is configured, only the designated Telegram owner can
