@@ -1,4 +1,4 @@
-/** Standalone installation list shared by scoped Telegram and full admin views. */
+/** Installation list accessible through the bot owner's Telegram session. */
 export function renderInstallationsHtml(): string {
   return `<!doctype html>
 <html lang="ru">
@@ -25,7 +25,6 @@ export function renderInstallationsHtml(): string {
 </head>
 <body><main>
   <a href="/admin">← Админка</a>
-  <p><a href="/admin/installations">Все установки · вход администратора</a></p>
   <section id="selfHostedPanel" hidden>
     <h1>Самостоятельные установки</h1>
     <p id="selfHostedSummary" aria-live="polite"></p>

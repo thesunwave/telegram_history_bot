@@ -33,7 +33,7 @@ import { renderAdminHtml } from './admin-html';
 import { listBotInstallations, listSelfHostedInstallations } from './admin-installations';
 import { renderInstallationsHtml } from './admin-installations-html';
 import { resolveAdminLanguage } from './admin-i18n';
-import { canAccessSetupLink, handleSetupRequest } from './setup';
+import { canAccessSetupLink, handleSetupRequest, isTelegramBotOwner } from './setup';
 
 const ADMIN_PATH = '/admin';
 
@@ -309,9 +309,11 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
   if (url.pathname === ADMIN_PATH || url.pathname === `${ADMIN_PATH}/`) {
     const principal = await authenticateTelegramSession(req, env);
     let canAccessSetup = false;
+    let canAccessInstallations = false;
     if (principal?.telegramId) {
       try {
         canAccessSetup = await canAccessSetupLink(env, principal.telegramId);
+        canAccessInstallations = await isTelegramBotOwner(env, principal.telegramId);
       } catch {
         // A settings DB failure must not prevent opening the statistics admin.
       }
@@ -319,6 +321,7 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     return new Response(renderAdminHtml({
       principal,
       canAccessSetup,
+      canAccessInstallations,
       language: resolveAdminLanguage(req),
     }), {
       headers: {
@@ -329,22 +332,31 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     });
   }
 
-  if (url.pathname === `${ADMIN_PATH}/installations` && req.method === 'GET') {
-    const memberView = url.searchParams.get('scope') === 'member';
-    const authenticated = memberView
-      ? await authenticateTelegramSession(req, env) : authenticateAdmin(req, env);
-    // The full list requires Basic Auth even when a Telegram session exists.
-    if (!authenticated) {
-      if (memberView) {
+  const installationsPage = url.pathname === `${ADMIN_PATH}/installations`;
+  const installationsApi = url.pathname === `${ADMIN_PATH}/api/installations`;
+  if ((installationsPage || installationsApi) && req.method === 'GET') {
+    const principal = await authenticateTelegramSession(req, env);
+    if (!principal?.telegramId) {
+      if (installationsPage) {
         return new Response(null, {
           status: 302,
           headers: { Location: '/admin', 'Cache-Control': 'no-store' },
         });
       }
-      return new Response('Unauthorized', {
-        status: 401,
-        headers: { 'WWW-Authenticate': 'Basic realm="Bot installations"', 'Cache-Control': 'no-store' },
+      return unauthorizedAdminResponse();
+    }
+    if (!await isTelegramBotOwner(env, principal.telegramId)) {
+      return Response.json({ ok: false, error: 'Bot owner access required' }, {
+        status: 403, headers: { 'Cache-Control': 'no-store' },
       });
+    }
+    if (installationsApi) {
+      return Response.json({
+        ok: true,
+        scope: 'all',
+        installations: await listBotInstallations(env),
+        selfHosted: await listSelfHostedInstallations(env),
+      }, { headers: { 'Cache-Control': 'no-store' } });
     }
     return new Response(renderInstallationsHtml(), {
       headers: { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store' },
@@ -402,20 +414,9 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     });
   }
 
-  const principal = url.pathname === `${ADMIN_PATH}/api/installations`
-    ? authenticateAdmin(req, env) || await authenticateTelegramSession(req, env)
-    : await authenticateAdminRequest(req, env);
+  const principal = await authenticateAdminRequest(req, env);
   if (!principal) {
     return unauthorizedAdminResponse();
-  }
-
-  if (url.pathname === `${ADMIN_PATH}/api/installations` && req.method === 'GET') {
-    return Response.json({
-      ok: true,
-      scope: principal.type === 'basic' ? 'all' : 'member',
-      installations: await listBotInstallations(env, principal.telegramId),
-      selfHosted: principal.type === 'basic' ? await listSelfHostedInstallations(env) : null,
-    }, { headers: { 'Cache-Control': 'no-store' } });
   }
 
   if (url.pathname === `${ADMIN_PATH}/api/chats` && req.method === 'GET') {
