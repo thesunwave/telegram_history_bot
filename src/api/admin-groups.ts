@@ -81,7 +81,7 @@ export async function buildChatOverview(
     chats.map(async (chat) => ({ chat, settings: await readChatSettings(env, chat.chatId) })),
   );
   const visible = withSettings.filter(
-    // Unconfirmed roles count as members here: admins-only chats need a confirmed admin.
+    // All roles are confirmed; administrators-only dashboards exclude confirmed members.
     ({ chat, settings }) => settings.dashboardAccess !== 'admins' || chat.role === 'admin',
   );
   const pulses = await readChatPulses(env, visible.map(({ chat }) => chat.chatId));

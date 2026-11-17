@@ -106,7 +106,6 @@ async function listStatsChatIds(env: Env): Promise<Set<number>> {
 
 interface AdminChatCandidate {
   chat: AdminChatMeta;
-  hasStoredMeta: boolean;
 }
 
 async function listAdminChatCandidates(env: Env): Promise<AdminChatCandidate[]> {
@@ -114,7 +113,7 @@ async function listAdminChatCandidates(env: Env): Promise<AdminChatCandidate[]> 
   const byId = new Map<number, AdminChatCandidate>();
 
   for (const chat of storedChats) {
-    byId.set(chat.chatId, { chat, hasStoredMeta: true });
+    byId.set(chat.chatId, { chat });
   }
 
   const statsChatIds = await listStatsChatIds(env);
@@ -126,7 +125,6 @@ async function listAdminChatCandidates(env: Env): Promise<AdminChatCandidate[]> 
           title: `Chat ${chatId}`,
           lastSeenAt: 0,
         },
-        hasStoredMeta: false,
       });
     }
   }
@@ -155,6 +153,12 @@ export async function getTelegramChatRole(
   chatId: number,
   userId: number,
 ): Promise<TelegramChatRole> {
+  // Positive Telegram chat IDs identify private dialogs with that user.
+  // A group-membership lookup must never grant access to someone else's dialog.
+  if (chatId > 0 && chatId !== userId) {
+    return 'none';
+  }
+
   if (!env.TOKEN) {
     return 'none';
   }
@@ -208,8 +212,8 @@ export async function isTelegramUserChatAdmin(
 }
 
 export interface AdminChatWithRole extends AdminChatMeta {
-  /** null when Telegram could not confirm the role; chat-scoped endpoints re-check. */
-  role: Exclude<TelegramChatRole, 'none'> | null;
+  /** Membership confirmed by Telegram; chat-scoped endpoints also re-check. */
+  role: Exclude<TelegramChatRole, 'none'>;
 }
 
 /** Chats the user belongs to, with the role each membership check confirmed. */
@@ -234,9 +238,6 @@ export async function listAdminChatsWithRoleForTelegramUser(
         chatId: candidate.chat.chatId,
         error: check.reason instanceof Error ? check.reason.message : String(check.reason),
       });
-      if (candidate.hasStoredMeta) {
-        allowedChats.push({ ...candidate.chat, role: null });
-      }
       return;
     }
 
