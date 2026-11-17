@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { Miniflare } from 'miniflare';
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 
 describe('Cloudflare KV runtime integration', () => {
   it('supports put, get, metadata, prefix list and delete', async () => {
-    const mf = new Miniflare({
+    const mf = new Miniflare(convertV4MiniflareOptions({
       modules: true,
       script: "export default { fetch() { return new Response('ok'); } };",
       kvNamespaces: ['HISTORY'],
-    });
+    }));
 
     try {
       const kv = await mf.getKVNamespace('HISTORY');
@@ -35,11 +35,11 @@ describe('Cloudflare KV runtime integration', () => {
   });
 
   it('paginates correctly when the listed page is deleted', async () => {
-    const mf = new Miniflare({
+    const mf = new Miniflare(convertV4MiniflareOptions({
       modules: true,
       script: "export default { fetch() { return new Response('ok'); } };",
       kvNamespaces: ['HISTORY'],
-    });
+    }));
     try {
       const kv = await mf.getKVNamespace('HISTORY');
       for (const key of ['msg:a', 'msg:b', 'msg:c', 'msg:d', 'msg:e']) {

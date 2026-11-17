@@ -1,13 +1,13 @@
-import { Miniflare } from 'miniflare';
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import type { KVNamespace } from '@cloudflare/workers-types';
 
 /** Starts real workerd KV bindings; callers must dispose the Miniflare instance. */
 export async function createKVBindings() {
-  const mf = new Miniflare({
+  const mf = new Miniflare(convertV4MiniflareOptions({
     modules: true,
     script: "export default { fetch() { return new Response('ok'); } };",
     kvNamespaces: ['HISTORY', 'COUNTERS'],
-  });
+  }));
   try {
     const [history, counters] = await Promise.all([
       mf.getKVNamespace('HISTORY'),
