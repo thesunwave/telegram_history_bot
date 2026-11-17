@@ -17,6 +17,7 @@ import {
 } from "./features/stats/stats";
 import { handleUpdate, recordMessage, getTextMessage } from "./api/update";
 import { handleAdminRequest } from "./api/admin";
+import { recordBotMembership } from "./api/admin-installations";
 import { CountersDO } from "./durable-objects/counters-do";
 import { DayBlockManager } from "./durable-objects/day-block-manager";
 import { CriminalCodeAnalyzerDO } from "./durable-objects/criminal-code-analyzer-do";
@@ -285,6 +286,9 @@ export default {
         }
       }
       const update = await req.json();
+      if ((update as any).my_chat_member) {
+        await recordBotMembership(env, (update as any).my_chat_member, (update as any).update_id);
+      }
       Logger.debug(env, "webhook received", {
         updateType: (update as any).message ? "message" : "other",
         chatId: (update as any).message?.chat?.id,

@@ -1004,7 +1004,21 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       <h2>Вход через Telegram</h2>
       <p>После входа будут показаны только чаты, где ваш Telegram-пользователь состоит участником.</p>
       <div id="telegramLogin"></div>
+      <p><a href="/admin/installations">Все установки · вход администратора</a></p>
       <p class="muted" id="loginHint"></p>
+    </section>
+    <section class="hidden" id="installationsPanel">
+      <h2>Установки бота</h2>
+      <p><a href="/admin/installations">Все установки · вход администратора</a></p>
+      <p class="muted" id="installationsSummary" aria-live="polite"></p>
+      <p class="muted">Статусы фиксируются с момента включения учёта. Для старых чатов дата установки и статус могут быть неизвестны. Личные чаты — обращения к боту.</p>
+      <button class="secondary" type="button" id="refreshInstallations">Обновить установки</button>
+      <div class="tableScroll">
+        <table style="min-width: 800px" aria-label="Установки бота">
+          <thead><tr><th>Чат / ID</th><th>Тип</th><th>Статус бота</th><th>Последняя установка</th><th>Изменение статуса</th><th>Последнее сообщение</th></tr></thead>
+          <tbody id="installationRows"></tbody>
+        </table>
+      </div>
     </section>
     <form class="controls hidden" id="controls">
       <label>Чат
@@ -3104,6 +3118,57 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       window.location.assign('/admin');
     }
 
+    async function loadInstallations() {
+      const panel = document.getElementById('installationsPanel');
+      const summary = document.getElementById('installationsSummary');
+      const button = document.getElementById('refreshInstallations');
+      panel.classList.remove('hidden');
+      button.disabled = true;
+      summary.textContent = 'Загрузка установок...';
+      try {
+        const res = await fetch('/admin/api/installations');
+        if (!res.ok) throw new Error('installations unavailable');
+        const body = await res.json();
+        const rows = body.installations || [];
+        const active = rows.filter(row => row.membership?.active === true).length;
+        const inactive = rows.filter(row => row.membership?.active === false).length;
+        summary.textContent = (body.scope === 'all' ? 'Все известные чаты' : 'Доступные вам чаты') +
+          ': ' + rows.length + ' · Активных: ' + active + ' · Удалён / заблокирован: ' + inactive +
+          ' · Статус неизвестен: ' + (rows.length - active - inactive);
+        const tbody = document.getElementById('installationRows');
+        tbody.replaceChildren();
+        const statuses = { creator: 'Владелец', administrator: 'Администратор', member: 'Участник',
+          restricted: 'Ограничен', left: 'Удалён / вышел', kicked: 'Заблокирован' };
+        const types = { private: 'Личный', group: 'Группа', supergroup: 'Супергруппа', channel: 'Канал' };
+        const date = value => value ? new Date(value * 1000).toLocaleString('ru-RU') : 'Неизвестно';
+        for (const row of rows) {
+          const tr = document.createElement('tr');
+          const membership = row.membership;
+          const values = [row.title + ' (' + row.chatId + ')', types[row.type] || 'Неизвестно',
+            membership ? statuses[membership.status] + (membership.active ? ' · активен' : ' · неактивен') : 'Неизвестно',
+            date(membership?.installedAt), date(membership?.statusChangedAt), date(row.lastSeenAt)];
+          for (const value of values) {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            tr.append(cell);
+          }
+          tbody.append(tr);
+        }
+        if (!rows.length) {
+          const cell = document.createElement('td');
+          cell.colSpan = 6;
+          cell.textContent = 'Известных установок пока нет';
+          const tr = document.createElement('tr');
+          tr.append(cell);
+          tbody.append(tr);
+        }
+      } catch (_error) {
+        summary.textContent = 'Не удалось обновить установки. Попробуйте ещё раз.';
+      } finally {
+        button.disabled = false;
+      }
+    }
+
     async function loadChats() {
       setStatus('Загрузка чатов...');
       document.getElementById('chatSelect').classList.add('loadingControl');
@@ -3314,8 +3379,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     setupDashboardDragAndDrop();
     setupCustomPeriodDefaults();
     syncCustomPeriodControls();
-    if (principal?.type === 'telegram') {
+    document.getElementById('refreshInstallations').addEventListener('click', loadInstallations);
+    if (principal?.type === 'basic') {
+      loadInstallations();
+    } else if (principal?.type === 'telegram') {
       showDashboardShell();
+      loadInstallations();
       loadChats();
     } else {
       showLogin();
