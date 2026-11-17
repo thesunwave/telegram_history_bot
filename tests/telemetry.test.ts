@@ -103,22 +103,38 @@ describe('anonymous telemetry ping', () => {
     expect((sqlite.prepare('SELECT ping_days FROM telemetry_installs').get() as any).ping_days).toBe(2);
   });
 
-  it('pings from the daily cron even when the summary fails', async () => {
+  it('blocks the default network transport during tests', async () => {
+    const { db, sqlite } = createDb();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('unexpected network call'));
+    try {
+      expect(await sendTelemetryPing({ DB: db } as Env)).toBe('disabled');
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(sqlite.prepare('SELECT * FROM app_settings').all()).toEqual([]);
+    } finally {
+      fetchSpy.mockRestore();
+      sqlite.close();
+    }
+  });
+
+  it('runs telemetry from the daily cron even when the summary fails', async () => {
     vi.resetModules();
     vi.doMock('../src/features/stats/stats', async (importOriginal) => ({
       ...(await importOriginal<typeof import('../src/features/stats/stats')>()),
       dailySummary: vi.fn(async () => { throw new Error('summary failed'); }),
     }));
+    const sendPing = vi.fn(async () => 'disabled');
+    vi.doMock('../src/features/telemetry/telemetry', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../src/features/telemetry/telemetry')>()),
+      sendTelemetryPing: sendPing,
+    }));
     const { default: freshWorker } = await import('../src/index');
     const { db } = createDb();
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }));
     try {
       await expect(freshWorker.scheduled({ cron: '59 23 * * *' } as any, { DB: db, ENABLE_SUMMARY: 'true' } as Env, { waitUntil() {} } as any))
         .rejects.toThrow('summary failed');
-      const pings = fetchSpy.mock.calls.filter(([url]) => String(url) === TELEMETRY_ENDPOINT);
-      expect(pings).toHaveLength(1);
+      expect(sendPing).toHaveBeenCalledTimes(1);
     } finally {
-      fetchSpy.mockRestore();
+      vi.doUnmock('../src/features/telemetry/telemetry');
       vi.doUnmock('../src/features/stats/stats');
       vi.resetModules();
     }
