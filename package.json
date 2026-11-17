@@ -30,7 +30,7 @@
 		"@cloudflare/workers-types": "^5.20261014.1",
 		"@types/better-sqlite3": "^9.6.0",
 		"better-sqlite3": "^11.10.0",
-		"miniflare": "^5.20261116.0-beta",
+		"miniflare": "5.20261116.0-beta",
 		"typescript": "^5.0.4",
 		"vitest": "^5.1.0",
 		"wrangler": "^4.163.0"
