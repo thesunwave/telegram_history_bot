@@ -125,6 +125,12 @@ until a later successful check. Chats configured for administrators-only dashboa
 access are listed and accessible only to confirmed chat administrators. A private
 conversation with the bot is accessible only to the Telegram user who owns it.
 
+The separate **bot-owner installation directory** lists metadata for all known
+chats, including private dialogs: names/usernames, chat IDs, chat type, bot membership
+status/dates and the last-message timestamp. This directory is visible only to the
+configured or paired bot owner through Telegram sign-in. It does not grant access
+to other users' private message content or their chat statistics dashboards.
+
 **Deleting it.** `/reset` clears all counters for the chat; `/profanity_reset`
 and `/criminal_reset` clear those analyses. Removing the bot stops collection,
 and stored message text then expires with the retention period. One-step

@@ -158,7 +158,8 @@ describe('bot installations', () => {
   it('opens the full list through the owner Telegram session without membership lookups', async () => {
     await recordBotMembership(env, event(100));
     await saveAdminChatMeta(env, { id: -200, title: 'Another chat' }, 100);
-    const fetch = vi.spyOn(globalThis, 'fetch');
+    const fetch = vi.spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('unexpected membership lookup'));
     const headers = { Cookie: await sessionCookie() };
     const response = await handleAdminRequest(new Request('https://bot/admin/api/installations', { headers }), env);
     expect(response.status).toBe(200);
