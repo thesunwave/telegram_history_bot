@@ -5,19 +5,26 @@ import { handleAdminRequest } from '../src/api/admin';
 import { createTelegramSessionCookie } from '../src/api/admin-auth';
 import { createMockEnv } from './test-utils';
 import worker from '../src/index';
-import { createKVBindings } from './helpers/miniflare-kv';
+import { createKVBindings, spyableKVBinding } from './helpers/miniflare-kv';
 import { renderInstallationsHtml } from '../src/api/admin-installations-html';
 import { createRealD1 } from './helpers/real-d1';
+import { resetChatSettingsCache } from '../src/core/chat-settings';
 
 let env: ReturnType<typeof createMockEnv>;
 let bindings: Awaited<ReturnType<typeof createKVBindings>>;
+let database: ReturnType<typeof createRealD1>;
 beforeEach(async () => {
   vi.restoreAllMocks();
+  resetChatSettingsCache();
   bindings = await createKVBindings();
-  env = createMockEnv({ HISTORY: bindings.history as any,
+  database = createRealD1();
+  env = createMockEnv({ HISTORY: spyableKVBinding(bindings.history as any), DB: database.db,
     ADMIN_BASIC_USER: 'owner', ADMIN_BASIC_PASSWORD: 'password' });
 });
-afterEach(async () => { await bindings.mf.dispose(); });
+afterEach(async () => {
+  await bindings.mf.dispose();
+  database.sqlite.close();
+});
 const authorization = 'Basic ' + btoa('owner:password');
 const event = (date: number, status = 'member', oldStatus = 'left') => ({
   chat: { id: -100, title: '<Group>', type: 'supergroup' }, date,
@@ -98,6 +105,53 @@ describe('bot installations', () => {
     await recordBotMembership(env, event(100, 'administrator', 'member'), 2);
     await recordBotMembership(env, event(100), 1);
     expect((await listBotInstallations(env))[0].membership?.status).toBe('administrator');
+  });
+
+  it('keeps the latest status when concurrent deliveries finish in reverse order', async () => {
+    let releaseOlder!: () => void;
+    let olderReachedWrite!: () => void;
+    const gate = new Promise<void>(resolve => { releaseOlder = resolve; });
+    const reached = new Promise<void>(resolve => { olderReachedWrite = resolve; });
+    const put = env.HISTORY.put.bind(env.HISTORY);
+    vi.spyOn(env.HISTORY, 'put').mockImplementation(async (key, value, options) => {
+      if (key === 'admin_chat:-100' && String(value).includes('Older title')) {
+        olderReachedWrite();
+        await gate;
+      }
+      return put(key, value, options);
+    });
+    const older = event(100);
+    older.chat.title = 'Older title';
+    const oldRequest = recordBotMembership(env, older, 1);
+    await reached;
+    await recordBotMembership(env, event(110, 'kicked', 'member'), 2);
+    releaseOlder();
+    await oldRequest;
+    expect((await listBotInstallations(env))[0].membership).toMatchObject({
+      active: false, status: 'kicked', statusChangedAt: 110,
+    });
+  });
+
+  it('honours administrators-only dashboard policy for installation metadata', async () => {
+    await recordBotMembership(env, event(100));
+    database.sqlite.prepare('INSERT INTO app_settings(scope, settings_json) VALUES (?, ?)')
+      .run('chat:-100', JSON.stringify({ version: 1, dashboardAccess: 'admins' }));
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({ ok: true, result: { status: 'member' } }),
+    );
+    expect(await listBotInstallations(env, 42)).toEqual([]);
+    fetch.mockResolvedValue(Response.json({ ok: true, result: { status: 'administrator' } }));
+    expect(await listBotInstallations(env, 42)).toHaveLength(1);
+    expect(await listBotInstallations(env)).toHaveLength(1);
+  });
+
+  it('redirects expired member sessions to Telegram login without a Basic challenge', async () => {
+    const response = await handleAdminRequest(
+      new Request('https://bot/admin/installations?scope=member'), env,
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toBe('/admin');
+    expect(response.headers.has('WWW-Authenticate')).toBe(false);
   });
 
   it('does not record membership events from an unauthenticated webhook', async () => {

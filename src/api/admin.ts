@@ -335,6 +335,12 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
       ? await authenticateTelegramSession(req, env) : authenticateAdmin(req, env);
     // The full list requires Basic Auth even when a Telegram session exists.
     if (!authenticated) {
+      if (memberView) {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: '/admin', 'Cache-Control': 'no-store' },
+        });
+      }
       return new Response('Unauthorized', {
         status: 401,
         headers: { 'WWW-Authenticate': 'Basic realm="Bot installations"', 'Cache-Control': 'no-store' },
