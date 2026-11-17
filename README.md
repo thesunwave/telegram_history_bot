@@ -119,6 +119,11 @@ default; when you enable one, the text it processes is sent to the provider you
 configure (Workers AI, OpenAI, OpenRouter, etc.). Telegram and Cloudflare also
 see the data as platforms, and their backups and logs are outside the bot's control.
 
+**Dashboard access.** Chat names, settings and activity counters are listed only
+when Telegram confirms your membership. If that check fails, the chat is hidden
+until a later successful check. A private conversation with the bot is accessible
+only to the Telegram user who owns that conversation.
+
 **Deleting it.** `/reset` clears all counters for the chat; `/profanity_reset`
 and `/criminal_reset` clear those analyses. Removing the bot stops collection,
 and stored message text then expires with the retention period. One-step

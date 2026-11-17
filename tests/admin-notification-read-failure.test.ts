@@ -11,7 +11,7 @@ vi.mock("wrangler", () => ({
   }),
 }));
 
-const SETTINGS_KEY = "notification_settings:1";
+const SETTINGS_KEY = "notification_settings:-1";
 
 const { env } = await getPlatformProxy<any>();
 env.TOKEN = "t";
@@ -63,7 +63,7 @@ function mockTelegramMembership(status = "administrator") {
 }
 
 const seeded = {
-  chatId: "1",
+  chatId: "-1",
   enabled: true,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -83,7 +83,7 @@ const seeded = {
 
 const postEdit = async () =>
   worker.fetch(
-    new Request("http://localhost/admin/api/notifications?chatId=1", {
+    new Request("http://localhost/admin/api/notifications?chatId=-1", {
       method: "POST",
       headers: { ...(await adminSessionHeaders()), "Content-Type": "application/json" },
       body: JSON.stringify({
