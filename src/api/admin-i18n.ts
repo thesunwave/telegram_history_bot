@@ -15,6 +15,8 @@ const RUSSIAN_LANGUAGE_TAGS = new Set(['ru', 'uk', 'be', 'kk']);
  * "form1|form2|form5" keys hold Russian plural forms ("one|many" in English).
  */
 const ADMIN_EN: Record<string, string> = {
+  'Установки бота': 'Bot installations',
+  'Установки бота · вход администратора': 'Bot installations · admin sign-in',
   // Shell, navigation and sign-in
   'История чатов · админка': 'Chat History · dashboard',
   'И': 'H',

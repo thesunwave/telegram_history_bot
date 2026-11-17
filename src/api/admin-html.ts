@@ -645,6 +645,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         <a class="navLink" href="#notifications" data-view-link="notifications">${navIcon('notifications')}<span>${h('Уведомления')}</span></a>
         <a class="navLink" href="#lab" data-view-link="lab">${navIcon('lab')}<span>${h('Модели')}</span></a>
         ${setupLink}
+        <a class="navLink" href="/admin/installations?scope=member">${navIcon('chats')}<span>${h('Установки бота')}</span></a>
       </nav>
       <div class="sidebarFooter">
         <div class="muted" id="sessionLabel"></div>
@@ -675,6 +676,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         <p>${h('После входа будут показаны только чаты, где ваш Telegram-пользователь состоит участником.')}</p>
         <div id="telegramLogin"><button type="button" class="primary" id="telegramLoginButton" disabled>${h('Войти через Telegram')}</button></div>
         <p class="muted" id="loginHint"></p>
+        <p><a href="/admin/installations">${h('Установки бота · вход администратора')}</a></p>
         <button type="button" class="secondary" data-set-language="${language === 'ru' ? 'en' : 'ru'}">${language === 'ru' ? 'English' : 'Русский'}</button>
       </section>
 

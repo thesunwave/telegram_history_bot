@@ -146,6 +146,8 @@ The anonymous install ping is described [below](#anonymous-usage-ping).
 - Optional profanity and criminal-code analysis with notification flows.
 - D1 storage for violation history and summaries.
 - Daily cron job triggers scheduled summaries.
+- Admin bot-installation list with chat names, membership status, latest installation,
+  status-change and last-message dates. See [installation tracking](docs/guides/bot-installations.md).
 
 ## Commands
 

@@ -318,6 +318,7 @@ describe('owner setup', () => {
     expect(calls[0].url).toContain('/setWebhook');
     expect(calls[0].body.url).toBe(origin + '/telegram/webhook');
     expect(calls[0].body.secret_token).toBe(await getWebhookSecret(env));
+    expect(calls[0].body.allowed_updates).toEqual(['message', 'edited_message', 'my_chat_member']);
   });
 
   it('rejects invalid provider configuration before writing to D1', async () => {

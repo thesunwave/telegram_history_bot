@@ -16,6 +16,7 @@ import {
 } from "./features/stats/stats";
 import { handleUpdate, recordMessage, getTextMessage } from "./api/update";
 import { handleAdminRequest } from "./api/admin";
+import { recordBotMembership } from "./api/admin-installations";
 import { telegramLoginConfig, telegramLoginSession } from "./api/telegram-oidc";
 import { CountersDO } from "./durable-objects/counters-do";
 import { DayBlockManager } from "./durable-objects/day-block-manager";
@@ -115,7 +116,11 @@ export default {
       if (env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured') {
         return new Response('Choose message storage in /admin/setup before connecting the bot', { status: 503 });
       }
-      const message = getTextMessage(await req.json());
+      const update = await req.json();
+      if ((update as any).my_chat_member) {
+        await recordBotMembership(env, (update as any).my_chat_member, (update as any).update_id);
+      }
+      const message = getTextMessage(update);
       await recordMessage(message, env, ctx);
       ctx.waitUntil(handleUpdate(message, env, url.origin));
       return Response.json({});
@@ -312,6 +317,9 @@ export default {
         return new Response('Choose message storage in /admin/setup before connecting the bot', { status: 503 });
       }
       const update = await req.json();
+      if ((update as any).my_chat_member) {
+        await recordBotMembership(env, (update as any).my_chat_member, (update as any).update_id);
+      }
       Logger.debug(env, "webhook received", {
         updateType: (update as any).message ? "message" : "other",
         chatId: (update as any).message?.chat?.id,

@@ -30,6 +30,8 @@ import {
   LiveProgressUnavailable,
 } from '../features/stats/admin-stats-errors';
 import { renderAdminHtml } from './admin-html';
+import { listBotInstallations, listSelfHostedInstallations } from './admin-installations';
+import { renderInstallationsHtml } from './admin-installations-html';
 import { resolveAdminLanguage } from './admin-i18n';
 import { canAccessSetupLink, handleSetupRequest } from './setup';
 
@@ -327,6 +329,28 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     });
   }
 
+  if (url.pathname === `${ADMIN_PATH}/installations` && req.method === 'GET') {
+    const memberView = url.searchParams.get('scope') === 'member';
+    const authenticated = memberView
+      ? await authenticateTelegramSession(req, env) : authenticateAdmin(req, env);
+    // The full list requires Basic Auth even when a Telegram session exists.
+    if (!authenticated) {
+      if (memberView) {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: '/admin', 'Cache-Control': 'no-store' },
+        });
+      }
+      return new Response('Unauthorized', {
+        status: 401,
+        headers: { 'WWW-Authenticate': 'Basic realm="Bot installations"', 'Cache-Control': 'no-store' },
+      });
+    }
+    return new Response(renderInstallationsHtml(), {
+      headers: { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store' },
+    });
+  }
+
   if (url.pathname === `${ADMIN_PATH}/login` && req.method === 'GET') {
     const payload = await verifyTelegramLogin(env, url.searchParams);
     if (!payload) {
@@ -378,9 +402,20 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     });
   }
 
-  const principal = await authenticateAdminRequest(req, env);
+  const principal = url.pathname === `${ADMIN_PATH}/api/installations`
+    ? authenticateAdmin(req, env) || await authenticateTelegramSession(req, env)
+    : await authenticateAdminRequest(req, env);
   if (!principal) {
     return unauthorizedAdminResponse();
+  }
+
+  if (url.pathname === `${ADMIN_PATH}/api/installations` && req.method === 'GET') {
+    return Response.json({
+      ok: true,
+      scope: principal.type === 'basic' ? 'all' : 'member',
+      installations: await listBotInstallations(env, principal.telegramId),
+      selfHosted: principal.type === 'basic' ? await listSelfHostedInstallations(env) : null,
+    }, { headers: { 'Cache-Control': 'no-store' } });
   }
 
   if (url.pathname === `${ADMIN_PATH}/api/chats` && req.method === 'GET') {
