@@ -80,6 +80,7 @@ export default {
     ctx: ExecutionContext,
   ): Promise<Response> {
     const url = new URL(req.url);
+    const isAdminRequest = url.pathname === "/admin" || url.pathname.startsWith("/admin/");
     // Privacy-sensitive ingestion must use the current persisted policy, not a
     // potentially stale isolate cache. On D1 failure, reject and let Telegram retry.
     const isWebhook = req.method === 'POST' &&
@@ -87,7 +88,10 @@ export default {
     try {
       env = await withRuntimeSettings(env, isWebhook);
     } catch {
-      return new Response('Bot settings temporarily unavailable', { status: 503 });
+      return new Response('Bot settings temporarily unavailable', {
+        status: 503,
+        headers: isAdminRequest ? { "X-Robots-Tag": "noindex, nofollow" } : undefined,
+      });
     }
     const isPublicRead = req.method === "GET" || req.method === "HEAD";
     const isLegacyEnglish = ['/en', '/en/', '/en/index.html'].includes(url.pathname);
@@ -154,9 +158,10 @@ export default {
       }
     }
 
-    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+    if (isAdminRequest) {
+      let response: Response;
       try {
-        return await handleAdminRequest(req, env);
+        response = await handleAdminRequest(req, env);
       } catch (error) {
         // Containment boundary: any unexpected admin failure must return
         // structured JSON instead of surfacing a Cloudflare 1101 page. Log only
@@ -170,8 +175,15 @@ export default {
           pathname: url.pathname,
           errorName: name,
         });
-        return adminUnavailableResponse(requestId);
+        response = adminUnavailableResponse(requestId);
       }
+      const headers = new Headers(response.headers);
+      headers.set("X-Robots-Tag", "noindex, nofollow");
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
     }
 
     if (url.pathname === "/api/legal-rag/ingest-batch" && req.method === "POST") {

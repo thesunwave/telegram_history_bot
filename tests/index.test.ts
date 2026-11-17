@@ -248,6 +248,7 @@ describe("webhook", () => {
     const response = await worker.fetch(new Request("http://localhost/admin"), env, ctx);
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
     const html = await response.text();
     expect(html).toContain("Вход через Telegram");
     expect(html).toContain('https://oauth.telegram.org/js/telegram-login.js');
@@ -259,8 +260,38 @@ describe("webhook", () => {
     const response = await worker.fetch(new Request("http://localhost/admin/api/chats"), env, ctx);
 
     expect(response.status).toBe(401);
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
     expect(response.headers.get("WWW-Authenticate")).toBeNull();
     expect(response.headers.get("Location")).toBe("/admin");
+  });
+
+  it.each([
+    ["/admin/", 200],
+    ["/admin/logout", 302],
+    ["/admin/unknown", 404],
+  ])("prevents indexing %s responses", async (path, status) => {
+    const response = await worker.fetch(
+      new Request(`http://localhost${path}`, {
+        method: path === "/admin/logout" ? "POST" : "GET",
+        headers: { ...await adminSessionHeaders(), Origin: "http://localhost" },
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(status);
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    if (status === 302) {
+      expect(response.headers.get("Location")).toBe("/admin");
+      expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    }
+  });
+
+  it("does not apply admin indexing restrictions to other routes", async () => {
+    const response = await worker.fetch(new Request("http://localhost/healthz"), env, ctx);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Robots-Tag")).toBeNull();
   });
 
   it("rejects basic auth for chat-scoped admin API routes", async () => {
@@ -695,6 +726,7 @@ describe("webhook", () => {
     );
 
     expect(response.status).toBe(503);
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toEqual({
       ok: false,
