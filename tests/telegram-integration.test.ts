@@ -82,7 +82,9 @@ describe('Telegram Integration Tests', () => {
       getGeneralStats: vi.fn()
     };
 
-    vi.mocked(ViolationHandler).mockImplementation(() => mockViolationHandler);
+    vi.mocked(ViolationHandler).mockImplementation(function () {
+      return mockViolationHandler;
+    });
 
     // Mock environment - use different token to avoid test environment detection
     mockEnv = {
