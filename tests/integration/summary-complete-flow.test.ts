@@ -38,12 +38,14 @@ vi.mock("../../src/features/summary/summary", async (importOriginal) => {
 
 vi.mock("../../src/features/summary/optimization", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  const MockOptimizedSummaryController = vi.fn().mockImplementation(() => ({
-    summarizeChat: optimizedChatSpy,
-    summarizeChatMessages: optimizedMessagesSpy,
-    getSystemStatus: vi.fn().mockReturnValue({ status: 'active' }),
-    cleanup: vi.fn(),
-  }));
+  const MockOptimizedSummaryController = vi.fn().mockImplementation(function () {
+    return {
+      summarizeChat: optimizedChatSpy,
+      summarizeChatMessages: optimizedMessagesSpy,
+      getSystemStatus: vi.fn().mockReturnValue({ status: 'active' }),
+      cleanup: vi.fn(),
+    };
+  });
   
   return {
     ...actual,
@@ -58,12 +60,14 @@ vi.mock("../../src/features/summary/optimization", async (importOriginal) => {
 
 // Also mock the direct import
 vi.mock("../../src/features/summary/optimization/summary-controller", () => ({
-  OptimizedSummaryController: vi.fn().mockImplementation(() => ({
-    summarizeChat: optimizedChatSpy,
-    summarizeChatMessages: optimizedMessagesSpy,
-    getSystemStatus: vi.fn().mockReturnValue({ status: 'active' }),
-    cleanup: vi.fn(),
-  })),
+  OptimizedSummaryController: vi.fn().mockImplementation(function () {
+    return {
+      summarizeChat: optimizedChatSpy,
+      summarizeChatMessages: optimizedMessagesSpy,
+      getSystemStatus: vi.fn().mockReturnValue({ status: 'active' }),
+      cleanup: vi.fn(),
+    };
+  }),
 }));
 
 // Import the functions to test after mocks
