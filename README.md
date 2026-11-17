@@ -1,12 +1,146 @@
-# Telegram History Bot
+# Telegram Group Statistics & Analytics — History Bot
+
+**See who is active in your Telegram group, what people discuss, and when conversation peaks.** History Bot is an MIT-licensed open-source Telegram group analytics bot with activity statistics, message/word counts, top members, voice-note stats and optional summaries.
+
+**Try it without deploying anything:** [Add @stat_history_bot to your group](https://t.me/stat_history_bot?startgroup=true) · [See screenshots and features](https://tghistory.thesunwave.space/) · [Compare with Combot](https://tghistory.thesunwave.space/combot-alternative)
+
+![History Bot admin dashboard: messages, active members, voice and video stats, messages per day and activity by hour](docs/images/admin-overview.jpg)
+
+Once added, use `/help` to see commands and `/top` or `/activity_week` for group statistics. Statistics build up from messages the bot is allowed to receive; it cannot reconstruct messages sent before it joined. Bot privacy settings may affect which group messages Telegram delivers.
+
+**Prefer full control?** [Deploy your own instance to Cloudflare](https://deploy.workers.cloudflare.com/?url=https://github.com/thesunwave/telegram_history_bot). Self-hosting requires your own Telegram bot token and Cloudflare account; the steps are below. History Bot is primarily a *statistics* tool, not a substitute for moderation or anti-spam bots.
+
+The root `wrangler.jsonc` is a portable self-hosting template. The owner's
+existing Cloudflare Worker uses the separate `wrangler.production.jsonc` and
+is deployed only from a reviewed GitHub release. See the
+[release and self-hosting guide](docs/ops/release-and-self-hosting.md).
+
+The public landing is maintained and released independently in
+[telegram_history_landing](https://github.com/thesunwave/telegram_history_landing).
+The owner's production config retains the `LANDING` service binding, custom
+domain, and legacy webhook endpoint. Public installations do not require a
+landing Worker or any owner-specific Cloudflare resource IDs.
+
+Public marketing URLs are proxied from the separate landing Worker: `/` is the
+canonical English home, `/ru` is Russian, and `/combot-alternative` is an
+analytics comparison page. The same binding serves `/robots.txt`, `/sitemap.xml`
+and `/landing/*` assets; old `/en` links redirect permanently to `/`. Login,
+admin and Telegram webhook routes stay exclusively in this bot Worker.
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/thesunwave/telegram_history_bot)
+
+## Install your own bot (Cloudflare)
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and copy its token.
+2. Click **Deploy to Cloudflare**, select your own Cloudflare account, and enter
+   the `TOKEN` secret. The source repository is copied into your own GitHub
+   repository; it is not linked to the owner's production account.
+3. Leave the pre-filled deploy command as **`npm run deploy`** (Cloudflare
+   reads it from `package.json`; do not replace it with plain
+   `wrangler deploy`). It provisions the KV, D1 and Durable Objects bindings,
+   then applies the D1 migrations. Nothing else needs to be configured: no
+   extra secrets, AI keys or manual migrations are required for Basic mode.
+4. Open your new Worker's URL. It redirects to `/admin/setup`. Sign in with
+   the same BotFather token and verify that D1 is ready. **Choose and save your
+   storage mode**, then enable any features you want before selecting
+   **Connect webhook**. This step registers the public Worker URL with Telegram.
+5. Add the bot to your group. To allow it to collect ordinary group messages
+   rather than just commands, disable bot privacy using BotFather's
+   `/setprivacy` and re-add the bot to the group.
+
+New installations **require an explicit storage decision** before Telegram is connected:
+- **Statistics only:** count messages, words, media and activity without saving
+  the raw text of chats in the bot's message-history KV/DO storage. Chat/user
+  identifiers, group metadata and (when activity tracking is enabled) counts
+  still persist. This does not control
+  Telegram/Cloudflare platform logs or optional external AI providers.
+  AI summaries, contextual criminal analysis, and their history-dependent
+  commands are unavailable in this mode.
+- **Message history + statistics:** save raw messages temporarily in your Cloudflare
+  Durable Objects/KV (seven-day date-based retention by default) to allow
+  AI summaries, context analysis and replay.
+
+The owner can turn activity statistics, profanity analysis, criminal analysis and
+AI summaries on/off in `/admin/setup`; AI-dependent features may transmit content
+to their configured model provider. All advanced analyses initially start off.
+Switching to stats-only stops **new raw message writes**, but does not purge
+previously stored messages; they age out under their retention policy. This page
+controls the entire self-hosted bot instance, not individual Telegram groups.
+On existing installations, the configured `ADMIN_USER_ID` can open `/admin/setup`
+with the regular Telegram session. If no owner ID is configured, the Telegram
+account may be linked **once** by confirming the BotFather token; the binding is
+stored in D1, and future visits use Telegram Login automatically. Group admins
+are not owners unless explicitly linked. No Basic Auth is required for settings.
+When Telegram Login is enabled, BotFather-token sessions cannot be used to
+change settings; the token is accepted only for the one-time owner pairing.
+Standalone installations without Telegram Login retain the token bootstrap.
+You can enable AI summaries after configuring any required provider key as a
+Cloudflare Secret. Never paste an OpenAI/OpenRouter key into the dashboard.
+
+The first-run flow can be rehearsed locally with a dummy token and no
+production changes using `npm ci && npm run test:onboarding`. The smoke
+test does not register a webhook; its status request may query Telegram's
+`getWebhookInfo` with the dummy token.
+See [the self-hosting guide](docs/ops/release-and-self-hosting.md) for
+upgrades and troubleshooting.
+
+Use [@stat_history_bot](https://t.me/stat_history_bot?startgroup=true) in a Telegram
+group, or deploy an independent copy with the button. Cloudflare creates a new
+repository and provisions its own KV, D1, Durable Objects and Workers AI.
+Provide the `TOKEN` secret from BotFather during setup, then open
+`https://YOUR-WORKER.workers.dev/admin/setup` to connect the Telegram webhook.
+The deploy command applies D1 migrations automatically.
 
 Cloudflare Worker that stores Telegram chat messages (7 days in KV), generates summaries, and optionally runs profanity/criminal analysis with notifications. Supports Cloudflare AI and OpenAI providers, and includes an **optimized summary system** with parallel processing, context optimization, and automatic fallback.
+
+## Privacy and data
+
+The bot needs to see group messages to count them, so here is exactly what it keeps.
+The storage mode is set in `/admin/setup` for the whole instance. It can be changed
+later, but switching to statistics-only does not purge existing history; it
+expires under the retention policy.
+
+- **Statistics only:** no message text is stored. The bot keeps chat and user
+  ids, usernames, the group title and per-day counters (messages, words, media,
+  active hours, and profanity words if that analysis is on).
+- **Message history + statistics:** in addition, raw message text is kept for
+  seven days by default (`RAW_MESSAGE_RETENTION_DAYS`) and then deleted
+  automatically. It is needed for AI summaries and context analysis.
+- **Summaries and criminal-analysis results** are removed by the daily cleanup
+  after 30 days (a failed or skipped cleanup run leaves them longer); analysis results may include short quotes. Both are off by
+  default on a new self-hosted install; the hosted @stat_history_bot runs
+  criminal analysis.
+- Counters and usernames do not expire automatically yet.
+
+**Where it lives.** With [@stat_history_bot](https://t.me/stat_history_bot) the
+data is in the maintainer's Cloudflare account. With your own instance it is only
+in your Cloudflare account (KV, D1, Durable Objects). AI features are off by
+default; when you enable one, the text it processes is sent to the provider you
+configure (Workers AI, OpenAI, OpenRouter, etc.). Telegram and Cloudflare also
+see the data as platforms, and their backups and logs are outside the bot's control.
+
+**Dashboard access.** Chat names, settings and activity counters are listed only
+when Telegram confirms your membership. If that check fails, the chat is hidden
+until a later successful check. Chats configured for administrators-only dashboard
+access are listed and accessible only to confirmed chat administrators. A private
+conversation with the bot is accessible only to the Telegram user who owns it.
+
+**Deleting it.** `/reset` clears all counters for the chat; `/profanity_reset`
+and `/criminal_reset` clear those analyses. Removing the bot stops collection,
+and stored message text then expires with the retention period. One-step
+deletion of everything about a chat, including usernames and metadata, is
+tracked in [#173](https://github.com/thesunwave/telegram_history_bot/issues/173).
+On your own instance you can also delete anything from the Cloudflare dashboard.
+
+The anonymous install ping is described [below](#anonymous-usage-ping).
 
 ## Features
 
 - Webhook for receiving Telegram updates.
-- Stores messages in KV with 7-day TTL (daily blocks + fallback single-message storage).
-- Per-user counters via Durable Objects and KV.
+- Optional message history in Durable Objects/KV, with seven-day default
+  retention (daily blocks + fallback single-message storage). Stats Only does
+  not write raw messages to those stores.
+- Per-user counters via Durable Objects, stored as daily aggregates in D1.
 - **🚀 Optimized Summary System** with parallel processing and context management.
 - **🛡️ Automatic fallback** to legacy summarization on errors.
 - Optional profanity and criminal-code analysis with notification flows.
@@ -98,32 +232,40 @@ For detailed documentation, see `docs/README.md`.
 
 ## Configuration & Deployment
 
-1. Install dependencies: `npm install`.
+**Cloudflare (recommended):** click Deploy to Cloudflare above, supply the
+BotFather `TOKEN` secret, and complete `/admin/setup` after deployment.
+Only the token is required for Basic mode. OpenAI/OpenRouter API keys are
+optional Cloudflare Secrets; never place their values in Git or D1.
 
-2. Create resources and update `wrangler.jsonc` with their IDs:
-   ```bash
-   ./setup.sh
-   ```
-   This will also run the initial D1 migrations. You can rerun them later with:
-   ```bash
-   npx wrangler d1 migrations apply summaries
-   ```
-3. Set secrets:
-   ```bash
-   wrangler secret put TOKEN
-   wrangler secret put SECRET
-   wrangler secret put OPENAI_API_KEY
-   wrangler secret put OPENAI_PREMIUM_API_KEY
-   ```
-   Providers and models are configured via `wrangler.jsonc`:
-   - `SUMMARY_PROVIDER`, `PROFANITY_PROVIDER`, `CRIMINAL_PROVIDER`
-   - `OPENAI_MODEL` / `OPENAI_PREMIUM_MODEL` / `CLOUDFLARE_MODEL`
-   - Summary prompts: `SUMMARY_SYSTEM`, `SUMMARY_PROMPT`
-   - Tuning: `*_MAX_TOKENS`, `*_TEMPERATURE`, `*_TOP_P`, `*_FREQUENCY_PENALTY`
-4. Deploy with Wrangler:
-   ```bash
-   npm run deploy
-   ```
+**Local development:**
+
+```sh
+npm ci
+cp .dev.vars.example .dev.vars
+# Enter your BotFather TOKEN in .dev.vars (ignored by Git)
+npm run dev
+```
+
+**CLI deployment:** configure `TOKEN` as a Worker Secret, then run
+`npm run deploy` (Wrangler deployment followed by remote D1 migrations).
+The root config is intentionally portable and has no pre-existing resource IDs.
+Your installation's generated IDs must be retained when upgrading.
+
+### Anonymous usage ping
+
+To count how many self-hosted bots are running, each install sends one
+anonymous request a day (after the daily summary cron) to
+`https://tghistory.thesunwave.space/telemetry/v1/ping`. It contains only:
+
+- a random install id, created on the first daily ping and stored in your D1 `app_settings`;
+- how many chats and groups were active in the last 7 days, as a range
+  (`0`, `1`, `2-5`, `6-20`, `21-100`, `100+`).
+
+It never contains chat or user ids, messages, usernames, your bot token or
+bot name, and the receiver does not store IP addresses. The source is in
+`src/features/telemetry/telemetry.ts`. To opt out, set the Worker variable
+`TELEMETRY_DISABLED=true` (Cloudflare dashboard → your Worker → Settings →
+Variables, or `vars` in `wrangler.jsonc`).
 
 ## Development
 
@@ -139,10 +281,7 @@ Run `npm install` before `npm test` to ensure dev dependencies like Vitest are a
 
 See `docs/README.md` for documentation structure and naming rules.
 
-## Setup Script
+## License
 
-`setup.sh` creates KV namespaces and the D1 database. Copy the printed IDs into
-`wrangler.jsonc` so the worker can bind to these resources. The cron trigger is
-configured in `wrangler.jsonc` and will be created on deployment. The Durable
-Object for counters is defined in `wrangler.jsonc` and requires no additional
-setup.
+History Bot is released under the [MIT License](LICENSE). Copyright © 2026 Artur Malev.
+

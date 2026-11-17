@@ -1,22 +1,11 @@
 /**
- * Real-KV integration test for the stale-id prune fix.
- *
- * Uses @miniflare/kv's real KVNamespace (backed by MemoryStorage with a
- * controllable clock) to drive actual `expirationTtl` semantics — exercising
- * the same code path the production worker hits against real Cloudflare KV.
- * Confirms that once the per-notification entry's TTL elapses, `HISTORY.get`
- * returns `null` (the Cloudflare KV contract on expiry) and
- * `getScheduledNotifications` prunes the id from `scheduled_notifications_list`.
- *
- * NOTE on the clock: MemoryStorage stores per-entry expiration at put time
- * as `clock() + ttl` and re-validates it on every get using its own clock.
- * KVNamespace also uses clock for ttl computation. Both must share the same
- * controllable clock — see MemoryStorage(map, clock) signature.
+ * Exercises stale-id pruning against real Miniflare KV. Deleting a KV entry
+ * simulates it becoming absent after expiry, without waiting days for the TTL.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { KVNamespace } from '@miniflare/kv';
-import { MemoryStorage } from '@miniflare/storage-memory';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createKVBindings } from '../helpers/miniflare-kv';
+import type { KVNamespace } from '@cloudflare/workers-types';
 import { NotificationRepository } from '../../src/core/repositories/notification-repository';
 import type { ScheduledNotification } from '../../src/core/models/notification-settings';
 
@@ -56,24 +45,28 @@ async function withClock<T>(nowMs: number, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-describe('NotificationRepository getScheduledNotifications — real-KV TTL expiry (E2E)', () => {
+describe('NotificationRepository getScheduledNotifications — missing KV entries', () => {
   let nowMs: number;
   let history: KVNamespace;
   let env: any;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     nowMs = T0_MS;
-    const clock = () => nowMs;
-    const storage = new MemoryStorage(new Map(), clock);
-    history = new KVNamespace(storage, { clock });
+    bindings = await createKVBindings();
+    history = bindings.history as unknown as KVNamespace;
     env = { HISTORY: history } as any;
   });
 
-  it('prunes an id whose KV entry actually TTL-expires', async () => {
+  afterEach(async () => {
+    await bindings.mf.dispose();
+  });
+
+  it('prunes an id after its KV entry becomes absent', async () => {
     const repo = new NotificationRepository(env);
     const id = 'n-1';
     // saveScheduledNotification reads Date.now() to compute the entry's TTL,
-    // so align Date.now() with the controllable KV clock during the seed.
+    // use the fixed time when saving the notification.
     await withClock(nowMs, async () => {
       await repo.saveScheduledNotification(makeNotification(nowMs, { id }));
     });
@@ -81,12 +74,10 @@ describe('NotificationRepository getScheduledNotifications — real-KV TTL expir
     expect(JSON.parse((await history.get('scheduled_notifications_list'))!)).toContain(id);
     expect(await history.get(`scheduled_notification:${id}`)).not.toBeNull();
 
-    // saveScheduledNotification computes ttlSeconds = max(floor((scheduledAt - now)/1000) + 7*86400, 86400).
-    // With scheduledAt = now + 60s, ttlSeconds = 60 + 604800 = 604860 (~7 days).
-    // Advance the controllable clock 8 days — past the TTL.
+    // KV returns null for missing entries, including ones that have expired.
+    await history.delete(`scheduled_notification:${id}`);
     nowMs += 8 * DAY_MS;
 
-    // Real Cloudflare KV contract: after TTL elapses, get returns null.
     expect(await history.get(`scheduled_notification:${id}`)).toBeNull();
     // The list key has a 365-day TTL and is still alive.
     expect(JSON.parse((await history.get('scheduled_notifications_list'))!)).toContain(id);
@@ -97,7 +88,7 @@ describe('NotificationRepository getScheduledNotifications — real-KV TTL expir
     expect(JSON.parse((await history.get('scheduled_notifications_list'))!)).toEqual([]);
   });
 
-  it('prunes one expired id while keeping a still-live id (real TTL cascade)', async () => {
+  it('prunes one missing id while keeping an existing id', async () => {
     const repo = new NotificationRepository(env);
     // live: scheduled 60s in the future, ttl ~ 7+ days
     // stale: scheduled in the past, ttlSeconds = max(floor(negative)+604800, 86400).
@@ -113,8 +104,8 @@ describe('NotificationRepository getScheduledNotifications — real-KV TTL expir
       }));
     });
 
-    // Advance 7 days. The stale entry (ttl ~6.8 days) has expired; the live
-    // entry (ttl ~7 days + 60s) is still within TTL.
+    // Simulate the stale entry expiring without modifying the runtime clock.
+    await history.delete('scheduled_notification:stale');
     nowMs += 7 * DAY_MS;
 
     const staleBefore = await history.get(`scheduled_notification:stale`);

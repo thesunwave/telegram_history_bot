@@ -181,6 +181,13 @@ const NEXT_PHASE: Record<string, string | undefined> = {
   profanity_word_users: 'finalize',
 };
 
+// The backfill source is the legacy COUNTERS KV; runDailyAggregateBackfill
+// returns early when the binding is absent.
+function countersKv(env: Env): NonNullable<Env['COUNTERS']> {
+  if (!env.COUNTERS) throw new Error('COUNTERS binding unavailable');
+  return env.COUNTERS;
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const HOUR_RE = /^([01]\d|2[0-3])$/;
 const BUCKET_NAMES = new Set(['night', 'morning', 'noon', 'evening']);
@@ -864,7 +871,7 @@ async function readBackfillProfile(
 
   let username: string | null;
   try {
-    username = await env.COUNTERS.get(`user:${userId}`);
+    username = await countersKv(env).get(`user:${userId}`);
   } catch {
     throw new BackfillError('kv_get_failed', 'kv get failed');
   }
@@ -874,7 +881,7 @@ async function readBackfillProfile(
 
   let lastMessageValue: string | null;
   try {
-    lastMessageValue = await env.COUNTERS.get(`last_message:${chatId}:${userId}`);
+    lastMessageValue = await countersKv(env).get(`last_message:${chatId}:${userId}`);
   } catch {
     throw new BackfillError('kv_get_failed', 'kv get failed');
   }
@@ -919,7 +926,7 @@ function makeBaseBuilder(env: Env, profileCache: Map<string, BackfillProfile>): 
     const userId = parseInt(entry.key.split(':')[3], 10);
     let messageValue: string | null;
     try {
-      messageValue = await env.COUNTERS.get(entry.key);
+      messageValue = await countersKv(env).get(entry.key);
     } catch {
       throw new BackfillError('kv_get_failed', 'kv get failed');
     }
@@ -960,7 +967,7 @@ function makeProfiledUserCountBuilder(
     if (budget.gets + 3 > MAX_KV_GETS_PER_RUN) return 'deferred';
     let value: string | null;
     try {
-      value = await env.COUNTERS.get(entry.key);
+      value = await countersKv(env).get(entry.key);
     } catch {
       throw new BackfillError('kv_get_failed', 'kv get failed');
     }
@@ -992,7 +999,7 @@ function makeCountBuilder(
     if (budget.gets + 1 > MAX_KV_GETS_PER_RUN) return 'deferred';
     let value: string | null;
     try {
-      value = await env.COUNTERS.get(entry.key);
+      value = await countersKv(env).get(entry.key);
     } catch {
       throw new BackfillError('kv_get_failed', 'kv get failed');
     }
@@ -1032,8 +1039,8 @@ async function runPhaseSlice(
   let list: any;
   try {
     list = state.cursor
-      ? await env.COUNTERS.list({ prefix, cursor: state.cursor })
-      : await env.COUNTERS.list({ prefix });
+      ? await countersKv(env).list({ prefix, cursor: state.cursor })
+      : await countersKv(env).list({ prefix });
   } catch {
     throw new BackfillError('kv_list_failed', 'kv list failed');
   }

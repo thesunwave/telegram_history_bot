@@ -1,0 +1,5 @@
+# Require the repository owner's review for deployment-affecting changes
+# when branch protection / rulesets enable code owner review.
+/wrangler.production.jsonc @thesunwave
+/.github/workflows/deploy-production.yml @thesunwave
+/.github/workflows/ci.yml @thesunwave

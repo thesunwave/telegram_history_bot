@@ -4,9 +4,7 @@ import {
   SEVERITY_EMOJIS, 
   getSeverityLevel, 
   getSeverityEmoji, 
-  escapeHtml, 
-  createSection, 
-  createListItem 
+  escapeHtml 
 } from '../src/core/html-utils';
 
 describe('HTML Utils', () => {
@@ -52,40 +50,6 @@ describe('HTML Utils', () => {
 
     it('should handle empty strings', () => {
       expect(escapeHtml('')).toBe('');
-    });
-  });
-
-  describe('createSection', () => {
-    it('should create formatted section', () => {
-      const result = createSection('Title', 'Content here');
-      expect(result).toBe('<b>Title</b>\nContent here');
-    });
-
-    it('should escape HTML in title', () => {
-      const result = createSection('<script>', 'Content');
-      expect(result).toBe('<b>&lt;script&gt;</b>\nContent');
-    });
-  });
-
-  describe('createListItem', () => {
-    it('should create basic list item', () => {
-      const result = createListItem('Label', 'Value');
-      expect(result).toBe('<b>Label:</b> Value');
-    });
-
-    it('should include emoji when provided', () => {
-      const result = createListItem('Label', 'Value', '🔴');
-      expect(result).toBe('🔴 <b>Label:</b> Value');
-    });
-
-    it('should handle numeric values', () => {
-      const result = createListItem('Count', 42);
-      expect(result).toBe('<b>Count:</b> 42');
-    });
-
-    it('should escape HTML in label and value', () => {
-      const result = createListItem('<script>', '<alert>');
-      expect(result).toBe('<b>&lt;script&gt;:</b> &lt;alert&gt;');
     });
   });
 });

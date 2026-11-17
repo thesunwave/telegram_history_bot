@@ -8,6 +8,7 @@ import {
   authenticateTelegramSession,
   clearTelegramSessionCookie,
   createTelegramSessionCookie,
+  revokeTelegramSessions,
   unauthorizedAdminResponse,
   verifyTelegramLogin,
   type AdminPrincipal,
@@ -15,8 +16,11 @@ import {
 import {
   isTelegramUserChatAdmin,
   isTelegramUserInChat,
-  listAdminChatsForTelegramUser,
+  listAdminChatsWithRoleForTelegramUser,
 } from './admin-chats';
+import { buildChatOverview, readInstanceModules } from './admin-groups';
+import { parseChatSettingsInput, readChatSettings, saveChatSettings } from '../core/chat-settings';
+import { getAdminMemberStatsFromD1 } from '../features/stats/admin-member-d1';
 import { getAdminChatStats, parseAdminPeriod, type AdminDateRange } from './admin-stats';
 import { getAdminCriminalViolationDetails } from './admin-criminal';
 import { listShadowEvaluationComparisons } from '../features/model-shadow/evaluation-store';
@@ -26,7 +30,10 @@ import {
   LiveProgressUnavailable,
 } from '../features/stats/admin-stats-errors';
 import { renderAdminHtml } from './admin-html';
-import { listBotInstallations } from './admin-installations';
+import { listBotInstallations, listSelfHostedInstallations } from './admin-installations';
+import { renderInstallationsHtml } from './admin-installations-html';
+import { resolveAdminLanguage } from './admin-i18n';
+import { canAccessSetupLink, handleSetupRequest } from './setup';
 
 const ADMIN_PATH = '/admin';
 
@@ -142,24 +149,6 @@ async function handleNotificationGet(
   });
 }
 
-async function getBotUsername(env: Env): Promise<string | null> {
-  if (env.TELEGRAM_BOT_USERNAME) {
-    return env.TELEGRAM_BOT_USERNAME;
-  }
-
-  try {
-    const response = await fetch(`https://api.telegram.org/bot${env.TOKEN}/getMe`);
-    if (!response.ok) {
-      return null;
-    }
-
-    const payload = await response.json().catch(() => null) as any;
-    return typeof payload?.result?.username === 'string' ? payload.result.username : null;
-  } catch {
-    return null;
-  }
-}
-
 async function authenticateAdminRequest(req: Request, env: Env): Promise<AdminPrincipal | null> {
   return (await authenticateTelegramSession(req, env)) || authenticateAdmin(req, env);
 }
@@ -177,6 +166,10 @@ async function requireTelegramChatAccess(
   if (!allowed) {
     return jsonError('chat is not available for this Telegram user', 403);
   }
+  if ((await readChatSettings(env, chatId)).dashboardAccess === 'admins' &&
+      !(await isTelegramUserChatAdmin(env, chatId, principal.telegramId))) {
+    return jsonError('this chat dashboard is open to administrators only', 403);
+  }
 
   return null;
 }
@@ -185,6 +178,7 @@ async function requireTelegramChatAdmin(
   env: Env,
   principal: AdminPrincipal,
   chatId: number,
+  deniedMessage = 'only chat administrators can edit notification settings',
 ): Promise<Response | null> {
   if (principal.type !== 'telegram' || !principal.telegramId) {
     return unauthorizedAdminResponse();
@@ -192,7 +186,7 @@ async function requireTelegramChatAdmin(
 
   const allowed = await isTelegramUserChatAdmin(env, chatId, principal.telegramId);
   if (!allowed) {
-    return jsonError('only chat administrators can edit notification settings', 403);
+    return jsonError(deniedMessage, 403);
   }
 
   return null;
@@ -256,34 +250,97 @@ async function handleNotificationPost(
   return Response.json({ ok: true, chatId, settings, availableTypes });
 }
 
+async function handleChatSettingsGet(
+  env: Env,
+  chatId: number,
+  principal: AdminPrincipal,
+): Promise<Response> {
+  let canEdit = false;
+  if (principal.type === 'telegram' && principal.telegramId) {
+    try {
+      canEdit = await isTelegramUserChatAdmin(env, chatId, principal.telegramId);
+    } catch {
+      canEdit = false;
+    }
+  }
+
+  return Response.json({
+    ok: true,
+    chatId,
+    canEdit,
+    modules: await readInstanceModules(env),
+    settings: await readChatSettings(env, chatId),
+  }, { headers: { 'Cache-Control': 'no-store' } });
+}
+
+async function handleChatSettingsPost(
+  req: Request,
+  env: Env,
+  chatId: number,
+  principal: AdminPrincipal,
+): Promise<Response> {
+  let input;
+  try {
+    input = parseChatSettingsInput(await req.json().catch(() => null));
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : 'Invalid settings', 400);
+  }
+
+  const settings = await saveChatSettings(env, chatId, input, formatPrincipalName(principal));
+  return Response.json({
+    ok: true,
+    chatId,
+    canEdit: true,
+    modules: await readInstanceModules(env),
+    settings,
+  }, { headers: { 'Cache-Control': 'no-store' } });
+}
+
 export async function handleAdminRequest(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   if (url.pathname !== ADMIN_PATH && !url.pathname.startsWith(`${ADMIN_PATH}/`)) {
     return new Response('Not found', { status: 404 });
   }
 
+  if (url.pathname === '/admin/setup' || url.pathname.startsWith('/admin/api/setup/')) {
+    return handleSetupRequest(req, env);
+  }
+
   if (url.pathname === ADMIN_PATH || url.pathname === `${ADMIN_PATH}/`) {
     const principal = await authenticateTelegramSession(req, env);
+    let canAccessSetup = false;
+    if (principal?.telegramId) {
+      try {
+        canAccessSetup = await canAccessSetupLink(env, principal.telegramId);
+      } catch {
+        // A settings DB failure must not prevent opening the statistics admin.
+      }
+    }
     return new Response(renderAdminHtml({
-      botUsername: await getBotUsername(env),
       principal,
+      canAccessSetup,
+      language: resolveAdminLanguage(req),
     }), {
       headers: {
         'Content-Type': 'text/html; charset=UTF-8',
         'Cache-Control': 'no-store',
+        Vary: 'Accept-Language, Cookie',
       },
     });
   }
 
   if (url.pathname === `${ADMIN_PATH}/installations` && req.method === 'GET') {
-    const principal = authenticateAdmin(req, env);
-    if (!principal) {
+    const memberView = url.searchParams.get('scope') === 'member';
+    const authenticated = memberView
+      ? await authenticateTelegramSession(req, env) : authenticateAdmin(req, env);
+    // The full list requires Basic Auth even when a Telegram session exists.
+    if (!authenticated) {
       return new Response('Unauthorized', {
         status: 401,
         headers: { 'WWW-Authenticate': 'Basic realm="Bot installations"', 'Cache-Control': 'no-store' },
       });
     }
-    return new Response(renderAdminHtml({ botUsername: null, principal }), {
+    return new Response(renderInstallationsHtml(), {
       headers: { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store' },
     });
   }
@@ -304,7 +361,31 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     });
   }
 
+  if (url.pathname === `${ADMIN_PATH}/session` && req.method === 'GET') {
+    const principal = await authenticateTelegramSession(req, env);
+    return Response.json({ authenticated: principal !== null }, {
+      headers: { 'Cache-Control': 'no-store' },
+    });
+  }
+
   if (url.pathname === `${ADMIN_PATH}/logout`) {
+    if (req.method !== 'POST') {
+      return new Response('Method not allowed', {
+        status: 405,
+        headers: { Allow: 'POST', 'Cache-Control': 'no-store' },
+      });
+    }
+    const origin = req.headers.get('Origin');
+    const fetchSite = req.headers.get('Sec-Fetch-Site');
+    if ((origin && origin !== url.origin) ||
+        (fetchSite && fetchSite !== 'same-origin') ||
+        (!origin && fetchSite !== 'same-origin')) {
+      return new Response('Forbidden', {
+        status: 403,
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
+    await revokeTelegramSessions(req, env);
     return new Response(null, {
       status: 302,
       headers: {
@@ -327,6 +408,7 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
       ok: true,
       scope: principal.type === 'basic' ? 'all' : 'member',
       installations: await listBotInstallations(env, principal.telegramId),
+      selfHosted: principal.type === 'basic' ? await listSelfHostedInstallations(env) : null,
     }, { headers: { 'Cache-Control': 'no-store' } });
   }
 
@@ -342,7 +424,11 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
         username: principal.username,
         displayName: principal.displayName,
       },
-      chats: await listAdminChatsForTelegramUser(env, principal.telegramId),
+      chats: await buildChatOverview(
+        env,
+        await listAdminChatsWithRoleForTelegramUser(env, principal.telegramId),
+      ),
+      modules: await readInstanceModules(env),
     });
   }
 
@@ -409,6 +495,76 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
 
     const details = await getAdminCriminalViolationDetails(env, chatId, userId, period);
     return Response.json(details, { headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  if (url.pathname === `${ADMIN_PATH}/api/member` && req.method === 'GET') {
+    const chatId = parseChatId(url);
+    const userId = parseUserId(url);
+    if (chatId === null) {
+      return jsonError('chatId is required', 400);
+    }
+    if (userId === null) {
+      return jsonError('userId is required', 400);
+    }
+
+    let period;
+    try {
+      period = parseAdminPeriod(
+        url.searchParams.get('period'),
+        url.searchParams.get('from'),
+        url.searchParams.get('to'),
+      );
+    } catch (error) {
+      return jsonError(error instanceof Error ? error.message : 'invalid period', 400);
+    }
+
+    const denied = await requireTelegramChatAccess(env, principal, chatId);
+    if (denied) {
+      return denied;
+    }
+
+    try {
+      return Response.json(await getAdminMemberStatsFromD1(env.DB, chatId, userId, period), {
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    } catch (error) {
+      if (error instanceof AdminUnavailable) {
+        return statsUnavailable(error, period);
+      }
+      throw error;
+    }
+  }
+
+  if (url.pathname === `${ADMIN_PATH}/api/chat-settings`) {
+    const chatId = parseChatId(url);
+    if (chatId === null) {
+      return jsonError('chatId is required', 400);
+    }
+
+    if (req.method === 'GET') {
+      const denied = await requireTelegramChatAccess(env, principal, chatId);
+      if (denied) {
+        return denied;
+      }
+      return await handleChatSettingsGet(env, chatId, principal);
+    }
+
+    if (req.method === 'POST') {
+      const denied = await requireTelegramChatAccess(env, principal, chatId);
+      if (denied) {
+        return denied;
+      }
+      const adminDenied = await requireTelegramChatAdmin(
+        env,
+        principal,
+        chatId,
+        'only chat administrators can change chat settings',
+      );
+      if (adminDenied) {
+        return adminDenied;
+      }
+      return await handleChatSettingsPost(req, env, chatId, principal);
+    }
   }
 
   if (url.pathname === `${ADMIN_PATH}/api/shadow-evaluations` && req.method === 'GET') {

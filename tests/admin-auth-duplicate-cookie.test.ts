@@ -15,7 +15,6 @@ describe('Telegram admin session cookies', () => {
       first_name: 'Admin',
       username: 'admin_user',
       auth_date: Math.floor(Date.now() / 1000),
-      hash: 'unused',
     });
     const validCookiePair = validCookie.split(';', 1)[0];
     const request = new Request('https://example.com/admin/api/chats', {

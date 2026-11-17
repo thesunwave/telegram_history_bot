@@ -22,6 +22,12 @@ export interface AdminUserCount {
   voiceMinutes: number;
   videoNoteCount: number;
   videoNoteMinutes: number;
+  /**
+   * Longest single recording among days tracked since migration 0015; null when none.
+   * Days before tracking are excluded, so a period that starts earlier reports only its tracked days.
+   */
+  voiceMaxSeconds: number | null;
+  videoNoteMaxSeconds: number | null;
   activeDays: number;
   lastMessageTs: number | null;
 }
@@ -38,6 +44,19 @@ export interface AdminChatStats {
   status: 'final' | 'provisional';
   /** Truthful compact pipeline progress for a provisional live day. */
   progress?: LiveProgressSnapshot;
+  /** Totals for the equal-length window right before `range`; null when it has no messages. */
+  previous: {
+    from: string;
+    to: string;
+    total: number;
+    totalWords: number;
+    activeUsers: number;
+    totalVoiceCount: number;
+    totalVoiceMinutes: number;
+    totalVideoNoteCount: number;
+    totalVideoNoteMinutes: number;
+    profanityTotal: number;
+  } | null;
   activity: {
     total: number;
     totalWords: number;
@@ -54,8 +73,26 @@ export interface AdminChatStats {
     topTalkers: AdminUserCount[];
     topVoiceUsers: AdminUserCount[];
     topVideoNoteUsers: AdminUserCount[];
+    /** Every participant with messages in the range, capped for response size. */
+    allUsers: Array<
+      AdminUserCount & {
+        profanityCount: number;
+        /** Percent of words; null below the minimum word count for a rate. */
+        profanityRate: number | null;
+        criminalCount: number;
+      }
+    >;
     dailyMessages: Array<{ day: string; count: number }>;
     dailyActiveUsers: Array<{ day: string; count: number }>;
+    dailyMedia: Array<{
+      day: string;
+      voiceCount: number;
+      voiceMinutes: number;
+      videoNoteCount: number;
+      videoNoteMinutes: number;
+    }>;
+    longestVoice: { userId: string; username: string; seconds: number } | null;
+    longestVideoNote: { userId: string; username: string; seconds: number } | null;
     hourlyAverages: Array<{ hour: string; count: number }>;
     participantTimeline: {
       timeZone: 'UTC';
@@ -64,6 +101,7 @@ export interface AdminChatStats {
         label: string;
       }>;
       participants: Array<{
+        userId: string;
         username: string;
         dailyLevels: Array<{
           day: string;
@@ -82,6 +120,7 @@ export interface AdminChatStats {
     }>;
   };
   profanity: {
+    total: number;
     topUsers: Array<{ userId: number; username: string; count: number }>;
     topRateUsers: Array<{
       userId: number;
@@ -115,7 +154,8 @@ const PERIOD_DAYS: Record<AdminPeriod, number> = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MAX_CUSTOM_RANGE_DAYS = 90;
+/** Sanity bound only (~10 years): keeps a malformed `from` from building a huge day array. */
+const MAX_CUSTOM_RANGE_DAYS = 3660;
 
 function formatDay(date: Date): string {
   return date.toISOString().slice(0, 10);

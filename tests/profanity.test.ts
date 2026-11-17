@@ -24,11 +24,10 @@ const createMockEnv = (): Env => {
   };
 
   return {
-    COUNTERS: {
+    HISTORY: {
       get: vi.fn().mockResolvedValue(null),
       put: vi.fn().mockResolvedValue(undefined),
     } as any,
-    HISTORY: {} as any,
     COUNTERS_DO: {} as any,
     DAY_BLOCK_MANAGER_DO: {} as any,
     CRIMINAL_CODE_ANALYZER_DO: {} as any,
@@ -139,7 +138,7 @@ describe("Profanity Analysis Infrastructure", () => {
       const longText = "a".repeat(2000);
 
       // Mock cache miss
-      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
 
       // Mock AI provider response
       mockProvider.analyzeProfanity.mockResolvedValue({
@@ -152,7 +151,7 @@ describe("Profanity Analysis Infrastructure", () => {
 
       // Verify cache was checked with limited text
       const cacheKey = generateCacheKey(longText.substring(0, 1000));
-      expect(mockEnv.COUNTERS.get).toHaveBeenCalledWith(cacheKey);
+      expect(mockEnv.HISTORY.get).toHaveBeenCalledWith(cacheKey);
 
       // Verify AI provider was called with limited text
       expect(mockProvider.analyzeProfanity).toHaveBeenCalledWith(
@@ -179,20 +178,20 @@ describe("Profanity Analysis Infrastructure", () => {
       };
 
       // Mock cache hit
-      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(
         JSON.stringify(cachedResult) as any,
       );
 
       const result = await profanityAnalyzer.analyzeMessage(text, mockEnv);
 
       expect(result).toEqual(cachedResult);
-      expect(mockEnv.COUNTERS.get).toHaveBeenCalledWith(generateCacheKey(text));
+      expect(mockEnv.HISTORY.get).toHaveBeenCalledWith(generateCacheKey(text));
     });
 
     it("should keep used word forms instead of grouping by base form", async () => {
       const text = "ЗаЁбал, заебал и ебаный день";
 
-      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
       mockProvider.analyzeProfanity.mockResolvedValue({
         hasProfanity: true,
         words: [
@@ -225,7 +224,7 @@ describe("Profanity Analysis Infrastructure", () => {
     it("should drop short candidate fragments even when AI returns them", async () => {
       const text = "н";
 
-      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
       mockProvider.analyzeProfanity.mockResolvedValue({
         hasProfanity: true,
         words: [{ word: "н", baseForm: "н", confidence: 0.9 }],
@@ -242,7 +241,7 @@ describe("Profanity Analysis Infrastructure", () => {
     it("should drop AI candidates that are absent from the source text", async () => {
       const text = "заебал";
 
-      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
       mockProvider.analyzeProfanity.mockResolvedValue({
         hasProfanity: true,
         words: [{ word: "грешники", baseForm: "грешники", confidence: 0.9 }],
@@ -260,7 +259,7 @@ describe("Profanity Analysis Infrastructure", () => {
       const text = "test message";
 
       // Mock cache miss
-      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
 
       // Mock AI provider error
       mockProvider.analyzeProfanity.mockRejectedValue(
@@ -279,7 +278,7 @@ describe("Profanity Analysis Infrastructure", () => {
       const text = "test message";
 
       // Mock cache error
-      vi.mocked(mockEnv.COUNTERS.get).mockRejectedValue(
+      vi.mocked(mockEnv.HISTORY.get).mockRejectedValue(
         new Error("Cache error"),
       );
 
@@ -302,8 +301,8 @@ describe("Profanity Analysis Infrastructure", () => {
       const text = "test message";
 
       // Mock cache miss and storage error
-      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
-      vi.mocked(mockEnv.COUNTERS.put).mockRejectedValue(
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
+      vi.mocked(mockEnv.HISTORY.put).mockRejectedValue(
         new Error("Storage error"),
       );
 
@@ -328,7 +327,7 @@ describe("Profanity Analysis Infrastructure", () => {
       const text = "";
 
       // Mock cache miss
-      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
 
       // Mock AI provider response
       mockProvider.analyzeProfanity.mockResolvedValue({
@@ -349,7 +348,7 @@ describe("Profanity Analysis Infrastructure", () => {
       const text = "   \n\t  ";
 
       // Mock cache miss
-      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
 
       // Mock AI provider response
       mockProvider.analyzeProfanity.mockResolvedValue({
@@ -370,7 +369,7 @@ describe("Profanity Analysis Infrastructure", () => {
       const text = "тест сообщение с эмодзи 🤬";
 
       // Mock cache miss
-      vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+      vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
 
       // Mock AI provider response
       mockProvider.analyzeProfanity.mockResolvedValue({
@@ -409,7 +408,7 @@ describe("Circuit Breaker", () => {
     const analyzer = new ProfanityAnalyzer(mockProvider);
 
     // Mock cache miss for all requests
-    vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+    vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
 
     // Trigger 5 failures to reach the threshold. The breaker opens lazily on the
     // next call, so each of these 5 calls still reaches the provider.
@@ -447,7 +446,7 @@ describe("Circuit Breaker", () => {
     );
 
     // Mock cache miss for all requests
-    vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+    vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
 
     // Simulate 5 separate messages, each with its own fresh analyzer instance.
     for (let i = 0; i < 5; i++) {
@@ -484,7 +483,7 @@ describe("Circuit Breaker", () => {
     const analyzer = new ProfanityAnalyzer(mockProvider);
 
     // Mock cache miss for all requests
-    vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+    vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
 
     // Trigger failures to reach the threshold (5 provider calls).
     for (let i = 0; i < 5; i++) {
@@ -531,7 +530,7 @@ describe("Circuit Breaker", () => {
     const analyzer = new ProfanityAnalyzer(mockProvider);
 
     // Mock cache miss for all requests
-    vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+    vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
 
     // Trigger 3 failures (below threshold)
     for (let i = 0; i < 3; i++) {
@@ -597,7 +596,7 @@ describe("Circuit Breaker", () => {
     const analyzer = new ProfanityAnalyzer(mockProvider);
 
     // Mock cache miss for all requests
-    vi.mocked(mockEnv.COUNTERS.get).mockResolvedValue(null as any);
+    vi.mocked(mockEnv.HISTORY.get).mockResolvedValue(null as any);
 
     // Trigger timeouts to open circuit (each call will timeout)
     for (let i = 0; i < 5; i++) {

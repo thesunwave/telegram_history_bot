@@ -22,12 +22,15 @@ import {
 } from '../features/stats/stats';
 import { sendMessage } from '../core/telegram';
 import { Logger } from '../core/logger';
+import { runsSeparateProfanityAnalysis } from '../core/runtime-settings';
 import { ProfanityAnalyzer } from '../features/profanity/profanity';
 import { ProviderFactory } from '../core/providers/provider-factory';
 import { NotificationService } from '../core/services/notification-service';
 import { NotificationRepository } from '../core/repositories/notification-repository';
 import type { NotificationType } from '../core/models/notification-settings';
 import { isTelegramUserChatAdmin, saveAdminChatMeta } from './admin-chats';
+import { readChatSettings } from '../core/chat-settings';
+import { ensureDashboardCommand, resolveDashboardUrl, sendDashboardLink } from './dashboard-link';
 
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
@@ -53,6 +56,8 @@ export function buildHelpText(env: Env): string {
 
   return [
     'Справка по командам чата',
+    '',
+    '/dashboard – ссылка на веб-дашборд со статистикой чатов',
     '',
     'Сводки',
     `/summary <days> – сводка за последние N дней (по умолчанию 1)${summaryLabel}`,
@@ -148,7 +153,7 @@ type ProgressOutcome = 'completed' | 'zero' | 'skipped' | 'failed';
 
 /** Whether profanity analysis will actually run for this message. */
 function profanityAnalysisEnabledFor(env: Env, msg: any): boolean {
-  const enabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
+  const enabled = runsSeparateProfanityAnalysis(env);
   return enabled && !!msg?.text && !msg.text.startsWith('/') && !isTestEnvironment(env);
 }
 
@@ -213,6 +218,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   const videoNoteDurationSeconds = Number.isInteger(msg.video_note?.duration)
     ? msg.video_note.duration
     : 0;
+  if (env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured') return;
   await saveAdminChatMeta(env, msg.chat, ts);
   const stored = {
     chat: chatId,
@@ -234,10 +240,23 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   // msg: KV path, which summary fetches can read. Other test sentinels must
   // keep the normal DayBlock-first path.
   const key = `msg:${chatId}:${ts}:${msg.message_id}`;
-  if (env.TOKEN === 'test-token') {
+  const configuredDays = Number(env.RAW_MESSAGE_RETENTION_DAYS ?? 7);
+  const retentionDays = Number.isFinite(configuredDays) && configuredDays > 0 ? Math.ceil(configuredDays) : 7;
+  const expiration = ts + retentionDays * DAY;
+  const dayStart = Number.isInteger(ts)
+    ? Date.parse(`${new Date(ts * 1000).toISOString().slice(0, 10)}T00:00:00.000Z`)
+    : NaN;
+  const rawExpired = !Number.isFinite(dayStart) ||
+    dayStart + retentionDays * DAY * 1000 <= Date.now() + 60_000;
+  if (env.RAW_MESSAGE_STORAGE_MODE === 'stats_only') {
+    Logger.debug(env, 'recordMessage: raw history storage disabled');
+  } else if (rawExpired) {
+    // Delayed updates must not resurrect already-expired messages in any store.
+    Logger.debug(env, 'recordMessage: raw message already expired');
+  } else if (env.TOKEN === 'test-token') {
     try {
       await env.HISTORY.put(key, JSON.stringify(stored), {
-        expirationTtl: 7 * DAY,
+        expiration,
       });
       Logger.debug(env, 'recordMessage: individual save successful (test env)', { op: 'fallback' });
     } catch {
@@ -263,7 +282,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
       // Fallback to individual message storage for reliability
       try {
         await env.HISTORY.put(key, JSON.stringify(stored), {
-          expirationTtl: 7 * DAY,
+          expiration,
         });
         Logger.debug(env, 'recordMessage: fallback individual save successful', { op: 'fallback' });
       } catch {
@@ -353,8 +372,15 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
     op: 'profanityCheck',
   });
 
-  // Check for ENABLE_PROFANITY_ANALYSIS flag (default to true)
-  const profanityAnalysisEnabled = env.ENABLE_PROFANITY_ANALYSIS !== 'false' && env.ENABLE_PROFANITY_ANALYSIS !== false;
+  // Instance policy first, then the chat's own switches (they can only narrow it).
+  // Profanity counted by the criminal prefilter needs no separate AI analysis.
+  const instanceProfanityEnabled = runsSeparateProfanityAnalysis(env);
+  const instanceCriminalEnabled = env.ENABLE_CRIMINAL_ANALYSIS !== 'false' && env.ENABLE_CRIMINAL_ANALYSIS !== false;
+  const analysableText = Boolean(msg.text) && !msg.text.startsWith('/');
+  const chatSettings = analysableText && (instanceProfanityEnabled || instanceCriminalEnabled)
+    ? await readChatSettings(env, chatId)
+    : null;
+  const profanityAnalysisEnabled = instanceProfanityEnabled && chatSettings?.profanityEnabled === true;
 
   if (profanityAnalysisEnabled && msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
     Logger.debug(env, 'Scheduling profanity analysis for message', { op: 'profanitySchedule' });
@@ -378,8 +404,7 @@ export async function recordMessage(msg: any, env: Env, ctx?: ExecutionContext) 
   // Schedule criminal code analysis in background (fire-and-forget)
   Logger.log('CRIMINAL CODE ANALYSIS CHECK', { op: 'criminalCheck' });
 
-  // Check for ENABLE_CRIMINAL_ANALYSIS flag (default to true)
-  const criminalAnalysisEnabled = env.ENABLE_CRIMINAL_ANALYSIS !== 'false' && env.ENABLE_CRIMINAL_ANALYSIS !== false;
+  const criminalAnalysisEnabled = instanceCriminalEnabled && chatSettings?.criminalEnabled === true;
 
   if (criminalAnalysisEnabled && msg.text && !msg.text.startsWith('/') && !isTestEnvironment(env)) {
     Logger.debug(env, 'Scheduling criminal code analysis for message', { op: 'criminalSchedule' });
@@ -576,12 +601,45 @@ async function analyzeCriminalCodeAsync(
   }
 }
 
-export async function handleUpdate(msg: any, env: Env) {
+export async function handleUpdate(msg: any, env: Env, origin?: string) {
   if (!msg?.text) return;
   const chatId = msg.chat.id;
   const ts = msg.date;
   const day = new Date(ts * 1000).toISOString().slice(0, 10);
   const command = parseActivityCommand(msg.text);
+  const summaryCommands = ['/summary', '/summary_last'];
+  const activityCommands = ['/top', '/talkers', '/top_talkers', '/activity_week',
+    '/activity_month', '/activity_users_week', '/activity_users_month', '/activity_hours', '/activity'];
+  const profanityCommands = ['/profanity_top', '/profanity_words', '/my_profanity',
+    '/profanity_chart_week', '/profanity_chart_month', '/profanity_rate', '/profanity_rate_chart'];
+  const criminalCommands = ['/criminal_stats', '/my_criminal', '/criminal_top', '/criminal_backfill'];
+  if (summaryCommands.includes(command.name) &&
+      (env.ENABLE_SUMMARY === false || env.ENABLE_SUMMARY === 'false' ||
+       env.RAW_MESSAGE_STORAGE_MODE === 'stats_only')) {
+    await sendMessage(env, chatId, 'AI-сводки отключены в настройках бота');
+    return;
+  }
+  if (activityCommands.includes(command.name) &&
+      (env.ENABLE_ACTIVITY_TRACKING === false || env.ENABLE_ACTIVITY_TRACKING === 'false')) {
+    await sendMessage(env, chatId, 'Статистика активности отключена в настройках бота');
+    return;
+  }
+  if (profanityCommands.includes(command.name) &&
+      (env.ENABLE_PROFANITY_ANALYSIS === false || env.ENABLE_PROFANITY_ANALYSIS === 'false')) {
+    await sendMessage(env, chatId, 'Анализ мата отключён в настройках бота');
+    return;
+  }
+  if (criminalCommands.includes(command.name) &&
+      (env.ENABLE_CRIMINAL_ANALYSIS === false || env.ENABLE_CRIMINAL_ANALYSIS === 'false' ||
+       env.RAW_MESSAGE_STORAGE_MODE === 'stats_only')) {
+    await sendMessage(env, chatId, 'Уголовный анализ отключён в настройках бота');
+    return;
+  }
+  if (command.name === '/dashboard' || (command.name === '/start' && msg.chat?.type === 'private')) {
+    await sendDashboardLink(env, chatId, resolveDashboardUrl(env, origin));
+    await ensureDashboardCommand(env);
+    return;
+  }
   if (command.name === '/summary_last') {
     const n = parseInt(msg.text.split(' ')[1] || '100', 10);
     const count = Math.min(n, MAX_LAST_MESSAGES);

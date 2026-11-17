@@ -56,10 +56,7 @@ export async function addMessageToDayBlock(
     }
   } catch (error: any) {
     Logger.error('addMessageToDayBlock: failed', {
-      chat: message.chat.toString(LOG_ID_RADIX),
-      date,
-      error: error.message || String(error),
-      stack: error.stack
+      errorName: error instanceof Error ? error.name : 'UnknownError'
     });
     throw error;
   }

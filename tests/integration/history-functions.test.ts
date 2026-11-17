@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { KVNamespace } from "@miniflare/kv";
-import { MemoryStorage } from "@miniflare/storage-memory";
+import { createKVBindings, spyableKVBinding } from '../helpers/miniflare-kv';
+import type { KVNamespace } from '@cloudflare/workers-types';
 import { fetchMessages, fetchLastMessages } from '../../src/features/history/history';
 import {
   Env,
@@ -13,17 +13,20 @@ import { createMockEnv } from "../test-utils";
 describe("History Functions Integration Tests", () => {
   let env: Env;
   let history: KVNamespace;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 
   beforeEach(async () => {
-    history = new KVNamespace(new MemoryStorage());
+    bindings = await createKVBindings();
+    history = spyableKVBinding(bindings.history as unknown as KVNamespace);
 
     env = createMockEnv({
       HISTORY: history as any,
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    await bindings.mf.dispose();
   });
 
   // Helper function to create test messages

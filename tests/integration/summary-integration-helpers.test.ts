@@ -66,7 +66,7 @@ const createMockEnv = (overrides: Partial<Env> = {}): Env => ({
   SUMMARY_PROVIDER: "cloudflare",
   DEBUG_LOGS: "false",
   ...overrides,
-});
+} as Env);
 
 const createTestMessages = (count: number) => {
   return Array.from({ length: count }, (_, i) => ({
@@ -125,10 +125,12 @@ describe("Summary Integration Helper Functions", () => {
             summarizeChat: vi.fn().mockResolvedValue("Optimized summary"),
             summarizeChatMessages: vi.fn(),
           };
-          MockController.mockImplementation(() => mockInstance as any);
+          MockController.mockImplementation(function () {
+            return mockInstance as any;
+          });
         } else {
           // Should not use optimized system, but still need to handle sendMessage
-          MockController.mockImplementation(() => {
+          MockController.mockImplementation(function () {
             throw new Error("Optimized disabled");
           });
         }
@@ -158,7 +160,9 @@ describe("Summary Integration Helper Functions", () => {
         summarizeChat: vi.fn().mockResolvedValue("Optimized summary"),
         summarizeChatMessages: vi.fn(),
       };
-      MockController.mockImplementation(() => mockInstance as any);
+      MockController.mockImplementation(function () {
+        return mockInstance as any;
+      });
 
       const { sendMessage } = await import("../../src/core/telegram");
 
@@ -206,7 +210,9 @@ describe("Summary Integration Helper Functions", () => {
         summarizeChat: vi.fn().mockResolvedValue("Optimized summary"),
         summarizeChatMessages: vi.fn(),
       };
-      MockController.mockImplementation(() => mockInstance as any);
+      MockController.mockImplementation(function () {
+        return mockInstance as any;
+      });
 
       const { sendMessage } = await import("../../src/core/telegram");
 
@@ -228,7 +234,9 @@ describe("Summary Integration Helper Functions", () => {
         summarizeChat: vi.fn().mockResolvedValue("No messages summary"),
         summarizeChatMessages: vi.fn(),
       };
-      MockController.mockImplementation(() => mockInstance as any);
+      MockController.mockImplementation(function () {
+        return mockInstance as any;
+      });
 
       const { sendMessage } = await import("../../src/core/telegram");
 
@@ -265,7 +273,7 @@ describe("Summary Integration Helper Functions", () => {
       const MockController = vi.mocked(OptimizedSummaryController);
       
       // Mock that optimized system will fail due to no content messages
-      MockController.mockImplementation(() => {
+      MockController.mockImplementation(function () {
         throw new Error("No content messages");
       });
 
@@ -295,7 +303,9 @@ describe("Summary Integration Helper Functions", () => {
         summarizeChat: vi.fn().mockRejectedValue(new Error("AI provider error")),
         summarizeChatMessages: vi.fn(),
       };
-      MockController.mockImplementation(() => mockInstance as any);
+      MockController.mockImplementation(function () {
+        return mockInstance as any;
+      });
 
       const { sendMessage } = await import("../../src/core/telegram");
 
@@ -323,7 +333,7 @@ describe("Summary Integration Helper Functions", () => {
         summarizeChat: vi.fn().mockResolvedValue("Provider summary"),
         summarizeChatMessages: vi.fn(),
       };
-      MockController.mockImplementation((envArg: Env) => {
+      MockController.mockImplementation(function (envArg: Env) {
         // Verify environment is passed correctly
         expect(envArg.SUMMARY_PROVIDER).toBe("openai");
         return mockInstance as any;
@@ -354,7 +364,9 @@ describe("Summary Integration Helper Functions", () => {
         summarizeChat: vi.fn().mockResolvedValue("AI provider summary"),
         summarizeChatMessages: vi.fn(),
       };
-      MockController.mockImplementation(() => mockInstance as any);
+      MockController.mockImplementation(function () {
+        return mockInstance as any;
+      });
 
       // Clear AI mock call history
       vi.mocked(mockEnv.AI.run).mockClear();
@@ -386,7 +398,9 @@ describe("Summary Integration Helper Functions", () => {
           .mockRejectedValue(new Error("Rate limit exceeded")),
         summarizeChatMessages: vi.fn(),
       };
-      MockController.mockImplementation(() => mockInstance as any);
+      MockController.mockImplementation(function () {
+        return mockInstance as any;
+      });
 
       const { sendMessage } = await import("../../src/core/telegram");
 
@@ -410,7 +424,7 @@ describe("Summary Integration Helper Functions", () => {
       const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
       const MockController = vi.mocked(OptimizedSummaryController);
       
-      MockController.mockImplementation(() => {
+      MockController.mockImplementation(function () {
         throw new Error("Provider initialization failed");
       });
 
@@ -436,7 +450,7 @@ describe("Summary Integration Helper Functions", () => {
       const { OptimizedSummaryController } = await import("../../src/features/summary/optimization");
       const MockController = vi.mocked(OptimizedSummaryController);
       
-      MockController.mockImplementation(() => {
+      MockController.mockImplementation(function () {
         throw new Error("Optimized initialization failed");
       });
 

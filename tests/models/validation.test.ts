@@ -580,7 +580,7 @@ describe('Validation Functions', () => {
         expect(ValidationUtils.isValidSeverity(0)).toBe(false);
         expect(ValidationUtils.isValidSeverity(11)).toBe(false);
         expect(ValidationUtils.isValidSeverity(-1)).toBe(false);
-        expect(ValidationUtils.isValidSeverity('5')).toBe(false);
+        expect(ValidationUtils.isValidSeverity('5' as unknown as number)).toBe(false);
       });
     });
 
@@ -594,7 +594,7 @@ describe('Validation Functions', () => {
       it('should return false for invalid confidence values', () => {
         expect(ValidationUtils.isValidConfidence(-0.1)).toBe(false);
         expect(ValidationUtils.isValidConfidence(1.1)).toBe(false);
-        expect(ValidationUtils.isValidConfidence('0.5')).toBe(false);
+        expect(ValidationUtils.isValidConfidence('0.5' as unknown as number)).toBe(false);
       });
     });
 

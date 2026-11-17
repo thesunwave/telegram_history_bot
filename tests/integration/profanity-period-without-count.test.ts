@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { handleUpdate } from '../../src/api/update';
 import { sendMessage } from '../../src/core/telegram';
 import type { Env } from '../../src/core/env';
 import { createMockEnv } from '../test-utils';
-import { KVNamespace } from '@miniflare/kv';
-import { MemoryStorage } from '@miniflare/storage-memory';
+import { createKVBindings } from '../helpers/miniflare-kv';
+import { createRealD1, seedProfanityWord, seedUserDay, seedUsername, type RealD1 } from '../helpers/real-d1';
 
 vi.mock('../../src/core/telegram', () => ({
   sendMessage: vi.fn(),
@@ -39,6 +39,8 @@ const NO_WORDS = 'Нет данных о матерных словах';
 describe('profanity commands — period without count (regression)', () => {
   let mockEnv: Env;
   let mockSendMessage: any;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
+  let d1: RealD1;
   const testChatId = -100123456789;
   const today = new Date().toISOString().slice(0, 10);
 
@@ -48,13 +50,20 @@ describe('profanity commands — period without count (regression)', () => {
     return date.toISOString().slice(0, 10);
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     mockSendMessage = vi.mocked(sendMessage);
+    bindings = await createKVBindings();
+    d1 = createRealD1();
     mockEnv = createMockEnv({
-      HISTORY: new KVNamespace(new MemoryStorage()) as any,
-      COUNTERS: new KVNamespace(new MemoryStorage()) as any,
+      HISTORY: bindings.history as any,
+      DB: d1.db as any,
     });
+  });
+
+  afterEach(async () => {
+    await bindings.mf.dispose();
+    d1.sqlite.close();
   });
 
   function createMessage(text: string, userId = 123456, username = 'alice') {
@@ -69,16 +78,16 @@ describe('profanity commands — period without count (regression)', () => {
 
   async function seedUsers(counts: Record<string, number>, usernames: Record<string, string> = {}) {
     for (const [userId, count] of Object.entries(counts)) {
-      await mockEnv.COUNTERS.put(`profanity:${testChatId}:${userId}:${today}`, String(count));
+      seedUserDay(d1, { chatId: testChatId, userId: Number(userId), day: today, profanity: count });
     }
     for (const [userId, name] of Object.entries(usernames)) {
-      await mockEnv.COUNTERS.put(`user:${userId}`, name);
+      seedUsername(d1, testChatId, Number(userId), name);
     }
   }
 
   async function seedWords(counts: Record<string, number>) {
     for (const [word, count] of Object.entries(counts)) {
-      await mockEnv.COUNTERS.put(`profanity_words:${testChatId}:${word}:${today}`, String(count));
+      seedProfanityWord(d1, testChatId, today, word, null, count);
     }
   }
 
@@ -103,8 +112,8 @@ describe('profanity commands — period without count (regression)', () => {
     });
 
     it('returns week data outside today for /profanity_top week', async () => {
-      await mockEnv.COUNTERS.put(`profanity:${testChatId}:444:${daysAgo(1)}`, '20');
-      await mockEnv.COUNTERS.put('user:444', 'dave');
+      seedUserDay(d1, { chatId: testChatId, userId: 444, day: daysAgo(1), profanity: 20 });
+      seedUsername(d1, testChatId, 444, 'dave');
 
       await handleUpdate(createMessage('/profanity_top week'), mockEnv);
       const reply = lastReply();
@@ -114,8 +123,8 @@ describe('profanity commands — period without count (regression)', () => {
     });
 
     it('returns month data outside the week for /profanity_top month', async () => {
-      await mockEnv.COUNTERS.put(`profanity:${testChatId}:555:${daysAgo(10)}`, '20');
-      await mockEnv.COUNTERS.put('user:555', 'eve');
+      seedUserDay(d1, { chatId: testChatId, userId: 555, day: daysAgo(10), profanity: 20 });
+      seedUsername(d1, testChatId, 555, 'eve');
 
       await handleUpdate(createMessage('/profanity_top month'), mockEnv);
       const reply = lastReply();
@@ -139,7 +148,7 @@ describe('profanity commands — period without count (regression)', () => {
     });
 
     it('returns week data outside today for /profanity_words week', async () => {
-      await mockEnv.COUNTERS.put(`profanity_words:${testChatId}:weekword:${daysAgo(1)}`, '20');
+      seedProfanityWord(d1, testChatId, daysAgo(1), 'weekword', null, 20);
 
       await handleUpdate(createMessage('/profanity_words week'), mockEnv);
       const reply = lastReply();
@@ -149,7 +158,7 @@ describe('profanity commands — period without count (regression)', () => {
     });
 
     it('returns month data outside the week for /profanity_words month', async () => {
-      await mockEnv.COUNTERS.put(`profanity_words:${testChatId}:monthword:${daysAgo(10)}`, '20');
+      seedProfanityWord(d1, testChatId, daysAgo(10), 'monthword', null, 20);
 
       await handleUpdate(createMessage('/profanity_words month'), mockEnv);
       const reply = lastReply();

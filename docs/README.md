@@ -8,6 +8,7 @@ This folder keeps project documentation organized by purpose.
 - docs/notes/ — implementation notes, analyses, and fix summaries
 - docs/debug/ — debugging artifacts (e.g., Postman collections)
 - docs/features/ — feature-specific design docs (when needed)
+- docs/images/ — screenshots referenced from README and docs
 
 ## Naming
 - Use lowercase kebab-case for filenames (e.g., "auto-notifications-guide.md").

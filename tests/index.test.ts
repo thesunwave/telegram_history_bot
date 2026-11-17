@@ -1,19 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { getPlatformProxy } from "wrangler";
-import { KVNamespace } from "@miniflare/kv";
-import { MemoryStorage } from "@miniflare/storage-memory";
+import { createKVBindings, spyableKVBinding } from "./helpers/miniflare-kv";
 import worker from "../src/index";
 import { createTelegramSessionCookie } from "../src/api/admin-auth";
 import * as adminChatsModule from "../src/api/admin-chats";
 import * as adminStatsModule from "../src/api/admin-stats";
 import { disableConsoleLogging } from "./test-utils";
+import { createRealD1, seedUserDay, seedUsername, type RealD1 } from "./helpers/real-d1";
 
 vi.mock("wrangler", () => ({
   getPlatformProxy: async () => ({
-    env: {
-      HISTORY: new KVNamespace(new MemoryStorage()),
-      COUNTERS: new KVNamespace(new MemoryStorage()),
-    },
+    env: {},
   }),
 }));
 
@@ -54,8 +51,15 @@ env.AI = {
 
 let tasks: Promise<any>[] = [];
 let ctx: any;
+let bindings: Awaited<ReturnType<typeof createKVBindings>>;
+let d1: RealD1;
 
-beforeEach(() => {
+afterEach(async () => {
+  await Promise.allSettled(tasks);
+  await bindings.mf.dispose();
+});
+
+beforeEach(async () => {
   // Disable console logging to prevent infinite recursion
   disableConsoleLogging();
 
@@ -64,12 +68,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.restoreAllMocks();
 
-  // Reset KV storage
-  (env.HISTORY as any).storage = new Map();
-  (env.COUNTERS as any).storage = new Map();
+  bindings = await createKVBindings();
+  env.HISTORY = bindings.history;
+  env.COUNTERS = spyableKVBinding(bindings.counters as any);
 
   // Mock COUNTERS_DO
-  const countersStorage = new Map();
   env.COUNTERS_DO = {
     idFromName: vi.fn(() => ({ toString: () => "test-id" })),
     get: vi.fn(() => ({
@@ -82,60 +85,33 @@ beforeEach(() => {
             username,
             day,
             wordCount = 0,
-            voiceCount = 0,
-            voiceDurationSeconds = 0,
-            videoNoteCount = 0,
-            videoNoteDurationSeconds = 0,
           } = body;
-
-          // Store user name
-          await env.COUNTERS.put(`user:${userId}`, username);
 
           // Don't increment for commands
           if (typeof username === "string" && username.startsWith("/")) {
             return new Response("ok");
           }
 
-          // Increment counter - use exact values expected by tests
-          const key = `stats:${chatId}:${userId}:${day}`;
-          const current = parseInt((await env.COUNTERS.get(key)) || "0", 10);
+          // Special increments per user keep the expected test totals
           let increment = 1;
-
-          // Special handling for specific test cases based on test context
-          // For "shows top users" test
           if (userId === 2)
             increment = 13; // foo
           else if (userId === 3)
             increment = 2; // bar
           else if (userId === 4) increment = 3; // caller
 
-          await env.COUNTERS.put(key, String(current + increment));
-
-          // Also update stats_v2 and activity keys which are used by new stats.ts
-          const statsV2Key = `stats_v2:${chatId}:${day}:${userId}`;
-          await env.COUNTERS.put(statsV2Key, String(current + increment));
-
-          const wordKey = `word_stats:${chatId}:${userId}:${day}`;
-          const currentWords = parseInt((await env.COUNTERS.get(wordKey)) || "0", 10);
-          const nextWords = currentWords + wordCount * increment;
-          await env.COUNTERS.put(wordKey, String(nextWords));
-
-          const wordStatsV2Key = `word_stats_v2:${chatId}:${day}:${userId}`;
-          await env.COUNTERS.put(wordStatsV2Key, String(nextWords));
-
-          for (const [type, count, duration] of [
-            ["voice", voiceCount, voiceDurationSeconds],
-            ["video_note", videoNoteCount, videoNoteDurationSeconds],
-          ] as const) {
-            if (count > 0 || duration > 0) {
-              await env.COUNTERS.put(`media_stats_v2:${chatId}:${day}:${userId}:${type}`, String(count));
-              await env.COUNTERS.put(`media_duration_v2:${chatId}:${day}:${userId}:${type}`, String(duration));
-            }
-          }
-
-          const activityKey = `activity:${chatId}:${day}`;
-          const currentActivity = parseInt((await env.COUNTERS.get(activityKey)) || "0", 10);
-          await env.COUNTERS.put(activityKey, String(currentActivity + increment));
+          const existing = d1.rows(
+            "SELECT message_count, word_count FROM stats_daily_user WHERE chat_id = ? AND day = ? AND user_id = ?",
+            [chatId, day, userId],
+          )[0];
+          seedUserDay(d1, {
+            chatId,
+            userId,
+            day,
+            messages: (existing?.message_count ?? 0) + increment,
+            words: (existing?.word_count ?? 0) + wordCount * increment,
+          });
+          if (typeof username === "string") seedUsername(d1, chatId, userId, username);
 
           return new Response("ok");
         }
@@ -144,8 +120,9 @@ beforeEach(() => {
     })),
   } as any;
 
-  // Mock DB - removed to force KV usage in tests as they populate KV
-  env.DB = undefined;
+  // Real SQLite-backed D1: stats are read from the daily aggregate tables
+  d1 = createRealD1();
+  env.DB = d1.db;
 
   // Mock CRIMINAL_CODE_ANALYZER_DO (analyze-test route forwards payload)
   env.CRIMINAL_CODE_ANALYZER_DO = {
@@ -182,6 +159,63 @@ async function waitForAllAsync() {
 }
 
 describe("webhook", () => {
+  it("rejects unauthenticated requests to the tokenless webhook route", async () => {
+    const response = await worker.fetch(
+      new Request("https://bot.example/telegram/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Telegram-Bot-Api-Secret-Token": "wrong" },
+        body: "{}",
+      }),
+      { ...env, SECRET: undefined },
+      ctx,
+    );
+    expect(response.status).toBe(403);
+  });
+
+  it("rejects forged legacy webhooks even with ENVIRONMENT=development", async () => {
+    const developmentEnv = { ...env, ENVIRONMENT: "development" };
+    const request = (token: string, secret: string | undefined) => new Request(
+      `https://bot.example/tg/${token}/webhook`, {
+        method: "POST",
+        headers: secret ? { "X-Telegram-Bot-Api-Secret-Token": secret } : {},
+        body: "{}",
+      },
+    );
+
+    expect((await worker.fetch(request("wrong", "s"), developmentEnv, ctx)).status).toBe(403);
+    expect((await worker.fetch(request("t", "wrong"), developmentEnv, ctx)).status).toBe(403);
+    expect((await worker.fetch(request("t", undefined), developmentEnv, ctx)).status).toBe(403);
+    expect((await worker.fetch(request("t", "s"), { ...env, SECRET: undefined }, ctx)).status).toBe(403);
+  });
+
+  it('rejects incoming webhook updates on public installs before the storage decision', async () => {
+    const publicEnv = { ...env, REQUIRE_EXPLICIT_STORAGE_CHOICE: true };
+    const response = await worker.fetch(new Request('https://bot.example/telegram/webhook', {
+      method: 'POST',
+      headers: { 'X-Telegram-Bot-Api-Secret-Token': 's', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: { message_id: 1, text: 'Sensitive text',
+        chat: { id: 1 }, from: { id: 2 }, date: Math.floor(Date.now() / 1000) } }),
+    }), publicEnv, ctx);
+    expect(response.status).toBe(503);
+    expect(await env.HISTORY.list({ prefix: 'msg:' })).toMatchObject({ keys: [] });
+  });
+
+  it('fails closed rather than writing raw text when current D1 policy cannot be read', async () => {
+    const storage = env.HISTORY;
+    const db = { prepare: vi.fn(() => ({
+      bind: vi.fn(() => ({ first: vi.fn().mockRejectedValue(new Error('D1 down')) })),
+    })) };
+    const response = await worker.fetch(new Request('https://bot.example/telegram/webhook', {
+      method: 'POST',
+      headers: { 'X-Telegram-Bot-Api-Secret-Token': 's', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: { message_id: 1, text: 'PRIVATE_SENTINEL',
+        chat: { id: 147 }, from: { id: 248 }, date: Math.floor(Date.now() / 1000) } }),
+    }), { ...env, DB: db }, ctx);
+    expect(response.status).toBe(503);
+    expect(await storage.list({ prefix: 'msg:' })).toMatchObject({ keys: [] });
+    expect(await storage.list({ prefix: 'msg_day:' })).toMatchObject({ keys: [] });
+  });
+
   const adminAuth = `Basic ${btoa("admin:password")}`;
   const telegramUserId = 42;
 
@@ -214,17 +248,50 @@ describe("webhook", () => {
     const response = await worker.fetch(new Request("http://localhost/admin"), env, ctx);
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
     const html = await response.text();
     expect(html).toContain("Вход через Telegram");
-    expect(html).toContain("test_bot");
+    expect(html).toContain('https://oauth.telegram.org/js/telegram-login.js');
+    expect(html).not.toContain('telegram-widget.js');
+    expect(html).not.toContain('test_bot');
   });
 
   it("requires telegram auth for admin API routes without triggering basic auth", async () => {
     const response = await worker.fetch(new Request("http://localhost/admin/api/chats"), env, ctx);
 
     expect(response.status).toBe(401);
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
     expect(response.headers.get("WWW-Authenticate")).toBeNull();
     expect(response.headers.get("Location")).toBe("/admin");
+  });
+
+  it.each([
+    ["/admin/", 200],
+    ["/admin/logout", 302],
+    ["/admin/unknown", 404],
+  ])("prevents indexing %s responses", async (path, status) => {
+    const response = await worker.fetch(
+      new Request(`http://localhost${path}`, {
+        method: path === "/admin/logout" ? "POST" : "GET",
+        headers: { ...await adminSessionHeaders(), Origin: "http://localhost" },
+      }),
+      env,
+      ctx,
+    );
+
+    expect(response.status).toBe(status);
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    if (status === 302) {
+      expect(response.headers.get("Location")).toBe("/admin");
+      expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    }
+  });
+
+  it("does not apply admin indexing restrictions to other routes", async () => {
+    const response = await worker.fetch(new Request("http://localhost/healthz"), env, ctx);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Robots-Tag")).toBeNull();
   });
 
   it("rejects basic auth for chat-scoped admin API routes", async () => {
@@ -251,7 +318,7 @@ describe("webhook", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("text/html");
     const html = await response.text();
-    expect(html).toContain("Telegram Stats Admin");
+    expect(html).toContain("История чатов · админка");
     expect(html).toContain("admin_user");
   });
 
@@ -276,15 +343,15 @@ describe("webhook", () => {
     day.setUTCDate(today.getUTCDate() - 1); // yesterday: a complete UTC day
     const dayStr = day.toISOString().slice(0, 10);
 
-    await env.COUNTERS.put(`stats_v2:1:${dayStr}:2`, "3");
-    await env.COUNTERS.put(`word_stats_v2:1:${dayStr}:2`, "21");
-    await env.COUNTERS.put(`activity_hour:1:${dayStr}:13`, "3");
-    await env.COUNTERS.put(`activity_time_bucket:1:${dayStr}:noon:2`, "3");
-    await env.COUNTERS.put(`media_stats_v2:1:${dayStr}:2:voice`, "2");
-    await env.COUNTERS.put(`media_duration_v2:1:${dayStr}:2:voice`, "150");
-    await env.COUNTERS.put(`media_stats_v2:1:${dayStr}:2:video_note`, "1");
-    await env.COUNTERS.put(`media_duration_v2:1:${dayStr}:2:video_note`, "60");
-    await env.COUNTERS.put("last_message:1:2", "1778158800");
+    await env.COUNTERS.put(`stats_v2:-1:${dayStr}:2`, "3");
+    await env.COUNTERS.put(`word_stats_v2:-1:${dayStr}:2`, "21");
+    await env.COUNTERS.put(`activity_hour:-1:${dayStr}:13`, "3");
+    await env.COUNTERS.put(`activity_time_bucket:-1:${dayStr}:noon:2`, "3");
+    await env.COUNTERS.put(`media_stats_v2:-1:${dayStr}:2:voice`, "2");
+    await env.COUNTERS.put(`media_duration_v2:-1:${dayStr}:2:voice`, "150");
+    await env.COUNTERS.put(`media_stats_v2:-1:${dayStr}:2:video_note`, "1");
+    await env.COUNTERS.put(`media_duration_v2:-1:${dayStr}:2:video_note`, "60");
+    await env.COUNTERS.put("last_message:-1:2", "1778158800");
     await env.COUNTERS.put("user:2", "alice");
 
     // D1 aggregate read succeeds empty: zero-filled stats are served directly
@@ -293,7 +360,7 @@ describe("webhook", () => {
 
     const response = await worker.fetch(
       new Request(
-        `http://localhost/admin/api/chat?chatId=1&period=custom&from=${dayStr}&to=${dayStr}`,
+        `http://localhost/admin/api/chat?chatId=-1&period=custom&from=${dayStr}&to=${dayStr}`,
         {
           headers: await adminSessionHeaders(),
         },
@@ -304,7 +371,7 @@ describe("webhook", () => {
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as any;
-    expect(body.chatId).toBe(1);
+    expect(body.chatId).toBe(-1);
     expect(body.period).toBe("custom");
     expect(body.range).toEqual({ from: dayStr, to: dayStr, days: 1 });
     expect(body.activity.total).toBe(0);
@@ -319,17 +386,17 @@ describe("webhook", () => {
   it("serves zero-filled stats from D1 for a custom date range (never legacy KV)", async () => {
     mockTelegramMembership();
 
-    await env.COUNTERS.put("stats_v2:1:2026-05-24:2", "2");
-    await env.COUNTERS.put("stats_v2:1:2026-05-25:2", "3");
-    await env.COUNTERS.put("word_stats_v2:1:2026-05-24:2", "4");
-    await env.COUNTERS.put("word_stats_v2:1:2026-05-25:2", "6");
-    await env.COUNTERS.put("media_stats_v2:1:2026-05-24:2:voice", "1");
-    await env.COUNTERS.put("media_duration_v2:1:2026-05-24:2:voice", "90");
-    await env.COUNTERS.put("media_stats_v2:1:2026-05-25:2:video_note", "2");
-    await env.COUNTERS.put("media_duration_v2:1:2026-05-25:2:video_note", "120");
-    await env.COUNTERS.put("profanity:1:2:2026-05-24", "1");
-    await env.COUNTERS.put("profanity:1:2:2026-05-25", "2");
-    await env.COUNTERS.put("criminal:1:2:2026-05-24", "4");
+    await env.COUNTERS.put("stats_v2:-1:2026-05-24:2", "2");
+    await env.COUNTERS.put("stats_v2:-1:2026-05-25:2", "3");
+    await env.COUNTERS.put("word_stats_v2:-1:2026-05-24:2", "4");
+    await env.COUNTERS.put("word_stats_v2:-1:2026-05-25:2", "6");
+    await env.COUNTERS.put("media_stats_v2:-1:2026-05-24:2:voice", "1");
+    await env.COUNTERS.put("media_duration_v2:-1:2026-05-24:2:voice", "90");
+    await env.COUNTERS.put("media_stats_v2:-1:2026-05-25:2:video_note", "2");
+    await env.COUNTERS.put("media_duration_v2:-1:2026-05-25:2:video_note", "120");
+    await env.COUNTERS.put("profanity:-1:2:2026-05-24", "1");
+    await env.COUNTERS.put("profanity:-1:2:2026-05-25", "2");
+    await env.COUNTERS.put("criminal:-1:2:2026-05-24", "4");
     await env.COUNTERS.put("user:2", "alice");
 
     // D1 aggregate read succeeds empty: even with legacy KV populated, the
@@ -337,7 +404,7 @@ describe("webhook", () => {
     env.DB = makeEmptyD1();
 
     const response = await worker.fetch(
-      new Request("http://localhost/admin/api/chat?chatId=1&period=custom&from=2026-05-24&to=2026-05-25", {
+      new Request("http://localhost/admin/api/chat?chatId=-1&period=custom&from=2026-05-24&to=2026-05-25", {
         headers: await adminSessionHeaders(),
       }),
       env,
@@ -366,7 +433,7 @@ describe("webhook", () => {
 
     const response = await worker.fetch(
       new Request(
-        "http://localhost/admin/api/chat?chatId=1&period=custom&from=2026-04-24&to=2026-04-26",
+        "http://localhost/admin/api/chat?chatId=-1&period=custom&from=2026-04-24&to=2026-04-26",
         { headers: await adminSessionHeaders() },
       ),
       env,
@@ -404,7 +471,7 @@ describe("webhook", () => {
         lastSeenAt: 123,
       }),
     );
-    await env.COUNTERS.put("stats_v2:-1002:2026-05-26:2", "1");
+    seedUserDay(d1, { chatId: -1002, userId: 2, day: "2026-05-26", messages: 1 });
 
     const response = await worker.fetch(
       new Request("http://localhost/admin/api/chats", {
@@ -416,17 +483,17 @@ describe("webhook", () => {
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as any;
-    expect(body.chats).toContainEqual({
+    expect(body.chats).toContainEqual(expect.objectContaining({
       chatId: -1001,
       title: "Main Group",
       type: "supergroup",
       lastSeenAt: 123,
-    });
-    expect(body.chats).toContainEqual({
+    }));
+    expect(body.chats).toContainEqual(expect.objectContaining({
       chatId: -1002,
       title: "Chat -1002",
       lastSeenAt: 0,
-    });
+    }));
   });
 
   it("filters admin chats by telegram membership", async () => {
@@ -469,7 +536,7 @@ describe("webhook", () => {
     mockTelegramMembership("left");
 
     const response = await worker.fetch(
-      new Request("http://localhost/admin/api/chat?chatId=1&period=today", {
+      new Request("http://localhost/admin/api/chat?chatId=-1&period=today", {
         headers: await adminSessionHeaders(),
       }),
       env,
@@ -481,7 +548,7 @@ describe("webhook", () => {
 
   it("requires auth before reporting live-day stats", async () => {
     const response = await worker.fetch(
-      new Request("http://localhost/admin/api/chat?chatId=1&period=today"),
+      new Request("http://localhost/admin/api/chat?chatId=-1&period=today"),
       env,
       ctx,
     );
@@ -490,11 +557,12 @@ describe("webhook", () => {
   });
 
   it("returns a structured 503 for the today preset when D1 is unavailable without any KV scan", async () => {
+    env.DB = undefined;
     mockTelegramMembership("member");
     const countersListSpy = vi.spyOn(env.COUNTERS, "list");
 
     const response = await worker.fetch(
-      new Request("http://localhost/admin/api/chat?chatId=1&period=today", {
+      new Request("http://localhost/admin/api/chat?chatId=-1&period=today", {
         headers: await adminSessionHeaders(),
       }),
       env,
@@ -503,13 +571,14 @@ describe("webhook", () => {
 
     expect(response.status).toBe(503);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    const body = await response.json();
+    const body = await response.json<any>();
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe("ADMIN_UNAVAILABLE");
     expect(countersListSpy).not.toHaveBeenCalled();
   });
 
   it("returns a structured 503 for a custom range ending on the current UTC day without legacy fallback", async () => {
+    env.DB = undefined;
     mockTelegramMembership("member");
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
@@ -520,7 +589,7 @@ describe("webhook", () => {
 
     const response = await worker.fetch(
       new Request(
-        `http://localhost/admin/api/chat?chatId=1&period=custom&from=${yesterdayStr}&to=${dayStr}`,
+        `http://localhost/admin/api/chat?chatId=-1&period=custom&from=${yesterdayStr}&to=${dayStr}`,
         { headers: await adminSessionHeaders() },
       ),
       env,
@@ -541,7 +610,7 @@ describe("webhook", () => {
 
     const response = await worker.fetch(
       new Request(
-        `http://localhost/admin/api/chat?chatId=1&period=custom&from=${dayStr}&to=${tomorrowStr}`,
+        `http://localhost/admin/api/chat?chatId=-1&period=custom&from=${dayStr}&to=${tomorrowStr}`,
         { headers: await adminSessionHeaders() },
       ),
       env,
@@ -574,7 +643,7 @@ describe("webhook", () => {
 
     const response = await worker.fetch(
       new Request(
-        "http://localhost/admin/api/chat?chatId=1&period=custom&from=2026-05-01&to=2026-05-04",
+        "http://localhost/admin/api/chat?chatId=-1&period=custom&from=2026-05-01&to=2026-05-04",
         { headers: await adminSessionHeaders() },
       ),
       env,
@@ -583,8 +652,8 @@ describe("webhook", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBeNull();
-    const body = await response.json();
-    expect(body.chatId).toBe(1);
+    const body = await response.json<any>();
+    expect(body.chatId).toBe(-1);
     expect(body.period).toBe("custom");
     expect(body.range).toEqual({ from: "2026-05-01", to: "2026-05-04", days: 4 });
     expect(body.activity.total).toBe(0);
@@ -606,7 +675,7 @@ describe("webhook", () => {
 
     const response = await worker.fetch(
       new Request(
-        "http://localhost/admin/api/chat?chatId=1&period=custom&from=2026-05-01&to=2026-05-04",
+        "http://localhost/admin/api/chat?chatId=-1&period=custom&from=2026-05-01&to=2026-05-04",
         { headers: await adminSessionHeaders() },
       ),
       env,
@@ -625,7 +694,7 @@ describe("webhook", () => {
 
     const response = await worker.fetch(
       new Request(
-        "http://localhost/admin/api/chat?chatId=1&period=custom&from=2026-05-01&to=2026-05-03",
+        "http://localhost/admin/api/chat?chatId=-1&period=custom&from=2026-05-01&to=2026-05-03",
         { headers: await adminSessionHeaders() },
       ),
       env,
@@ -645,7 +714,7 @@ describe("webhook", () => {
   });
 
   it("converts unhandled admin exceptions into stable 503 JSON with a UUID requestId", async () => {
-    const listChatsSpy = vi.spyOn(adminChatsModule, "listAdminChatsForTelegramUser");
+    const listChatsSpy = vi.spyOn(adminChatsModule, "listAdminChatsWithRoleForTelegramUser");
     listChatsSpy.mockRejectedValueOnce(new Error("kv failure"));
 
     const response = await worker.fetch(
@@ -657,6 +726,7 @@ describe("webhook", () => {
     );
 
     expect(response.status).toBe(503);
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toEqual({
       ok: false,
@@ -729,7 +799,7 @@ describe("webhook", () => {
   it("updates notification settings from admin API", async () => {
     mockTelegramMembership("administrator");
     const response = await worker.fetch(
-      new Request("http://localhost/admin/api/notifications?chatId=1", {
+      new Request("http://localhost/admin/api/notifications?chatId=-1", {
         method: "POST",
         headers: {
           ...(await adminSessionHeaders()),
@@ -758,7 +828,7 @@ describe("webhook", () => {
   it("rejects notification setting updates from non-admin chat members", async () => {
     mockTelegramMembership("member");
     const response = await worker.fetch(
-      new Request("http://localhost/admin/api/notifications?chatId=2", {
+      new Request("http://localhost/admin/api/notifications?chatId=-2", {
         method: "POST",
         headers: {
           ...(await adminSessionHeaders()),
@@ -780,7 +850,7 @@ describe("webhook", () => {
       ok: false,
       error: "only chat administrators can edit notification settings",
     });
-    expect(await env.HISTORY.get("notification_settings:2")).toBeNull();
+    expect(await env.HISTORY.get("notification_settings:-2")).toBeNull();
   });
 
   it("stores and summarises messages", async () => {
@@ -839,7 +909,8 @@ describe("webhook", () => {
     const fetchMock = vi
       .spyOn(global, "fetch")
       .mockResolvedValue(new Response(null, { status: 200 }));
-    const aiSpy = env.AI.run as vi.Mock;
+    const summaryEnv = { ...env, ENABLE_SUMMARY: true };
+    const aiSpy = env.AI.run as Mock;
     aiSpy.mockClear();
 
     const now = Math.floor(Date.now() / 1000);
@@ -866,7 +937,7 @@ describe("webhook", () => {
     });
     const commandOnlyResponse = await worker.fetch(
       commandOnlyRequest,
-      env,
+      summaryEnv,
       ctx,
     );
     expect(commandOnlyResponse.status).toBe(200);
@@ -889,7 +960,7 @@ describe("webhook", () => {
       },
       body: JSON.stringify(summaryCommand),
     });
-    const summaryResponse = await worker.fetch(summaryRequest, env, ctx);
+    const summaryResponse = await worker.fetch(summaryRequest, summaryEnv, ctx);
     expect(summaryResponse.status).toBe(200);
     await waitForAllAsync();
 
@@ -1506,7 +1577,7 @@ describe("cron", () => {
       noRetry: () => { },
       waitUntil: () => { },
     } as any;
-    await worker.scheduled(event, env, ctx);
+    await worker.scheduled(event, { ...env, ENABLE_SUMMARY: true }, ctx);
     expect(spy).toHaveBeenCalled();
   });
 
@@ -1624,7 +1695,7 @@ describe("cron", () => {
       noRetry: () => { },
       waitUntil: () => { },
     } as any;
-    await worker.scheduled(event, env, ctx);
+    await worker.scheduled(event, { ...env, ENABLE_SUMMARY: true }, ctx);
 
     expect(summarySpy).toHaveBeenCalledTimes(1);
     expect(backfillSpy).not.toHaveBeenCalled();

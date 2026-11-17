@@ -39,7 +39,7 @@ describe('ContextOptimizer', () => {
         logPerformanceInsights: true,
         trackTokenUsage: true
       }
-    };
+    } as SummaryOptimizationConfig;
 
     optimizer = new ContextOptimizer(config);
 

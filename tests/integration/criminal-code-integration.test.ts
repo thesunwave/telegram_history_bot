@@ -203,7 +203,7 @@ describe("Criminal Code Analysis Integration", () => {
       );
 
       const statsResponse = await analyzer.fetch(statsRequest);
-      const statsResult = await statsResponse.json();
+      const statsResult = await statsResponse.json<any>();
 
       expect(statsResponse.status).toBe(200);
       expect(statsResult.stats).toBeDefined();
@@ -254,7 +254,7 @@ describe("Criminal Code Analysis Integration", () => {
       });
 
       const secondResponse = await analyzer.fetch(secondRequest);
-      const secondResult = await secondResponse.json();
+      const secondResult = await secondResponse.json<any>();
 
       expect(secondResponse.status).toBe(200);
       expect(secondResult.hasViolations).toBeDefined();
@@ -284,7 +284,7 @@ describe("Criminal Code Analysis Integration", () => {
       const response = await analyzer.fetch(request);
       expect(response.status).toBe(200); // Should return fallback result
 
-      const result = await response.json();
+      const result = await response.json<any>();
       expect(result.hasViolations).toBe(false);
       expect(result.riskLevel).toBe("low");
       

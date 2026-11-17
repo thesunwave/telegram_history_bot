@@ -7,13 +7,8 @@ export default defineConfig({
     hookTimeout: 10000, // Increased timeout for setup/teardown
     teardownTimeout: 5000, // Increased teardown timeout
     pool: "threads",
-    poolOptions: {
-      threads: {
-        singleThread: true, // Run tests sequentially to avoid race conditions
-        isolate: true, // Isolate modules between test files to prevent mock leakage
-        useAtomics: true,
-      },
-    },
+    fileParallelism: false, // Run test files sequentially to avoid race conditions
+    isolate: true, // Isolate modules between test files to prevent mock leakage
     globals: true,
     bail: 0, // Run all tests to see full picture
     retry: 1, // Allow one retry for flaky tests

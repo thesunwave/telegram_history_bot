@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { OpenAIProvider } from '../../src/core/providers/openai-provider';
 import { Env } from '../../src/core/env';
 import { SummaryRequest, SummaryOptions, ProviderError, ChatMessage } from '../../src/core/providers/ai-provider';
@@ -949,10 +950,10 @@ describe('OpenAIProvider', () => {
 
   describe('Responses API truncation handling (Fix A: revive dead truncation warn)', () => {
     let gpt5Provider: OpenAIProvider;
-    let warnSpy: ReturnType<typeof vi.spyOn>;
-    let errorSpy: ReturnType<typeof vi.spyOn>;
-    let logSpy: ReturnType<typeof vi.spyOn>;
-    let debugSpy: ReturnType<typeof vi.spyOn>;
+    let warnSpy: MockInstance<typeof console.warn>;
+    let errorSpy: MockInstance<typeof console.error>;
+    let logSpy: MockInstance<typeof console.log>;
+    let debugSpy: MockInstance<typeof console.debug>;
 
     beforeEach(() => {
       mockEnv.OPENAI_MODEL = 'gpt-5-nano';
@@ -1167,9 +1168,8 @@ describe('OpenAIProvider', () => {
     });
 
     // End-to-end through analyzeCriminalCode — partial-content truncation:
-    // the operator should now see BOTH the truncation warn (categorisation)
-    // AND the parser-failure error (carrying the raw partial JSON), while the
-    // moderation outcome stays the deliberate fail-open clean fallback.
+    // The operator sees truncation and parser failure metadata without
+    // storing the potentially sensitive model response in Cloudflare logs.
     it('analyzeCriminalCode: partial-content truncation returns clean fallback with truncation warn + parser error', async () => {
       const partialJson = '{"hasViolations": true, "violations": [{"article": "105"';
       mockFetch.mockResolvedValue({
@@ -1202,12 +1202,12 @@ describe('OpenAIProvider', () => {
       );
       expect(extractorWarns).toHaveLength(1);
 
-      // Visibility: the parser-failure error log still carries the raw partial JSON
+      // Parser failure remains visible but cannot leak the partial model response.
       const parseErrors = findErrors(
         (msg, data) => typeof msg === 'string' &&
           msg.includes('response parsing failed') &&
           typeof data === 'object' && data !== null &&
-          data.rawResponse === partialJson
+          data.responseLength === partialJson.length && data.rawResponse === undefined
       );
       expect(parseErrors).toHaveLength(1);
 

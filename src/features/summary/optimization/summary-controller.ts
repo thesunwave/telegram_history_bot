@@ -18,8 +18,8 @@ import { Env, DAY, LOG_ID_RADIX } from "../../../core/env";
 import { Logger, PerformanceTracker } from "../../../core/logger";
 import { fetchMessages, fetchLastMessages } from '../../history/history';
 import { fetchMessagesHybrid, fetchLastMessagesOptimized } from '../../history/history-optimized';
-import { TelegramMessage } from '../../core/providers/ai-provider';
-import { sendMessage } from '../../core/telegram';
+import { TelegramMessage } from '../../../core/providers/ai-provider';
+import { sendMessage } from '../../../core/telegram';
 
 // Import existing functions for backward compatibility
 import {

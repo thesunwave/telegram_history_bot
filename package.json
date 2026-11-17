@@ -2,29 +2,48 @@
 	"name": "purple-bread-9739",
 	"version": "0.0.0",
 	"private": true,
+	"license": "MIT",
+	"engines": {
+		"node": ">=22.12.0"
+	},
 	"scripts": {
-		"deploy": "wrangler deploy",
+		"deploy": "wrangler deploy && npm run db:migrate",
+		"deploy:production": "wrangler deploy --config wrangler.production.jsonc",
+		"deploy:public": "npm run deploy",
+		"db:migrate": "wrangler d1 migrations apply DB --remote",
+		"check:production": "wrangler deploy --dry-run --config wrangler.production.jsonc",
+		"check:public": "wrangler deploy --dry-run",
+		"dev:public": "wrangler dev",
 		"start": "wrangler dev",
 		"dev": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"test": "vitest run",
+		"typecheck": "tsc --noEmit",
+		"test:onboarding": "node scripts/check-public-onboarding.mjs",
+		"test:release-preflight": "vitest run tests/scripts/preflight-production.test.ts",
 		"dev:remote": "wrangler dev --remote --var ENVIRONMENT:development",
 		"dev:polling": "node scripts/local-polling.js",
 		"ingest:legal-rag": "node scripts/ingest-legal-rag.mjs",
 		"backfill:criminal-punishments": "node scripts/fixes/backfill-criminal-punishments.mjs"
 	},
 	"devDependencies": {
-		"@cloudflare/workers-types": "^4.20250810.0",
-		"@miniflare/core": "^2.14.4",
-		"@miniflare/d1": "^2.14.4",
-		"@miniflare/kv": "^2.14.4",
-		"@miniflare/storage-memory": "^2.14.4",
+		"@cloudflare/workers-types": "^5.20261014.1",
+		"@types/better-sqlite3": "^9.6.0",
 		"better-sqlite3": "^11.10.0",
+		"miniflare": "5.20261116.0-beta",
 		"typescript": "^5.0.4",
-		"vitest": "^3.2.3",
-		"wrangler": "^4.26.1"
+		"vitest": "^5.1.0",
+		"wrangler": "^4.163.0"
+	},
+	"cloudflare": {
+		"bindings": {
+			"TOKEN": {
+				"description": "Telegram bot token from BotFather. Stored as a Cloudflare Worker Secret."
+			}
+		}
 	},
 	"dependencies": {
-		"dotenv": "^17.2.3"
+		"dotenv": "^17.2.3",
+		"jose": "^6.2.12"
 	}
 }

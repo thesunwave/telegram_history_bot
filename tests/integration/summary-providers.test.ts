@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach, afterAll } from "vitest";
 import worker, { CountersDO } from "../../src/index";
-import { KVNamespace } from "@miniflare/kv";
-import { MemoryStorage } from "@miniflare/storage-memory";
-import { D1Database } from "@miniflare/d1";
+import { createKVBindings } from "../helpers/miniflare-kv";
+import type { D1Database } from "@cloudflare/workers-types";
 import { ProviderInitializer } from "../../src/core/providers/provider-init";
 
 interface Env {
@@ -18,12 +17,15 @@ interface Env {
   SUMMARY_SYSTEM?: string;
   SUMMARY_CHUNK_SIZE?: number;
   SUMMARY_PROVIDER?: "cloudflare" | "openai";
+  ENABLE_SUMMARY?: boolean;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   SUMMARY_MAX_TOKENS?: number;
   SUMMARY_TEMPERATURE?: number;
   SUMMARY_TOP_P?: number;
   SUMMARY_FREQUENCY_PENALTY?: number;
+  DAY_BLOCK_MANAGER_DO: any;
+  CRIMINAL_CODE_ANALYZER_DO: any;
 }
 
 function createCountersNamespace(env: Env) {
@@ -58,19 +60,22 @@ describe("Summary Providers Integration Tests", () => {
   let ctx: any;
   let tasks: Promise<any>[];
   let fetchMock: any;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 
   beforeEach(async () => {
     tasks = [];
     ctx = { waitUntil: (p: Promise<any>) => tasks.push(p) };
     ProviderInitializer.reset();
 
-    const history = new KVNamespace(new MemoryStorage());
-    const counters = new KVNamespace(new MemoryStorage());
+    bindings = await createKVBindings();
+    const { history, counters } = bindings;
     const db = {
       prepare: vi.fn(() => ({
         bind: () => ({
           run: vi.fn(),
           all: vi.fn(async () => ({ results: [] })),
+          // Emulate the production D1 settings lookup on each webhook.
+          first: vi.fn(async () => null),
         }),
       })),
     } as unknown as D1Database;
@@ -88,21 +93,41 @@ describe("Summary Providers Integration Tests", () => {
       SUMMARY_SYSTEM: "You are a helpful assistant",
       SUMMARY_CHUNK_SIZE: undefined,
       SUMMARY_PROVIDER: undefined,
+      ENABLE_SUMMARY: true,
       OPENAI_API_KEY: undefined,
       OPENAI_MODEL: undefined,
       SUMMARY_MAX_TOKENS: 400,
       SUMMARY_TEMPERATURE: 0.2,
       SUMMARY_TOP_P: 0.95,
       SUMMARY_FREQUENCY_PENALTY: 0.1,
-    };
+    } as unknown as Env;
 
     env.COUNTERS_DO = createCountersNamespace(env);
 
     fetchMock = vi.spyOn(global, "fetch");
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await Promise.allSettled(tasks);
     vi.restoreAllMocks();
+    await bindings.mf.dispose();
+  });
+
+  describe("waitUntil teardown", () => {
+    let fetchWasMockedDuringTask = false;
+
+    it("keeps the fetch mock installed until pending work finishes", () => {
+      ctx.waitUntil(new Promise<void>((resolve) => {
+        setTimeout(() => {
+          fetchWasMockedDuringTask = global.fetch === fetchMock;
+          resolve();
+        }, 0);
+      }));
+    });
+
+    afterAll(() => {
+      expect(fetchWasMockedDuringTask).toBe(true);
+    });
   });
 
   describe("Complete summarization flow with both providers", () => {

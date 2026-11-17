@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CriminalCodeAnalyzerDO } from '../src/durable-objects/criminal-code-analyzer-do';
 import { CountersDO } from '../src/durable-objects/counters-do';
+import { createRealD1 } from './helpers/real-d1';
 
 vi.mock('../src/core/logger', () => ({
   Logger: {
@@ -150,20 +151,8 @@ describe('criminal prefilter — себе FP must not reach profanity counters',
   });
 
   it('counters DO writes the surface token it is handed (wiring pinned)', async () => {
-    const kv = new Map<string, string>();
-    const putSpy = vi.fn((key: string, value: string) => {
-      kv.set(key, value);
-      return Promise.resolve();
-    });
-    const countersEnv = {
-      COUNTERS: {
-        get: vi.fn((key: string) => Promise.resolve(kv.get(key) || null)),
-        put: putSpy,
-        delete: vi.fn(),
-        list: vi.fn().mockResolvedValue({ keys: [], list_complete: true, cacheStatus: null }),
-      } as any,
-      DB: null as any,
-    };
+    const d1 = createRealD1();
+    const countersEnv = { DB: d1.db };
     const countersState = {
       blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn()),
     };
@@ -182,8 +171,10 @@ describe('criminal prefilter — себе FP must not reach profanity counters',
     }));
 
     expect(response.status).toBe(200);
-    expect(putSpy).toHaveBeenCalledWith('profanity:123:456:2025-01-01', '1');
-    expect(putSpy).toHaveBeenCalledWith('profanity_words:123:себе:2025-01-01', '1');
+    expect(d1.rows('SELECT profanity_count FROM stats_daily_user WHERE chat_id = 123 AND user_id = 456'))
+      .toEqual([{ profanity_count: 1 }]);
+    expect(d1.rows('SELECT word, count FROM stats_daily_profanity_word WHERE chat_id = 123'))
+      .toEqual([{ word: 'себе', count: 1 }]);
   });
 
   it('queued (>= 8 chars) path does not submit the себе FP even when AI denies profanity', async () => {
@@ -239,21 +230,9 @@ describe('criminal prefilter — себе FP must not reach profanity counters',
     ).toBe(false);
   });
 
-  it('full-chain: a себе increment does not reach COUNTERS.put through a real CountersDO', async () => {
-    const kv = new Map<string, string>();
-    const putSpy = vi.fn((key: string, value: string) => {
-      kv.set(key, value);
-      return Promise.resolve();
-    });
-    const countersEnv = {
-      COUNTERS: {
-        get: vi.fn((key: string) => Promise.resolve(kv.get(key) || null)),
-        put: putSpy,
-        delete: vi.fn(),
-        list: vi.fn().mockResolvedValue({ keys: [], list_complete: true, cacheStatus: null }),
-      } as any,
-      DB: null as any,
-    };
+  it('full-chain: a себе increment does not reach the D1 aggregates through a real CountersDO', async () => {
+    const d1 = createRealD1();
+    const countersEnv = { DB: d1.db };
     const countersState = {
       blockConcurrencyWhile: vi.fn((fn: () => Promise<void>) => fn()),
     };
@@ -281,9 +260,7 @@ describe('criminal prefilter — себе FP must not reach profanity counters',
       headers: { 'Content-Type': 'application/json' },
     }));
 
-    const sebePuts = putSpy.mock.calls.filter(([key]) =>
-      typeof key === 'string' && key.includes('себе'),
-    );
-    expect(sebePuts.length, 'no COUNTERS.put carrying "себе" at the real CountersDO call site').toBe(0);
+    const sebeRows = d1.rows("SELECT word FROM stats_daily_profanity_word WHERE word LIKE '%себе%'");
+    expect(sebeRows.length, 'no "себе" aggregate written at the real CountersDO call site').toBe(0);
   });
 });

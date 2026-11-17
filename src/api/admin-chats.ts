@@ -55,8 +55,7 @@ export async function saveAdminChatMeta(env: Env, chat: any, seenAt: number): Pr
     await env.HISTORY.put(`${CHAT_META_PREFIX}${chatId}`, JSON.stringify(meta));
   } catch (error: any) {
     Logger.error('Failed to save admin chat metadata', {
-      chatId,
-      error: error.message || String(error),
+      errorName: error instanceof Error ? error.name : 'UnknownError',
     });
   }
 }
@@ -90,29 +89,23 @@ async function listStoredChatMeta(env: Env): Promise<AdminChatMeta[]> {
   return chats;
 }
 
-async function listCounterChatIds(env: Env): Promise<Set<number>> {
+async function listStatsChatIds(env: Env): Promise<Set<number>> {
   const chatIds = new Set<number>();
-  let cursor: string | undefined;
 
-  do {
-    const list: any = await env.COUNTERS.list({ prefix: 'stats_v2:', cursor });
-    cursor = !list.list_complete ? list.cursor : undefined;
-
-    for (const key of list.keys) {
-      const [, chatId] = key.name.split(':');
-      const parsed = Number(chatId);
-      if (Number.isFinite(parsed)) {
-        chatIds.add(parsed);
-      }
+  if (!env.DB) return chatIds;
+  const res = await env.DB.prepare('SELECT DISTINCT chat_id FROM activity').all<{ chat_id: number }>();
+  for (const row of (res.results as Array<{ chat_id: number }> | undefined) ?? []) {
+    const parsed = Number(row.chat_id);
+    if (Number.isFinite(parsed)) {
+      chatIds.add(parsed);
     }
-  } while (cursor);
+  }
 
   return chatIds;
 }
 
 interface AdminChatCandidate {
   chat: AdminChatMeta;
-  hasStoredMeta: boolean;
 }
 
 async function listAdminChatCandidates(env: Env): Promise<AdminChatCandidate[]> {
@@ -120,11 +113,11 @@ async function listAdminChatCandidates(env: Env): Promise<AdminChatCandidate[]> 
   const byId = new Map<number, AdminChatCandidate>();
 
   for (const chat of storedChats) {
-    byId.set(chat.chatId, { chat, hasStoredMeta: true });
+    byId.set(chat.chatId, { chat });
   }
 
-  const counterChatIds = await listCounterChatIds(env);
-  for (const chatId of counterChatIds) {
+  const statsChatIds = await listStatsChatIds(env);
+  for (const chatId of statsChatIds) {
     if (!byId.has(chatId)) {
       byId.set(chatId, {
         chat: {
@@ -132,7 +125,6 @@ async function listAdminChatCandidates(env: Env): Promise<AdminChatCandidate[]> 
           title: `Chat ${chatId}`,
           lastSeenAt: 0,
         },
-        hasStoredMeta: false,
       });
     }
   }
@@ -150,51 +142,25 @@ export async function listAdminChats(env: Env): Promise<AdminChatMeta[]> {
   return (await listAdminChatCandidates(env)).map(({ chat }) => chat);
 }
 
-export async function isTelegramUserInChat(
+export type TelegramChatRole = 'admin' | 'member' | 'none';
+
+/**
+ * Resolves a user's standing in a chat via `getChatMember`. Telegram errors and
+ * unknown statuses throw so callers never mistake an outage for "not a member".
+ */
+export async function getTelegramChatRole(
   env: Env,
   chatId: number,
   userId: number,
-): Promise<boolean> {
+): Promise<TelegramChatRole> {
+  // Positive Telegram chat IDs identify private dialogs with that user.
+  // A group-membership lookup must never grant access to someone else's dialog.
+  if (chatId > 0 && chatId !== userId) {
+    return 'none';
+  }
+
   if (!env.TOKEN) {
-    return false;
-  }
-
-  const url = `https://api.telegram.org/bot${env.TOKEN}/getChatMember`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, user_id: userId }),
-  });
-  if (!response.ok) {
-    throw new Error(`getChatMember HTTP ${response.status}`);
-  }
-
-  const payload = await response.json().catch(() => null) as any;
-  const status = payload?.result?.status;
-  if (payload?.ok !== true || typeof status !== 'string') {
-    throw new Error('getChatMember invalid response');
-  }
-
-  if (status === 'creator' || status === 'administrator' || status === 'member') {
-    return true;
-  }
-  if (status === 'restricted') {
-    return payload.result.is_member === true;
-  }
-  if (status === 'left' || status === 'kicked') {
-    return false;
-  }
-
-  throw new Error('getChatMember unknown status');
-}
-
-export async function isTelegramUserChatAdmin(
-  env: Env,
-  chatId: number,
-  userId: number,
-): Promise<boolean> {
-  if (!env.TOKEN) {
-    return false;
+    return 'none';
   }
 
   const url = `https://api.telegram.org/bot${env.TOKEN}/getChatMember`;
@@ -214,28 +180,56 @@ export async function isTelegramUserChatAdmin(
   }
 
   if (status === 'creator' || status === 'administrator') {
-    return true;
+    return 'admin';
   }
-  if (status === 'member' || status === 'restricted' || status === 'left' || status === 'kicked') {
-    return false;
+  if (status === 'member') {
+    return 'member';
+  }
+  if (status === 'restricted') {
+    return payload.result.is_member === true ? 'member' : 'none';
+  }
+  if (status === 'left' || status === 'kicked') {
+    return 'none';
   }
 
   throw new Error('getChatMember unknown status');
 }
 
-export async function listAdminChatsForTelegramUser(
+export async function isTelegramUserInChat(
+  env: Env,
+  chatId: number,
+  userId: number,
+): Promise<boolean> {
+  return (await getTelegramChatRole(env, chatId, userId)) !== 'none';
+}
+
+export async function isTelegramUserChatAdmin(
+  env: Env,
+  chatId: number,
+  userId: number,
+): Promise<boolean> {
+  return (await getTelegramChatRole(env, chatId, userId)) === 'admin';
+}
+
+export interface AdminChatWithRole extends AdminChatMeta {
+  /** Membership confirmed by Telegram; chat-scoped endpoints also re-check. */
+  role: Exclude<TelegramChatRole, 'none'>;
+}
+
+/** Chats the user belongs to, with the role each membership check confirmed. */
+export async function listAdminChatsWithRoleForTelegramUser(
   env: Env,
   userId: number,
-): Promise<AdminChatMeta[]> {
+): Promise<AdminChatWithRole[]> {
   const candidates = await listAdminChatCandidates(env);
   const checks = await Promise.allSettled(
     candidates.map(async (candidate) => ({
       candidate,
-      allowed: await isTelegramUserInChat(env, candidate.chat.chatId, userId),
+      role: await getTelegramChatRole(env, candidate.chat.chatId, userId),
     })),
   );
 
-  const allowedChats: AdminChatMeta[] = [];
+  const allowedChats: AdminChatWithRole[] = [];
 
   checks.forEach((check, index) => {
     if (check.status === 'rejected') {
@@ -244,16 +238,21 @@ export async function listAdminChatsForTelegramUser(
         chatId: candidate.chat.chatId,
         error: check.reason instanceof Error ? check.reason.message : String(check.reason),
       });
-      if (candidate.hasStoredMeta) {
-        allowedChats.push(candidate.chat);
-      }
       return;
     }
 
-    if (check.value.allowed) {
-      allowedChats.push(check.value.candidate.chat);
+    if (check.value.role !== 'none') {
+      allowedChats.push({ ...check.value.candidate.chat, role: check.value.role });
     }
   });
 
   return allowedChats;
+}
+
+export async function listAdminChatsForTelegramUser(
+  env: Env,
+  userId: number,
+): Promise<AdminChatMeta[]> {
+  const chats = await listAdminChatsWithRoleForTelegramUser(env, userId);
+  return chats.map(({ role: _role, ...chat }) => chat);
 }

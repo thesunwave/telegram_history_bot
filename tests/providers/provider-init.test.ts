@@ -134,6 +134,20 @@ describe("ProviderInitializer", () => {
       );
     });
 
+    it("recreates an initialized provider after changing the runtime model or provider", async () => {
+      const first = await ProviderInitializer.initializeProvider(mockEnv);
+      mockEnv.CLOUDFLARE_MODEL = 'new-runtime-model';
+      const changedModel = ProviderInitializer.getProvider(mockEnv);
+      expect(changedModel).toBeInstanceOf(CloudflareAIProvider);
+      expect(changedModel).not.toBe(first);
+      expect(ProviderInitializer.getProvider(mockEnv)).toBe(changedModel);
+
+      mockEnv.SUMMARY_PROVIDER = 'openai';
+      mockEnv.OPENAI_API_KEY = 'test-api-key';
+      mockEnv.OPENAI_MODEL = 'gpt-4.1-mini';
+      expect(ProviderInitializer.getProvider(mockEnv)).toBeInstanceOf(OpenAIProvider);
+    });
+
     it("should return different provider types based on configuration", () => {
       // Test Cloudflare
       const cloudflareProvider = ProviderInitializer.getProvider(mockEnv);

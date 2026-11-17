@@ -1,16 +1,23 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { recordBotMembership, listBotInstallations } from '../src/api/admin-installations';
 import { saveAdminChatMeta } from '../src/api/admin-chats';
 import { handleAdminRequest } from '../src/api/admin';
 import { createTelegramSessionCookie } from '../src/api/admin-auth';
 import { createMockEnv } from './test-utils';
 import worker from '../src/index';
+import { createKVBindings } from './helpers/miniflare-kv';
+import { renderInstallationsHtml } from '../src/api/admin-installations-html';
+import { createRealD1 } from './helpers/real-d1';
 
 let env: ReturnType<typeof createMockEnv>;
-beforeEach(() => {
+let bindings: Awaited<ReturnType<typeof createKVBindings>>;
+beforeEach(async () => {
   vi.restoreAllMocks();
-  env = createMockEnv({ ADMIN_BASIC_USER: 'owner', ADMIN_BASIC_PASSWORD: 'password' });
+  bindings = await createKVBindings();
+  env = createMockEnv({ HISTORY: bindings.history as any,
+    ADMIN_BASIC_USER: 'owner', ADMIN_BASIC_PASSWORD: 'password' });
 });
+afterEach(async () => { await bindings.mf.dispose(); });
 const authorization = 'Basic ' + btoa('owner:password');
 const event = (date: number, status = 'member', oldStatus = 'left') => ({
   chat: { id: -100, title: '<Group>', type: 'supergroup' }, date,
@@ -18,6 +25,41 @@ const event = (date: number, status = 'member', oldStatus = 'left') => ({
 });
 
 describe('bot installations', () => {
+  it('renders executable browser code and both installation tables', () => {
+    const html = renderInstallationsHtml();
+    expect(html).toContain('id="selfHostedRows"');
+    expect(html).toContain('id="installationRows"');
+    expect(() => new Function(html.split('<script>')[1].split('</script>')[0])).not.toThrow();
+  });
+
+  it('exposes anonymous deployment totals only to the receiver administrator', async () => {
+    const { db, sqlite } = createRealD1();
+    env.DB = db;
+    env.TELEMETRY_RECEIVER = true;
+    try {
+      sqlite.exec(`INSERT INTO telemetry_installs VALUES
+        ('new-install', date('now', '-10 day'), date('now', '-6 day'), '2-5', '1', 3),
+        ('old-install', '2020-01-01', date('now', '-7 day'), '1', '0', 1)`);
+      const response = await handleAdminRequest(new Request('https://bot/admin/api/installations', {
+        headers: { Authorization: authorization },
+      }), env);
+      const body = await response.json() as { selfHosted: { total: number; active7d: number; rows: unknown[] } };
+      expect(body.selfHosted).toMatchObject({ total: 2, active7d: 1 });
+      expect(body.selfHosted.rows).toHaveLength(2);
+      const cookie = await createTelegramSessionCookie(env, { id: 42, auth_date: 100 });
+      const member = await handleAdminRequest(new Request('https://bot/admin/api/installations', {
+        headers: { Cookie: cookie },
+      }), env);
+      expect(await member.json()).toMatchObject({ scope: 'member', selfHosted: null });
+      env.TELEMETRY_RECEIVER = false;
+      const disabled = await handleAdminRequest(new Request('https://bot/admin/api/installations', {
+        headers: { Authorization: authorization },
+      }), env);
+      expect(await disabled.json()).toMatchObject({ selfHosted: null });
+    } finally {
+      sqlite.close();
+    }
+  });
   it('discovers a quiet installation and preserves activity across removal and reinstallation', async () => {
     await recordBotMembership(env, event(100));
     let [chat] = await listBotInstallations(env);
@@ -106,7 +148,7 @@ describe('bot installations', () => {
 
   it('records my_chat_member through the authenticated webhook without a message', async () => {
     const response = await worker.fetch(new Request(`https://bot/tg/${env.TOKEN}/webhook`, {
-      method: 'POST', headers: { 'X-Telegram-Bot-Api-Secret-Token': env.SECRET },
+      method: 'POST', headers: { 'X-Telegram-Bot-Api-Secret-Token': env.SECRET! },
       body: JSON.stringify({ update_id: 1, my_chat_member: event(100) }),
     }), env, { waitUntil: vi.fn() } as any);
     expect(response.status).toBe(200);

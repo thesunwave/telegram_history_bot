@@ -7,7 +7,7 @@
  * - Create optimal chunks for hierarchical processing
  */
 
-import { TelegramMessage } from '../../core/providers/ai-provider';
+import { TelegramMessage } from '../../../core/providers/ai-provider';
 import { SummaryOptimizationConfig } from './types';
 import { Logger } from '../../../core/logger';
 

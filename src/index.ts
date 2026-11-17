@@ -1,4 +1,3 @@
-import { migrateStatsBatch, MIGRATION_PAGE } from "./features/migration/migrate";
 import { Env } from "./core/env";
 import { dailySummary } from "./features/stats/stats";
 import { summariseChat, summariseChatMessages } from "./features/summary/summary";
@@ -18,11 +17,14 @@ import {
 import { handleUpdate, recordMessage, getTextMessage } from "./api/update";
 import { handleAdminRequest } from "./api/admin";
 import { recordBotMembership } from "./api/admin-installations";
+import { telegramLoginConfig, telegramLoginSession } from "./api/telegram-oidc";
 import { CountersDO } from "./durable-objects/counters-do";
 import { DayBlockManager } from "./durable-objects/day-block-manager";
 import { CriminalCodeAnalyzerDO } from "./durable-objects/criminal-code-analyzer-do";
 import { ProviderInitializer } from "./core/providers/provider-init";
 import { Logger } from "./core/logger";
+import { withRuntimeSettings } from "./core/runtime-settings";
+import { getWebhookSecret } from "./core/webhook-secret";
 import {
   BACKFILL_CRON,
   DAILY_SUMMARY_CRON,
@@ -30,12 +32,23 @@ import {
   runDailyAggregateBackfill,
 } from "./features/stats/daily-backfill";
 import { handleLegalRagIngestBatch, handleLegalRagSearch } from "./features/legal-rag/ingest";
+import { TELEMETRY_PATH, handleTelemetryPing, sendTelemetryPing } from "./features/telemetry/telemetry";
 import type {
   ExecutionContext,
   ScheduledEvent,
 } from "@cloudflare/workers-types";
 
 const ADMIN_UNAVAILABLE_ERROR_CODE = "ADMIN_UNAVAILABLE";
+
+function constantTimeEqual(left: string | null, right: string | null): boolean {
+  const a = left || "";
+  const b = right || "";
+  let diff = a.length ^ b.length;
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    diff |= (a.charCodeAt(index) || 0) ^ (b.charCodeAt(index) || 0);
+  }
+  return diff === 0;
+}
 
 function describeError(error: unknown): { name: string } {
   if (error instanceof Error) {
@@ -67,6 +80,72 @@ export default {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<Response> {
+    const url = new URL(req.url);
+    const isAdminRequest = url.pathname === "/admin" || url.pathname.startsWith("/admin/");
+    // Privacy-sensitive ingestion must use the current persisted policy, not a
+    // potentially stale isolate cache. On D1 failure, reject and let Telegram retry.
+    const isWebhook = req.method === 'POST' &&
+      (url.pathname === '/telegram/webhook' || /^\/tg\/[^/]+\/webhook$/.test(url.pathname));
+    try {
+      env = await withRuntimeSettings(env, isWebhook);
+    } catch {
+      return new Response('Bot settings temporarily unavailable', {
+        status: 503,
+        headers: isAdminRequest ? { "X-Robots-Tag": "noindex, nofollow" } : undefined,
+      });
+    }
+    const isPublicRead = req.method === "GET" || req.method === "HEAD";
+    const isLegacyEnglish = ['/en', '/en/', '/en/index.html'].includes(url.pathname);
+    if (isPublicRead && isLegacyEnglish) {
+      const canonical = new URL("/", req.url);
+      canonical.search = url.search;
+      return Response.redirect(canonical.toString(), 301);
+    }
+    const isLandingPage = [
+      '/', '/index.html', '/ru', '/ru/', '/ru/index.html',
+      '/combot-alternative', '/ru/combot-alternative', '/ru/combot-alternative/', '/robots.txt', '/sitemap.xml',
+    ]
+      .includes(url.pathname);
+
+    if (url.pathname === "/telegram/webhook" && req.method === "POST") {
+      const secret = await getWebhookSecret(env);
+      if (!secret) return new Response("webhook not configured", { status: 503 });
+      if (!constantTimeEqual(req.headers.get("X-Telegram-Bot-Api-Secret-Token"), secret)) {
+        return new Response("forbidden", { status: 403 });
+      }
+      if (env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured') {
+        return new Response('Choose message storage in /admin/setup before connecting the bot', { status: 503 });
+      }
+      const message = getTextMessage(await req.json());
+      await recordMessage(message, env, ctx);
+      ctx.waitUntil(handleUpdate(message, env, url.origin));
+      return Response.json({});
+    }
+
+    if (url.pathname === TELEMETRY_PATH && req.method === "POST") {
+      return handleTelemetryPing(req, env);
+    }
+
+    if (isPublicRead &&
+      (isLandingPage || url.pathname.startsWith("/landing/"))) {
+      // The marketing site has its own repository and release lifecycle.
+      // Proxy only these paths; keep login, admin and webhook in this Worker.
+      if (env.LANDING) return env.LANDING.fetch(req);
+      if (isLandingPage) {
+        const needsSetup = env.TOKEN && !env.TELEGRAM_LOGIN_CLIENT_ID && !env.ADMIN_BASIC_USER;
+        return Response.redirect(new URL(needsSetup ? "/admin/setup" : "/admin", req.url).toString(), 302);
+      }
+      return new Response("Not found", { status: 404 });
+    }
+
+    if (url.pathname === "/auth/telegram/config" && req.method === "GET") {
+      return telegramLoginConfig(env);
+    }
+
+    if (url.pathname === "/auth/telegram" && req.method === "POST") {
+      return telegramLoginSession(req, env);
+    }
+
     // Initialize provider on first request if not already initialized
     if (!ProviderInitializer.isProviderInitialized()) {
       try {
@@ -80,11 +159,10 @@ export default {
       }
     }
 
-    const url = new URL(req.url);
-
-    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+    if (isAdminRequest) {
+      let response: Response;
       try {
-        return await handleAdminRequest(req, env);
+        response = await handleAdminRequest(req, env);
       } catch (error) {
         // Containment boundary: any unexpected admin failure must return
         // structured JSON instead of surfacing a Cloudflare 1101 page. Log only
@@ -98,40 +176,15 @@ export default {
           pathname: url.pathname,
           errorName: name,
         });
-        return adminUnavailableResponse(requestId);
+        response = adminUnavailableResponse(requestId);
       }
-    }
-
-    // Migration endpoints
-    if (url.pathname === "/migrate") {
-      const key = url.searchParams.get("key");
-      if (key !== env.SECRET) {
-        return new Response("Unauthorized", { status: 403 });
-      }
-      return new Response(MIGRATION_PAGE, {
-        headers: { "Content-Type": "text/html" },
+      const headers = new Headers(response.headers);
+      headers.set("X-Robots-Tag", "noindex, nofollow");
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
       });
-    }
-
-    if (url.pathname === "/api/migrate" && req.method === "POST") {
-      const key = url.searchParams.get("key");
-      if (key !== env.SECRET) {
-        return new Response("Unauthorized", { status: 403 });
-      }
-      const cursor = url.searchParams.get("cursor") || undefined;
-      const result = await migrateStatsBatch(env, cursor);
-      return Response.json(result);
-    }
-
-    if (url.pathname === "/api/reset-activity" && req.method === "POST") {
-      const key = url.searchParams.get("key");
-      if (key !== env.SECRET) {
-        return new Response("Unauthorized", { status: 403 });
-      }
-      const { resetActivityBatch } = await import("./features/migration/migrate");
-      const cursor = url.searchParams.get("cursor") || undefined;
-      const result = await resetActivityBatch(env, cursor);
-      return Response.json(result);
     }
 
     if (url.pathname === "/api/legal-rag/ingest-batch" && req.method === "POST") {
@@ -248,42 +301,16 @@ export default {
       const token = url.pathname.split("/")[2];
       const secretHeader = req.headers.get("X-Telegram-Bot-Api-Secret-Token");
 
-      const tokenMatches = token === env.TOKEN;
-      const secretMatches = secretHeader === env.SECRET;
-
-      Logger.debug(env, "webhook auth check", {
-        tokenProvided: Boolean(token),
-        tokenMatches,
-        secretProvided: Boolean(secretHeader),
-        secretMatches,
-      });
-
-      if (!tokenMatches) {
-        if (env.ENVIRONMENT === "development") {
-          Logger.warn(env, "webhook token mismatch (IGNORED IN DEVELOPMENT)", {
-            tokenProvided: Boolean(token),
-          });
-        } else {
-          Logger.warn(env, "webhook token mismatch", {
-            tokenProvided: Boolean(token),
-          });
-          return new Response("forbidden", { status: 403 });
-        }
+      // Fail closed in every environment. A public development Worker is still
+      // reachable by attackers; ENVIRONMENT must never disable webhook auth.
+      if (!env.TOKEN || !env.SECRET || !constantTimeEqual(token, env.TOKEN) ||
+          !constantTimeEqual(secretHeader, env.SECRET)) {
+        Logger.warn(env, "webhook authentication failed");
+        return new Response("forbidden", { status: 403 });
       }
 
-      if (!secretMatches) {
-        console.log('DEBUG: env.ENVIRONMENT =', `"${env.ENVIRONMENT}"`);
-        console.log('DEBUG: secretMatches =', secretMatches);
-        if (env.ENVIRONMENT === "development") {
-          Logger.warn(env, "webhook secret mismatch (IGNORED IN DEVELOPMENT)", {
-            secretProvided: Boolean(secretHeader),
-          });
-        } else {
-          Logger.warn(env, "webhook secret mismatch", {
-            secretProvided: Boolean(secretHeader),
-          });
-          return new Response("forbidden", { status: 403 });
-        }
+      if (env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured') {
+        return new Response('Choose message storage in /admin/setup before connecting the bot', { status: 503 });
       }
       const update = await req.json();
       if ((update as any).my_chat_member) {
@@ -305,7 +332,7 @@ export default {
       });
 
       await recordMessage(msg, env, ctx);
-      ctx.waitUntil(handleUpdate(msg, env));
+      ctx.waitUntil(handleUpdate(msg, env, url.origin));
       return Response.json({});
     }
 
@@ -781,6 +808,7 @@ export default {
     env: Env,
     _ctx: ExecutionContext,
   ): Promise<void> {
+    env = await withRuntimeSettings(env);
     // Phase 3a: the distinct temporary backfill cron (`* * * * *`) runs ONLY
     // the D1 aggregate backfill and returns before provider initialization,
     // summary, and cleanup. The exact daily cron (`59 23 * * *`) keeps its
@@ -814,21 +842,27 @@ export default {
       }
     }
 
-    // Check for ENABLE_SUMMARY flag (default to true)
-    const summaryEnabled = env.ENABLE_SUMMARY !== 'false' && env.ENABLE_SUMMARY !== false;
-
-    if (summaryEnabled) {
-      await dailySummary(env);
-    } else {
-      console.log('Daily summary skipped (ENABLE_SUMMARY is false)');
-    }
-
-    // Run cleanup job
     try {
-      const cleanupResult = await cleanupOldData(env, 7, 30);
-      Logger.info(env, "Daily cleanup completed", cleanupResult);
-    } catch (e: any) {
-      Logger.error("Daily cleanup failed", { error: e.message || String(e) });
+      // Check for ENABLE_SUMMARY flag (default to true)
+      const summaryEnabled = env.ENABLE_SUMMARY !== 'false' && env.ENABLE_SUMMARY !== false;
+
+      if (summaryEnabled) {
+        await dailySummary(env);
+      } else {
+        console.log('Daily summary skipped (ENABLE_SUMMARY is false)');
+      }
+
+      // Run cleanup job
+      try {
+        const cleanupResult = await cleanupOldData(env, 7, 30);
+        Logger.info(env, "Daily cleanup completed", cleanupResult);
+      } catch (e: any) {
+        Logger.error("Daily cleanup failed", { error: e.message || String(e) });
+      }
+    } finally {
+      // A failed summary must not suppress the daily install ping.
+      const telemetry = await sendTelemetryPing(env);
+      Logger.info(env, "Anonymous telemetry ping", { result: telemetry });
     }
   },
 };

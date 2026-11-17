@@ -2,24 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { activityByUser, activityChart } from '../src/features/stats/stats';
 import { Env } from '../src/core/env';
-
-// Mock KVNamespace
-const createMockKV = (data: Map<string, string>) => ({
-    get: vi.fn(async (key: string) => data.get(key) || null),
-    put: vi.fn(async (key: string, value: string) => data.set(key, value)),
-    delete: vi.fn(async (key: string) => data.delete(key)),
-    list: vi.fn(async (options?: { prefix?: string; cursor?: string }) => {
-        const prefix = options?.prefix || '';
-        const keys = Array.from(data.keys())
-            .filter(k => k.startsWith(prefix))
-            .sort();
-
-        return {
-            keys: keys.map(name => ({ name })),
-            list_complete: true,
-        };
-    }),
-});
+import { createRealD1, seedUserDay, seedUsername, type RealD1 } from './helpers/real-d1';
 
 const mocks = vi.hoisted(() => ({
     sendMessage: vi.fn(),
@@ -33,15 +16,15 @@ vi.mock('../src/core/telegram', () => ({
 
 describe('Stats Period Verification', () => {
     let env: Env;
-    let kvData: Map<string, string>;
+    let d1: RealD1;
 
     beforeEach(() => {
-        kvData = new Map();
+        d1 = createRealD1();
         mocks.sendMessage.mockClear();
         mocks.sendPhoto.mockClear();
 
         env = {
-            COUNTERS: createMockKV(kvData) as any,
+            DB: d1.db,
         } as Env;
 
         // Mock Date to a fixed point in time: 2025-11-19 (Wednesday)
@@ -63,16 +46,16 @@ describe('Stats Period Verification', () => {
         // Week range: 2025-11-13 to 2025-11-19 (7 days)
 
         // Add data for today
-        kvData.set(`stats_v2:${chatId}:2025-11-19:${userId}`, '10');
+        seedUserDay(d1, { chatId, userId, day: '2025-11-19', messages: 10 });
         // Add data for 6 days ago (2025-11-13) - Should be INCLUDED
-        kvData.set(`stats_v2:${chatId}:2025-11-13:${userId}`, '5');
+        seedUserDay(d1, { chatId, userId, day: '2025-11-13', messages: 5 });
         // Add data for 7 days ago (2025-11-12) - Should be EXCLUDED (if logic is strictly 7 days including today)
         // Wait, WEEK_DAYS = 6. start = today - 6.
         // 19 - 6 = 13. Range [13, 19]. 13, 14, 15, 16, 17, 18, 19 = 7 days.
         // So 12th should be excluded.
-        kvData.set(`stats_v2:${chatId}:2025-11-12:${userId}`, '100');
+        seedUserDay(d1, { chatId, userId, day: '2025-11-12', messages: 100 });
 
-        kvData.set(`user:${userId}`, username);
+        seedUsername(d1, chatId, userId, username);
 
         await activityByUser(env, chatId, 'week');
 
@@ -109,16 +92,16 @@ describe('Stats Period Verification', () => {
         console.log('Month Start Date:', startStr); // 30 days including today
 
         // Add data inside range
-        kvData.set(`stats_v2:${chatId}:2025-11-19:${userId}`, '10');
-        kvData.set(`stats_v2:${chatId}:${startStr}:${userId}`, '5'); // Boundary check (inclusive)
+        seedUserDay(d1, { chatId, userId, day: '2025-11-19', messages: 10 });
+        seedUserDay(d1, { chatId, userId, day: startStr, messages: 5 }); // Boundary check (inclusive)
 
         // Add data outside range (one day before start)
         const beforeStart = new Date(start);
         beforeStart.setUTCDate(start.getUTCDate() - 1);
         const beforeStartStr = beforeStart.toISOString().slice(0, 10);
-        kvData.set(`stats_v2:${chatId}:${beforeStartStr}:${userId}`, '100');
+        seedUserDay(d1, { chatId, userId, day: beforeStartStr, messages: 100 });
 
-        kvData.set(`user:${userId}`, username);
+        seedUsername(d1, chatId, userId, username);
 
         await activityByUser(env, chatId, 'month');
 
@@ -143,14 +126,14 @@ describe('Stats Period Verification', () => {
         // i=0: today = 19 (Wed)
 
         // Let's populate one for each day
-        // activityChart uses 'activity' prefix, not 'stats_v2'
-        kvData.set(`activity:${chatId}:2025-11-19`, '1'); // Wed
-        kvData.set(`activity:${chatId}:2025-11-18`, '1'); // Tue
-        kvData.set(`activity:${chatId}:2025-11-17`, '1'); // Mon
-        kvData.set(`activity:${chatId}:2025-11-16`, '1'); // Sun
-        kvData.set(`activity:${chatId}:2025-11-15`, '1'); // Sat
-        kvData.set(`activity:${chatId}:2025-11-14`, '1'); // Fri
-        kvData.set(`activity:${chatId}:2025-11-13`, '1'); // Thu
+        // activityChart reads the per-day activity totals
+        seedUserDay(d1, { chatId, userId: 1, day: '2025-11-19', messages: 1 }); // Wed
+        seedUserDay(d1, { chatId, userId: 1, day: '2025-11-18', messages: 1 }); // Tue
+        seedUserDay(d1, { chatId, userId: 1, day: '2025-11-17', messages: 1 }); // Mon
+        seedUserDay(d1, { chatId, userId: 1, day: '2025-11-16', messages: 1 }); // Sun
+        seedUserDay(d1, { chatId, userId: 1, day: '2025-11-15', messages: 1 }); // Sat
+        seedUserDay(d1, { chatId, userId: 1, day: '2025-11-14', messages: 1 }); // Fri
+        seedUserDay(d1, { chatId, userId: 1, day: '2025-11-13', messages: 1 }); // Thu
 
         await activityChart(env, chatId, 'week');
 

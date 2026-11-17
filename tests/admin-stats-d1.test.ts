@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MemoryStorage } from '@miniflare/storage-memory';
+import Database from 'better-sqlite3';
 import type { D1Database } from '@cloudflare/workers-types';
 import {
   getAdminChatStats,
@@ -21,19 +21,13 @@ import { AdminUnavailable } from '../src/features/stats/admin-stats-errors';
 
 /**
  * D1 reader + selector tests. Uses a real in-memory SQLite database (via
- * @miniflare/storage-memory MemoryStorage.getSqliteDatabase, backed by
  * better-sqlite3) with the actual migration DDL applied, so aggregate read
  * semantics (GROUP BY, SUM, COUNT(CASE ...), LEFT JOIN) are the real ones.
  */
 
-type Sqlite = Awaited<ReturnType<MemoryStorage['getSqliteDatabase']>>;
+type Sqlite = Database.Database;
 type SQLInputValue = null | number | bigint | string | Uint8Array;
 
-// Pre-warm better-sqlite3 (fetched lazily by MemoryStorage via npx-import).
-{
-  const warmup = await new MemoryStorage().getSqliteDatabase();
-  warmup.close();
-}
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -135,14 +129,15 @@ class FakeD1Database {
 }
 
 async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database }> {
-  const sqlite = await new MemoryStorage().getSqliteDatabase();
-  const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url));
+  const sqlite = new Database(':memory:');
+  const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url).href);
   for (const file of [
     '0002_activity.sql',
     '0009_stats_daily_aggregates.sql',
     '0010_stats_backfill_state.sql',
     '0011_stats_chat_user_profile.sql',
     '0012_stats_daily_pipeline_progress.sql',
+    '0015_stats_daily_media_max_duration.sql',
   ]) {
     const sql = readFileSync(join(migrationsDir, file), 'utf8');
     for (const statement of sql.split(';')) {
@@ -498,6 +493,13 @@ describe('D1 admin stats reader', () => {
     expect(alice.username).toBe('alice');
     // 200 has no username → anonymized "Участник N".
     expect(id200.username).toBe('Участник 2');
+    // The people table joins the timeline on userId, not the anonymized name.
+    expect(alice.userId).toBe('100');
+    expect(id200.userId).toBe('200');
+    expect(activity.allUsers.map((user) => user.userId)).toEqual(['100', '200']);
+    // Full per-person profanity and criminal counts, not just the top-10 lists.
+    expect(activity.allUsers[0]).toMatchObject({ profanityCount: 3, profanityRate: null, criminalCount: 1 });
+    expect(activity.allUsers[1]).toMatchObject({ profanityCount: 0, profanityRate: null, criminalCount: 0 });
     // alice: 8 messages / 2 days → threshold max(2, ceil(8/2)=4) = 4.
     expect(alice.dailyLevels).toEqual([
       { day: d1, level: 'talkative', timeBucketLevels: [
@@ -578,6 +580,59 @@ describe('D1 admin stats reader', () => {
     // `count` becomes 0/1/2 instead of the user's message_count 50/30/10.
     expect(voice.map((u) => u.count)).toEqual([50, 30, 10]);
     expect(vn.map((u) => u.count)).toEqual([50, 30, 10]);
+  });
+
+  it('returns daily media series, longest recordings and previous-window totals', async () => {
+    const sqlite = harness.sqlite;
+    const d1 = '2026-08-25';
+    const d2 = '2026-08-26';
+    insertUser(sqlite, { day: d1, user_id: 100, message_count: 5, word_count: 10, voice_count: 2, voice_duration_seconds: 120, profanity_count: 1 });
+    insertUser(sqlite, { day: d2, user_id: 100, message_count: 3, word_count: 6, video_note_count: 1, video_note_duration_seconds: 30 });
+    insertUser(sqlite, { day: d2, user_id: 200, message_count: 2, word_count: 4, voice_count: 1, voice_duration_seconds: 90, profanity_count: 2 });
+    sqlite.exec(`UPDATE stats_daily_user SET voice_max_duration_seconds = 80 WHERE user_id = 100 AND day = '${d1}'`);
+    sqlite.exec(`UPDATE stats_daily_user SET voice_max_duration_seconds = 90 WHERE user_id = 200`);
+    sqlite.exec(`UPDATE stats_daily_user SET video_note_max_duration_seconds = 30 WHERE user_id = 100 AND day = '${d2}'`);
+    // Previous equal-length window: 2026-08-23..2026-08-24.
+    insertUser(sqlite, { day: '2026-08-23', user_id: 100, message_count: 4, word_count: 8, voice_count: 1, voice_duration_seconds: 60 });
+    insertUser(sqlite, { day: '2026-08-24', user_id: 300, message_count: 1, word_count: 2, profanity_count: 3 });
+    insertProfile(sqlite, 1, 100, 'alice', 1000);
+    insertProfile(sqlite, 1, 200, 'bob', 1000);
+
+    const result = await getAdminChatStatsFromD1(db, 1, range('custom', [d1, d2]));
+
+    expect(result.activity.dailyMedia).toEqual([
+      { day: d1, voiceCount: 2, voiceMinutes: 2, videoNoteCount: 0, videoNoteMinutes: 0 },
+      { day: d2, voiceCount: 1, voiceMinutes: 1.5, videoNoteCount: 1, videoNoteMinutes: 0.5 },
+    ]);
+    expect(result.activity.longestVoice).toEqual({ userId: '200', username: 'bob', seconds: 90 });
+    expect(result.activity.longestVideoNote).toEqual({ userId: '100', username: 'alice', seconds: 30 });
+    expect(result.activity.topVoiceUsers.find((u) => u.username === 'alice')?.voiceMaxSeconds).toBe(80);
+    expect(result.profanity.total).toBe(3);
+    expect(result.previous).toEqual({
+      from: '2026-08-23',
+      to: '2026-08-24',
+      total: 5,
+      totalWords: 10,
+      activeUsers: 2,
+      totalVoiceCount: 1,
+      totalVoiceMinutes: 1,
+      totalVideoNoteCount: 0,
+      totalVideoNoteMinutes: 0,
+      profanityTotal: 3,
+    });
+  });
+
+  it('reports no previous window and no longest recordings when that data is absent', async () => {
+    const sqlite = harness.sqlite;
+    const d1 = '2026-08-26';
+    insertUser(sqlite, { day: d1, user_id: 100, message_count: 2, voice_count: 1, voice_duration_seconds: 40 });
+
+    const result = await getAdminChatStatsFromD1(db, 1, range('custom', [d1]));
+
+    expect(result.previous).toBeNull();
+    expect(result.activity.longestVoice).toBeNull();
+    expect(result.activity.longestVideoNote).toBeNull();
+    expect(result.activity.topVoiceUsers[0].voiceMaxSeconds).toBeNull();
   });
 
   it('preset periods produce sentence attributes from criminal_violations', async () => {
@@ -1026,7 +1081,7 @@ describe('admin stats backend selector', () => {
     expect(env.COUNTERS.list).not.toHaveBeenCalled();
   });
 
-  it('parseAdminPeriod enforces the 90-day custom cap, rejects future custom, defaults to today', () => {
+  it('parseAdminPeriod allows long custom ranges, rejects future custom, defaults to today', () => {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     const todayStr = today.toISOString().slice(0, 10);
@@ -1041,15 +1096,18 @@ describe('admin stats backend selector', () => {
     expect(parseAdminPeriod('today').days).toHaveLength(1);
     expect(parseAdminPeriod('today').from).toBe(todayStr);
     expect(parseAdminPeriod('today').to).toBe(todayStr);
-    // Custom ending in the future is invalid (400), even within the 90-day cap.
+    // Custom ending in the future is invalid (400).
     expect(() => parseAdminPeriod('custom', daysFromToday(-2), daysFromToday(1))).toThrow(
       /future/,
     );
     expect(() => parseAdminPeriod('custom', todayStr, daysFromToday(1))).toThrow(/future/);
-    // 90-day cap still enforced for closed past ranges.
-    expect(() =>
-      parseAdminPeriod('custom', daysFromToday(-95), daysFromToday(-1)),
-    ).toThrow(/90/);
+    // Custom ranges allow any realistic length: a full calendar year is accepted.
+    const year = parseAdminPeriod('custom', '2025-01-01', '2025-12-31');
+    expect(year.days).toHaveLength(365);
+    expect(year.from).toBe('2025-01-01');
+    expect(year.to).toBe('2025-12-31');
+    // Only an absurd range (malformed `from`) hits the ~10-year sanity bound.
+    expect(() => parseAdminPeriod('custom', '0001-01-01', daysFromToday(-1))).toThrow(/3660/);
   });
 
   it('week and month presets are rolling UTC windows including today', () => {

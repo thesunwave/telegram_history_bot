@@ -1,6 +1,7 @@
 import type { Env } from '../../core/env';
 import { escapeHtml } from '../../core/html-utils';
 import type { ViolationCount } from '../../core/models/statistics';
+import { queryUsernames } from '../stats/stats-d1-queries';
 import {
   addSentenceTotals,
   calculateSentenceFromPunishment,
@@ -265,12 +266,13 @@ async function loadUserRanks(
 
 async function addUsernames(
   env: Env,
+  chatId: number,
   users: Array<Omit<CriminalUserRank, 'username'>>,
 ): Promise<CriminalUserRank[]> {
-  const usernames = await Promise.all(users.map(user => env.COUNTERS.get(`user:${user.userId}`)));
-  return users.map((user, index) => ({
+  const usernames = await queryUsernames(env, chatId, users.map(user => user.userId));
+  return users.map((user) => ({
     ...user,
-    username: usernames[index] || `id${user.userId}`,
+    username: usernames.get(String(user.userId)) || `id${user.userId}`,
   }));
 }
 
@@ -323,7 +325,7 @@ export async function loadCriminalTopReport(
     (total, user) => addSentenceTotals(total, user.sentence),
     { totalYears: 0, lifeSentences: 0 },
   );
-  const users = await addUsernames(env, rankedUsers.slice(0, limit));
+  const users = await addUsernames(env, chatId, rankedUsers.slice(0, limit));
 
   return {
     range,
@@ -344,7 +346,7 @@ export async function loadChatCriminalReport(
     loadEpisodes(env, chatId, range, { limit: 1, order: 'severity' }),
   ]);
   const leader = rankedUsers.length > 0
-    ? (await addUsernames(env, rankedUsers.slice(0, 1)))[0]
+    ? (await addUsernames(env, chatId, rankedUsers.slice(0, 1)))[0]
     : null;
 
   return {

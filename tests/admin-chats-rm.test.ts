@@ -15,10 +15,9 @@
  * The fix reserves `false` for genuine membership verdicts (HTTP 200 with
  * `result.status` not in the allowed set) and throws on Telegram errors so
  * callers can distinguish "not a member" from "couldn't verify":
- *   - The listing caller keeps metadata-backed chats whose membership check is
- *     indeterminate, but counter-only fallback IDs still require positive
- *     membership verification; chat-scoped endpoints remain the authorization
- *     boundary and re-check access.
+ *   - The listing caller only returns chats with confirmed membership. Stored
+ *     metadata is not evidence of access; indeterminate checks must never reveal
+ *     chat titles, settings, or activity counters.
  *   - The admin access guards let the throw propagate to the admin error
  *     boundary in `src/index.ts`, which returns a 503 with a requestId.
  *   - The capability-flag caller (`handleNotificationGet`) and the webhook
@@ -26,7 +25,7 @@
  *     graceful degradation.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   isTelegramUserInChat,
   isTelegramUserChatAdmin,
@@ -38,6 +37,8 @@ import { createTelegramSessionCookie } from '../src/api/admin-auth';
 import { handleUpdate } from '../src/api/update';
 import worker from '../src/index';
 import { createMockEnv, disableConsoleLogging } from './test-utils';
+import { createKVBindings } from './helpers/miniflare-kv';
+import { createRealD1, seedUserDay } from './helpers/real-d1';
 
 vi.mock('../src/core/telegram', () => ({
   sendMessage: vi.fn().mockResolvedValue('123'),
@@ -54,18 +55,25 @@ vi.mock('../src/core/logger', () => ({
 }));
 
 let env: ReturnType<typeof createMockEnv>;
+let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 const ctx: any = { waitUntil: () => {} };
 
-beforeEach(() => {
+beforeEach(async () => {
   disableConsoleLogging();
   vi.clearAllMocks();
   vi.restoreAllMocks();
+  bindings = await createKVBindings();
   env = createMockEnv({
+    HISTORY: bindings.history as any,
     TOKEN: 't',
     SECRET: 's',
     TELEGRAM_BOT_USERNAME: 'test_bot',
     DEBUG_LOGS: 'false',
   });
+});
+
+afterEach(async () => {
+  await bindings.mf.dispose();
 });
 
 async function adminSessionCookie(userId = 42): Promise<string> {
@@ -286,8 +294,15 @@ describe('isTelegramUserChatAdmin — Telegram errors now propagate (bug fix)', 
   });
 });
 
-describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (symptom A fix)', () => {
-  it('keeps the chat whose membership check returns 429', async () => {
+describe('listAdminChatsForTelegramUser — require confirmed membership', () => {
+  it('omits stored group metadata when Telegram returns 400', async () => {
+    await saveChat(-1001, 'Unavailable group', 10);
+    mockGetChatMemberByChatId(() => errorResponse(400, 'Bad Request: chat not found'));
+
+    expect(await listAdminChatsForTelegramUser(env, 42)).toEqual([]);
+  });
+
+  it('omits the chat whose membership check returns 429', async () => {
     await saveChat(-1001, 'Group One', 10);
     await saveChat(-1002, 'Group Two', 20);
     mockGetChatMemberByChatId((chatId) =>
@@ -296,10 +311,10 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
 
-    expect(chats.map((c) => c.title)).toEqual(['Group Two', 'Group One']);
+    expect(chats.map((c) => c.title)).toEqual(['Group One']);
   });
 
-  it('keeps the chat whose membership check returns 5xx', async () => {
+  it('omits the chat whose membership check returns 5xx', async () => {
     await saveChat(-1001, 'Group One', 10);
     await saveChat(-1002, 'Group Two', 20);
     mockGetChatMemberByChatId((chatId) =>
@@ -308,10 +323,10 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
 
-    expect(chats.map((c) => c.title)).toEqual(['Group Two', 'Group One']);
+    expect(chats.map((c) => c.title)).toEqual(['Group One']);
   });
 
-  it('keeps the chat whose membership check throws a network error', async () => {
+  it('omits the chat whose membership check throws a network error', async () => {
     await saveChat(-1001, 'Group One', 10);
     await saveChat(-1002, 'Group Two', 20);
     vi.spyOn(global, 'fetch').mockImplementation(async (input: any, init?: any) => {
@@ -325,17 +340,17 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
 
-    expect(chats.map((c) => c.title)).toEqual(['Group Two', 'Group One']);
+    expect(chats.map((c) => c.title)).toEqual(['Group One']);
   });
 
-  it('keeps all chats when every membership check is indeterminate', async () => {
+  it('returns no chats when every membership check is indeterminate', async () => {
     await saveChat(-1001, 'Group One', 20);
     await saveChat(-1002, 'Group Two', 10);
     mockGetChatMemberByChatId(() => errorResponse(429, 'Too Many Requests'));
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
 
-    expect(chats.map((c) => c.title)).toEqual(['Group One', 'Group Two']);
+    expect(chats.map((c) => c.title)).toEqual([]);
   });
 
   it('still filters out chats on genuine non-membership', async () => {
@@ -350,7 +365,7 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
     expect(chats.map((c) => c.title)).toEqual(['Allowed']);
   });
 
-  it('mixed outcome keeps confirmed and indeterminate chats but filters non-members', async () => {
+  it('mixed outcome only keeps confirmed members', async () => {
     await saveChat(-1001, 'Member', 30);
     await saveChat(-1002, 'Errored', 20);
     await saveChat(-1003, 'Left', 10);
@@ -362,20 +377,29 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
 
-    expect(chats.map((c) => c.title)).toEqual(['Member', 'Errored']);
+    expect(chats.map((c) => c.title)).toEqual(['Member']);
   });
 
   it('omits an indeterminate counter-only fallback chat', async () => {
-    await env.COUNTERS.put('stats_v2:184486882:2026-09-01:42', '1');
-    mockGetChatMemberByChatId(() => errorResponse(429, 'Too Many Requests'));
+    const d1 = createRealD1();
+    seedUserDay(d1, { chatId: -100184486882, userId: 42, day: '2026-09-01', messages: 1 });
+    env.DB = d1.db;
+    const lookup = mockGetChatMemberByChatId(() => errorResponse(429, 'Too Many Requests'));
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
 
     expect(chats).toEqual([]);
+    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lookup.mock.calls[0][1]?.body as string)).toEqual({
+      chat_id: -100184486882,
+      user_id: 42,
+    });
   });
 
   it('keeps a counter-only fallback chat when membership is positively verified', async () => {
-    await env.COUNTERS.put('stats_v2:-1002860305983:2026-09-01:42', '1');
+    const d1 = createRealD1();
+    seedUserDay(d1, { chatId: -1002860305983, userId: 42, day: '2026-09-01', messages: 1 });
+    env.DB = d1.db;
     mockGetChatMemberByChatId(() => memberResponse());
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
@@ -394,8 +418,76 @@ describe('listAdminChatsForTelegramUser — tolerate indeterminate membership (s
   });
 });
 
+describe('private chat visibility', () => {
+  it.each([429, 500])('omits own private chat after Telegram %s', async (status) => {
+    await saveAdminChatMeta(env, { id: 42, type: 'private', username: 'self' }, 10);
+    const lookup = mockGetChatMemberByChatId(() => errorResponse(status));
+
+    const chats = await listAdminChatsForTelegramUser(env, 42);
+
+    expect(chats).toEqual([]);
+    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lookup.mock.calls[0][1]?.body as string)).toEqual({
+      chat_id: 42,
+      user_id: 42,
+    });
+  });
+
+  it('only returns the current user private chat even if Telegram reports member for both', async () => {
+    await saveAdminChatMeta(env, { id: 42, type: 'private', username: 'self' }, 10);
+    await saveAdminChatMeta(env, { id: 999, type: 'private', username: 'other' }, 20);
+    const lookup = mockGetChatMemberByChatId(() => memberResponse());
+
+    const chats = await listAdminChatsForTelegramUser(env, 42);
+
+    expect(chats.map((chat) => chat.chatId)).toEqual([42]);
+    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lookup.mock.calls[0][1]?.body as string).chat_id).toBe(42);
+  });
+
+  it('omits a foreign private chat discovered from D1 without metadata', async () => {
+    const d1 = createRealD1();
+    seedUserDay(d1, { chatId: 999, userId: 999, day: '2026-09-01', messages: 1 });
+    env.DB = d1.db;
+    const lookup = mockGetChatMemberByChatId(() => memberResponse());
+
+    expect(await listAdminChatsForTelegramUser(env, 42)).toEqual([]);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it('does not expose a foreign private chat or its activity/settings through the listing API', async () => {
+    await saveChat(-1001, 'Allowed group', 10);
+    await saveAdminChatMeta(env, { id: 999, type: 'private', username: 'other' }, 20);
+    mockGetChatMemberByChatId((chatId) =>
+      chatId === -1001 ? memberResponse() : errorResponse(400, 'Bad Request: chat not found'),
+    );
+    const response = await worker.fetch(
+      new Request('http://localhost/admin/api/chats', {
+        headers: { Cookie: await adminSessionCookie() },
+      }), env, ctx,
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.chats.map((chat: any) => chat.chatId)).toEqual([-1001]);
+    expect(JSON.stringify(body)).not.toContain('@other');
+  });
+
+  it('denies direct access to a foreign private chat even if Telegram would report member', async () => {
+    const lookup = mockGetChatMemberByChatId(() => memberResponse());
+    const response = await worker.fetch(
+      new Request('http://localhost/admin/api/chat?chatId=999&period=today', {
+        headers: { Cookie: await adminSessionCookie() },
+      }), env, ctx,
+    );
+
+    expect(response.status).toBe(403);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+});
+
 describe('/admin/api/chats — one Telegram failure does not break the whole list', () => {
-  it('returns 200 with verified and indeterminate chats so the dashboard can continue loading', async () => {
+  it('returns 200 with only verified chats when another membership check fails', async () => {
     await saveChat(-1001, 'Working Group', 20);
     await saveChat(-1002, 'Temporarily Unverifiable', 10);
     mockGetChatMemberByChatId((chatId) =>
@@ -415,11 +507,10 @@ describe('/admin/api/chats — one Telegram failure does not break the whole lis
     const body = (await response.json()) as any;
     expect(body.chats.map((chat: any) => chat.title)).toEqual([
       'Working Group',
-      'Temporarily Unverifiable',
     ]);
   });
 
-  it('allows stats loading when only the listing membership check is transiently unavailable', async () => {
+  it('allows stats loading after a previously failed membership check recovers', async () => {
     const chatId = -1001;
     await saveChat(chatId, 'Working Group', 20);
 
@@ -445,7 +536,7 @@ describe('/admin/api/chats — one Telegram failure does not break the whole lis
 
     expect(chatsResponse.status).toBe(200);
     const chatsBody = (await chatsResponse.json()) as any;
-    expect(chatsBody.chats.map((chat: any) => chat.title)).toEqual(['Working Group']);
+    expect(chatsBody.chats).toEqual([]);
 
     env.DB = makeEmptyD1();
     const day = new Date();

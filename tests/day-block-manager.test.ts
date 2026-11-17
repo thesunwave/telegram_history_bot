@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { DayBlockManager } from '../src/durable-objects/day-block-manager';
 import type { DurableObjectState, DurableObjectStorage } from '@cloudflare/workers-types';
 import type { StoredMessage } from '../src/core/env';
@@ -35,10 +35,10 @@ function makeManager() {
   };
   const { storage, map } = makeStorage();
   const mgr = new DayBlockManager(makeState(storage), env);
-  return { mgr, map };
+  return { mgr, map, env, storage };
 }
 
-const BASE = 1788721200; // 2026-09-06T19:00:00Z
+const BASE = Math.floor(Date.now() / 86400000) * 86400 + 12 * 3600; // Today at UTC noon
 
 function dateFor(ts: number): string {
   return new Date(ts * 1000).toISOString().slice(0, 10);
@@ -98,5 +98,77 @@ describe('DayBlockManager shard overflow', () => {
     expect(afterTs.includes(BASE - 600)).toBe(true);
     expect(afterTs.includes(newestStoredTs)).toBe(true);
     expect(afterTs.length).toBe(beforeTs.length + 1);
+  });
+});
+
+describe('DayBlockManager raw message retention', () => {
+  it('does not resurrect an expired Durable Object day block on late updates', async () => {
+    const { mgr, map, env } = makeManager();
+    const put = vi.spyOn(env.HISTORY, 'put');
+    const expired = Math.floor(Date.now() / 1000) - 10 * 86400;
+    const result = await add(mgr, 231, expired, 'DO_SECRET_EXPIRED');
+    expect(result.messageCount).toBe(0);
+    expect(map.size).toBe(0);
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('pins all KV shards and the deletion alarm to one seven-day UTC deadline', async () => {
+    const { mgr, env, storage } = makeManager();
+    const put = vi.spyOn(env.HISTORY, 'put');
+    const setAlarm = vi.spyOn(storage, 'setAlarm');
+    const day = '2026-10-15';
+    const start = Date.parse(`${day}T00:00:00Z`);
+    const deadline = start + 7 * 86400 * 1000;
+    const now = vi.spyOn(Date, 'now').mockReturnValue(start + 12 * 3600 * 1000);
+    try {
+      await add(mgr, 123, Math.floor(start / 1000) + 3600, 'first');
+      now.mockReturnValue(start + 23 * 3600 * 1000);
+      await add(mgr, 123, Math.floor(start / 1000) + 23 * 3600, 'second');
+
+      expect(put).toHaveBeenCalled();
+      for (const call of put.mock.calls) {
+        expect(call[2]).toEqual({ expiration: Math.floor(deadline / 1000) });
+      }
+      expect(setAlarm).toHaveBeenCalledWith(deadline);
+      expect(setAlarm).not.toHaveBeenCalledWith(deadline + 86400 * 1000);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('uses the same fixed expiry for overflow shards, not sliding TTLs', async () => {
+    const { mgr, env } = makeManager();
+    const put = vi.spyOn(env.HISTORY, 'put');
+    for (let index = 0; index < 23; index++) {
+      await add(mgr, 9876, BASE + index, `${BIG} overflow ${index}`);
+    }
+    const shardWrites = put.mock.calls.filter(([key]) => String(key).includes('shard'));
+    expect(shardWrites.some(([key]) => String(key).includes(':1'))).toBe(true);
+    const deadline = Math.floor(Date.parse(`${dateFor(BASE)}T00:00:00Z`) / 1000) + 7 * 86400;
+    for (const call of shardWrites) {
+      expect(call[2]).toEqual({ expiration: deadline });
+    }
+  });
+
+  it('does not reintroduce expired raw messages to the KV backup', async () => {
+    const { mgr, env } = makeManager();
+    const put = vi.spyOn(env.HISTORY, 'put');
+    const start = Date.parse('2026-10-01T00:00:00Z');
+    await add(mgr, 123, Math.floor(start / 1000) + 3600, 'late telegram update');
+    expect(put).not.toHaveBeenCalled();
+  });
+});
+
+  // Malformed messages can cause parser exceptions containing submitted text.
+  // They must not surface raw payload details to the caller.
+describe('DayBlockManager error privacy', () => {
+  it('never echoes malformed request data in the 500 response', async () => {
+    const { mgr } = makeManager();
+    const response = await mgr.fetch(new Request('https://do/add-message', {
+      method: 'POST',
+      body: 'PRIVATE_MESSAGE_BODY',
+    }));
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'Internal server error' });
   });
 });

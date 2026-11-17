@@ -2,10 +2,10 @@
  * Пример использования системы автоматических уведомлений
  */
 
-import type { Env } from '../src/env';
-import { NotificationService } from '../src/services/notification-service';
-import { NotificationRepository } from '../src/repositories/notification-repository';
-import type { NotificationType } from '../src/models/notification-settings';
+import type { Env } from '../src/core/env';
+import { NotificationService } from '../src/core/services/notification-service';
+import { NotificationRepository } from '../src/core/repositories/notification-repository';
+import type { NotificationType } from '../src/core/models/notification-settings';
 
 /**
  * Пример настройки автоматических уведомлений для чата

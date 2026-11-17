@@ -9,7 +9,7 @@ import {
 } from "./types";
 import { Logger } from "../../../core/logger";
 import { Env } from "../../../core/env";
-import { TelegramMessage } from '../../core/providers/ai-provider';
+import { TelegramMessage } from '../../../core/providers/ai-provider';
 import { ContextOptimizer } from "./context-optimizer";
 
 export class OptimizedStrategySelector implements ProcessingStrategySelector {

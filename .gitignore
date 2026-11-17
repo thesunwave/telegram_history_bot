@@ -7,6 +7,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .dev.vars
+.wrangler.hosted.jsonc
+_landing_repo/
 
 # Editor directories and files
 .vscode/

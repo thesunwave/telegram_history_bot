@@ -20,6 +20,7 @@ import {
   calculateSentenceFromViolationCount,
   calculateSentenceFromViolationCounts,
 } from '../../features/criminal/sentence-calculator';
+import { getErrorMessage } from '../errors';
 
 /**
  * Интерфейс репозитория для работы с нарушениями
@@ -73,7 +74,7 @@ export class ViolationRepository implements IViolationRepository {
 
     } catch (error) {
       console.error('❌ Error saving violation:', error);
-      throw new Error(`Failed to save violation: ${error.message}`);
+      throw new Error(`Failed to save violation: ${getErrorMessage(error)}`);
     }
   }
 
@@ -107,7 +108,7 @@ export class ViolationRepository implements IViolationRepository {
 
     } catch (error) {
       console.error('❌ Error getting user violations:', error);
-      throw new Error(`Failed to get user violations: ${error.message}`);
+      throw new Error(`Failed to get user violations: ${getErrorMessage(error)}`);
     }
   }
 
@@ -141,7 +142,7 @@ export class ViolationRepository implements IViolationRepository {
 
     } catch (error) {
       console.error('❌ Error getting period violations:', error);
-      throw new Error(`Failed to get period violations: ${error.message}`);
+      throw new Error(`Failed to get period violations: ${getErrorMessage(error)}`);
     }
   }
 
@@ -175,7 +176,7 @@ export class ViolationRepository implements IViolationRepository {
 
     } catch (error) {
       console.error('❌ Error getting all violations:', error);
-      throw new Error(`Failed to get all violations: ${error.message}`);
+      throw new Error(`Failed to get all violations: ${getErrorMessage(error)}`);
     }
   }
 

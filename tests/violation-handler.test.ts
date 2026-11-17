@@ -11,10 +11,11 @@ import { ViolationRepository } from '../src/core/repositories/violation-reposito
 import type { 
   ViolationAnalysis, 
   Violation, 
+  ViolationCount,
   UserStats, 
   PeriodStats, 
   GeneralStats 
-} from '../src/models/statistics';
+} from '../src/core/models/statistics';
 import type { Env } from '../src/core/env';
 
 // Mock environment
@@ -65,6 +66,8 @@ describe('ViolationHandler Integration Tests', () => {
         violations: [
           {
             article: '282',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Тестовая цитата нарушения',
             punishment: 'Штраф до 300 000 рублей',
             severity: 7,
@@ -109,6 +112,8 @@ describe('ViolationHandler Integration Tests', () => {
         violations: [
           {
             article: '130',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Сомнительная цитата',
             punishment: 'Предупреждение',
             severity: 3,
@@ -132,6 +137,8 @@ describe('ViolationHandler Integration Tests', () => {
         violations: [
           {
             article: '282',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Первое нарушение',
             punishment: 'Штраф',
             severity: 8,
@@ -139,6 +146,8 @@ describe('ViolationHandler Integration Tests', () => {
           },
           {
             article: '205',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Второе нарушение',
             punishment: 'Лишение свободы',
             severity: 10,
@@ -207,8 +216,8 @@ describe('ViolationHandler Integration Tests', () => {
         chatId: '-100123456789',
         totalViolations: 5,
         violationsByArticle: [
-          { article: '282', count: 3, averageSeverity: 6.5 },
-          { article: '130', count: 2, averageSeverity: 4.0 }
+          { article: '282', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 3, averageSeverity: 6.5 },
+          { article: '130', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 2, averageSeverity: 4.0 }
         ],
         averageSeverity: 5.5,
         riskLevel: 'medium',
@@ -305,8 +314,8 @@ describe('ViolationHandler Integration Tests', () => {
         endDate: new Date('2024-01-07'),
         totalViolations: 10,
         violationsByArticle: [
-          { article: '282', count: 6, averageSeverity: 7.0 },
-          { article: '205', count: 4, averageSeverity: 9.0 }
+          { article: '282', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 6, averageSeverity: 7.0 },
+          { article: '205', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 4, averageSeverity: 9.0 }
         ],
         averageSeverity: 7.8,
         uniqueUsers: 3,
@@ -364,9 +373,9 @@ describe('ViolationHandler Integration Tests', () => {
         chatId: '-100123456789',
         totalViolations: 50,
         topViolations: [
-          { article: '282', count: 20, averageSeverity: 6.5 },
-          { article: '205', count: 15, averageSeverity: 9.0 },
-          { article: '130', count: 10, averageSeverity: 4.0 }
+          { article: '282', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 20, averageSeverity: 6.5 },
+          { article: '205', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 15, averageSeverity: 9.0 },
+          { article: '130', subarticle: null, articleTitle: 'Test article title', punishment: 'Test punishment', count: 10, averageSeverity: 4.0 }
         ],
         topUsers: [
           { userId: '123', count: 15, averageSeverity: 7.0, riskLevel: 'high' },
@@ -377,6 +386,8 @@ describe('ViolationHandler Integration Tests', () => {
         criticalViolations: [
           {
             article: '205',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Критическое нарушение',
             punishment: 'Лишение свободы',
             severity: 10,

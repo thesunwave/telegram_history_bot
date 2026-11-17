@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ProfanityAnalyzer } from '../src/features/profanity/profanity';
 import { Env } from '../src/core/env';
-import { AIProvider, ProfanityAnalysisResult } from '../src/core/providers/ai-provider';
+import { AIProvider, CriminalAnalysisResult, ProfanityAnalysisResult } from '../src/core/providers/ai-provider';
 
 // Mock AI Provider that returns empty results
 class EmptyResultAIProvider implements AIProvider {
@@ -14,6 +14,10 @@ class EmptyResultAIProvider implements AIProvider {
 
     async summarize(request: any, options: any, env?: any): Promise<string> {
         return 'Mock summary';
+    }
+
+    async analyzeCriminalCode(): Promise<CriminalAnalysisResult> {
+        throw new Error('Not used in profanity tests');
     }
 
     validateConfig(): void {
@@ -40,6 +44,10 @@ class ProfanityResultAIProvider implements AIProvider {
         return 'Mock summary';
     }
 
+    async analyzeCriminalCode(): Promise<CriminalAnalysisResult> {
+        throw new Error('Not used in profanity tests');
+    }
+
     validateConfig(): void {
         // Mock validation
     }
@@ -58,7 +66,7 @@ describe('Profanity Empty Cache Behavior', () => {
         kvStorage = new Map();
 
         mockEnv = {
-            COUNTERS: {
+            HISTORY: {
                 get: async (key: string) => kvStorage.get(key) || null,
                 put: async (key: string, value: string, options?: any) => {
                     kvStorage.set(key, value);

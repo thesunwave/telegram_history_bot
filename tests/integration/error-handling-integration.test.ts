@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { KVNamespace } from "@miniflare/kv";
-import { MemoryStorage } from "@miniflare/storage-memory";
+import { createKVBindings } from '../helpers/miniflare-kv';
 import { summariseChat, summariseChatMessages } from '../../src/features/summary/summary';
 import { sendMessage } from '../../src/core/telegram';
 import { fetchMessages, fetchLastMessages } from '../../src/features/history/history';
@@ -24,11 +23,13 @@ const mockProviderInitializer = vi.mocked(ProviderInitializer);
 
 describe("Error Handling Integration Tests", () => {
   let env: Env;
+  let bindings: Awaited<ReturnType<typeof createKVBindings>>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
 
-    const history = new KVNamespace(new MemoryStorage());
+    bindings = await createKVBindings();
+    const { history } = bindings;
 
     env = {
       HISTORY: history as any,
@@ -43,7 +44,7 @@ describe("Error Handling Integration Tests", () => {
       KV_BATCH_SIZE: DEFAULT_KV_BATCH_SIZE,
       KV_BATCH_DELAY: DEFAULT_KV_BATCH_DELAY,
       SUMMARY_OPT_ENABLED: "false", // Disable optimized system for tests
-    };
+    } as Env;
 
     // Setup default mocks
     mockProviderInitializer.isProviderInitialized.mockReturnValue(true);
@@ -54,12 +55,13 @@ describe("Error Handling Integration Tests", () => {
       analyzeProfanity: vi
         .fn()
         .mockResolvedValue({ hasProfanity: false, words: [] }),
-    });
+    } as any);
     mockSendMessage.mockResolvedValue(undefined);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    await bindings.mf.dispose();
   });
 
   describe("API Limit Error Handling", () => {
@@ -156,7 +158,7 @@ describe("Error Handling Integration Tests", () => {
         analyzeProfanity: vi
           .fn()
           .mockResolvedValue({ hasProfanity: false, words: [] }),
-      };
+      } as any;
       mockProviderInitializer.getProvider.mockReturnValue(mockProvider);
 
       await summariseChat(env, chatId, days);
@@ -195,7 +197,7 @@ describe("Error Handling Integration Tests", () => {
         analyzeProfanity: vi
           .fn()
           .mockResolvedValue({ hasProfanity: false, words: [] }),
-      };
+      } as any;
       mockProviderInitializer.getProvider.mockReturnValue(mockProvider);
 
       await summariseChatMessages(env, chatId, count);
@@ -392,7 +394,7 @@ describe("Error Handling Integration Tests", () => {
         analyzeProfanity: vi
           .fn()
           .mockResolvedValue({ hasProfanity: false, words: [] }),
-      };
+      } as any;
       mockProviderInitializer.getProvider.mockReturnValue(mockProvider);
 
       await summariseChatMessages(env, chatId, count);

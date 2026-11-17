@@ -2,30 +2,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MemoryStorage } from '@miniflare/storage-memory';
+import Database from 'better-sqlite3';
 import type { D1Database } from '@cloudflare/workers-types';
 import { CountersDO } from '../src/durable-objects/counters-do';
 import { isIntegrityClean } from '../src/features/stats/pipeline-progress';
 
 /**
- * Phase 2 dual-write tests. Uses a real in-memory SQLite database (via
- * @miniflare/storage-memory MemoryStorage.getSqliteDatabase, backed by
+ * CountersDO aggregate write tests. Uses a real in-memory SQLite database (via
  * better-sqlite3) with the actual migration DDL applied, so upsert/MAX/CHECK
  * semantics are the real ones. CountersDO is exercised through its public
- * fetch() endpoints with Map-backed KV mocks, mirroring the existing counters
- * test patterns.
+ * fetch() endpoints; D1 is the only counter store.
  */
 
-type Sqlite = Awaited<ReturnType<MemoryStorage['getSqliteDatabase']>>;
+type Sqlite = Database.Database;
 type SQLInputValue = null | number | bigint | string | Uint8Array;
 
-// Pre-warm the better-sqlite3 runtime (fetched lazily by MemoryStorage via
-// npx-import) during module load, so the per-worker first-install cost never
-// stalls the 10s beforeEach hook timeout on a cold CI cache.
-{
-  const warmup = await new MemoryStorage().getSqliteDatabase();
-  warmup.close();
-}
 
 interface PreparedStatementLogEntry {
   sql: string;
@@ -52,6 +43,10 @@ class FakeD1Statement {
 
   all<T = unknown>(): { results: T[]; success: boolean; meta: Record<string, unknown> } {
     this.owner.logPrepared(this);
+    if (this.owner.failNextRead) {
+      this.owner.failNextRead = false;
+      throw new Error('d1 read failed');
+    }
     const results = this.owner.sqlite.prepare(this.sql).all(...this.params) as T[];
     return { results, success: true, meta: {} };
   }
@@ -60,6 +55,8 @@ class FakeD1Statement {
 class FakeD1Database {
   readonly sqlite: Sqlite;
   batchCalls = 0;
+  failNextBatch = false;
+  failNextRead = false;
   preparedLog: PreparedStatementLogEntry[] = [];
 
   constructor(sqlite: Sqlite) {
@@ -76,6 +73,10 @@ class FakeD1Database {
 
   async batch(statements: FakeD1Statement[]): Promise<unknown[]> {
     this.batchCalls += 1;
+    if (this.failNextBatch) {
+      this.failNextBatch = false;
+      throw new Error('d1 unavailable');
+    }
     this.sqlite.exec('BEGIN');
     try {
       for (const stmt of statements) {
@@ -96,21 +97,18 @@ class FakeD1Database {
 }
 
 async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database }> {
-  const sqlite = await new MemoryStorage().getSqliteDatabase();
-  const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url));
+  const sqlite = new Database(':memory:');
+  const migrationsDir = fileURLToPath(new URL('../migrations/', import.meta.url).href);
   for (const file of [
     '0002_activity.sql',
+    '0003_criminal_code.sql',
     '0009_stats_daily_aggregates.sql',
     '0010_stats_backfill_state.sql',
     '0011_stats_chat_user_profile.sql',
     '0012_stats_daily_pipeline_progress.sql',
+    '0015_stats_daily_media_max_duration.sql',
   ]) {
-    const sql = readFileSync(join(migrationsDir, file), 'utf8');
-    for (const statement of sql.split(';')) {
-      if (statement.trim()) {
-        sqlite.exec(statement);
-      }
-    }
+    sqlite.exec(readFileSync(join(migrationsDir, file), 'utf8'));
   }
   const harness = new FakeD1Database(sqlite);
   return { db: harness as unknown as D1Database, harness };
@@ -118,23 +116,6 @@ async function createRealD1(): Promise<{ db: D1Database; harness: FakeD1Database
 
 function rows(sqlite: Sqlite, sql: string, params: SQLInputValue[] = []): any[] {
   return sqlite.prepare(sql).all(...params) as any[];
-}
-
-function createKv() {
-  const map = new Map<string, string>();
-  return {
-    map,
-    kv: {
-      get: vi.fn(async (key: string) => map.get(key) ?? null),
-      put: vi.fn(async (key: string, value: string) => {
-        map.set(key, value);
-      }),
-      delete: vi.fn(async (key: string) => {
-        map.delete(key);
-      }),
-      list: vi.fn(async () => ({ keys: [], list_complete: true })),
-    } as any,
-  };
 }
 
 function makeState(storageMap?: Map<string, unknown>) {
@@ -146,14 +127,15 @@ function makeState(storageMap?: Map<string, unknown>) {
       put: vi.fn(async (key: string, value: unknown) => {
         map.set(key, value);
       }),
+      list: vi.fn(async ({ prefix }: { prefix: string }) =>
+        new Map([...map].filter(([key]) => key.startsWith(prefix)))),
+      delete: vi.fn(async (keys: string[]) => keys.filter((key) => map.delete(key)).length),
     },
   } as any;
 }
 
 function makeEnv(db: unknown, stateMap?: Map<string, unknown>) {
-  const kv = createKv();
   const env = {
-    COUNTERS: kv.kv,
     HISTORY: {} as any,
     COUNTERS_DO: {} as any,
     DAY_BLOCK_MANAGER_DO: {} as any,
@@ -165,7 +147,7 @@ function makeEnv(db: unknown, stateMap?: Map<string, unknown>) {
     SUMMARY_MODEL: 'test-model',
     SUMMARY_PROMPT: 'test-prompt',
   };
-  return { env: env as any, kv, stateMap };
+  return { env: env as any, stateMap };
 }
 
 function post(counters: CountersDO, path: string, body: unknown): Promise<Response> {
@@ -191,21 +173,38 @@ function basePayload(overrides: Record<string, unknown> = {}): Record<string, un
   };
 }
 
-describe('CountersDO D1 aggregate dual-write', () => {
+describe('CountersDO D1 aggregate writes', () => {
   let harness: FakeD1Database;
   let counters: CountersDO;
-  let kv: { map: Map<string, string>; kv: any };
+  let doEnv: any;
 
   beforeEach(async () => {
     const { db, harness: h } = await createRealD1();
     harness = h;
-    const { env, kv: kvMock } = makeEnv(db);
-    kv = kvMock;
-    counters = new CountersDO(makeState(), env);
+    doEnv = makeEnv(db).env;
+    counters = new CountersDO(makeState(), doEnv);
   });
 
   afterEach(() => {
     harness.sqlite.close();
+  });
+
+  it('keeps the longest single voice message and video note per user/day', async () => {
+    await post(counters, '/inc', basePayload({ voiceDurationSeconds: 5, ts: 1000 }));
+    await post(counters, '/inc', basePayload({ voiceDurationSeconds: 12, ts: 1100 }));
+    await post(counters, '/inc', basePayload({ voiceDurationSeconds: 7, ts: 1200 }));
+    await post(counters, '/inc', basePayload({ voiceCount: 0, voiceDurationSeconds: 0, videoNoteCount: 1, videoNoteDurationSeconds: 40, ts: 1300 }));
+    await post(counters, '/inc', basePayload({ voiceCount: 0, voiceDurationSeconds: 0, ts: 1400 }));
+
+    const user = rows(
+      harness.sqlite,
+      'SELECT * FROM stats_daily_user WHERE chat_id = 123 AND day = ? AND user_id = 456',
+      ['2026-05-07'],
+    )[0];
+    expect(user.voice_count).toBe(3);
+    expect(user.voice_duration_seconds).toBe(24);
+    expect(user.voice_max_duration_seconds).toBe(12);
+    expect(user.video_note_max_duration_seconds).toBe(40);
   });
 
   it('base events write additive aggregates, valid hour/bucket, monotonic last_message_ts and profile', async () => {
@@ -264,9 +263,6 @@ describe('CountersDO D1 aggregate dual-write', () => {
     expect(coverage.criminal_status).toBe('none');
     expect(coverage.source).toBe('live');
 
-    // KV legacy path still intact.
-    expect(kv.map.get('stats_v2:123:2026-05-07:456')).toBe('2');
-    expect(kv.map.get('activity_hour:123:2026-05-07:13')).toBe('2');
   });
 
   it('never regresses persisted timestamps and ignores absent ts', async () => {
@@ -418,7 +414,6 @@ describe('CountersDO D1 aggregate dual-write', () => {
       reason_code: null,
     });
 
-    expect(kv.map.get('profanity:123:456:2026-05-07')).toBe('4');
   });
 
   it('criminal writes exact violations length and total severity; empty violations are a zero delta', async () => {
@@ -459,11 +454,9 @@ describe('CountersDO D1 aggregate dual-write', () => {
     )[0];
     expect(coverage.criminal_status).toBe('live');
 
-    expect(kv.map.get('criminal:123:456:2026-05-07')).toBe('2');
-    expect(kv.map.get('criminal_severity:123:456:2026-05-07')).toBe('7');
   });
 
-  it('does not compound D1 rows that already contain the post-KV totals', async () => {
+  it('seeds totals from the current D1 rows when DO storage has none', async () => {
     await post(counters, '/inc', basePayload());
     harness.sqlite
       .prepare(
@@ -483,9 +476,8 @@ describe('CountersDO D1 aggregate dual-write', () => {
       .run('2026-05-07');
     harness.sqlite.prepare('UPDATE activity SET count = 2 WHERE chat_id = 123 AND day = ?').run('2026-05-07');
 
-    // Models backfill committing the post-KV snapshot before the live D1 batch.
-    // The live writer must converge to the same totals, not add another delta.
-    await post(counters, '/inc', basePayload());
+    // A DO with empty storage (e.g. right after deploy) starts from D1.
+    await post(new CountersDO(makeState(), doEnv), '/inc', basePayload());
     const base = rows(
       harness.sqlite,
       `SELECT message_count, word_count, voice_count, voice_duration_seconds
@@ -493,14 +485,14 @@ describe('CountersDO D1 aggregate dual-write', () => {
       ['2026-05-07'],
     )[0];
     expect(base).toEqual({
-      message_count: 2,
-      word_count: 8,
-      voice_count: 2,
-      voice_duration_seconds: 10,
+      message_count: 3,
+      word_count: 12,
+      voice_count: 3,
+      voice_duration_seconds: 15,
     });
-    expect(rows(harness.sqlite, 'SELECT message_count FROM stats_daily_hour WHERE chat_id = 123 AND day = ? AND hour = 13', ['2026-05-07'])[0].message_count).toBe(2);
-    expect(rows(harness.sqlite, `SELECT message_count FROM stats_daily_bucket_user WHERE chat_id = 123 AND day = ? AND bucket = 'noon' AND user_id = 456`, ['2026-05-07'])[0].message_count).toBe(2);
-    expect(rows(harness.sqlite, 'SELECT count FROM activity WHERE chat_id = 123 AND day = ?', ['2026-05-07'])[0].count).toBe(2);
+    expect(rows(harness.sqlite, 'SELECT message_count FROM stats_daily_hour WHERE chat_id = 123 AND day = ? AND hour = 13', ['2026-05-07'])[0].message_count).toBe(3);
+    expect(rows(harness.sqlite, `SELECT message_count FROM stats_daily_bucket_user WHERE chat_id = 123 AND day = ? AND bucket = 'noon' AND user_id = 456`, ['2026-05-07'])[0].message_count).toBe(3);
+    expect(rows(harness.sqlite, 'SELECT count FROM activity WHERE chat_id = 123 AND day = ?', ['2026-05-07'])[0].count).toBe(3);
 
     const profanityPayload = {
       chatId: 123,
@@ -520,10 +512,10 @@ describe('CountersDO D1 aggregate dual-write', () => {
     harness.sqlite
       .prepare(`UPDATE stats_daily_profanity_word_user SET count = 2 WHERE chat_id = 123 AND day = ? AND word = 'заебал' AND user_id = 456`)
       .run('2026-05-07');
-    await post(counters, '/profanity', profanityPayload);
-    expect(rows(harness.sqlite, 'SELECT profanity_count FROM stats_daily_user WHERE chat_id = 123 AND day = ? AND user_id = 456', ['2026-05-07'])[0].profanity_count).toBe(2);
-    expect(rows(harness.sqlite, `SELECT count FROM stats_daily_profanity_word WHERE chat_id = 123 AND day = ? AND word = 'заебал'`, ['2026-05-07'])[0].count).toBe(2);
-    expect(rows(harness.sqlite, `SELECT count FROM stats_daily_profanity_word_user WHERE chat_id = 123 AND day = ? AND word = 'заебал' AND user_id = 456`, ['2026-05-07'])[0].count).toBe(2);
+    await post(new CountersDO(makeState(), doEnv), '/profanity', profanityPayload);
+    expect(rows(harness.sqlite, 'SELECT profanity_count FROM stats_daily_user WHERE chat_id = 123 AND day = ? AND user_id = 456', ['2026-05-07'])[0].profanity_count).toBe(3);
+    expect(rows(harness.sqlite, `SELECT count FROM stats_daily_profanity_word WHERE chat_id = 123 AND day = ? AND word = 'заебал'`, ['2026-05-07'])[0].count).toBe(3);
+    expect(rows(harness.sqlite, `SELECT count FROM stats_daily_profanity_word_user WHERE chat_id = 123 AND day = ? AND word = 'заебал' AND user_id = 456`, ['2026-05-07'])[0].count).toBe(3);
 
     const criminalPayload = {
       chatId: 123,
@@ -540,18 +532,70 @@ describe('CountersDO D1 aggregate dual-write', () => {
          WHERE chat_id = 123 AND day = ? AND user_id = 456`,
       )
       .run('2026-05-07');
-    await post(counters, '/criminal', criminalPayload);
+    await post(new CountersDO(makeState(), doEnv), '/criminal', criminalPayload);
     const criminal = rows(
       harness.sqlite,
       'SELECT criminal_count, criminal_severity FROM stats_daily_user WHERE chat_id = 123 AND day = ? AND user_id = 456',
       ['2026-05-07'],
     )[0];
-    expect(criminal).toEqual({ criminal_count: 2, criminal_severity: 10 });
+    expect(criminal).toEqual({ criminal_count: 3, criminal_severity: 15 });
   });
 
-  it('keeps KV writes and request success when D1 batch rejects', async () => {
-    const { env, kv: failingKv } = makeEnv({
-      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+  it('keeps the delta of a failed D1 write and repairs the row on the next write', async () => {
+    await post(counters, '/inc', basePayload({ messageId: 1 }));
+    harness.failNextBatch = true;
+    expect((await post(counters, '/inc', basePayload({ messageId: 2 }))).status).toBe(200);
+    expect(rows(harness.sqlite, 'SELECT message_count FROM stats_daily_user WHERE chat_id = 123 AND user_id = 456')[0].message_count).toBe(1);
+
+    await post(counters, '/inc', basePayload({ messageId: 3 }));
+
+    expect(rows(
+      harness.sqlite,
+      'SELECT message_count, word_count, voice_count FROM stats_daily_user WHERE chat_id = 123 AND user_id = 456',
+    )[0]).toEqual({ message_count: 3, word_count: 12, voice_count: 3 });
+    expect(rows(harness.sqlite, 'SELECT count FROM activity WHERE chat_id = 123')[0].count).toBe(3);
+    expect(rows(harness.sqlite, 'SELECT message_count FROM stats_daily_hour WHERE chat_id = 123 AND hour = 13')[0].message_count).toBe(3);
+  });
+
+  it('a failed seed read leaves no message mapping, so the retry is counted', async () => {
+    harness.failNextRead = true;
+    expect((await post(counters, '/inc', basePayload({ messageId: 7 }))).status).toBe(500);
+
+    expect((await post(counters, '/inc', basePayload({ messageId: 7 }))).status).toBe(200);
+    expect(rows(harness.sqlite, 'SELECT message_count FROM stats_daily_user WHERE chat_id = 123 AND user_id = 456')[0].message_count).toBe(1);
+  });
+
+  it('reset clears the running totals together with the D1 rows', async () => {
+    await post(counters, '/inc', basePayload());
+    await post(counters, '/inc', basePayload());
+    await post(counters, '/criminal', {
+      chatId: 123,
+      userId: 456,
+      username: 'testuser',
+      day: '2026-05-07',
+      violations: [{ article: '282', severity: 5, count: 1 }],
+      totalSeverity: 5,
+    });
+
+    expect((await post(counters, '/reset', { chatId: 123, scope: 'criminal' })).status).toBe(200);
+    expect(rows(harness.sqlite, 'SELECT message_count, criminal_count FROM stats_daily_user WHERE chat_id = 123')[0])
+      .toEqual({ message_count: 2, criminal_count: 0 });
+
+    expect((await post(counters, '/reset', { chatId: 123, scope: 'all' })).status).toBe(200);
+    expect(rows(harness.sqlite, 'SELECT * FROM stats_daily_user WHERE chat_id = 123')).toEqual([]);
+
+    await post(counters, '/inc', basePayload());
+    expect(rows(harness.sqlite, 'SELECT message_count FROM stats_daily_user WHERE chat_id = 123')[0].message_count).toBe(1);
+    expect(rows(harness.sqlite, 'SELECT count FROM activity WHERE chat_id = 123')[0].count).toBe(1);
+  });
+
+  it('rejects a reset with an unknown scope', async () => {
+    expect((await post(counters, '/reset', { chatId: 123, scope: 'everything' })).status).toBe(400);
+  });
+
+  it('keeps request success when D1 batch rejects', async () => {
+    const { env } = makeEnv({
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({ all: async () => ({ results: [] }) })) })),
       batch: vi.fn(async () => {
         throw new Error('d1 unavailable');
       }),
@@ -579,17 +623,12 @@ describe('CountersDO D1 aggregate dual-write', () => {
     });
     expect(criminal.status).toBe(200);
 
-    // Legacy KV writes happened despite D1 failure.
-    expect(failingKv.map.get('stats_v2:123:2026-05-07:456')).toBe('1');
-    expect(failingKv.map.get('word_stats_v2:123:2026-05-07:456')).toBe('4');
-    expect(failingKv.map.get('profanity:123:456:2026-05-07')).toBe('1');
-    expect(failingKv.map.get('criminal:123:456:2026-05-07')).toBe('1');
   });
 
-  it('treats a resolving D1 batch with a per-statement error as a failed write: integrity poisoned, KV kept, progress unconfirmed', async () => {
+  it('treats a resolving D1 batch with a per-statement error as a failed write: integrity poisoned, progress unconfirmed', async () => {
     const stateMap = new Map<string, unknown>();
     const resolvingD1 = {
-      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({ all: async () => ({ results: [] }) })) })),
       batch: vi.fn(async (statements: unknown[]) =>
         statements.map((_, i) =>
           i === 0
@@ -598,7 +637,7 @@ describe('CountersDO D1 aggregate dual-write', () => {
         ),
       ),
     };
-    const { env, kv: resolvingKv } = makeEnv(resolvingD1, stateMap);
+    const { env } = makeEnv(resolvingD1, stateMap);
     const resolvingCounters = new CountersDO(makeState(stateMap), env);
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -617,9 +656,6 @@ describe('CountersDO D1 aggregate dual-write', () => {
         expect(state.reason).toBe('d1_write_failed');
       }
 
-      // Legacy KV writes kept despite the result-level D1 failure.
-      expect(resolvingKv.map.get('stats_v2:123:2026-05-07:456')).toBe('1');
-      expect(resolvingKv.map.get('activity_hour:123:2026-05-07:13')).toBe('1');
 
       // The failed write is never represented as confirmed progress.
       const snapshot = await post(resolvingCounters, '/pipeline-snapshot', { day: '2026-05-07' });
@@ -639,10 +675,10 @@ describe('CountersDO D1 aggregate dual-write', () => {
     }
   });
 
-  it('treats a resolving D1 batch with success:false and no error as a failed write: integrity poisoned, KV kept, progress unconfirmed', async () => {
+  it('treats a resolving D1 batch with success:false and no error as a failed write: integrity poisoned, progress unconfirmed', async () => {
     const stateMap = new Map<string, unknown>();
     const resolvingD1 = {
-      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({ all: async () => ({ results: [] }) })) })),
       batch: vi.fn(async (statements: unknown[]) =>
         statements.map((_, i) =>
           i === 0
@@ -651,7 +687,7 @@ describe('CountersDO D1 aggregate dual-write', () => {
         ),
       ),
     };
-    const { env, kv: resolvingKv } = makeEnv(resolvingD1, stateMap);
+    const { env } = makeEnv(resolvingD1, stateMap);
     const resolvingCounters = new CountersDO(makeState(stateMap), env);
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -670,9 +706,6 @@ describe('CountersDO D1 aggregate dual-write', () => {
         expect(state.reason).toBe('d1_write_failed');
       }
 
-      // Legacy KV writes kept despite the result-level D1 failure.
-      expect(resolvingKv.map.get('stats_v2:123:2026-05-07:456')).toBe('1');
-      expect(resolvingKv.map.get('activity_hour:123:2026-05-07:13')).toBe('1');
 
       // The failed write is never represented as confirmed progress.
       const snapshot = await post(resolvingCounters, '/pipeline-snapshot', { day: '2026-05-07' });
@@ -688,10 +721,10 @@ describe('CountersDO D1 aggregate dual-write', () => {
     }
   });
 
-  it('treats a resolving criminal D1 batch with a per-statement error as a failed write: criminal integrity poisoned, KV kept, progress unconfirmed', async () => {
+  it('treats a resolving criminal D1 batch with a per-statement error as a failed write: criminal integrity poisoned, progress unconfirmed', async () => {
     const stateMap = new Map<string, unknown>();
     const resolvingD1 = {
-      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({ all: async () => ({ results: [] }) })) })),
       batch: vi.fn(async (statements: unknown[]) =>
         statements.map((_, i) =>
           i === 0
@@ -700,7 +733,7 @@ describe('CountersDO D1 aggregate dual-write', () => {
         ),
       ),
     };
-    const { env, kv: resolvingKv } = makeEnv(resolvingD1, stateMap);
+    const { env } = makeEnv(resolvingD1, stateMap);
     const resolvingCounters = new CountersDO(makeState(stateMap), env);
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -735,9 +768,6 @@ describe('CountersDO D1 aggregate dual-write', () => {
         expect(state).toBeUndefined();
       }
 
-      // Legacy KV writes kept despite the result-level D1 failure.
-      expect(resolvingKv.map.get('criminal:123:456:2026-05-07')).toBe('1');
-      expect(resolvingKv.map.get('criminal_severity:123:456:2026-05-07')).toBe('5');
 
       // The failed write is never represented as confirmed progress: sequence 1
       // is absent (the failed write), no completedPrefix advance is saved.
@@ -753,8 +783,8 @@ describe('CountersDO D1 aggregate dual-write', () => {
   });
 
   it('does not throw on arbitrary non-Error D1 failure', async () => {
-    const { env, kv: failingKv } = makeEnv({
-      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+    const { env } = makeEnv({
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({ all: async () => ({ results: [] }) })) })),
       batch: vi.fn(async () => {
         // eslint-disable-next-line no-throw-literal
         throw 'unexpected failure';
@@ -764,7 +794,6 @@ describe('CountersDO D1 aggregate dual-write', () => {
 
     const response = await post(failingCounters, '/inc', basePayload());
     expect(response.status).toBe(200);
-    expect(failingKv.map.get('stats_v2:123:2026-05-07:456')).toBe('1');
   });
 
   it('excludes PII embedded in counter errors from console output', async () => {
@@ -826,7 +855,7 @@ describe('CountersDO D1 aggregate dual-write', () => {
     const base36Chat = chatId.toString(36);
     const base36User = userId.toString(36);
     const { env } = makeEnv({
-      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({ all: async () => ({ results: [] }) })) })),
       batch: vi.fn(async () => { throw new Error('d1 down'); }),
     });
     const failingCounters = new CountersDO(makeState(), env);
@@ -1394,12 +1423,12 @@ describe('CountersDO D1 aggregate dual-write', () => {
     const { env } = makeEnv(harness as unknown as D1Database, stateMap);
     const failingCounters = new CountersDO(makeState(stateMap), env);
     const failingD1 = {
-      prepare: vi.fn(() => ({ bind: vi.fn(() => ({})) })),
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({ all: async () => ({ results: [] }) })) })),
       batch: vi.fn(async () => {
         throw new Error('d1 unavailable');
       }),
     };
-    const { env: failingEnv, kv: failingKv } = makeEnv(failingD1, stateMap);
+    const { env: failingEnv } = makeEnv(failingD1, stateMap);
     const proofCounters = new CountersDO(makeState(stateMap), failingEnv);
 
     // Failing base D1 batch: marker must exist, integrity streams poisoned.
@@ -1411,7 +1440,6 @@ describe('CountersDO D1 aggregate dual-write', () => {
       expect(state.poisoned).toBe(true);
       expect(state.reason).toBe('d1_write_failed');
     }
-    expect(failingKv.map.get('stats_v2:123:2026-05-07:456')).toBe('1');
 
     // Later successful base write on the healthy D1: marker kept, not rewritten.
     const second = await post(failingCounters, '/inc', basePayload({ messageId: 52 }));

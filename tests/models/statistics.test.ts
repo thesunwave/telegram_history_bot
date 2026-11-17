@@ -19,6 +19,8 @@ describe('Statistics Models', () => {
     it('should have correct structure', () => {
       const violation: Violation = {
         article: 'Статья 282 УК РФ',
+        subarticle: null,
+        articleTitle: 'Test article title',
         quote: 'Пример цитаты из сообщения',
         punishment: 'Штраф до 300 000 рублей',
         severity: 7,
@@ -40,6 +42,8 @@ describe('Statistics Models', () => {
         violations: [
           {
             article: 'Статья 282 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Пример цитаты',
             punishment: 'Штраф',
             severity: 7,
@@ -134,11 +138,17 @@ describe('Statistics Models', () => {
         violationsByArticle: [
           {
             article: 'Статья 282 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
+            punishment: 'Test punishment',
             count: 5,
             averageSeverity: 6.5
           },
           {
             article: 'Статья 280 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
+            punishment: 'Test punishment',
             count: 5,
             averageSeverity: 7.0
           }
@@ -203,11 +213,17 @@ describe('Statistics Models', () => {
         violationsByArticle: [
           {
             article: 'Статья 282 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
+            punishment: 'Test punishment',
             count: 30,
             averageSeverity: 6.5
           },
           {
             article: 'Статья 280 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
+            punishment: 'Test punishment',
             count: 20,
             averageSeverity: 7.0
           }
@@ -254,11 +270,17 @@ describe('Statistics Models', () => {
         topViolations: [
           {
             article: 'Статья 282 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
+            punishment: 'Test punishment',
             count: 40,
             averageSeverity: 6.5
           },
           {
             article: 'Статья 280 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
+            punishment: 'Test punishment',
             count: 30,
             averageSeverity: 7.0
           }
@@ -283,6 +305,8 @@ describe('Statistics Models', () => {
         criticalViolations: [
           {
             article: 'Статья 205 УК РФ',
+            subarticle: null,
+            articleTitle: 'Test article title',
             quote: 'Критическое нарушение',
             punishment: 'Лишение свободы',
             severity: 9,

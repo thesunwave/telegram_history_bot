@@ -82,7 +82,9 @@ describe('Telegram Integration Tests', () => {
       getGeneralStats: vi.fn()
     };
 
-    vi.mocked(ViolationHandler).mockImplementation(() => mockViolationHandler);
+    vi.mocked(ViolationHandler).mockImplementation(function () {
+      return mockViolationHandler;
+    });
 
     // Mock environment - use different token to avoid test environment detection
     mockEnv = {
@@ -390,18 +392,19 @@ describe('Telegram Integration Tests', () => {
 
       const pending: Promise<any>[] = [];
       const ctx = { waitUntil: (promise: Promise<any>) => pending.push(promise) };
+      const now = Math.floor(Date.now() / 1000);
       const mockMessage = {
         message_id: 1201,
-        chat: { id: -1001496674952 },
-        from: { id: 65247408, username: 'thesunwave', is_bot: false },
-        text: 'Только твою маман, но она не жалуется',
-        date: 1789413420,
+        chat: { id: -1001234567890 },
+        from: { id: 70000001, username: 'test_sender', is_bot: false },
+        text: 'Replying to an earlier message',
+        date: now,
         reply_to_message: {
           message_id: 1200,
-          chat: { id: -1001496674952 },
-          from: { id: 204661056, username: 'visualklik', is_bot: false },
-          text: 'Артур уже всех заебал',
-          date: 1789413410,
+          chat: { id: -1001234567890 },
+          from: { id: 70000002, username: 'test_reply_author', is_bot: false },
+          text: 'An earlier test message',
+          date: now - 10,
         },
       };
 
@@ -413,10 +416,10 @@ describe('Telegram Integration Tests', () => {
       const storedPayload = JSON.parse(dayBlockInit.body as string);
       expect(storedPayload.message.replyTo).toEqual({
         messageId: 1200,
-        userId: 204661056,
-        username: 'visualklik',
-        text: 'Артур уже всех заебал',
-        ts: 1789413410,
+        userId: 70000002,
+        username: 'test_reply_author',
+        text: 'An earlier test message',
+        ts: now - 10,
       });
 
     });
@@ -434,7 +437,7 @@ describe('Telegram Integration Tests', () => {
       mockEnv.COUNTERS_DO = {
         idFromName: vi.fn().mockReturnValue('test-id'),
         get: vi.fn().mockReturnValue({ fetch: countersFetch }),
-      };
+      } as any;
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const pending: Promise<any>[] = [];
       const ctx = { waitUntil: (p: Promise<any>) => { pending.push(p); } };
