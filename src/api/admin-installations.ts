@@ -104,14 +104,18 @@ export async function listBotInstallations(env: Env) {
 /** Anonymous self-hosted installations received by the hosted instance; owner-only data. */
 export async function listSelfHostedInstallations(env: Env) {
   if (![true, 'true', '1'].includes(env.TELEMETRY_RECEIVER ?? false)) return null;
+  // Old cron tests sent a fresh ID with no activity. Retain the raw rows so a
+  // genuine ID can still appear once it reports activity or a second UTC day.
+  const included = "ping_days > 1 OR active_chats_7d <> '0' OR active_groups_7d <> '0'";
   const totals = await env.DB.prepare(
     `SELECT COUNT(*) AS total,
             COALESCE(SUM(CASE WHEN last_seen >= date('now', '-6 day') THEN 1 ELSE 0 END), 0) AS active7d
-       FROM telemetry_installs`,
+       FROM telemetry_installs WHERE ${included}`,
   ).first<{ total: number; active7d: number }>();
   const rows = await env.DB.prepare(
     `SELECT install_id, first_seen, last_seen, active_chats_7d, active_groups_7d, ping_days
-       FROM telemetry_installs ORDER BY last_seen DESC, install_id LIMIT 200`,
+       FROM telemetry_installs WHERE ${included}
+       ORDER BY last_seen DESC, install_id LIMIT 200`,
   ).all<{
     install_id: string; first_seen: string; last_seen: string;
     active_chats_7d: string; active_groups_7d: string; ping_days: number;

@@ -26,10 +26,10 @@ export function renderInstallationsHtml(): string {
 <body><main>
   <a href="/admin">← Админка</a>
   <section id="selfHostedPanel" hidden>
-    <h1>Самостоятельные установки</h1>
+    <h1>Анонимная телеметрия</h1>
     <p id="selfHostedSummary" aria-live="polite"></p>
-    <p class="muted">Анонимные сигналы от самостоятельно развёрнутых копий. Без отключивших телеметрию установок. Даты — UTC; активность передаётся диапазонами. Показаны последние 200 установок.</p>
-    <div class="tableScroll"><table aria-label="Самостоятельные установки">
+    <p class="muted">Считаются анонимные ID с активностью чатов за 7 дней или сигналами в разные дни. Разовые сигналы без активности скрыты, поскольку среди них есть тестовые. По этим данным нельзя установить число реальных пользователей. Показаны до 200 ID, даты в UTC.</p>
+    <div class="tableScroll"><table aria-label="Анонимная телеметрия">
       <thead><tr><th>Анонимный ID</th><th>Первый сигнал</th><th>Последний сигнал</th><th>Дней с сигналами</th><th>Чатов за 7 дней</th><th>Групп за 7 дней</th></tr></thead>
       <tbody id="selfHostedRows"></tbody>
     </table></div>
@@ -62,7 +62,7 @@ export function renderInstallationsHtml(): string {
         document.getElementById('selfHostedPanel').hidden = !hosted;
         if (hosted) {
           document.getElementById('selfHostedSummary').textContent =
-            'Всего установок: ' + hosted.total + ' · Подавали сигнал за 7 дней: ' + hosted.active7d;
+            'Анонимных ID после фильтра: ' + hosted.total + ' · Из них с сигналом за 7 дней: ' + hosted.active7d;
           const target = document.getElementById('selfHostedRows');
           target.replaceChildren();
           for (const install of hosted.rows || []) {
@@ -79,7 +79,7 @@ export function renderInstallationsHtml(): string {
             const tr = document.createElement('tr');
             const td = document.createElement('td');
             td.colSpan = 6;
-            td.textContent = 'Сигналов от самостоятельных установок пока нет';
+            td.textContent = 'Пока нет сигналов, прошедших фильтр';
             tr.append(td);
             target.append(tr);
           }

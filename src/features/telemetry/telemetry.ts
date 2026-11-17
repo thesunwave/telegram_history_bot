@@ -77,12 +77,16 @@ export async function buildTelemetryPayload(env: Env): Promise<TelemetryPayload>
 // Best effort: telemetry must never break the daily cron.
 export async function sendTelemetryPing(
   env: Env,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl?: typeof fetch,
 ): Promise<'sent' | 'disabled' | 'failed'> {
   if (isTelemetryDisabled(env)) return 'disabled';
+  // Test code must supply its own transport. Cron tests otherwise use real fetch.
+  if (!fetchImpl && typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
+    return 'disabled';
+  }
   try {
     const payload = await buildTelemetryPayload(env);
-    const response = await fetchImpl(TELEMETRY_ENDPOINT, {
+    const response = await (fetchImpl ?? fetch)(TELEMETRY_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

@@ -48,14 +48,18 @@ describe('bot installations', () => {
     env.TELEMETRY_RECEIVER = true;
     try {
       sqlite.exec(`INSERT INTO telemetry_installs VALUES
-        ('new-install', date('now', '-10 day'), date('now', '-6 day'), '2-5', '1', 3),
-        ('old-install', '2020-01-01', date('now', '-7 day'), '1', '0', 1)`);
+        ('repeat-id', date('now', '-10 day'), date('now', '-6 day'), '0', '0', 3),
+        ('active-id', '2020-01-01', date('now', '-7 day'), '1', '0', 1),
+        ('zero-once', date('now'), date('now'), '0', '0', 1)`);
       const response = await handleAdminRequest(new Request('https://bot/admin/api/installations', {
         headers: { Cookie: await sessionCookie() },
       }), env);
       const body = await response.json() as { selfHosted: { total: number; active7d: number; rows: unknown[] } };
       expect(body.selfHosted).toMatchObject({ total: 2, active7d: 1 });
-      expect(body.selfHosted.rows).toHaveLength(2);
+      expect(body.selfHosted.rows).toEqual([
+        expect.objectContaining({ install_id: 'repeat-id' }),
+        expect.objectContaining({ install_id: 'active-id' }),
+      ]);
       const cookie = await sessionCookie(43);
       const member = await handleAdminRequest(new Request('https://bot/admin/api/installations', {
         headers: { Cookie: cookie },
