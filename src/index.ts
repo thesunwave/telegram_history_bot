@@ -116,7 +116,11 @@ export default {
       if (env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured') {
         return new Response('Choose message storage in /admin/setup before connecting the bot', { status: 503 });
       }
-      const message = getTextMessage(await req.json());
+      const update = await req.json();
+      if ((update as any).my_chat_member) {
+        await recordBotMembership(env, (update as any).my_chat_member, (update as any).update_id);
+      }
+      const message = getTextMessage(update);
       await recordMessage(message, env, ctx);
       ctx.waitUntil(handleUpdate(message, env, url.origin));
       return Response.json({});

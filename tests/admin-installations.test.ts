@@ -154,8 +154,9 @@ describe('bot installations', () => {
     expect(response.headers.has('WWW-Authenticate')).toBe(false);
   });
 
-  it('does not record membership events from an unauthenticated webhook', async () => {
-    const response = await worker.fetch(new Request(`https://bot/tg/${env.TOKEN}/webhook`, {
+  it.each(['canonical', 'legacy'])('does not record events from an unauthenticated %s webhook', async (route) => {
+    const path = route === 'canonical' ? '/telegram/webhook' : `/tg/${env.TOKEN}/webhook`;
+    const response = await worker.fetch(new Request(`https://bot${path}`, {
       method: 'POST',
       body: JSON.stringify({ update_id: 1, my_chat_member: event(100) }),
     }), env, { waitUntil: vi.fn() } as any);
@@ -200,8 +201,9 @@ describe('bot installations', () => {
     expect(body.installations).toHaveLength(1);
   });
 
-  it('records my_chat_member through the authenticated webhook without a message', async () => {
-    const response = await worker.fetch(new Request(`https://bot/tg/${env.TOKEN}/webhook`, {
+  it.each(['canonical', 'legacy'])('records membership through the authenticated %s webhook', async (route) => {
+    const path = route === 'canonical' ? '/telegram/webhook' : `/tg/${env.TOKEN}/webhook`;
+    const response = await worker.fetch(new Request(`https://bot${path}`, {
       method: 'POST', headers: { 'X-Telegram-Bot-Api-Secret-Token': env.SECRET! },
       body: JSON.stringify({ update_id: 1, my_chat_member: event(100) }),
     }), env, { waitUntil: vi.fn() } as any);
