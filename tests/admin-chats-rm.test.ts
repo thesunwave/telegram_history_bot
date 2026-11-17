@@ -382,13 +382,18 @@ describe('listAdminChatsForTelegramUser — require confirmed membership', () =>
 
   it('omits an indeterminate counter-only fallback chat', async () => {
     const d1 = createRealD1();
-    seedUserDay(d1, { chatId: 184486882, userId: 42, day: '2026-09-01', messages: 1 });
+    seedUserDay(d1, { chatId: -100184486882, userId: 42, day: '2026-09-01', messages: 1 });
     env.DB = d1.db;
-    mockGetChatMemberByChatId(() => errorResponse(429, 'Too Many Requests'));
+    const lookup = mockGetChatMemberByChatId(() => errorResponse(429, 'Too Many Requests'));
 
     const chats = await listAdminChatsForTelegramUser(env, 42);
 
     expect(chats).toEqual([]);
+    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lookup.mock.calls[0][1]?.body as string)).toEqual({
+      chat_id: -100184486882,
+      user_id: 42,
+    });
   });
 
   it('keeps a counter-only fallback chat when membership is positively verified', async () => {
@@ -414,6 +419,20 @@ describe('listAdminChatsForTelegramUser — require confirmed membership', () =>
 });
 
 describe('private chat visibility', () => {
+  it.each([429, 500])('omits own private chat after Telegram %s', async (status) => {
+    await saveAdminChatMeta(env, { id: 42, type: 'private', username: 'self' }, 10);
+    const lookup = mockGetChatMemberByChatId(() => errorResponse(status));
+
+    const chats = await listAdminChatsForTelegramUser(env, 42);
+
+    expect(chats).toEqual([]);
+    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lookup.mock.calls[0][1]?.body as string)).toEqual({
+      chat_id: 42,
+      user_id: 42,
+    });
+  });
+
   it('only returns the current user private chat even if Telegram reports member for both', async () => {
     await saveAdminChatMeta(env, { id: 42, type: 'private', username: 'self' }, 10);
     await saveAdminChatMeta(env, { id: 999, type: 'private', username: 'other' }, 20);
