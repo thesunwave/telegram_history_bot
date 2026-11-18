@@ -87,6 +87,9 @@ import { readChatSettings } from '../core/chat-settings';
 const QUEUE_STORAGE_KEY = 'criminal_analysis_queue';
 const LAST_OPENROUTER_CALL_KEY = 'criminal_openrouter_last_call';
 const LAST_FINAL_ANALYSIS_CALL_KEY = 'criminal_final_analysis_last_call';
+const FINAL_JUDGE_EXPLANATION_PLACEHOLDERS = new Set([
+  '', 'not established', 'не установлено', 'unknown', 'n a', 'none',
+]);
 
 /**
  * Privacy-safe error classification: never include message/stack/content in
@@ -2156,8 +2159,7 @@ export class CriminalCodeAnalyzerDO {
       ? 'benign'
       : evaluateFinalJudgeMeaning(judge.meaning, input);
     const explanation = normalizeForGrounding(evidence.whyNotBenign);
-    const hasExplanation = explanation !== '' && explanation !== 'not established' &&
-      explanation !== 'не установлено' && explanation !== 'unknown';
+    const hasExplanation = !FINAL_JUDGE_EXPLANATION_PLACEHOLDERS.has(explanation);
     const violations = decision === 'violation' && meaningVerdict === 'criminal' && hasExplanation
       ? (judge.violations || [])
         .map(violation => normalizeJudgedViolation(

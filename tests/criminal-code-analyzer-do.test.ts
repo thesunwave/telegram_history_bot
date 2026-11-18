@@ -1731,6 +1731,8 @@ describe("CriminalCodeAnalyzerDO", () => {
         "Sexual coercion", "uncertain"],
       ["placeholder explanation", "я тебя убью", "я тебя убью", "119", "1",
         "not established", "uncertain"],
+      ["N/A explanation", "я тебя убью", "я тебя убью", "119", "1", "N/A", "uncertain"],
+      ["none explanation", "я тебя убью", "я тебя убью", "119", "1", "None.", "uncertain"],
       ["blank explanation", "я тебя убью", "я тебя убью", "119", "1", " ", "uncertain"],
       ["explicit threat with an everyday phrase", "Зная тебя, я тебя убью", "я тебя убью", "119", "1",
         "Автор прямо говорит, что убьёт адресата", "violation"],
