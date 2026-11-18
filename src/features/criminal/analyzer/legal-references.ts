@@ -229,11 +229,16 @@ export function evaluateFinalJudgeMeaning(
     return 'unclear';
   }
 
+  // These phrases alone do not describe an act, even when the model labels them as one.
+  const nonCriminalPhrase = /^(?:(?:вот )?(?:я бы )?хуй забил|тоб[иі] п[иі]зда|зная тебя)$/u;
+  if (nonCriminalPhrase.test(normalizeForGrounding(input.targetText))) {
+    return 'benign';
+  }
   const criminalActs = new Set([
     'threat', 'admission', 'fantasy', 'endorsement', 'incitement', 'plan', 'instruction',
   ]);
   if (criminalActs.has(meaning.speechAct || '')) {
-    return 'criminal';
+    return nonCriminalPhrase.test(normalizeForGrounding(evidence)) ? 'unclear' : 'criminal';
   }
   if (
     meaning.speechAct === 'prediction' ||
