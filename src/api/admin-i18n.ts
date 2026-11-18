@@ -1,7 +1,6 @@
 /**
- * Russian/English copy for the admin dashboard. Russian stays the canonical
- * source text: every key below is the exact Russian string used in the
- * templates, so the Russian page renders byte-for-byte as before.
+ * Russian/English copy for the admin dashboard. Russian is the canonical
+ * source language. Translation keys use the Russian strings from the templates.
  */
 export type AdminLanguage = 'ru' | 'en';
 
@@ -26,14 +25,14 @@ const ADMIN_EN: Record<string, string> = {
   'Обзор': 'Overview',
   'Люди': 'People',
   'Голос': 'Voice',
-  'Пересылки': 'Forwards',
-  'Кто пересылает': 'Top forwarders',
-  'Источники пересылок': 'Forward sources',
+  'Репосты': 'Forwards',
+  'Кто делает репосты': 'Top forwarders',
+  'Источники репостов': 'Forward sources',
   'Источник': 'Source',
   'От пользователя': 'From a user',
   'Другой источник': 'Other source',
-  'За этот период пересылок нет.': 'No forwards in this period.',
-  'Не удалось загрузить статистику пересылок.': 'Could not load forward statistics.',
+  'За этот период репостов нет.': 'No forwards in this period.',
+  'Не удалось загрузить статистику репостов.': 'Could not load forward statistics.',
   'Мат': 'Profanity',
   'УК РФ': 'Criminal Code',
   'Настройки чата': 'Chat settings',
