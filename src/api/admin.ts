@@ -1,4 +1,5 @@
 import type { Env } from '../core/env';
+import { Logger } from '../core/logger';
 import { NotificationService } from '../core/services/notification-service';
 import { NotificationRepository } from '../core/repositories/notification-repository';
 import type { NotificationType } from '../core/models/notification-settings';
@@ -21,6 +22,7 @@ import {
 import { buildChatOverview, readInstanceModules } from './admin-groups';
 import { parseChatSettingsInput, readChatSettings, saveChatSettings } from '../core/chat-settings';
 import { getAdminMemberStatsFromD1 } from '../features/stats/admin-member-d1';
+import { getForwardStats } from '../features/stats/forward-stats';
 import { getAdminChatStats, parseAdminPeriod, type AdminDateRange } from './admin-stats';
 import { getAdminCriminalViolationDetails } from './admin-criminal';
 import { listShadowEvaluationComparisons } from '../features/model-shadow/evaluation-store';
@@ -439,7 +441,8 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     });
   }
 
-  if (url.pathname === `${ADMIN_PATH}/api/chat` && req.method === 'GET') {
+  const forwardsRequest = url.pathname === `${ADMIN_PATH}/api/forwards`;
+  if ((url.pathname === `${ADMIN_PATH}/api/chat` || forwardsRequest) && req.method === 'GET') {
     const chatId = parseChatId(url);
     if (chatId === null) {
       return jsonError('chatId is required', 400);
@@ -462,6 +465,22 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     }
 
     try {
+      if (forwardsRequest) {
+        try {
+          const rows = await getForwardStats(env.DB, chatId, period);
+          return Response.json({ rows }, { headers: { 'Cache-Control': 'no-store' } });
+        } catch (error) {
+          // D1 may put SQLite's diagnostic in a nested cause. Log only known diagnostics.
+          const message = error instanceof Error ? error.message : '';
+          const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : '';
+          const detail = cause + ' ' + message;
+          const diagnostic = detail.match(/\bno such table: (?:main\.)?stats_forwards\b/)?.[0]
+            ?? detail.match(/\b(?:SQLITE_[A-Z_]+|D1_(?:TYPE_)?ERROR)\b/)?.[0]
+            ?? 'unknown database error';
+          Logger.error('Forward statistics query failed', { diagnostic });
+          throw new AdminUnavailable();
+        }
+      }
       return Response.json(await getAdminChatStats(env, chatId, period));
     } catch (error) {
       if (error instanceof LiveProgressUnavailable) {

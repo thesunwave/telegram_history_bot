@@ -31,6 +31,7 @@ import type { NotificationType } from '../core/models/notification-settings';
 import { isTelegramUserChatAdmin, saveAdminChatMeta } from './admin-chats';
 import { readChatSettings } from '../core/chat-settings';
 import { ensureDashboardCommand, resolveDashboardUrl, sendDashboardLink } from './dashboard-link';
+import { insertForward, type ForwardMessage } from '../features/stats/forward-stats';
 
 function isTestEnvironment(env: Env): boolean {
   // Check if we're in a test environment by looking for test-specific values
@@ -115,6 +116,22 @@ export function isForwardedMessage(msg: any): boolean {
     msg?.forward_date ||
     msg?.is_automatic_forward
   );
+}
+
+/** Handles analytics for new forwards before the normal message filter discards them. */
+export async function recordForwardedUpdate(update: unknown, env: Env): Promise<boolean> {
+  const message = (update as { message?: ForwardMessage } | null)?.message;
+  if (!isFeatureEnabled(env.ENABLE_ACTIVITY_TRACKING) || !message || !isForwardedMessage(message)) {
+    return true;
+  }
+
+  try {
+    await insertForward(env.DB, message);
+    return true;
+  } catch {
+    Logger.error('Failed to record forward statistics', { op: 'insertForward' });
+    return false;
+  }
 }
 
 export function countWords(text: string | undefined): number {

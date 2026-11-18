@@ -18,6 +18,7 @@ const NAV_ICONS = {
   people:
     '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.5a3.5 3.5 0 010 7M18 14.8c1.9.7 3.1 2.5 3.5 5.2"/>',
   media: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/>',
+  forwards: '<path d="M14 5l6 6-6 6M20 11h-8a7 7 0 00-7 7"/>',
   profanity: '<path d="M4 5h16v11H8l-4 4z"/><path d="M9 9l6 4M15 9l-6 4"/>',
   criminal: '<path d="M12 3l8 4v5c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V7z"/>',
   notifications: '<path d="M6 16V11a6 6 0 0112 0v5l2 2H4zM10 21h4"/>',
@@ -638,6 +639,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         <a class="navLink" href="#overview" data-view-link="overview">${navIcon('overview')}<span>${h('Обзор')}</span></a>
         <a class="navLink" href="#people" data-view-link="people">${navIcon('people')}<span>${h('Люди')}</span></a>
         <a class="navLink" href="#media" data-view-link="media">${navIcon('media')}<span>${h('Голос')}</span></a>
+        <a class="navLink" href="#forwards" data-view-link="forwards">${navIcon('forwards')}<span>${h('Пересылки')}</span></a>
         <a class="navLink" href="#profanity" data-view-link="profanity">${navIcon('profanity')}<span>${h('Мат')}</span></a>
         <a class="navLink" href="#criminal" data-view-link="criminal">${navIcon('criminal')}<span>${h('УК РФ')}</span></a>
       </nav>
@@ -832,6 +834,33 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           </div>
         </section>
 
+        <section class="view hidden" data-view="forwards">
+          <p id="forwardStatus" class="muted" role="status"></p>
+          <div id="forwardReport" class="mediaGrid hidden">
+            <section class="card">
+              <div class="cardHead"><h2>${h('Кто пересылает')}</h2></div>
+              <div class="tableScroll">
+                <table>
+                  <thead><tr><th scope="col">${h('Участник')}</th><th scope="col">${h('Пересылки')}</th></tr></thead>
+                  <tbody id="forwardUsers"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="card">
+              <div class="cardHead">
+                <h2>${h('Источники пересылок')}</h2>
+                <select id="forwardUserFilter" class="selectInput" aria-label="${h('Участник')}"></select>
+              </div>
+              <div class="tableScroll">
+                <table>
+                  <thead><tr><th scope="col">${h('Источник')}</th><th scope="col">${h('Пересылки')}</th></tr></thead>
+                  <tbody id="forwardSources"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+
         <section class="view hidden" data-view="profanity">
           <div class="stack">
             <div class="grid" id="profanityKpis"></div>
@@ -1009,6 +1038,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       overview: ${js('Обзор')},
       people: ${js('Люди')},
       media: ${js('Голос и кружки')},
+      forwards: ${js('Пересылки')},
       profanity: ${js('Мат')},
       criminal: ${js('УК РФ')},
       notifications: ${js('Автоуведомления')},
@@ -1027,6 +1057,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       notificationsDirty: false,
       chats: [],
       loading: false,
+      forwardRequestId: 0,
       currentActivity: null,
       leaderMetric: 'messages',
       peopleSort: { key: 'messages', dir: -1 },
@@ -1432,6 +1463,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       if (name === 'lab' && state.chatId && !state.shadowPayload) {
         loadShadowComparisons();
       }
+      if (name === 'forwards' && !state.loading) void loadForwardStats();
       // Charts drawn while hidden have zero size; redraw them once visible.
       if (state.stats) renderAllCharts(state.stats);
     }
@@ -1440,6 +1472,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     function renderDashboardSkeleton() {
       state.loading = true;
+      state.forwardRequestId += 1;
+      document.getElementById('forwardReport').classList.add('hidden');
+      document.getElementById('forwardStatus').textContent = ${js('Загрузка...')};
       closeCriminalDetails();
       document.getElementById('main').classList.add('isLoading');
       setControlsDisabled(true);
@@ -1447,6 +1482,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     function finishDashboardLoading() {
       state.loading = false;
+      document.getElementById('forwardStatus').textContent = '';
       document.getElementById('main').classList.remove('isLoading');
       setControlsDisabled(false);
     }
@@ -2138,6 +2174,81 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           el('span', 'r muted', row[maxKey] ? formatDuration(row[maxKey]) : '—')
         );
         box.append(line);
+      }
+    }
+
+    // ---------- forwards ----------
+
+    function renderForwardRows(id, entries) {
+      const rows = document.createDocumentFragment();
+      for (const [label, count] of entries) {
+        const tr = el('tr');
+        tr.append(el('td', '', label), el('td', '', formatNumber(count)));
+        rows.append(tr);
+      }
+      document.getElementById(id).replaceChildren(rows);
+    }
+
+    function renderForwardStats(rows) {
+      const users = new Map();
+      for (const row of rows) {
+        const user = users.get(row.user_id) || { name: row.username, count: 0 };
+        user.count += row.count;
+        users.set(row.user_id, user);
+      }
+      const rankedUsers = Array.from(users).sort((a, b) => b[1].count - a[1].count);
+      renderForwardRows('forwardUsers', rankedUsers.map(([, user]) => [user.name, user.count]));
+
+      const filter = document.getElementById('forwardUserFilter');
+      const previousUser = filter.value;
+      filter.replaceChildren(new Option(${js('Все участники')}, ''));
+      for (const [id, user] of rankedUsers) filter.add(new Option(user.name, String(id)));
+      filter.value = users.has(Number(previousUser)) ? previousUser : '';
+      filter.onchange = () => renderForwardSources(rows, filter.value);
+      renderForwardSources(rows, filter.value);
+    }
+
+    function renderForwardSources(rows, userId) {
+      const sources = new Map();
+      for (const row of rows) {
+        if (userId && String(row.user_id) !== userId) continue;
+        const key = row.source_type === 'channel' ? row.channel_id : row.source_type;
+        const name = row.source_type === 'channel'
+          ? row.channel_title || (row.channel_username ? '@' + row.channel_username : String(row.channel_id))
+          : row.source_type === 'person' ? ${js('От пользователя')} : ${js('Другой источник')};
+        const label = row.channel_title && row.channel_username ? name + ' (@' + row.channel_username + ')' : name;
+        const source = sources.get(key) || { label, count: 0 };
+        source.count += row.count;
+        sources.set(key, source);
+      }
+      const ranked = Array.from(sources.values()).sort((a, b) => b.count - a.count);
+      renderForwardRows('forwardSources', ranked.map(source => [source.label, source.count]));
+    }
+
+    async function loadForwardStats() {
+      const range = state.stats?.range;
+      if (!range || !state.chatId) return;
+      const requestId = ++state.forwardRequestId;
+      const params = new URLSearchParams({
+        chatId: state.chatId, period: 'custom', from: range.from, to: range.to
+      });
+      const status = document.getElementById('forwardStatus');
+      const report = document.getElementById('forwardReport');
+      status.textContent = ${js('Загрузка...')};
+      report.classList.add('hidden');
+      try {
+        const res = await fetch('/admin/api/forwards?' + params);
+        if (res.status === 401) return redirectToLogin();
+        if (!res.ok) throw new Error('forward statistics unavailable');
+        const { rows } = await res.json();
+        if (requestId !== state.forwardRequestId) return;
+        renderForwardStats(rows);
+        status.textContent = rows.length ? '' : ${js('За этот период пересылок нет.')};
+        report.classList.toggle('hidden', !rows.length);
+      } catch {
+        if (requestId === state.forwardRequestId) {
+          status.textContent = ${js('Не удалось загрузить статистику пересылок.')};
+        }
       }
     }
 
@@ -3307,6 +3418,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       renderPeople(stats);
       renderActivityHeatmap(stats.activity?.participantTimeline);
       renderMedia(stats);
+      if (state.view === 'forwards' && stats.range) void loadForwardStats();
       renderProfanity(stats);
       renderCriminalRows(stats.criminal?.topUsers || []);
       renderAllCharts(stats);
