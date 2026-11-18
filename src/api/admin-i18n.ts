@@ -1,7 +1,6 @@
 /**
- * Russian/English copy for the admin dashboard. Russian stays the canonical
- * source text: every key below is the exact Russian string used in the
- * templates, so the Russian page renders byte-for-byte as before.
+ * Russian/English copy for the admin dashboard. Russian is the canonical
+ * source language. Translation keys use the Russian strings from the templates.
  */
 export type AdminLanguage = 'ru' | 'en';
 
