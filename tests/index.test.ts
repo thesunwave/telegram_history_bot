@@ -313,6 +313,47 @@ describe("webhook", () => {
     expect((await worker.fetch(request(await adminSessionHeaders()), env, ctx)).status).toBe(403);
   });
 
+  it.each(['/telegram/webhook', '/tg/t/webhook'])(
+    'returns a retryable 503 from %s when the forward insert fails',
+    async (path) => {
+      d1.sqlite.exec('DROP TABLE stats_forwards');
+      const response = await worker.fetch(new Request('https://bot.example' + path, {
+        method: 'POST',
+        headers: { 'X-Telegram-Bot-Api-Secret-Token': 's', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: {
+          chat: { id: -1, type: 'supergroup' },
+          from: { id: 77 },
+          message_id: 1,
+          date: Math.floor(Date.now() / 1000),
+          forward_origin: { type: 'hidden_user' },
+        } }),
+      }), env, ctx);
+
+      expect(response.status).toBe(503);
+      expect(await response.text()).toBe('Forward statistics temporarily unavailable');
+      expect(env.COUNTERS_DO.idFromName).not.toHaveBeenCalled();
+    },
+  );
+
+  it('logs the missing forwards table and serves a generic admin 503', async () => {
+    d1.sqlite.exec('DROP TABLE stats_forwards');
+    mockTelegramMembership('administrator');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const response = await worker.fetch(new Request(
+      'http://localhost/admin/api/forwards?chatId=-1&period=today',
+      { headers: await adminSessionHeaders() },
+    ), env, ctx);
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: { code: 'ADMIN_UNAVAILABLE', message: 'Admin service is temporarily unavailable.' },
+    });
+    expect(log).toHaveBeenCalledWith('Forward statistics query failed', {
+      diagnostic: 'no such table: stats_forwards',
+    });
+  });
+
   it("serves telegram login page for unauthenticated admin page", async () => {
     const response = await worker.fetch(new Request("http://localhost/admin"), env, ctx);
 

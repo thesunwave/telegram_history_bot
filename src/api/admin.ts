@@ -1,4 +1,5 @@
 import type { Env } from '../core/env';
+import { Logger } from '../core/logger';
 import { NotificationService } from '../core/services/notification-service';
 import { NotificationRepository } from '../core/repositories/notification-repository';
 import type { NotificationType } from '../core/models/notification-settings';
@@ -465,10 +466,20 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
 
     try {
       if (forwardsRequest) {
-        const rows = await getForwardStats(env.DB, chatId, period).catch(() => {
+        try {
+          const rows = await getForwardStats(env.DB, chatId, period);
+          return Response.json({ rows }, { headers: { 'Cache-Control': 'no-store' } });
+        } catch (error) {
+          // D1 may put SQLite's diagnostic in a nested cause. Log only known diagnostics.
+          const message = error instanceof Error ? error.message : '';
+          const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : '';
+          const detail = cause + ' ' + message;
+          const diagnostic = detail.match(/\bno such table: (?:main\.)?stats_forwards\b/)?.[0]
+            ?? detail.match(/\b(?:SQLITE_[A-Z_]+|D1_(?:TYPE_)?ERROR)\b/)?.[0]
+            ?? 'unknown database error';
+          Logger.error('Forward statistics query failed', { diagnostic });
           throw new AdminUnavailable();
-        });
-        return Response.json({ rows }, { headers: { 'Cache-Control': 'no-store' } });
+        }
       }
       return Response.json(await getAdminChatStats(env, chatId, period));
     } catch (error) {

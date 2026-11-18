@@ -1482,6 +1482,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     function finishDashboardLoading() {
       state.loading = false;
+      document.getElementById('forwardStatus').textContent = '';
       document.getElementById('main').classList.remove('isLoading');
       setControlsDisabled(false);
     }
