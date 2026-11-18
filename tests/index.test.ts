@@ -244,6 +244,75 @@ describe("webhook", () => {
     });
   }
 
+  it('counts manual forwards of text and media privately, once per destination message', async () => {
+    const day = '2026-10-15';
+    const message = {
+      chat: { id: -1, type: 'supergroup' },
+      from: { id: 77, username: 'forwarder' },
+      date: Date.parse(day) / 1000,
+    };
+    const channel = { id: -10012, type: 'channel', title: 'Old title', username: 'news' };
+    const channelOrigin = { type: 'channel', chat: channel, message_id: 101, author_signature: 'Original signature' };
+    const send = async (update: object, path = '/telegram/webhook', requestEnv = env) => {
+      const res = await worker.fetch(new Request('https://bot.example' + path, {
+        method: 'POST',
+        headers: { 'X-Telegram-Bot-Api-Secret-Token': 's', 'Content-Type': 'application/json' },
+        body: JSON.stringify(update),
+      }), requestEnv, ctx);
+      expect(res.status).toBe(200);
+    };
+    const channelForward = { ...message, message_id: 1, forward_origin: channelOrigin, photo: [{}] };
+    await send({ message: channelForward });
+    await send({ message: channelForward }, '/tg/t/webhook');
+    await send({ message: { ...message, message_id: 2, forward_from_chat: { ...channel, title: 'News' } } }, '/tg/t/webhook');
+    await send({ message: {
+      ...message, message_id: 3, text: 'Forwarded content',
+      forward_origin: { type: 'user', sender_user: { id: 881, username: 'origin_user' } },
+    } });
+    await send({ message: {
+      ...message, message_id: 4,
+      forward_origin: { type: 'hidden_user', sender_user_name: 'Hidden origin name' },
+    } });
+    await send({ message: {
+      ...message, message_id: 5,
+      forward_origin: { type: 'chat', sender_chat: { type: 'supergroup', id: -78, title: 'Source group' } },
+    } });
+    await send({ message: { ...channelForward, message_id: 6, is_automatic_forward: true } });
+    await send({ edited_message: { ...channelForward, message_id: 7 } });
+    await send({ message: { ...channelForward, message_id: 8 } }, '/telegram/webhook',
+      { ...env, ENABLE_ACTIVITY_TRACKING: 'false' });
+    await send({ message: { ...channelForward, message_id: 1, chat: { id: -2, type: 'group' } } });
+    await send({ message: { ...channelForward, message_id: 9, date: message.date + 86400 } });
+
+    const stored = d1.rows('SELECT * FROM stats_forwards WHERE chat_id = -1 AND day = ? ORDER BY message_id', [day]);
+    expect(stored).toHaveLength(5);
+    expect(stored.slice(2)).toMatchObject([
+      { source_type: 'person', channel_id: null, channel_title: null, channel_username: null },
+      { source_type: 'person', channel_id: null, channel_title: null, channel_username: null },
+      { source_type: 'other', channel_id: null, channel_title: null, channel_username: null },
+    ]);
+    expect(JSON.stringify(stored)).not.toMatch(/Forwarded content|origin_user|Hidden origin name|Source group|Original signature/);
+    expect(await env.HISTORY.list({ prefix: 'msg:' })).toMatchObject({ keys: [] });
+    expect(env.COUNTERS_DO.idFromName).not.toHaveBeenCalled();
+
+    mockTelegramMembership('administrator');
+    const request = (headers?: HeadersInit) => new Request(
+      'http://localhost/admin/api/forwards?chatId=-1&period=custom&from=' + day + '&to=' + day,
+      { headers },
+    );
+    expect((await worker.fetch(request(), env, ctx)).status).toBe(401);
+    const response = await worker.fetch(request(await adminSessionHeaders()), env, ctx);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(await response.json()).toEqual({ rows: [
+      { user_id: 77, username: 'forwarder', source_type: 'other', channel_id: null, channel_title: null, channel_username: null, count: 1 },
+      { user_id: 77, username: 'forwarder', source_type: 'person', channel_id: null, channel_title: null, channel_username: null, count: 2 },
+      { user_id: 77, username: 'forwarder', source_type: 'channel', channel_id: -10012, channel_title: 'News', channel_username: 'news', count: 2 },
+    ] });
+    mockTelegramMembership('left');
+    expect((await worker.fetch(request(await adminSessionHeaders()), env, ctx)).status).toBe(403);
+  });
+
   it("serves telegram login page for unauthenticated admin page", async () => {
     const response = await worker.fetch(new Request("http://localhost/admin"), env, ctx);
 

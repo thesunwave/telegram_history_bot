@@ -14,7 +14,7 @@ import {
   myCriminalStats,
   cleanupOldData
 } from "./features/stats/stats";
-import { handleUpdate, recordMessage, getTextMessage } from "./api/update";
+import { handleUpdate, recordForwardedUpdate, recordMessage, getTextMessage } from "./api/update";
 import { handleAdminRequest } from "./api/admin";
 import { recordBotMembership } from "./api/admin-installations";
 import { telegramLoginConfig, telegramLoginSession } from "./api/telegram-oidc";
@@ -119,6 +119,9 @@ export default {
       const update = await req.json();
       if ((update as any).my_chat_member) {
         await recordBotMembership(env, (update as any).my_chat_member, (update as any).update_id);
+      }
+      if (!(await recordForwardedUpdate(update, env))) {
+        return new Response("Forward statistics temporarily unavailable", { status: 503 });
       }
       const message = getTextMessage(update);
       await recordMessage(message, env, ctx);
@@ -328,6 +331,9 @@ export default {
         isBot: (update as any).message?.from?.is_bot,
       });
 
+      if (!(await recordForwardedUpdate(update, env))) {
+        return new Response("Forward statistics temporarily unavailable", { status: 503 });
+      }
       const msg = getTextMessage(update);
       Logger.debug(env, "getTextMessage result", {
         hasMessage: Boolean(msg),

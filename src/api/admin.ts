@@ -21,6 +21,7 @@ import {
 import { buildChatOverview, readInstanceModules } from './admin-groups';
 import { parseChatSettingsInput, readChatSettings, saveChatSettings } from '../core/chat-settings';
 import { getAdminMemberStatsFromD1 } from '../features/stats/admin-member-d1';
+import { getForwardStats } from '../features/stats/forward-stats';
 import { getAdminChatStats, parseAdminPeriod, type AdminDateRange } from './admin-stats';
 import { getAdminCriminalViolationDetails } from './admin-criminal';
 import { listShadowEvaluationComparisons } from '../features/model-shadow/evaluation-store';
@@ -439,7 +440,8 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     });
   }
 
-  if (url.pathname === `${ADMIN_PATH}/api/chat` && req.method === 'GET') {
+  const forwardsRequest = url.pathname === `${ADMIN_PATH}/api/forwards`;
+  if ((url.pathname === `${ADMIN_PATH}/api/chat` || forwardsRequest) && req.method === 'GET') {
     const chatId = parseChatId(url);
     if (chatId === null) {
       return jsonError('chatId is required', 400);
@@ -462,6 +464,12 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     }
 
     try {
+      if (forwardsRequest) {
+        const rows = await getForwardStats(env.DB, chatId, period).catch(() => {
+          throw new AdminUnavailable();
+        });
+        return Response.json({ rows }, { headers: { 'Cache-Control': 'no-store' } });
+      }
       return Response.json(await getAdminChatStats(env, chatId, period));
     } catch (error) {
       if (error instanceof LiveProgressUnavailable) {

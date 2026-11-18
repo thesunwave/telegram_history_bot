@@ -17,15 +17,21 @@ describe('stats reset — D1 aggregates', () => {
       .prepare("INSERT INTO stats_daily_bucket_user (chat_id, day, bucket, user_id, message_count) VALUES (42, '2026-10-15', 'noon', 7, 3)")
       .run();
     seedUserDay(d1, { chatId: 99, userId: 7, day: '2026-10-15', messages: 5 });
+    d1.sqlite.exec(`
+      INSERT INTO stats_forwards (chat_id, message_id, day, user_id, username, source_type)
+      VALUES (42, 1, '2026-10-15', 7, 'alice', 'person'),
+             (99, 1, '2026-10-15', 7, 'alice', 'person');
+    `);
 
     await resetCounters(env, 42);
 
-    for (const table of ['stats_daily_user', 'stats_daily_hour', 'stats_daily_bucket_user', 'stats_daily_profanity_word', 'stats_daily_profanity_word_user', 'activity']) {
+    for (const table of ['stats_daily_user', 'stats_daily_hour', 'stats_daily_bucket_user', 'stats_daily_profanity_word', 'stats_daily_profanity_word_user', 'stats_forwards', 'activity']) {
       expect(d1.rows(`SELECT * FROM ${table} WHERE chat_id = 42`)).toEqual([]);
     }
     expect(d1.rows('SELECT username, last_message_ts FROM stats_chat_user_profile WHERE chat_id = 42'))
       .toEqual([{ username: 'alice', last_message_ts: null }]);
     expect(d1.rows('SELECT message_count FROM stats_daily_user WHERE chat_id = 99')).toEqual([{ message_count: 5 }]);
+    expect(d1.rows('SELECT chat_id FROM stats_forwards')).toEqual([{ chat_id: 99 }]);
   });
 
   it('category resets zero only their own counters', async () => {

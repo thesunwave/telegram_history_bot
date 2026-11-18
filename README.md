@@ -112,6 +112,16 @@ expires under the retention policy.
   criminal analysis.
 - Counters and usernames do not expire automatically yet.
 
+**Forwards.** The dashboard’s Forwards tab ranks members and sources by the number
+of manual forwards in a group during the selected period. This includes media.
+The data starts when the feature is enabled and follows the activity-tracking setting.
+The bot keeps the forwarding member and the day, plus the destination message ID
+to deduplicate deliveries. For channel sources it keeps the channel ID, title and
+username when supplied. Person and other sources are counted by category.
+Forwarded content, original message IDs and original user details are discarded.
+Forward records follow the same retention as the activity counters and are cleared
+by `/reset`.
+
 **Where it lives.** With [@stat_history_bot](https://t.me/stat_history_bot) the
 data is in the maintainer's Cloudflare account. With your own instance it is only
 in your Cloudflare account (KV, D1, Durable Objects). AI features are off by
