@@ -639,7 +639,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         <a class="navLink" href="#overview" data-view-link="overview">${navIcon('overview')}<span>${h('Обзор')}</span></a>
         <a class="navLink" href="#people" data-view-link="people">${navIcon('people')}<span>${h('Люди')}</span></a>
         <a class="navLink" href="#media" data-view-link="media">${navIcon('media')}<span>${h('Голос')}</span></a>
-        <a class="navLink" href="#forwards" data-view-link="forwards">${navIcon('forwards')}<span>${h('Пересылки')}</span></a>
+        <a class="navLink" href="#forwards" data-view-link="forwards">${navIcon('forwards')}<span>${h('Репосты')}</span></a>
         <a class="navLink" href="#profanity" data-view-link="profanity">${navIcon('profanity')}<span>${h('Мат')}</span></a>
         <a class="navLink" href="#criminal" data-view-link="criminal">${navIcon('criminal')}<span>${h('УК РФ')}</span></a>
       </nav>
@@ -838,22 +838,22 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           <p id="forwardStatus" class="muted" role="status"></p>
           <div id="forwardReport" class="mediaGrid hidden">
             <section class="card">
-              <div class="cardHead"><h2>${h('Кто пересылает')}</h2></div>
+              <div class="cardHead"><h2>${h('Кто делает репосты')}</h2></div>
               <div class="tableScroll">
                 <table>
-                  <thead><tr><th scope="col">${h('Участник')}</th><th scope="col">${h('Пересылки')}</th></tr></thead>
+                  <thead><tr><th scope="col">${h('Участник')}</th><th scope="col">${h('Репосты')}</th></tr></thead>
                   <tbody id="forwardUsers"></tbody>
                 </table>
               </div>
             </section>
             <section class="card">
               <div class="cardHead">
-                <h2>${h('Источники пересылок')}</h2>
+                <h2>${h('Источники репостов')}</h2>
                 <select id="forwardUserFilter" class="selectInput" aria-label="${h('Участник')}"></select>
               </div>
               <div class="tableScroll">
                 <table>
-                  <thead><tr><th scope="col">${h('Источник')}</th><th scope="col">${h('Пересылки')}</th></tr></thead>
+                  <thead><tr><th scope="col">${h('Источник')}</th><th scope="col">${h('Репосты')}</th></tr></thead>
                   <tbody id="forwardSources"></tbody>
                 </table>
               </div>
@@ -1038,7 +1038,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       overview: ${js('Обзор')},
       people: ${js('Люди')},
       media: ${js('Голос и кружки')},
-      forwards: ${js('Пересылки')},
+      forwards: ${js('Репосты')},
       profanity: ${js('Мат')},
       criminal: ${js('УК РФ')},
       notifications: ${js('Автоуведомления')},
@@ -2243,11 +2243,11 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         const { rows } = await res.json();
         if (requestId !== state.forwardRequestId) return;
         renderForwardStats(rows);
-        status.textContent = rows.length ? '' : ${js('За этот период пересылок нет.')};
+        status.textContent = rows.length ? '' : ${js('За этот период репостов нет.')};
         report.classList.toggle('hidden', !rows.length);
       } catch {
         if (requestId === state.forwardRequestId) {
-          status.textContent = ${js('Не удалось загрузить статистику пересылок.')};
+          status.textContent = ${js('Не удалось загрузить статистику репостов.')};
         }
       }
     }
