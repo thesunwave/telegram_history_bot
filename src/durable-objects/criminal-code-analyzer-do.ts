@@ -60,6 +60,7 @@ import {
   calculateRiskLevel,
   evaluateFinalJudgeMeaning,
   getGroundedFinalJudgeMeaningEvidence,
+  normalizeForGrounding,
   normalizeJudgedViolation,
 } from '../features/criminal/analyzer/legal-references';
 import {
@@ -1981,7 +1982,7 @@ export class CriminalCodeAnalyzerDO {
     const isGpt5 = String(model).toLowerCase().includes('gpt-5');
     const systemPrompt = [
       'Ты игровой классификатор "на сколько лет человек наговорил" для Telegram-чата, а не юрист и не суд.',
-      'Твоя задача: по буквальному смыслу target-сообщения, краткому контексту и найденным статьям УК РФ выбрать ближайшую уголовную квалификацию для гротескной статистики.',
+      'Твоя задача: определить, выражает ли автор target-сообщения конкретное деяние для игровой статистики. Выбирай статью только после того, как установил буквальный смысл реплики.',
       'Не требуй судебной доказуемости, публичности, реальной возможности исполнить угрозу, факта предыдущей административной ответственности или иных формальных условий, если они не меняют основной смысл высказывания.',
       'Используй только статьи из legalReferences. Не добавляй статьи, которых нет в списке.',
       'Квалифицируй только target-сообщение. Соседние сообщения служат только для понимания target; не сохраняй violation, если состав есть только в before/after.',
@@ -1996,8 +1997,11 @@ export class CriminalCodeAnalyzerDO {
       'Фантазия, пожелание или одобрение насилия считаются, если автор выражает их от себя. Не требуй, чтобы это было прямой угрозой адресату.',
       'prediction, taunt, report, quote и metaphor сами по себе не являются violation. Отличай "он убить меня хочет" как сообщение о третьем лице от "я тебя убью" как угрозы автора.',
       'Шутка может считаться violation, если её буквальный гротескный смысл всё равно выражает авторскую угрозу, фантазию, одобрение, призыв, план или признание; чистая цитата/пересказ/техническая метафора — нет.',
-      'Сверяй основной смысл target с диспозицией статьи, но выбирай ближайшую норму по core behavior, а не проверяй полный судебный состав.',
-      'Если несколько частей одной статьи подходят, предпочитай более специфичную по буквальному поведению target.',
+      'Для violation цитата из target должна выражать конкретное деяние, соответствующее диспозиции статьи. Если деяние приходится додумывать из тона, мата, соседних реплик или текста статьи, верни no_violation или uncertain и пустой violations.',
+      'Примеры no_violation: «вот я бы хуй забил» (не стал бы заниматься), «тоби пизда» (брань без конкретного действия), «зная тебя» (бытовой оборот). Бранное слово само по себе не имеет буквального сексуального смысла.',
+      'Для ст. 119 ищи буквальный смысл убийства или тяжкого вреда человеку. Для ст. 131 ищи буквальный смысл самого сексуального насилия. Для ст. 133 ищи сексуальное требование и выраженный в реплике способ принуждения.',
+      'Выбирай более специфичную часть статьи только при наличии признака этой части в target. Не выводи мотив или способ деяния из текста статьи.',
+      'Для violation заполни evidence.whyNotBenign: объясни, какое буквальное действие выражает цитата и чем оно соответствует выбранной статье. Если объяснить это по цитате нельзя, верни uncertain.',
       'Не превращай угрозу или прогноз вреда школе, компании, проекту, образованию или другому не-человеческому объекту в угрозу убийством/телесным вредом, если target не содержит угрозы человеку.',
       'semanticFrame и retrievalScores являются только подсказками для поиска и понимания. Они не доказывают состав преступления и не заменяют evidence из target/context.',
       'Поле violations[].quote должно быть точной цитатой из targetText, а не из соседнего сообщения и не из legalReferences.',
@@ -2151,9 +2155,11 @@ export class CriminalCodeAnalyzerDO {
     const meaningVerdict = judge.contextResolvesBenign === true && groundedMeaningQuote
       ? 'benign'
       : evaluateFinalJudgeMeaning(judge.meaning, input);
-    const judgedViolations = judge.violations || [];
-    const violations = meaningVerdict === 'criminal'
-      ? judgedViolations
+    const explanation = normalizeForGrounding(evidence.whyNotBenign);
+    const hasExplanation = explanation !== '' && explanation !== 'not established' &&
+      explanation !== 'не установлено' && explanation !== 'unknown';
+    const violations = decision === 'violation' && meaningVerdict === 'criminal' && hasExplanation
+      ? (judge.violations || [])
         .map(violation => normalizeJudgedViolation(
           violation,
           allowedReferences,

@@ -1721,6 +1721,62 @@ describe("CriminalCodeAnalyzerDO", () => {
       vi.unstubAllGlobals();
     });
 
+    it.each([
+      ["idiom about giving up", "Вот я бы хуй забил", "Вот я бы хуй забил", "119", "2",
+        "not established", "no_violation"],
+      ["slang mistaken for sexual violence", "ТОБІ   ПІЗДА!", "ТОБІ   ПІЗДА!", "131", "1",
+        "Explicit threat of sexual violence toward a person.", "no_violation"],
+      ["ordinary phrase", "Зная тебя…", "Зная тебя", "133", "1", undefined, "no_violation"],
+      ["ordinary fragment as the only quote", "Зная тебя, ты опоздаешь", "Зная тебя", "133", "1",
+        "Sexual coercion", "uncertain"],
+      ["placeholder explanation", "я тебя убью", "я тебя убью", "119", "1",
+        "not established", "uncertain"],
+      ["blank explanation", "я тебя убью", "я тебя убью", "119", "1", " ", "uncertain"],
+      ["explicit threat with an everyday phrase", "Зная тебя, я тебя убью", "я тебя убью", "119", "1",
+        "Автор прямо говорит, что убьёт адресата", "violation"],
+    ])("validates the final judge's grounds for %s", (
+      _label, targetText, quote, article, subarticle, whyNotBenign, decision,
+    ) => {
+      const input = {
+        targetText,
+        targetTimestamp: 1000,
+        chatId: 12345,
+        contextWindow: { before: 0, after: 0, totalMessages: 1 },
+        messages: [{ username: "testuser", text: targetText, ts: 1000, relativePosition: 0, isTarget: true }],
+      };
+      const retrievalResult = {
+        hasViolations: false,
+        violations: [],
+        totalSeverity: 0,
+        riskLevel: "low",
+        analysisTimestamp: 1000,
+        legalReferences: [{
+          article,
+          subarticle,
+          articleTitle: "Test article",
+          quote: `Статья ${article}. Тестовая диспозиция.`,
+          sourceUrl: "https://uk-rf.ru/",
+          lawCode: "uk-rf",
+          score: 0.88,
+          vectorId: `uk-rf:${article}:${subarticle}:0`,
+        }],
+      };
+      const judge = {
+        decision: "violation",
+        confidence: 0.95,
+        meaning: { speechAct: "threat", evidence: quote },
+        evidence: { whyNotBenign },
+        violations: [{ article, subarticle, quote, severity: 6, confidence: 0.95 }],
+      };
+
+      const result = (analyzer as any).buildJudgedAnalysisResult(input, retrievalResult, judge);
+
+      expect(result.decision).toBe(decision);
+      expect(result.hasViolations).toBe(decision === "violation");
+      expect(result.violations).toHaveLength(decision === "violation" ? 1 : 0);
+      expect(result.totalSeverity).toBe(decision === "violation" ? 6 : 0);
+    });
+
     it("should reject a non-human prediction even if the judge proposes article 119", () => {
       const targetText = "о, я ж говорил что у нас тоже школы пачками закрывают))) не будет скоро вашего образования нахуй)";
       const input = {
