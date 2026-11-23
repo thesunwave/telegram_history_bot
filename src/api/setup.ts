@@ -5,6 +5,7 @@ import {
   profanityViaCriminalPrefilter, resolveRuntimeSettings, saveSummaryRuntimeSettings, saveRuntimeSettings,
 } from '../core/runtime-settings';
 import { getWebhookSecret } from '../core/webhook-secret';
+import { callbackRegistration, webhookDelivery } from './setup-webhook';
 import { AdminLanguage, createAdminTranslator, resolveAdminLanguage } from './admin-i18n';
 
 const SESSION_COOKIE = 'tg_setup_session';
@@ -180,7 +181,11 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}
 <p><button id="save" disabled>${h('Сохранить изменения')}</button></p></section>
 <section><h2>3. Telegram webhook</h2>
 <p>${h('Подключай бот только после того, как сохранишь выбранный режим хранения.')}</p>
-<button id="connect">${h('Подключить webhook')}</button><span id="webhook"></span></section>
+<button id="connect">${h('Подключить webhook')}</button><span id="webhook"></span>
+<p id="callbackStatus" role="status"></p>
+<div id="callbackRepair" hidden>
+<p>${h('Если вы вручную закрепили IP-адрес webhook, добавьте callback_query с исходными параметрами регистрации, чтобы сохранить этот адрес.')}</p>
+<button id="repairCallbacks">${h('Включить доставку нажатий на кнопки')}</button></div></section>
 <section><h2>${h('Статус')}</h2><pre id="status"></pre>
 <button id="logout">${h('Выйти из настройки')}</button></section>
 </div><p id="error" role="alert"></p>
@@ -280,6 +285,10 @@ async function refresh() {
     el('status').textContent=JSON.stringify(info,null,2);
     el('webhook').textContent=info.webhookConfigured?${js(' Подключён')}:${js(' Не подключён')};
     el('connect').disabled=info.storageMode==='unconfigured';
+    const callbacks = info.webhookDelivery?.callbackQueries;
+    el('callbackStatus').textContent = callbacks === true ? ${js('Webhook подписан на нажатия кнопок.')}
+      : callbacks === false ? ${js('Фильтр Telegram исключает нажатия на кнопки.')} : '';
+    el('callbackRepair').hidden = callbacks !== false;
     el('error').textContent=info.databaseReady
       ? info.storageMode==='unconfigured' ? ${js('Сначала выбери режим хранения и нажми «Сохранить настройки».')} : ''
       : ${js('D1 не инициализирована. Проверь, что команда npm run deploy завершила все миграции.')};
@@ -320,6 +329,14 @@ el('claimForm').onsubmit=async event=>{
 el('connect').onclick=async ()=>{
   try { await api('webhook','POST'); await refresh(); }
   catch(error) {el('error').textContent=error.message;}
+};
+el('repairCallbacks').onclick=async ()=>{
+  el('repairCallbacks').disabled=true;
+  try { await api('webhook-callbacks','POST'); await refresh(); }
+  catch(error) { el('error').textContent = error.status === 409
+    ? ${js('Автоматически обновить этот webhook не удалось. Проверьте исходные параметры его регистрации.')}
+    : ${js('Не удалось проверить или обновить настройки доставки в Telegram.')}; }
+  finally { el('repairCallbacks').disabled=false; }
 };
 for (const id of ['activity', 'profanity', 'criminal', 'enabled', 'model']) {
   el(id).addEventListener('input', updatePendingChanges);
@@ -433,13 +450,13 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
     } catch {
       // A binding can exist before the initial D1 migrations have run.
     }
-    let webhookConfigured = false;
+    let webhook: Record<string, unknown> = {};
     try {
-      const webhook = await telegramApi(env, 'getWebhookInfo');
-      webhookConfigured = Boolean(webhook.url);
-    } catch { /* Report only the configured state, never the bot token. */ }
+      webhook = await telegramApi(env, 'getWebhookInfo');
+    } catch { /* Other setup settings remain available when Telegram cannot be reached. */ }
     return Response.json({
-      ok: true, authMethod: ownerAuth, summary: settings.summary, webhookConfigured, databaseReady,
+      ok: true, authMethod: ownerAuth, summary: settings.summary, webhookConfigured: Boolean(webhook.url),
+      webhookDelivery: webhookDelivery(webhook), databaseReady,
       settingsSource: databaseReady ? hasPersistedGlobalSettings ? 'd1' : 'env' : 'unknown',
       storageMode: settings.storageMode,
       providers: {
@@ -472,6 +489,20 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
       providerKeys: { openai: Boolean(env.OPENAI_API_KEY), openrouter: Boolean(env.OPENROUTER_API_KEY) },
       advanced: { criminal: settings.criminalEnabled, rag: Boolean(env.LEGAL_RAG_INDEX) },
     }, { headers: { 'Cache-Control': 'no-store' } });
+  }
+  if (route === 'webhook-callbacks' && req.method === 'POST') {
+    try {
+      const info = await telegramApi(env, 'getWebhookInfo');
+      if (webhookDelivery(info).callbackQueries === true) {
+        return Response.json({ ok: true, changed: false }, { headers: { 'Cache-Control': 'no-store' } });
+      }
+      const registration = await callbackRegistration(info, url.origin, env);
+      if (!registration) return errorResponse('Webhook settings cannot be safely preserved', 409);
+      await telegramApi(env, 'setWebhook', registration);
+      return Response.json({ ok: true, changed: true }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch {
+      return errorResponse('Telegram webhook update unavailable', 502);
+    }
   }
   if (route === 'webhook' && req.method === 'POST') {
     if ((await resolveRuntimeSettings(env)).storageMode === 'unconfigured') {

@@ -13,6 +13,7 @@ describe('Telegram achievement collections', () => {
   let env: Env;
   let role: string;
   let webhookFilters: string[];
+  let photoAllowed: boolean;
   const sent: Array<Record<string, unknown>> = [];
   const photos: FormData[] = [];
   const methods: string[] = [];
@@ -31,6 +32,7 @@ describe('Telegram achievement collections', () => {
       HISTORY: { get: async () => ({ title: 'Закрытый тестовый чат' }) } } as unknown as Env;
     sent.length = photos.length = methods.length = 0;
     role = 'member';
+    photoAllowed = true;
     webhookFilters = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: { body: string }) => {
       const method = url.split('/').pop()!;
@@ -39,7 +41,10 @@ describe('Telegram achievement collections', () => {
       if (method === 'getWebhookInfo') return Response.json({ ok: true,
         result: { url: 'https://example.test/webhook', allowed_updates: webhookFilters } });
       if (method === 'sendMessage' || method === 'editMessageText') sent.push(JSON.parse(init.body));
-      if (method === 'sendPhoto') photos.push(init.body as unknown as FormData);
+      if (method === 'sendPhoto') {
+        photos.push(init.body as unknown as FormData);
+        if (!photoAllowed) return Response.json({ ok: false, error_code: 403 }, { status: 403 });
+      }
       return Response.json({ ok: true, result: { message_id: 45 } });
     }));
   });
@@ -64,6 +69,11 @@ describe('Telegram achievement collections', () => {
 
   it('allows no cross-group, forwarded or foreign-DM access', async () => {
     await handleAchievementUpdate(env, forward('ach:group:' + group, -333));
+    const acknowledgment = vi.mocked(fetch).mock.calls[0];
+    expect(String(acknowledgment[0])).toMatch(/\/answerCallbackQuery$/);
+    expect(JSON.parse(String(acknowledgment[1]?.body))).toEqual({
+      callback_query_id: 'q', text: 'Чтобы открыть коллекцию этой группы, отправьте здесь /achievements.', show_alert: true,
+    });
     await handleAchievementUpdate(env, forward('ach:join:' + group, owner + 1));
     expect(sent).toEqual([]);
     expect(methods).not.toContain('getChatMember');
@@ -71,6 +81,58 @@ describe('Telegram achievement collections', () => {
     await handleAchievementUpdate(env, command('/start ach_223', owner));
     expect(sent.at(-1)?.text).toContain('членство');
     expect(JSON.stringify(sent)).not.toContain('Закрытый тестовый чат');
+  });
+
+  it('sends group menus and photos to the originating forum topic only for marked topic messages', async () => {
+    const delivery = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const topic = { is_topic_message: true, message_thread_id: 312 };
+    const menu = command('/achievements', group);
+    menu.message.chat.type = 'supergroup';
+    await handleAchievementUpdate(env, { message: { ...menu.message, ...topic } });
+    expect(sent.at(-1)).toMatchObject({ chat_id: group, message_thread_id: 312 });
+    const card = forward('ach:group-card:' + group + ':podcast', group).callback_query;
+    await handleAchievementUpdate(env, { callback_query: { ...card, message: { ...card.message, ...topic } } });
+    expect(photos[0].get('message_thread_id')).toBe('312');
+    expect(photos[0].get('chat_id')).toBe(String(group));
+    await handleAchievementUpdate(env, { callback_query: { ...card, message: { ...card.message, message_thread_id: 312 } } });
+    expect(photos[1].get('message_thread_id')).toBeNull();
+    expect(delivery.mock.calls).toEqual(Array(2).fill([{ event: 'achievement_card_delivery', status: 'sent' }]));
+    await handleAchievementUpdate(env, { message: { ...menu.message, is_topic_message: true, message_thread_id: -1 } });
+    expect(sent.at(-1)).not.toHaveProperty('message_thread_id');
+  });
+
+  it('acknowledges the click immediately and sends the badge details as text when photos are forbidden', async () => {
+    photoAllowed = false;
+    const delivery = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const cb = forward('ach:group-card:' + group + ':podcast', group).callback_query;
+    await handleAchievementUpdate(env, { callback_query: { ...cb, message: {
+      ...cb.message, is_topic_message: true, message_thread_id: 42,
+    } } });
+    expect(methods).toEqual(['answerCallbackQuery', 'getChatMember', 'sendPhoto', 'sendMessage']);
+    expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual({
+      callback_query_id: 'q', text: 'Открываю карточку…',
+    });
+    expect(photos).toHaveLength(1);
+    expect(sent).toMatchObject([{ chat_id: group, message_thread_id: 42, text: 'Подкастерская\n60 минут голосовых за неделю.\nПока закрыто' }]);
+    expect(delivery.mock.calls).toEqual([[{ event: 'achievement_card_delivery', status: 'text_fallback' }]]);
+  });
+
+  it('sends an earned private badge as text on rendering failure and keeps the album menu', async () => {
+    const art = vi.spyOn(badgeArtModule, 'badgeArt').mockRejectedValue(new Error('unavailable'));
+    const delivery = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await setGroupEnabled(database.db, group, true);
+    await setEnrolled(database.db, group, owner, true);
+    database.sqlite.prepare(`INSERT INTO achievement_awards(chat_id,user_id,badge_id,earned_day,result)
+      VALUES(?,?,'tomorrow','2026-11-23','Два дня подряд')`).run(group, owner);
+    await handleAchievementUpdate(env, forward('ach:preview:' + group + ':tomorrow', owner));
+    expect(methods).toEqual(['answerCallbackQuery', 'getChatMember', 'sendMessage']);
+    expect(sent).toMatchObject([{ chat_id: owner, text: 'До завтра\nНаписать в два дня подряд по UTC.\nОткрыто · 2026-11-23 UTC · Два дня подряд' }]);
+    expect(sent[0]).not.toHaveProperty('message_thread_id');
+    expect(delivery.mock.calls).toEqual([[{ event: 'achievement_card_delivery', status: 'text_fallback' }]]);
+    role = 'left';
+    await handleAchievementUpdate(env, forward('ach:preview:' + group + ':tomorrow', owner));
+    expect(art).toHaveBeenCalledTimes(1);
+    expect(sent.at(-1)?.text).not.toContain('Два дня подряд');
   });
 
   it('retries an unavailable membership check without offering to delete the album', async () => {
@@ -99,11 +161,11 @@ describe('Telegram achievement collections', () => {
     role = 'administrator';
     webhookFilters = ['message', 'my_chat_member'];
     await handleAchievementUpdate(env, command('/achievements', group));
-    expect(sent.at(-1)?.text).toContain('callback_query');
+    expect(sent.at(-1)?.text).toContain('Включить доставку нажатий на кнопки');
     expect(methods).not.toContain('setWebhook');
     webhookFilters.push('callback_query');
     await handleAchievementUpdate(env, command('/achievements', group));
-    expect(sent.at(-1)?.text).not.toContain('allowed_updates');
+    expect(sent.at(-1)?.text).not.toContain('Включить доставку нажатий на кнопки');
   });
 
   it('enrolls only after a personal confirmation and requires separate consent for replies', async () => {
@@ -136,8 +198,12 @@ describe('Telegram achievement collections', () => {
     });
     await setGroupEnabled(database.db, group, true);
     await setEnrolled(database.db, group, owner, true);
-    await handleAchievementUpdate(env, forward('ach:preview:' + group + ':tomorrow', owner));
+    const cb = forward('ach:preview:' + group + ':tomorrow', owner).callback_query;
+    await handleAchievementUpdate(env, { callback_query: { ...cb, message: {
+      ...cb.message, is_topic_message: true, message_thread_id: 312,
+    } } });
     expect(photos[0].get('chat_id')).toBe(String(owner));
+    expect(photos[0].get('message_thread_id')).toBeNull();
     expect(photos[0].get('caption')).toContain('Пока закрыто');
     await handleAchievementUpdate(env, forward('ach:share:' + group + ':tomorrow', owner));
     expect(photos).toHaveLength(1);

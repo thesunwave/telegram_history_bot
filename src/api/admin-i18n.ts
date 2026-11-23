@@ -14,6 +14,15 @@ const RUSSIAN_LANGUAGE_TAGS = new Set(['ru', 'uk', 'be', 'kk']);
  * "form1|form2|form5" keys hold Russian plural forms ("one|many" in English).
  */
 const ADMIN_EN: Record<string, string> = {
+  'Включить доставку нажатий на кнопки': 'Enable Telegram button updates',
+  'Webhook подписан на нажатия кнопок.': 'The webhook is subscribed to button taps.',
+  'Если вы вручную закрепили IP-адрес webhook, добавьте callback_query с исходными параметрами регистрации, чтобы сохранить этот адрес.':
+    'If you configured a fixed webhook IP address, add callback_query using your original registration settings to keep that address.',
+  'Фильтр Telegram исключает нажатия на кнопки.': 'The Telegram update filter excludes button presses.',
+  'Автоматически обновить этот webhook не удалось. Проверьте исходные параметры его регистрации.':
+    'This webhook could not be updated automatically. Check its original registration settings.',
+  'Не удалось проверить или обновить настройки доставки в Telegram.':
+    'Could not check or update the Telegram delivery settings.',
   'Установки бота': 'Bot installations',
   // Shell, navigation and sign-in
   'История чатов · админка': 'Chat History · dashboard',

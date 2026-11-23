@@ -6,6 +6,7 @@ import type { Env } from '../src/core/env';
 const inheritedState = {
   ok: true, authMethod: 'telegram', databaseReady: true, settingsSource: 'env',
   storageMode: 'history', webhookConfigured: true,
+  webhookDelivery: { callbackQueries: true as boolean | null, pendingUpdateCount: 0 },
   features: { activityTrackingEnabled: true, profanityEnabled: true, criminalEnabled: true },
   summary: { enabled: false, provider: 'openai', model: 'gpt-4.1-nano' },
   providers: {
@@ -25,7 +26,7 @@ async function setupBrowser(approved = false, state = inheritedState) {
 
   const elements = new Map<string, any>();
   const ids = ['login', 'settings', 'logout', 'activity', 'profanity', 'criminal', 'enabled',
-    'provider', 'model', 'status', 'webhook', 'connect', 'error', 'storageWarning',
+    'provider', 'model', 'status', 'webhook', 'connect', 'callbackStatus', 'callbackRepair', 'repairCallbacks', 'error', 'storageWarning',
     'unsavedWarning', 'save', 'configSource', 'configSummary', 'configProfanity',
     'configCriminal', 'loginForm', 'claimForm'];
   for (const id of ids) {
@@ -58,6 +59,13 @@ async function setupBrowser(approved = false, state = inheritedState) {
 }
 
 describe('global setup client keeps production configuration safe', () => {
+  it.each([true, false, null])('offers a repair only for an explicitly restricted webhook', async callbackQueries => {
+    const browser = await setupBrowser(false, {
+      ...inheritedState, webhookDelivery: { callbackQueries, pendingUpdateCount: 0 },
+    });
+    expect(browser.elements.get('callbackRepair').hidden).toBe(callbackQueries !== false);
+    expect(browser.fetch.mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true);
+  });
   it('loads each feature from the server and never enables Save without changes', async () => {
     const { elements, fetch, radios } = await setupBrowser();
     expect(radios.find(option => option.value === 'history')?.checked).toBe(true);
