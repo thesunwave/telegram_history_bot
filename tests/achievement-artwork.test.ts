@@ -1,9 +1,47 @@
 import { expect, it } from 'vitest';
+import { inflateSync } from 'node:zlib';
+import worker from '../src/index';
+import type { Env } from '../src/core/env';
 import { GROUP_BADGES, PERSONAL_BADGES } from '../src/features/achievements/rules';
 import { CONVERSATION_BADGES } from '../src/features/achievements/social-score';
 import { badgeArt } from '../src/features/achievements/badge-art-generated';
 import { CardCanvas } from '../src/features/achievements/cards-raster';
 import artwork from '../src/features/achievements/artwork.json';
+
+it('serves the portable dashboard poster without chat data or a landing binding', async () => {
+  const fetchPoster = (id: string, method = 'GET') => worker.fetch(
+    new Request('https://bot.example/admin/badge-art/' + id + '.png', { method }),
+    {} as Env, {} as ExecutionContext,
+  );
+  const response = await fetchPoster('spark');
+  expect(response.status).toBe(200);
+  expect(response.headers.get('Content-Type')).toBe('image/png');
+  expect(response.headers.get('X-Robots-Tag')).toContain('noindex');
+  const png = Buffer.from(await response.arrayBuffer());
+  const chunks = new Map<string, Buffer>();
+  for (let offset = 8; offset < png.length;) {
+    const length = png.readUInt32BE(offset);
+    chunks.set(png.toString('ascii', offset + 4, offset + 8), png.subarray(offset + 8, offset + 8 + length));
+    offset += length + 12;
+  }
+  const art = (await badgeArt('spark'))!;
+  expect(chunks.get('IHDR')!.readUInt32BE(0)).toBe(art.width);
+  expect(chunks.get('IHDR')!.readUInt32BE(4)).toBe(art.height);
+  expect(chunks.get('PLTE')).toEqual(Buffer.from(art.palette));
+  expect(chunks.get('tRNS')).toEqual(Buffer.from([0]));
+  const raw = inflateSync(chunks.get('IDAT')!);
+  for (let y = 0; y < art.height; y++) {
+    const row = y * (art.width + 1);
+    expect(raw[row]).toBe(0);
+    expect(raw.subarray(row + 1, row + 1 + art.width))
+      .toEqual(Buffer.from(art.pixels.subarray(y * art.width, (y + 1) * art.width)));
+  }
+  const head = await fetchPoster('spark', 'HEAD');
+  expect(head.status).toBe(200);
+  expect(await head.text()).toBe('');
+  expect((await fetchPoster('missing')).status).toBe(404);
+  expect((await fetchPoster('spark', 'POST')).status).toBe(405);
+});
 
 it('rejects an image box that would overwrite a neighboring PNG scanline', () => {
   const canvas = new CardCanvas();

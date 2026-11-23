@@ -25,6 +25,7 @@ import { getAdminMemberStatsFromD1 } from '../features/stats/admin-member-d1';
 import { getForwardStats } from '../features/stats/forward-stats';
 import { getAdminChatStats, parseAdminPeriod, type AdminDateRange } from './admin-stats';
 import { getAdminCriminalViolationDetails } from './admin-criminal';
+import { getAdminAchievements } from './admin-achievements';
 import { listShadowEvaluationComparisons } from '../features/model-shadow/evaluation-store';
 import {
   AdminUnavailable,
@@ -439,6 +440,19 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
       ),
       modules: await readInstanceModules(env),
     });
+  }
+
+  if (url.pathname === `${ADMIN_PATH}/api/achievements`) {
+    if (req.method !== 'GET') {
+      return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET', 'Cache-Control': 'no-store' } });
+    }
+    const chatId = parseChatId(url);
+    if (chatId === null || chatId >= 0) return jsonError('a group chatId is required', 400);
+    if (url.searchParams.has('userId') || url.searchParams.has('user_id')) return jsonError('user selection is unavailable', 400);
+    const denied = await requireTelegramChatAccess(env, principal, chatId);
+    if (denied) return denied;
+    const data = await getAdminAchievements(env, chatId, principal.telegramId!, resolveAdminLanguage(req));
+    return Response.json(data, { headers: { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Accept-Language' } });
   }
 
   const forwardsRequest = url.pathname === `${ADMIN_PATH}/api/forwards`;

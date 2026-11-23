@@ -16,6 +16,7 @@ import {
 } from "./features/stats/stats";
 import { handleUpdate, recordForwardedUpdate, recordMessage, getTextMessage } from "./api/update";
 import { handleAchievementUpdate } from "./features/achievements/telegram";
+import { badgePoster } from "./features/achievements/badge-art-generated";
 import { socialAvailable } from "./features/achievements/settings";
 import { observeConversationMessage, pruneConversationEvidence } from "./features/achievements/social";
 import { ACHIEVEMENT_CRON, runAchievementJobs } from "./features/achievements/jobs";
@@ -106,6 +107,8 @@ export default {
   ): Promise<Response> {
     const url = new URL(req.url);
     const isAdminRequest = url.pathname === "/admin" || url.pathname.startsWith("/admin/");
+    const poster = /^\/admin\/badge-art\/([a-z0-9-]+)\.png$/.exec(url.pathname);
+    if (poster) return badgePoster(poster[1], req.method);
     // Privacy-sensitive ingestion must use the current persisted policy, not a
     // potentially stale isolate cache. On D1 failure, reject and let Telegram retry.
     const isWebhook = req.method === 'POST' &&

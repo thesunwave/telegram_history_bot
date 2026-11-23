@@ -91,22 +91,32 @@ export class CardCanvas {
     }
   }
 
-  async png(): Promise<Uint8Array<ArrayBuffer>> {
-    const header = new Uint8Array(13);
-    const size = new DataView(header.buffer);
-    size.setUint32(0, WIDTH);
-    size.setUint32(4, HEIGHT);
-    header[8] = 8;
-    header[9] = 3;
-    const stream = new Blob([this.pixels]).stream().pipeThrough(new CompressionStream('deflate'));
-    const deflated = new Uint8Array(await new Response(stream).arrayBuffer());
-    const chunks = [new Uint8Array([137,80,78,71,13,10,26,10]), chunk('IHDR',header),
-      chunk('PLTE',this.colors), chunk('IDAT',deflated), chunk('IEND',new Uint8Array())];
-    const result = new Uint8Array(chunks.reduce((length, part) => length + part.length, 0));
-    let offset = 0;
-    for (const part of chunks) { result.set(part, offset); offset += part.length; }
-    return result;
+  png(): Promise<Uint8Array<ArrayBuffer>> {
+    return indexedPng(WIDTH, HEIGHT, this.colors, this.pixels);
   }
+}
+
+/** Encode indexed PNG scanlines, each starting with the PNG filter byte. */
+export async function indexedPng(
+  width: number, height: number, colors: Uint8Array, scanlines: Uint8Array<ArrayBuffer>,
+  transparentZero = false,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const header = new Uint8Array(13);
+  const size = new DataView(header.buffer);
+  size.setUint32(0, width);
+  size.setUint32(4, height);
+  header[8] = 8;
+  header[9] = 3;
+  const stream = new Blob([scanlines]).stream().pipeThrough(new CompressionStream('deflate'));
+  const deflated = new Uint8Array(await new Response(stream).arrayBuffer());
+  const chunks = [new Uint8Array([137,80,78,71,13,10,26,10]), chunk('IHDR',header),
+    chunk('PLTE',colors)];
+  if (transparentZero) chunks.push(chunk('tRNS', Uint8Array.of(0)));
+  chunks.push(chunk('IDAT',deflated), chunk('IEND',new Uint8Array()));
+  const result = new Uint8Array(chunks.reduce((length, part) => length + part.length, 0));
+  let offset = 0;
+  for (const part of chunks) { result.set(part, offset); offset += part.length; }
+  return result;
 }
 
 function chunk(name: string, data: Uint8Array): Uint8Array {
