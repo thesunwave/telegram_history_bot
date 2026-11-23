@@ -16,10 +16,16 @@ const RUSSIAN_LANGUAGE_TAGS = new Set(['ru', 'uk', 'be', 'kk']);
 const ADMIN_EN: Record<string, string> = {
   'Включить доставку нажатий на кнопки': 'Enable Telegram button updates',
   'Webhook подписан на нажатия кнопок.': 'The webhook is subscribed to button taps.',
-  'Если вы вручную закрепили IP-адрес webhook, добавьте callback_query с исходными параметрами регистрации, чтобы сохранить этот адрес.':
-    'If you configured a fixed webhook IP address, add callback_query using your original registration settings to keep that address.',
+  'Telegram сообщает текущий IP-адрес, но не указывает, был ли он закреплён вручную. Автоматическое обновление использует DNS и сбросит вручную заданный IP.':
+    'Telegram reports the current IP address. It cannot tell whether you pinned it. Updating here uses DNS and will clear a manually configured IP.',
+  'Если ты закрепил IP вручную или не помнишь настройку, проверь исходные параметры регистрации и добавь callback_query вручную с теми же параметрами.':
+    'If you pinned an IP address or are unsure, check your original registration settings and add callback_query manually with those same settings.',
+  'Подтверждаю, что мой webhook использует DNS и я не закреплял IP-адрес вручную.':
+    'I confirm that my webhook uses DNS and I did not configure a fixed IP address.',
+  'Перед обновлением подтверди, что твой webhook использует DNS.':
+    'Confirm that your webhook uses DNS before updating it.',
   'Фильтр Telegram исключает нажатия на кнопки.': 'The Telegram update filter excludes button presses.',
-  'Автоматически обновить этот webhook не удалось. Проверьте исходные параметры его регистрации.':
+  'Автоматически обновить этот webhook не удалось. Проверь исходные параметры его регистрации.':
     'This webhook could not be updated automatically. Check its original registration settings.',
   'Не удалось проверить или обновить настройки доставки в Telegram.':
     'Could not check or update the Telegram delivery settings.',

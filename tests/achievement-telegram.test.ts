@@ -13,7 +13,8 @@ describe('Telegram achievement collections', () => {
   let env: Env;
   let role: string;
   let webhookFilters: string[];
-  let photoAllowed: boolean;
+  let photoOutcome: 'sent' | 'rejected' | 'unknown';
+  let textConfirmed: boolean;
   const sent: Array<Record<string, unknown>> = [];
   const photos: FormData[] = [];
   const methods: string[] = [];
@@ -32,7 +33,8 @@ describe('Telegram achievement collections', () => {
       HISTORY: { get: async () => ({ title: 'Закрытый тестовый чат' }) } } as unknown as Env;
     sent.length = photos.length = methods.length = 0;
     role = 'member';
-    photoAllowed = true;
+    photoOutcome = 'sent';
+    textConfirmed = true;
     webhookFilters = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: { body: string }) => {
       const method = url.split('/').pop()!;
@@ -40,10 +42,14 @@ describe('Telegram achievement collections', () => {
       if (method === 'getChatMember') return Response.json({ ok: true, result: { status: role } });
       if (method === 'getWebhookInfo') return Response.json({ ok: true,
         result: { url: 'https://example.test/webhook', allowed_updates: webhookFilters } });
-      if (method === 'sendMessage' || method === 'editMessageText') sent.push(JSON.parse(init.body));
+      if (method === 'sendMessage' || method === 'editMessageText') {
+        sent.push(JSON.parse(init.body));
+        if (!textConfirmed) return Response.json({ ok: false }, { status: 503 });
+      }
       if (method === 'sendPhoto') {
         photos.push(init.body as unknown as FormData);
-        if (!photoAllowed) return Response.json({ ok: false, error_code: 403 }, { status: 403 });
+        if (photoOutcome === 'rejected') return Response.json({ ok: false, error_code: 403 }, { status: 403 });
+        if (photoOutcome === 'unknown') throw new Error('disconnected after upload');
       }
       return Response.json({ ok: true, result: { message_id: 45 } });
     }));
@@ -102,7 +108,7 @@ describe('Telegram achievement collections', () => {
   });
 
   it('acknowledges the click immediately and sends the badge details as text when photos are forbidden', async () => {
-    photoAllowed = false;
+    photoOutcome = 'rejected';
     const delivery = vi.spyOn(console, 'info').mockImplementation(() => {});
     const cb = forward('ach:group-card:' + group + ':podcast', group).callback_query;
     await handleAchievementUpdate(env, { callback_query: { ...cb, message: {
@@ -117,9 +123,28 @@ describe('Telegram achievement collections', () => {
     expect(delivery.mock.calls).toEqual([[{ event: 'achievement_card_delivery', status: 'text_fallback' }]]);
   });
 
+  it('avoids duplicate badge content when Telegram might already have delivered the photo', async () => {
+    photoOutcome = 'unknown';
+    const delivery = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await handleAchievementUpdate(env, forward('ach:group-card:' + group + ':podcast', group));
+    expect(methods).toEqual(['answerCallbackQuery', 'getChatMember', 'sendPhoto', 'sendMessage']);
+    expect(sent).toEqual([{ chat_id: group, text: 'Не удалось подтвердить доставку фотографии.' }]);
+    expect(delivery.mock.calls).toEqual([[{ event: 'achievement_card_delivery', status: 'unknown' }]]);
+  });
+
+  it('records an unconfirmed text fallback when Telegram also rejects the text reply', async () => {
+    photoOutcome = 'rejected';
+    textConfirmed = false;
+    const delivery = vi.spyOn(console, 'info').mockImplementation(() => {});
+    expect(await handleAchievementUpdate(env, forward('ach:group-card:' + group + ':podcast', group))).toBe(true);
+    expect(methods).toEqual(['answerCallbackQuery', 'getChatMember', 'sendPhoto', 'sendMessage']);
+    expect(delivery.mock.calls).toEqual([[{ event: 'achievement_card_delivery', status: 'text_fallback_unconfirmed' }]]);
+  });
+
   it('sends an earned private badge as text on rendering failure and keeps the album menu', async () => {
     const art = vi.spyOn(badgeArtModule, 'badgeArt').mockRejectedValue(new Error('unavailable'));
     const delivery = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await setGroupEnabled(database.db, group, true);
     await setEnrolled(database.db, group, owner, true);
     database.sqlite.prepare(`INSERT INTO achievement_awards(chat_id,user_id,badge_id,earned_day,result)
@@ -129,10 +154,31 @@ describe('Telegram achievement collections', () => {
     expect(sent).toMatchObject([{ chat_id: owner, text: 'До завтра\nНаписать в два дня подряд по UTC.\nОткрыто · 2026-11-23 UTC · Два дня подряд' }]);
     expect(sent[0]).not.toHaveProperty('message_thread_id');
     expect(delivery.mock.calls).toEqual([[{ event: 'achievement_card_delivery', status: 'text_fallback' }]]);
+    expect(warning.mock.calls).toEqual([['Achievement card rendering failed']]);
     role = 'left';
     await handleAchievementUpdate(env, forward('ach:preview:' + group + ':tomorrow', owner));
     expect(art).toHaveBeenCalledTimes(1);
     expect(sent.at(-1)?.text).not.toContain('Два дня подряд');
+  });
+
+  it('preserves the personal album keyboard on rejected, ambiguous and unrenderable shares', async () => {
+    await setGroupEnabled(database.db, group, true);
+    await setEnrolled(database.db, group, owner, true);
+    database.sqlite.prepare(`INSERT INTO achievement_awards(chat_id,user_id,badge_id,earned_day,result)
+      VALUES(?,?,'tomorrow','2026-11-23','Два дня подряд')`).run(group, owner);
+    const action = forward('ach:share:' + group + ':tomorrow', owner);
+    for (const outcome of ['rejected', 'unknown'] as const) {
+      photoOutcome = outcome;
+      await handleAchievementUpdate(env, action);
+    }
+    vi.spyOn(badgeArtModule, 'badgeArt').mockRejectedValue(new Error('render failed'));
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await handleAchievementUpdate(env, action);
+    expect(photos).toHaveLength(2);
+    expect(sent).toHaveLength(3);
+    expect(sent.every(message => message.chat_id === owner && String(message.text).includes('Альбом сохранён'))).toBe(true);
+    expect(methods).not.toContain('editMessageText');
+    expect(warning.mock.calls).toEqual([['Achievement card rendering failed']]);
   });
 
   it('retries an unavailable membership check without offering to delete the album', async () => {

@@ -2,17 +2,27 @@
 
 ### Requirement: Preserve the registration when restoring callback delivery
 
-The owner setup page SHALL distinguish an explicitly excluded callback update from a working or unverified configuration. The repair action SHALL add only `callback_query` to a verified existing filter on a supported registration. It SHALL retain the endpoint, its matching authentication secret, other requested updates and queued updates. Diagnostics SHALL omit credentials, the webhook URL and raw Telegram errors.
+The repair action SHALL require owner authentication and reject cross-origin requests. For a verified registration, it SHALL add only `callback_query`, retaining the endpoint, matching secret, connection count, other update types and queued updates. Diagnostics SHALL omit credentials, the webhook URL and raw Telegram errors.
 
 #### Scenario: The owner repairs a legacy registration
 
-- **WHEN** the current registration explicitly excludes callbacks and points to the bot's trusted webhook
+- **WHEN** a nonempty `allowed_updates` list omits `callback_query`, the complete webhook URL matches a supported receiver on a trusted origin, its secret is known, and it uses no custom certificate
 - **THEN** the Worker extends the filter and the next status check can confirm callback delivery.
+
+#### Scenario: Telegram reports a current IP address
+
+- **WHEN** Telegram reports its current delivery address without specifying whether it is pinned
+- **THEN** the owner must confirm DNS-based delivery before repair. Manually pinned addresses require the original registration options.
 
 #### Scenario: No change or unsafe change
 
-- **WHEN** callbacks are already available, the destination is unrecognized or the registration requires a custom certificate
+- **WHEN** the update list includes callbacks, is empty or absent (Telegram defaults), the destination is unrecognized, or the registration requires a custom certificate
 - **THEN** no replacement registration is submitted.
+
+#### Scenario: Caller lacks owner authorization or submits from another origin
+
+- **WHEN** the repair request has no verified owner session or comes from a different origin
+- **THEN** the Worker rejects it without calling Telegram to change webhook settings.
 
 ### Requirement: Visible button actions in Telegram
 

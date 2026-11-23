@@ -6,7 +6,7 @@ import type { Env } from '../src/core/env';
 const inheritedState = {
   ok: true, authMethod: 'telegram', databaseReady: true, settingsSource: 'env',
   storageMode: 'history', webhookConfigured: true,
-  webhookDelivery: { callbackQueries: true as boolean | null, pendingUpdateCount: 0 },
+  webhookDelivery: { callbackQueries: true as boolean | null, requiresDnsConfirmation: false, pendingUpdateCount: 0 },
   features: { activityTrackingEnabled: true, profanityEnabled: true, criminalEnabled: true },
   summary: { enabled: false, provider: 'openai', model: 'gpt-4.1-nano' },
   providers: {
@@ -26,7 +26,8 @@ async function setupBrowser(approved = false, state = inheritedState) {
 
   const elements = new Map<string, any>();
   const ids = ['login', 'settings', 'logout', 'activity', 'profanity', 'criminal', 'enabled',
-    'provider', 'model', 'status', 'webhook', 'connect', 'callbackStatus', 'callbackRepair', 'repairCallbacks', 'error', 'storageWarning',
+    'provider', 'model', 'status', 'webhook', 'connect', 'callbackStatus', 'callbackRepair', 'dnsConfirmation',
+    'usesDns', 'repairCallbacks', 'error', 'storageWarning',
     'unsavedWarning', 'save', 'configSource', 'configSummary', 'configProfanity',
     'configCriminal', 'loginForm', 'claimForm'];
   for (const id of ids) {
@@ -48,6 +49,9 @@ async function setupBrowser(approved = false, state = inheritedState) {
   const confirm = vi.fn(() => approved);
   const fetch = vi.fn(async (path: string, opts?: RequestInit) => {
     if (path === '/admin/api/setup/status') return Response.json(state);
+    if (path === '/admin/api/setup/webhook-callbacks' && opts?.method === 'POST') {
+      return Response.json({ ok: true, changed: true });
+    }
     if (path === '/admin/api/setup/settings' && opts?.method === 'PATCH') {
       return Response.json({ ok: true, settings: JSON.parse(String(opts.body)) });
     }
@@ -61,10 +65,31 @@ async function setupBrowser(approved = false, state = inheritedState) {
 describe('global setup client keeps production configuration safe', () => {
   it.each([true, false, null])('offers a repair only for an explicitly restricted webhook', async callbackQueries => {
     const browser = await setupBrowser(false, {
-      ...inheritedState, webhookDelivery: { callbackQueries, pendingUpdateCount: 0 },
+      ...inheritedState, webhookDelivery: { ...inheritedState.webhookDelivery, callbackQueries },
     });
     expect(browser.elements.get('callbackRepair').hidden).toBe(callbackQueries !== false);
     expect(browser.fetch.mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true);
+  });
+
+  it('sends DNS confirmation only after the owner explicitly checks the box', async () => {
+    const { elements, fetch } = await setupBrowser(false, {
+      ...inheritedState, webhookDelivery: { ...inheritedState.webhookDelivery, callbackQueries: false, requiresDnsConfirmation: true },
+    });
+    const button = elements.get('repairCallbacks');
+    const checkbox = elements.get('usesDns');
+    expect(elements.get('dnsConfirmation').hidden).toBe(false);
+    expect(checkbox.checked).toBe(false);
+    expect(button.disabled).toBe(true);
+    await button.onclick();
+    expect(fetch.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+    checkbox.checked = true;
+    checkbox.onchange();
+    expect(button.disabled).toBe(false);
+    await button.onclick();
+    expect(fetch).toHaveBeenCalledWith('/admin/api/setup/webhook-callbacks', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ usesDns: true }),
+    }));
+    expect(checkbox.checked).toBe(false);
   });
   it('loads each feature from the server and never enables Save without changes', async () => {
     const { elements, fetch, radios } = await setupBrowser();

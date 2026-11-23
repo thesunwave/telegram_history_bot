@@ -19,6 +19,7 @@ export function webhookDelivery(info: Record<string, unknown>) {
   }
   return {
     callbackQueries,
+    requiresDnsConfirmation: callbackQueries === false && info.ip_address !== undefined,
     pendingUpdateCount: typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null,
     ...(typeof date === 'number' && Number.isSafeInteger(date) && date > 0 ? { lastErrorDate: date } : {}),
   };

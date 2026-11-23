@@ -349,7 +349,7 @@ describe('owner setup', () => {
       const info = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie), env);
       const text = await info.text();
       expect(JSON.parse(text).webhookDelivery).toEqual({
-        callbackQueries: false, pendingUpdateCount: 9, lastErrorDate: 1720000000,
+        callbackQueries: false, requiresDnsConfirmation: true, pendingUpdateCount: 9, lastErrorDate: 1720000000,
       });
       for (const value of [env.TOKEN, current.ip_address, current.last_error_message, 'poll_answer', origin]) {
         expect(text).not.toContain(value);
@@ -362,13 +362,27 @@ describe('owner setup', () => {
     it('adds only callback_query, preserves connections and queue, and is idempotent', async () => {
       const cookie = await ownerCookie();
       const writes = telegram(current);
-      const repair = () => handleSetupRequest(request(endpoint, 'POST', undefined, cookie), env);
-      expect(await (await repair()).json()).toEqual({ ok: true, changed: true });
+      const repair = (body?: unknown) => handleSetupRequest(request(endpoint, 'POST', body, cookie), env);
+      for (const body of [undefined, {}, { usesDns: false }, { usesDns: 'true' }]) {
+        expect((await repair(body)).status).toBe(412);
+      }
+      expect(writes).toHaveLength(0);
+      expect(await (await repair({ usesDns: true })).json()).toEqual({ ok: true, changed: true });
       expect(await (await repair()).json()).toEqual({ ok: true, changed: false });
       expect(writes).toEqual([{
         url: current.url, secret_token: await getWebhookSecret(env), max_connections: 17,
         allowed_updates: ['poll_answer', 'message', 'callback_query'], drop_pending_updates: false,
       }]);
+    });
+
+    it('allows the owner to repair without IP confirmation when Telegram reports no IP', async () => {
+      const cookie = await ownerCookie();
+      const writes = telegram({ ...current, ip_address: undefined });
+      const info = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie), env);
+      expect(await info.json()).toMatchObject({ webhookDelivery: { requiresDnsConfirmation: false } });
+      expect((await handleSetupRequest(request(endpoint, 'POST', undefined, cookie), env)).status).toBe(200);
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).not.toHaveProperty('ip_address');
     });
 
     it.each([{ filters: undefined }, { filters: [] }, { filters: ['message', 'callback_query'] }])('leaves default or enabled update filters intact', async ({ filters }) => {
@@ -384,7 +398,8 @@ describe('owner setup', () => {
       const url = 'https://telegram-history-bot.thesunwave.workers.dev/tg/' + env.TOKEN + '/webhook';
       const writes = telegram({ ...current, url });
       const cookie = await ownerCookie();
-      const req = new Request(hosted + endpoint, { method: 'POST', headers: { Origin: hosted, Cookie: cookie } });
+      const req = new Request(hosted + endpoint, { method: 'POST', headers: { Origin: hosted, Cookie: cookie },
+        body: JSON.stringify({ usesDns: true }) });
       expect((await handleSetupRequest(req, { ...env, PUBLIC_URL: hosted, SECRET: 'legacy-secret' })).status).toBe(200);
       expect(writes[0]).toMatchObject({ url, secret_token: 'legacy-secret' });
     });

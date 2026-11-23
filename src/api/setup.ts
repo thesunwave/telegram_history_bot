@@ -184,7 +184,10 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}
 <button id="connect">${h('Подключить webhook')}</button><span id="webhook"></span>
 <p id="callbackStatus" role="status"></p>
 <div id="callbackRepair" hidden>
-<p>${h('Если вы вручную закрепили IP-адрес webhook, добавьте callback_query с исходными параметрами регистрации, чтобы сохранить этот адрес.')}</p>
+<div id="dnsConfirmation" hidden>
+<p>${h('Telegram сообщает текущий IP-адрес, но не указывает, был ли он закреплён вручную. Автоматическое обновление использует DNS и сбросит вручную заданный IP.')}</p>
+<p>${h('Если ты закрепил IP вручную или не помнишь настройку, проверь исходные параметры регистрации и добавь callback_query вручную с теми же параметрами.')}</p>
+<label><input type="checkbox" id="usesDns" autocomplete="off"> ${h('Подтверждаю, что мой webhook использует DNS и я не закреплял IP-адрес вручную.')}</label></div>
 <button id="repairCallbacks">${h('Включить доставку нажатий на кнопки')}</button></div></section>
 <section><h2>${h('Статус')}</h2><pre id="status"></pre>
 <button id="logout">${h('Выйти из настройки')}</button></section>
@@ -289,6 +292,9 @@ async function refresh() {
     el('callbackStatus').textContent = callbacks === true ? ${js('Webhook подписан на нажатия кнопок.')}
       : callbacks === false ? ${js('Фильтр Telegram исключает нажатия на кнопки.')} : '';
     el('callbackRepair').hidden = callbacks !== false;
+    el('dnsConfirmation').hidden = !info.webhookDelivery?.requiresDnsConfirmation;
+    el('usesDns').checked=false;
+    updateRepairButton();
     el('error').textContent=info.databaseReady
       ? info.storageMode==='unconfigured' ? ${js('Сначала выбери режим хранения и нажми «Сохранить настройки».')} : ''
       : ${js('D1 не инициализирована. Проверь, что команда npm run deploy завершила все миграции.')};
@@ -330,13 +336,23 @@ el('connect').onclick=async ()=>{
   try { await api('webhook','POST'); await refresh(); }
   catch(error) {el('error').textContent=error.message;}
 };
+function updateRepairButton() {
+  el('repairCallbacks').disabled = !el('dnsConfirmation').hidden && !el('usesDns').checked;
+}
+el('usesDns').onchange=updateRepairButton;
 el('repairCallbacks').onclick=async ()=>{
+  if (el('repairCallbacks').disabled || el('callbackRepair').hidden) return;
   el('repairCallbacks').disabled=true;
-  try { await api('webhook-callbacks','POST'); await refresh(); }
-  catch(error) { el('error').textContent = error.status === 409
-    ? ${js('Автоматически обновить этот webhook не удалось. Проверьте исходные параметры его регистрации.')}
-    : ${js('Не удалось проверить или обновить настройки доставки в Telegram.')}; }
-  finally { el('repairCallbacks').disabled=false; }
+  try { await api('webhook-callbacks','POST',{usesDns:el('usesDns').checked}); await refresh(); }
+  catch(error) {
+    if (error.status === 412) {
+      el('dnsConfirmation').hidden=false;
+      el('usesDns').checked=false;
+      el('error').textContent=${js('Перед обновлением подтверди, что твой webhook использует DNS.')};
+    } else el('error').textContent = error.status === 409
+      ? ${js('Автоматически обновить этот webhook не удалось. Проверь исходные параметры его регистрации.')}
+      : ${js('Не удалось проверить или обновить настройки доставки в Telegram.')};
+  } finally { updateRepairButton(); }
 };
 for (const id of ['activity', 'profanity', 'criminal', 'enabled', 'model']) {
   el(id).addEventListener('input', updatePendingChanges);
@@ -493,11 +509,16 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
   if (route === 'webhook-callbacks' && req.method === 'POST') {
     try {
       const info = await telegramApi(env, 'getWebhookInfo');
-      if (webhookDelivery(info).callbackQueries === true) {
+      const delivery = webhookDelivery(info);
+      if (delivery.callbackQueries === true) {
         return Response.json({ ok: true, changed: false }, { headers: { 'Cache-Control': 'no-store' } });
       }
       const registration = await callbackRegistration(info, url.origin, env);
       if (!registration) return errorResponse('Webhook settings cannot be safely preserved', 409);
+      if (delivery.requiresDnsConfirmation) {
+        const input = await req.json().catch(() => null) as { usesDns?: unknown } | null;
+        if (input?.usesDns !== true) return errorResponse('Confirm this webhook uses DNS before updating it', 412);
+      }
       await telegramApi(env, 'setWebhook', registration);
       return Response.json({ ok: true, changed: true }, { headers: { 'Cache-Control': 'no-store' } });
     } catch {
