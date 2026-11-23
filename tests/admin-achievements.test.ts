@@ -131,7 +131,7 @@ describe('dashboard achievements access', () => {
     expect(unseen.personal.badges.every(b => b.earnedDay === null && b.current === null)).toBe(true);
   });
 
-  it('localizes the preview, exposes the enabled conversation shelf, and uses only a configured bot link', async () => {
+  it('localizes the preview and uses a valid configured bot name without a lookup', async () => {
     const { env, sqlite, request, cookie } = await fixture();
     const check = membership('member');
     sqlite.prepare('DELETE FROM achievement_enrollments WHERE user_id=?').run(viewer);
@@ -147,6 +147,19 @@ describe('dashboard achievements access', () => {
     expect(data.personal.badges.find(b => b.id === 'spark')).toMatchObject({ title: 'Spark', earnedDay: null, current: null });
     expect(data.group.badges.find(b => b.id === 'podcast')?.result).toBe('61 min 1 s, recordings: 7');
     expect(check).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the Telegram bot identity when the configured username is malformed', async () => {
+    const { env, request } = await fixture();
+    env.TELEGRAM_BOT_USERNAME = 'wrong.example/path';
+    const getMe = vi.fn(() => Response.json({ ok: true, result: { username: 'SelfHostedBot' } }));
+    membership('member', getMe);
+    const response = await request('chatId=' + chat);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      personal: { albumUrl: 'https://t.me/SelfHostedBot?start=ach_101' },
+    });
+    expect(getMe).toHaveBeenCalledTimes(1);
   });
 
   it('resolves self-hosted links for active and paused albums and skips lookup for a disabled group with no album', async () => {
