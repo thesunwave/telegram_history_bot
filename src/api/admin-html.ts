@@ -2286,7 +2286,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     function renderAchievements({ group, personal }) {
       const groupShelf = achievementShelf(${js('Коллекция чата')}, group.badges, group.enabled ? '' :
-        ${js('Недельные карточки выключены. Администратор может включить их в Telegram командой /achievements.')}, { groupAward: true });
+        ${js('Недельные карточки выключены. Администратор группы может включить их в Telegram командой /achievements.')}, { groupAward: true });
+      if (!group.enabled && ${Boolean(options.canAccessInstallations)}) {
+        const link = el('a', 'secondary', ${js('Включить в разделе «Установки бота»')});
+        link.href = '/admin/installations#installation-' + encodeURIComponent(state.chatId);
+        groupShelf.insertBefore(link, groupShelf.querySelector('ul'));
+      }
       const social = personal.badges.filter(badge => badge.conversation);
       const regular = personal.badges.filter(badge => !badge.conversation);
       let hint = '';

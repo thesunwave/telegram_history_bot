@@ -63,8 +63,9 @@ const ADMIN_EN: Record<string, string> = {
     'Achievements are available in groups. Select a group from the chat list.',
   'У вас больше нет доступа к достижениям этого чата.': 'You no longer have access to achievements for this group.',
   'Не удалось загрузить достижения.': 'Could not load achievements.',
-  'Недельные карточки выключены. Администратор может включить их в Telegram командой /achievements.':
+  'Недельные карточки выключены. Администратор группы может включить их в Telegram командой /achievements.':
     'Weekly cards are off. A group administrator can enable them in Telegram with /achievements.',
+  'Включить в разделе «Установки бота»': 'Enable in Bot installations',
   'Откройте /badges в личной переписке с ботом и выберите эту группу, чтобы начать коллекцию.':
     'To start your collection, open /badges in a private chat with the bot and choose this group.',
   'Личный альбом можно начать, когда администратор включит достижения в группе.':

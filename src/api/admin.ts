@@ -33,7 +33,7 @@ import {
   LiveProgressUnavailable,
 } from '../features/stats/admin-stats-errors';
 import { renderAdminHtml } from './admin-html';
-import { listBotInstallations, listSelfHostedInstallations } from './admin-installations';
+import { enableInstallationAchievements, listBotInstallations, listSelfHostedInstallations } from './admin-installations';
 import { renderInstallationsHtml } from './admin-installations-html';
 import { resolveAdminLanguage } from './admin-i18n';
 import { canAccessSetupLink, handleSetupRequest, isTelegramBotOwner } from './setup';
@@ -337,7 +337,11 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
 
   const installationsPage = url.pathname === `${ADMIN_PATH}/installations`;
   const installationsApi = url.pathname === `${ADMIN_PATH}/api/installations`;
-  if ((installationsPage || installationsApi) && req.method === 'GET') {
+  const installationEnable = url.pathname === `${ADMIN_PATH}/api/installations/achievements`;
+  if (installationEnable && req.method !== 'POST') {
+    return new Response(null, { status: 405, headers: { Allow: 'POST', 'Cache-Control': 'no-store' } });
+  }
+  if (installationEnable || ((installationsPage || installationsApi) && req.method === 'GET')) {
     const principal = await authenticateTelegramSession(req, env);
     if (!principal?.telegramId) {
       if (installationsPage) {
@@ -352,6 +356,12 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
       return Response.json({ ok: false, error: 'Bot owner access required' }, {
         status: 403, headers: { 'Cache-Control': 'no-store' },
       });
+    }
+    if (installationEnable) {
+      if (req.headers.get('Origin') !== url.origin) return jsonError('Forbidden', 403);
+      const chatId = parseChatId(url);
+      if (chatId === null || chatId >= 0) return jsonError('a group chatId is required', 400);
+      return enableInstallationAchievements(env, chatId);
     }
     if (installationsApi) {
       return Response.json({
