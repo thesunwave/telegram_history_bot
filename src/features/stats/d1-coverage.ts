@@ -97,7 +97,22 @@ export function createD1RangeReadinessQueryPlan(
   chatId: number,
   days: string[],
   liveDays: string[] = [],
+  probeByDay = false,
 ): D1RangeReadinessQueryPlan {
+  // Personal awards can share a very busy group with thousands of authors. An
+  // indexed existence probe per day avoids scanning everyone for each album.
+  const tables = ['activity', 'stats_daily_user', 'stats_daily_hour', 'stats_daily_bucket_user',
+    'stats_daily_profanity_word', 'stats_daily_profanity_word_user'];
+  const dayPresence = tables.map(table => {
+    if (probeByDay) {
+      return db.prepare(`SELECT d.value AS day FROM json_each(?) d WHERE EXISTS (
+        SELECT 1 FROM ${table} t WHERE t.chat_id=? AND t.day=d.value)`)
+        .bind(JSON.stringify(days), chatId);
+    }
+    const grouping = table === 'activity' ? '' : ' GROUP BY day';
+    return db.prepare(`SELECT day FROM ${table} WHERE chat_id = ? AND day >= ? AND day <= ?${grouping}`)
+      .bind(chatId, days[0], days[days.length - 1]);
+  });
   const statements: D1PreparedStatement[] = [
     db.prepare(`SELECT day, base_status, profanity_status, criminal_status, source, reason_code
       FROM stats_daily_coverage WHERE chat_id = ? AND day >= ? AND day <= ?`)
@@ -106,18 +121,7 @@ export function createD1RangeReadinessQueryPlan(
       .bind(BACKFILL_JOB_NAME),
     db.prepare('SELECT MIN(day) AS day FROM stats_daily_user WHERE chat_id = ?')
       .bind(chatId),
-    db.prepare('SELECT day FROM activity WHERE chat_id = ? AND day >= ? AND day <= ?')
-      .bind(chatId, days[0], days[days.length - 1]),
-    db.prepare('SELECT day FROM stats_daily_user WHERE chat_id = ? AND day >= ? AND day <= ? GROUP BY day')
-      .bind(chatId, days[0], days[days.length - 1]),
-    db.prepare('SELECT day FROM stats_daily_hour WHERE chat_id = ? AND day >= ? AND day <= ? GROUP BY day')
-      .bind(chatId, days[0], days[days.length - 1]),
-    db.prepare('SELECT day FROM stats_daily_bucket_user WHERE chat_id = ? AND day >= ? AND day <= ? GROUP BY day')
-      .bind(chatId, days[0], days[days.length - 1]),
-    db.prepare('SELECT day FROM stats_daily_profanity_word WHERE chat_id = ? AND day >= ? AND day <= ? GROUP BY day')
-      .bind(chatId, days[0], days[days.length - 1]),
-    db.prepare('SELECT day FROM stats_daily_profanity_word_user WHERE chat_id = ? AND day >= ? AND day <= ? GROUP BY day')
-      .bind(chatId, days[0], days[days.length - 1]),
+    ...dayPresence,
   ];
   let progressResultIndex: number | undefined;
   if (liveDays.length > 0) {
@@ -297,8 +301,20 @@ export function interpretRollingReadiness(
   days: string[],
   liveDay: string | null,
 ): RollingReadiness {
-  const inputs = parseReadinessInputs(results);
+  return interpretReadinessInputs(parseReadinessInputs(results), days, liveDay);
+}
 
+/** Computes per-day verdicts for closed UTC days only. Use interpretRollingReadiness for the open day. */
+export function interpretIndividualReadiness(
+  results: readonly D1Result<unknown>[], days: string[],
+): Map<string, RollingReadiness> {
+  const inputs = parseReadinessInputs(results);
+  return new Map(days.map(day => [day, interpretReadinessInputs(inputs, [day], null)]));
+}
+
+function interpretReadinessInputs(
+  inputs: ReadinessInputs, days: string[], liveDay: string | null,
+): RollingReadiness {
   const liveDays = days.filter((day) => inputs.coverage.get(day)?.source === 'live');
 
   // Closed (non-live) days stay strict: current JOB_VERSION, global backfill

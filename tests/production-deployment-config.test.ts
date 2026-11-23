@@ -33,7 +33,11 @@ describe('production deployment contract', () => {
     const publicConfig = config('wrangler.jsonc');
     // The portable template may declare privacy-safe flags, never credentials
     // or account-specific values. New deployments must choose a storage policy.
-    expect(publicConfig.vars).toEqual({ REQUIRE_EXPLICIT_STORAGE_CHOICE: true });
+    expect(publicConfig.vars).toEqual({
+      REQUIRE_EXPLICIT_STORAGE_CHOICE: true,
+      ENABLE_CONVERSATION_ACHIEVEMENTS: true,
+    });
+    expect(publicConfig.triggers.crons).toContain('*/5 * * * *');
     expect(publicConfig.routes).toBeUndefined();
     expect(publicConfig.services).toBeUndefined();
     expect(publicConfig.secrets.required).toEqual(['TOKEN']);

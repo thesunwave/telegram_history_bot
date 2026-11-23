@@ -1,7 +1,8 @@
 import type { Env } from '../core/env';
+import { BOT_MEMBERSHIP_PREFIX } from '../core/consts';
+import { pauseGroupDependents } from '../features/achievements/repository';
 import { listAdminChats, saveAdminChatMeta } from './admin-chats';
 
-const INSTALLATION_PREFIX = 'bot_membership:';
 const MEMBER_STATUSES = ['creator', 'administrator', 'member', 'restricted', 'left', 'kicked'];
 
 interface MembershipUpdate {
@@ -27,7 +28,7 @@ function isActive(member: MembershipUpdate['new_chat_member']): boolean {
 
 async function readInstallation(env: Env, chatId: number): Promise<InstallationState | null> {
   const row = await env.DB.prepare('SELECT settings_json FROM app_settings WHERE scope = ?')
-    .bind(`${INSTALLATION_PREFIX}${chatId}`).first<{ settings_json: string }>();
+    .bind(`${BOT_MEMBERSHIP_PREFIX}${chatId}`).first<{ settings_json: string }>();
   const raw = row?.settings_json;
   if (!raw) return null;
   try {
@@ -60,7 +61,8 @@ export async function recordBotMembership(
   };
   // D1 compares and writes in one statement: concurrent deliveries cannot replace
   // a newer membership with an older one. Preserve install time on role changes.
-  const result = await env.DB.prepare(`
+  const scope = BOT_MEMBERSHIP_PREFIX + update.chat.id;
+  const membership = env.DB.prepare(`
     INSERT INTO app_settings(scope, settings_json, updated_at)
     VALUES (?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(scope) DO UPDATE SET
@@ -74,7 +76,29 @@ export async function recordBotMembership(
              json_extract(app_settings.settings_json, '$.statusChangedAt')
            AND COALESCE(json_extract(excluded.settings_json, '$.updateId'), -1) >
              COALESCE(json_extract(app_settings.settings_json, '$.updateId'), -1))
-  `).bind(`${INSTALLATION_PREFIX}${update.chat.id}`, JSON.stringify(state)).run();
+  `).bind(scope, JSON.stringify(state));
+  const confirmedRemoval = ['left', 'kicked'].includes(state.status) ||
+    (state.status === 'restricted' && update.new_chat_member.is_member === false);
+  const group = update.chat.type === 'group' || update.chat.type === 'supergroup';
+  let result;
+  if (group && confirmedRemoval) {
+    // Fence the cleanup against the same Telegram (timestamp, update_id) order
+    // as membership. A redelivery after reinstall cannot erase the new consent.
+    const generation = crypto.randomUUID();
+    const pause = env.DB.prepare(`UPDATE achievement_groups SET enabled=0,generation=?
+      WHERE chat_id=? AND enabled=1 AND NOT EXISTS (
+        SELECT 1 FROM app_settings WHERE scope=? AND (
+          json_extract(settings_json,'$.statusChangedAt')>? OR (
+            json_extract(settings_json,'$.statusChangedAt')=? AND
+            COALESCE(json_extract(settings_json,'$.updateId'),-1)>=?)))`)
+      .bind(generation, update.chat.id, scope, update.date, update.date, updateId ?? -1);
+    const batch = await env.DB.batch([
+      pause, ...pauseGroupDependents(env.DB, update.chat.id, generation), membership,
+    ]);
+    result = batch[batch.length - 1];
+  } else {
+    result = await membership.run();
+  }
   if (result.meta?.changes === 0) return;
   // Membership-only chats must be discoverable even before their first message.
   const metadata = await env.HISTORY.get(`admin_chat:${update.chat.id}`);

@@ -111,6 +111,19 @@ expires under the retention policy.
   default on a new self-hosted install; the hosted @stat_history_bot runs
   criminal analysis.
 - Counters and usernames do not expire automatically yet.
+- A group that enables **achievements** keeps its group ID, weekly activity totals
+  and earned badges. Opening a personal album and choosing **Начать коллекцию**
+  saves the member's Telegram ID for that group, badge progress, unlock dates and
+  results. In a private chat, open `/badges`, choose the group and confirm
+  **Удалить мой альбом** to erase that album's progress, awards and reply evidence.
+- When a group enables **conversation badges** and a member opts in, D1 records
+  the group, message and author IDs and timestamps for that member's new messages.
+  A direct reply also records the parent message ID, author ID and timestamp when
+  both authors have opted in. Scoring uses a rolling 28-day window. Daily cleanup
+  deletes older records. **Прекратить учёт ответов** in the private album removes
+  the member's evidence and links to their messages while preserving earned badges.
+  Disabling the conversation shelf in the group's `/achievements` menu removes
+  the group's reply evidence and consent settings.
 
 **Forwards.** The dashboard’s Forwards tab ranks members and sources by the number
 of manual forwards in a group during the selected period. This includes media.
@@ -166,6 +179,43 @@ The anonymous install ping is described [below](#anonymous-usage-ping).
   status-change and last-message dates. See [installation tracking](docs/guides/bot-installations.md).
 
 ## Commands
+
+### Achievement albums
+
+In a group, an administrator opens `/achievements` and enables the shared collection.
+After the first complete Monday–Sunday UTC week with verified activity the bot can post
+a weekly photo. The group can earn six badges, including **Choir** when four different
+participants send voice notes in the same week. The weekly photo is safe to forward and
+contains group totals only.
+
+Open `/badges` in private or tap **Мои бейджи** in the group to start a personal album
+for that group. Ten badges cover participation, time of day, voice and video notes and
+manual channel reposts. Once a UTC day closes, the bot evaluates progress in batches.
+Only the album owner can open it and choose a badge to share. Pausing keeps unlocks,
+and deleting an album removes that person's achievement progress and awards for that group.
+
+Groups and individual participants can separately enable four conversation badges.
+For example, **Spark** recognizes three different participants replying directly to the
+same message within 48 hours. This uses message and parent IDs, author IDs and timestamps
+from eligible participants. The evidence window is 28 days, with scheduled expiry.
+Albums and cards work in Statistics Only mode.
+
+**Upgrading self-hosted installations.** Apply the D1 migrations and include the
+`*/5 * * * *` scheduled trigger alongside the existing daily trigger. The current
+self-hosting template sets `ENABLE_CONVERSATION_ACHIEVEMENTS=true`. For an existing
+installation, set this flag to offer conversation badges. Each group and member still
+has to opt in before reply tracking starts. If the webhook already specifies
+`allowed_updates`, add `callback_query` (the setup page does this when reconnecting the
+webhook). Keep your deployment's current URL and webhook secret. The instance must have
+activity tracking enabled and Telegram must deliver ordinary group messages.
+
+To evaluate initial thresholds against an authorized local SQLite copy of D1, run
+`node --experimental-strip-types scripts/calibrate-achievements.mjs SNAPSHOT.sqlite FROM TO`
+with closed UTC dates in YYYY-MM-DD format. The tool reads the snapshot and emits cohort
+counts and unlock rates. Offline results exclude live coverage that requires a matching
+Durable Object proof.
+
+### Statistics and settings
 
 - `/summary <days>` – summary for last N days (default 1)
 - `/summary_last <n>` – summary of last N messages (default 100, max 1000)

@@ -5,7 +5,7 @@
   "compatibility_date": "2026-10-10",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
-  "vars": { "REQUIRE_EXPLICIT_STORAGE_CHOICE": true },
+  "vars": { "REQUIRE_EXPLICIT_STORAGE_CHOICE": true, "ENABLE_CONVERSATION_ACHIEVEMENTS": true },
 
   // Portable resources: Cloudflare provisions these for each new account.
   "kv_namespaces": [
@@ -28,6 +28,6 @@
     "CriminalCodeAnalyzerDO": { "type": "durable-object", "storage": "sqlite" }
   },
   "secrets": { "required": ["TOKEN"] },
-  "triggers": { "crons": ["59 23 * * *"] },
+  "triggers": { "crons": ["59 23 * * *", "*/5 * * * *"] },
   "observability": { "enabled": true, "logs": { "enabled": true } }
 }
