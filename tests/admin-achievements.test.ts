@@ -5,6 +5,7 @@ import { createTelegramSessionCookie } from '../src/api/admin-auth';
 import { resetChatSettingsCache } from '../src/core/chat-settings';
 import type { Env } from '../src/core/env';
 import { Logger } from '../src/core/logger';
+import { DUTCH_RUDDER, DUTCH_RUDDER_RESULT } from '../src/features/achievements/social-score';
 import { createRealD1 } from './helpers/real-d1';
 
 const chat = -101;
@@ -51,6 +52,24 @@ beforeEach(resetChatSettingsCache);
 afterEach(() => vi.unstubAllGlobals());
 
 describe('dashboard achievements access', () => {
+  it('reveals the localized secret badge only to the member who earned it', async () => {
+    const { sqlite, cookie, request } = await fixture();
+    membership('member');
+    sqlite.prepare('INSERT INTO conversation_groups VALUES (?,1)').run(chat);
+    const award = sqlite.prepare(`INSERT INTO achievement_awards(chat_id,user_id,badge_id,earned_day,result)
+      VALUES (?,?,?,?,?)`);
+    award.run(chat, other, DUTCH_RUDDER.id, day, DUTCH_RUDDER_RESULT);
+    const read = () => request('chatId=' + chat, { Cookie: cookie, 'Accept-Language': 'en' });
+    expect(await (await read()).text()).not.toContain(DUTCH_RUDDER.id);
+    award.run(chat, viewer, DUTCH_RUDDER.id, day, DUTCH_RUDDER_RESULT);
+    sqlite.prepare('DELETE FROM conversation_groups WHERE chat_id=?').run(chat);
+    const data = await (await read()).json() as { personal: { badges: AdminAchievementBadge[] } };
+    expect(data.personal.badges).toContainEqual(expect.objectContaining({
+      id: DUTCH_RUDDER.id, title: 'Dutch Rudder', earnedDay: day,
+      result: 'You took turns at the helm, and the chat followed both times.',
+    }));
+  });
+
   it('reads only group awards and the signed-in member’s own album from a read-only database', async () => {
     const { request, sqlite } = await fixture();
     sqlite.pragma('query_only = ON');

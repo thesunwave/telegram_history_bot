@@ -6,6 +6,7 @@ import { eraseAlbum, getEnrollment, getGroup, getProgress, listAwards, setEnroll
 import { GROUP_BADGES, PERSONAL_BADGES, type BadgeProgress } from './rules';
 import { botUsername, button, callbackSetupHint, callTelegram, groupPicker, roleOf, socialAvailable, type View } from './settings';
 import { CONVERSATION_BADGES, getConversationProgress, getConversationStatus, setConversationConsent, setConversationGroup } from './social';
+import { DUTCH_RUDDER } from './social-score';
 
 interface Actor { id?: number; is_bot?: boolean }
 interface Message {
@@ -86,7 +87,7 @@ async function deleteAction(env: Env, req: Request, owner: number): Promise<View
 }
 
 async function share(env: Env, group: number, owner: number, id?: string): Promise<View | null> {
-  const badge = [...PERSONAL_BADGES, ...CONVERSATION_BADGES].find(entry => entry.id === id);
+  const badge = [...PERSONAL_BADGES, ...CONVERSATION_BADGES, DUTCH_RUDDER].find(entry => entry.id === id);
   const award = (await listAwards(env.DB, group, owner)).find(entry => entry.badge_id === id);
   if (!badge || !award) return { text: 'Сначала нужно открыть этот бейдж.' };
   let png: Uint8Array<ArrayBuffer>;
@@ -119,10 +120,11 @@ async function deliverInspection(env: Env, chatId: number, caption: string, png?
 async function inspect(env: Env, group: number, owner: number, id?: string, threadId?: number): Promise<View | null> {
   const groupCard = owner === 0;
   if (!groupCard && !await getEnrollment(env.DB, group, owner)) return { text: 'Сначала откройте /badges.' };
-  const choices = groupCard ? GROUP_BADGES : [...PERSONAL_BADGES, ...CONVERSATION_BADGES];
+  const award = (await listAwards(env.DB, group, owner)).find(a => a.badge_id === id);
+  const choices = groupCard ? GROUP_BADGES : [...PERSONAL_BADGES, ...CONVERSATION_BADGES,
+    ...(award?.badge_id === DUTCH_RUDDER.id ? [DUTCH_RUDDER] : [])];
   const badge = choices.find(b => b.id === id);
   if (!badge) return { text: 'Откройте коллекцию, чтобы выбрать бейдж.' };
-  const award = (await listAwards(env.DB, group, owner)).find(a => a.badge_id === id);
   let progress: BadgeProgress | undefined;
   if (!groupCard && !award) {
     if (CONVERSATION_BADGES.some(b => b.id === id)) {

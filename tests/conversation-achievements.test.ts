@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createRealD1 } from './helpers/real-d1';
 import { setEnrolled, setGroupEnabled } from '../src/features/achievements/repository';
+import { CONVERSATION_BADGES, DUTCH_RUDDER_RESULT } from '../src/features/achievements/social-score';
 import {
   getConversationProgress, getConversationStatus, observeConversationMessage, pruneConversationEvidence,
   setConversationConsent, setConversationGroup,
@@ -28,6 +29,14 @@ function winners(badge: string) {
     .map(row => row.user_id);
 }
 
+function rudderBranch(id: number, lead: number, pivot: number, when: number,
+  secondResponder = 4, lastDelay = 3) {
+  const root = message(id, lead, when);
+  const reply = message(id + 1, pivot, when + 1, root);
+  return [root, reply, message(id + 2, 3, when + 2, reply),
+    message(id + 3, secondResponder, when + lastDelay, reply)];
+}
+
 beforeEach(async () => {
   store = createRealD1();
   store.sqlite.prepare('INSERT INTO achievement_groups(chat_id,enabled,start_day,generation) VALUES (?,1,?,?)').run(chat, '2026-01-01', 'g');
@@ -40,6 +49,50 @@ beforeEach(async () => {
 });
 
 describe('conversation achievements', () => {
+  it('awards both partners once after swapped roles on different UTC days and reordered replies', async () => {
+    const first = rudderBranch(1, 1, 2, 0);
+    for (const msg of first) await observe(msg);
+    expect(winners('dutch-rudder')).toEqual([]);
+
+    const [root, reply, firstOutsider, lastOutsider] = rudderBranch(5, 2, 1, day, 5, day + 1);
+    for (const msg of [lastOutsider, firstOutsider, reply]) await observe(msg, lastOutsider.date);
+    expect(winners('dutch-rudder')).toEqual([]);
+    await observe(root, lastOutsider.date);
+    await observe(lastOutsider);
+    expect(winners('dutch-rudder')).toEqual([1, 2]);
+    expect(store.rows("SELECT DISTINCT result FROM achievement_awards WHERE badge_id='dutch-rudder'"))
+      .toEqual([{ result: DUTCH_RUDDER_RESULT }]);
+    expect(await getConversationProgress(store.db, chat, 1, lastOutsider.date))
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ id: 'dutch-rudder' })]));
+  });
+
+  it.each([
+    { label: 'the same UTC day', reverse: true, offset: 10, responder: 4, delay: 3 },
+    { label: 'no role reversal', reverse: false, offset: day, responder: 4, delay: 3 },
+    { label: 'two replies from one outsider', reverse: true, offset: day, responder: 3, delay: 3 },
+    { label: 'a reply from the pair', reverse: true, offset: day, responder: 2, delay: 3 },
+    { label: 'an outsider who never consented', reverse: true, offset: day, responder: 6, delay: 3 },
+    { label: 'a reply after 24 hours', reverse: true, offset: day, responder: 4, delay: day + 2 },
+    { label: 'the first branch outside 28 days', reverse: true, offset: 28 * day - 2, responder: 4, delay: 3 },
+  ])('keeps the pair badge hidden with $label', async ({ reverse, offset, responder, delay }) => {
+    const first = rudderBranch(1, 1, 2, 0);
+    const second = rudderBranch(5, reverse ? 2 : 1, reverse ? 1 : 2, offset, responder, delay);
+    for (const msg of [...first, ...second]) await observe(msg);
+    expect(winners('dutch-rudder')).toEqual([]);
+  });
+
+  it('awards a new partner even when the pivot and final responder already completed the shelf', async () => {
+    const insert = store.sqlite.prepare(`INSERT INTO achievement_awards
+      (chat_id,user_id,badge_id,earned_day,result) VALUES (?,?,?,'2026-01-01','previous award')`);
+    for (const user of [1, 4]) {
+      for (const id of [...CONVERSATION_BADGES.map(badge => badge.id), 'dutch-rudder']) insert.run(chat, user, id);
+    }
+    const first = rudderBranch(1, 1, 2, 0);
+    const second = rudderBranch(5, 2, 1, day);
+    for (const msg of [...first, ...second]) await observe(msg);
+    expect(winners('dutch-rudder')).toEqual([1, 2, 4]);
+  });
+
   it('awards both players on a four-message chain, including reordered and replayed updates', async () => {
     const a = message(1, 1, 0), b = message(2, 2, 1, a);
     const c = message(3, 1, 2, b), d = message(4, 2, day, c);
