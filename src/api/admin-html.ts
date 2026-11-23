@@ -1,4 +1,5 @@
 import { AdminLanguage, adminClientI18n, createAdminTranslator } from './admin-i18n';
+import { CONVERSATION_BADGES } from '../features/achievements/social-score';
 
 interface AdminHtmlOptions {
   language?: AdminLanguage;
@@ -19,6 +20,7 @@ const NAV_ICONS = {
     '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.5a3.5 3.5 0 010 7M18 14.8c1.9.7 3.1 2.5 3.5 5.2"/>',
   media: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/>',
   forwards: '<path d="M14 5l6 6-6 6M20 11h-8a7 7 0 00-7 7"/>',
+  achievements: '<circle cx="12" cy="9" r="6"/><path d="m8 14-2 7 6-3 6 3-2-7"/>',
   profanity: '<path d="M4 5h16v11H8l-4 4z"/><path d="M9 9l6 4M15 9l-6 4"/>',
   criminal: '<path d="M12 3l8 4v5c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V7z"/>',
   notifications: '<path d="M6 16V11a6 6 0 0112 0v5l2 2H4zM10 21h4"/>',
@@ -292,6 +294,38 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     .span-8 { grid-column: span 8; }
     .span-12 { grid-column: span 12; }
     .stack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    .showingAchievements #statsError, .showingAchievements #status { display: none; }
+    .achievementShelf { margin: 0 0 26px; }
+    .achievementShelf .achievementShelf { margin-top: 20px; }
+    .achievementHeading { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    .achievementHeading h2, .achievementHeading h3 { margin: 0; }
+    .achievementHeading span, .badgeDescription, .badgeState { color: var(--muted); }
+    .achievementGrid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
+      gap: 14px; margin: 12px 0 0; padding: 0; list-style: none;
+    }
+    .groupBadgeShelf { container-type: inline-size; }
+    .groupBadgeShelf .achievementGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    @container (min-width: 560px) {
+      .groupBadgeShelf .achievementGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @container (min-width: 1040px) {
+      .groupBadgeShelf .achievementGrid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    }
+    .achievementCard { overflow: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+    .achievementCard img { display: block; width: 100%; height: auto; aspect-ratio: 1; background: var(--surface); }
+    .achievementCard.locked img { filter: saturate(.55); }
+    .badgeBody { padding: 14px; overflow-wrap: anywhere; }
+    .badgeBody h3, .badgeBody h4 { margin: 4px 0 6px; font-size: 17px; }
+    .badgeBody p { margin: 6px 0 0; font-size: 13px; }
+    .badgeDate time { white-space: nowrap; }
+    .badgeState { font-size: 12px; font-weight: 600; }
+    .achievementCard.unlocked .badgeState { color: var(--accent-strong); }
+    .badgeBody progress { display: block; width: 100%; height: 7px; margin-top: 6px; accent-color: var(--accent); }
+    @media (max-width: 560px) {
+      .achievementGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .badgeBody { padding: 10px; }
+    }
 
     .kpi { display: flex; flex-direction: column; gap: 6px; padding: 18px; }
     .kpiLabel { font-size: 13px; color: var(--muted); font-weight: 500; display: flex; align-items: center; gap: 8px; }
@@ -569,6 +603,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         font-size: 13px; line-height: 1; white-space: nowrap;
       }
       .navLink svg { display: none; }
+      .navLink[data-view-link="achievements"] { grid-column: span 2; }
       .navLink[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: #fff; }
       .navLink span { overflow: hidden; text-overflow: ellipsis; }
       .sidebarFooter { margin-top: 0; padding-top: 10px; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; }
@@ -640,6 +675,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         <a class="navLink" href="#people" data-view-link="people">${navIcon('people')}<span>${h('Люди')}</span></a>
         <a class="navLink" href="#media" data-view-link="media">${navIcon('media')}<span>${h('Голос')}</span></a>
         <a class="navLink" href="#forwards" data-view-link="forwards">${navIcon('forwards')}<span>${h('Репосты')}</span></a>
+        <a class="navLink" href="#achievements" data-view-link="achievements">${navIcon('achievements')}<span>${h('Достижения')}</span></a>
         <a class="navLink" href="#profanity" data-view-link="profanity">${navIcon('profanity')}<span>${h('Мат')}</span></a>
         <a class="navLink" href="#criminal" data-view-link="criminal">${navIcon('criminal')}<span>${h('УК РФ')}</span></a>
       </nav>
@@ -716,6 +752,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           <button type="button" id="statsErrorRetry" class="secondary hidden">${h('Повторить')}</button>
         </div>
       </div>
+
+      <section class="view hidden" data-view="achievements" aria-labelledby="viewTitle">
+        <p id="achievementStatus" class="muted" role="status"></p>
+        <button type="button" id="achievementRetry" class="secondary hidden">${h('Повторить')}</button>
+        <div id="achievementAlbum"></div>
+      </section>
 
       <div id="views" class="hidden">
         <section class="view" data-view="overview" aria-labelledby="viewTitle">
@@ -1039,6 +1081,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       people: ${js('Люди')},
       media: ${js('Голос и кружки')},
       forwards: ${js('Репосты')},
+      achievements: ${js('Достижения')},
       profanity: ${js('Мат')},
       criminal: ${js('УК РФ')},
       notifications: ${js('Автоуведомления')},
@@ -1047,7 +1090,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       modules: ${js('Модули чата')}
     };
     // Views that do not depend on the stats period.
-    const SETTINGS_VIEWS = ['notifications', 'lab', 'chats', 'modules'];
+    const SETTINGS_VIEWS = ['notifications', 'lab', 'chats', 'modules', 'achievements'];
     const AVATAR_COLORS = ['#f6c9a8', '#bfd9f2', '#cde8d6', '#e3d3f5', '#f5e1a4', '#f2c4ce', '#d3e4f0', '#e8dcc8'];
     const state = {
       chatId: '',
@@ -1058,6 +1101,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       chats: [],
       loading: false,
       forwardRequestId: 0,
+      achievementRequestId: 0,
       currentActivity: null,
       leaderMetric: 'messages',
       peopleSort: { key: 'messages', dir: -1 },
@@ -1448,6 +1492,9 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
 
     function showView(name) {
       state.view = name;
+      ++state.achievementRequestId;
+      document.getElementById('achievementAlbum').replaceChildren();
+      document.getElementById('main').classList.toggle('showingAchievements', name === 'achievements' && !!state.chatId);
       document.getElementById('viewTitle').textContent = VIEWS[name];
       document.getElementById('controls').classList.toggle('hidden', SETTINGS_VIEWS.includes(name));
       for (const view of document.querySelectorAll('.view')) {
@@ -1464,6 +1511,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         loadShadowComparisons();
       }
       if (name === 'forwards' && !state.loading) void loadForwardStats();
+      if (name === 'achievements' && state.chatId) void loadAchievements();
       // Charts drawn while hidden have zero size; redraw them once visible.
       if (state.stats) renderAllCharts(state.stats);
     }
@@ -2174,6 +2222,124 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           el('span', 'r muted', row[maxKey] ? formatDuration(row[maxKey]) : '—')
         );
         box.append(line);
+      }
+    }
+
+    // ---------- achievements ----------
+
+    function achievementCard(badge, groupAward, heading) {
+      const card = el('li', 'achievementCard ' + (badge.earnedDay ? 'unlocked' : 'locked'));
+      const image = el('img');
+      image.alt = '';
+      image.width = image.height = 168;
+      image.loading = 'lazy';
+      image.src = '/admin/badge-art/' + encodeURIComponent(badge.id) + '.png';
+      const body = el('div', 'badgeBody');
+      body.append(el('span', 'badgeState', badge.earnedDay ? ${js('Открыт')} : ${js('Закрыт')}),
+        el(heading, '', badge.title), el('p', 'badgeDescription', badge.description));
+      if (badge.earnedDay) {
+        const date = el('p', 'num badgeDate');
+        if (groupAward) {
+          const monday = new Date(badge.earnedDay + 'T00:00:00Z');
+          monday.setUTCDate(monday.getUTCDate() - 6);
+          const startDay = monday.toISOString().slice(0, 10);
+          const start = el('time', '', startDay);
+          start.dateTime = startDay;
+          date.append(start, el('span', '', ' — '));
+        }
+        const end = el('time', '', badge.earnedDay + ' UTC');
+        end.dateTime = badge.earnedDay;
+        date.append(end);
+        body.append(date);
+        if (badge.result) body.append(el('p', '', badge.result));
+      } else if (Number.isFinite(badge.current) && badge.target > 0) {
+        const progress = el('progress');
+        progress.max = badge.target;
+        progress.value = Math.min(badge.current, badge.target);
+        progress.setAttribute('aria-label', badge.title + ' · ' + ${js('Прогресс')});
+        body.append(el('p', 'num', formatNumber(badge.current) + ' / ' + formatNumber(badge.target)), progress);
+      }
+      card.append(image, body);
+      return card;
+    }
+
+    function achievementShelf(title, badges, hint, { groupAward, nested, counted = badges, albumUrl } = {}) {
+      const shelf = el('section', groupAward ? 'achievementShelf groupBadgeShelf' : 'achievementShelf');
+      const heading = el('div', 'achievementHeading');
+      heading.append(el(nested ? 'h3' : 'h2', '', title));
+      if (counted.length) heading.append(el('span', '', fmt(${js('Открыто {count} из {total}')}, {
+        count: counted.filter(b => b.earnedDay).length, total: counted.length,
+      })));
+      shelf.append(heading);
+      if (hint) shelf.append(el('p', 'muted', hint));
+      if (albumUrl) {
+        const link = el('a', '', ${js('Открыть личный альбом в Telegram')});
+        link.href = albumUrl;
+        shelf.append(link);
+      }
+      if (badges.length) {
+        const list = el('ul', 'achievementGrid');
+        for (const badge of badges) list.append(achievementCard(badge, groupAward, nested ? 'h4' : 'h3'));
+        shelf.append(list);
+      }
+      return shelf;
+    }
+
+    function renderAchievements({ group, personal }) {
+      const groupShelf = achievementShelf(${js('Коллекция чата')}, group.badges, group.enabled ? '' :
+        ${js('Недельные карточки выключены. Администратор может включить их в Telegram командой /achievements.')}, { groupAward: true });
+      const socialIds = ${JSON.stringify(CONVERSATION_BADGES.map(badge => badge.id))};
+      const social = personal.badges.filter(badge => socialIds.includes(badge.id));
+      const regular = personal.badges.filter(badge => !socialIds.includes(badge.id));
+      let hint = '';
+      if (personal.state === 'not-enrolled') hint = group.enabled
+        ? ${js('Откройте /badges в личной переписке с ботом и выберите эту группу, чтобы начать коллекцию.')}
+        : ${js('Личный альбом можно начать, когда администратор включит достижения в группе.')};
+      if (personal.state === 'paused') hint = ${js('Альбом на паузе. Заработанные бейджи сохранены.')};
+      if (personal.state === 'available' && regular.every(b => !b.earnedDay && b.current === null)) {
+        hint = ${js('Прогресс появится после первого проверенного дня по UTC.')};
+      }
+      const preview = personal.state === 'not-enrolled';
+      const personalShelf = achievementShelf(${js('Мой альбом')}, regular, hint, {
+        counted: preview ? [] : personal.badges, albumUrl: group.enabled ? personal.albumUrl : null,
+      });
+      if (social.length) personalShelf.append(achievementShelf(${js('Разговор')}, social,
+        ${js('Для учёта ответов оба участника включают полку «Разговор» в личных альбомах.')},
+        { nested: true, counted: preview ? [] : social }));
+      document.getElementById('achievementAlbum').replaceChildren(groupShelf, personalShelf);
+    }
+
+    async function loadAchievements() {
+      const chatId = state.chatId;
+      if (!chatId || state.view !== 'achievements') return;
+      const requestId = ++state.achievementRequestId;
+      const status = document.getElementById('achievementStatus');
+      const retry = document.getElementById('achievementRetry');
+      document.getElementById('achievementAlbum').replaceChildren();
+      document.getElementById('main').classList.add('showingAchievements');
+      retry.classList.add('hidden');
+      if (Number(chatId) >= 0) {
+        status.textContent = ${js('Достижения доступны в группах. Выберите группу в списке чатов.')};
+        return;
+      }
+      status.textContent = ${js('Загружаем достижения…')};
+      try {
+        const res = await fetch('/admin/api/achievements?chatId=' + encodeURIComponent(chatId), { cache: 'no-store' });
+        if (requestId !== state.achievementRequestId) return;
+        if (res.status === 401) return redirectToLogin();
+        if (res.status === 403) {
+          status.textContent = ${js('У вас больше нет доступа к достижениям этого чата.')};
+          return;
+        }
+        if (!res.ok) throw new Error('achievement album unavailable');
+        const album = await res.json();
+        if (requestId !== state.achievementRequestId) return;
+        renderAchievements(album);
+        status.textContent = '';
+      } catch {
+        if (requestId !== state.achievementRequestId) return;
+        status.textContent = ${js('Не удалось загрузить достижения.')};
+        retry.classList.remove('hidden');
       }
     }
 
@@ -3458,6 +3624,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       if (!chatId) return;
       if (chatId !== state.chatId) state.shadowPayload = null;
       state.chatId = chatId;
+      if (state.view === 'achievements') void loadAchievements();
 
       try {
         const statsUrl = buildStatsUrl(chatId, period);
@@ -3577,6 +3744,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       button.addEventListener('click', () => selectPeriod(button.dataset.period));
     }
     document.getElementById('chatSelect').addEventListener('change', () => loadDashboard());
+    document.getElementById('achievementRetry').addEventListener('click', loadAchievements);
     for (const tab of document.querySelectorAll('#leaderTabs .tab')) {
       tab.addEventListener('click', () => {
         state.leaderMetric = tab.dataset.metric;

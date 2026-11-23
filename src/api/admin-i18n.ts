@@ -26,6 +26,31 @@ const ADMIN_EN: Record<string, string> = {
   'Люди': 'People',
   'Голос': 'Voice',
   'Репосты': 'Forwards',
+  'Достижения': 'Achievements',
+  'Коллекция чата': 'Group collection',
+  'Мой альбом': 'My album',
+  'Открыть личный альбом в Telegram': 'Open my album in Telegram',
+  'Прогресс появится после первого проверенного дня по UTC.':
+    'Progress will appear after the first verified UTC day.',
+  'Для учёта ответов оба участника включают полку «Разговор» в личных альбомах.':
+    'Replies count when both participants enable the Conversation shelf in their personal albums.',
+  'Разговор': 'Conversation',
+  'Открыто {count} из {total}': '{count} of {total} unlocked',
+  'Открыт': 'Unlocked',
+  'Закрыт': 'Locked',
+  'Прогресс': 'Progress',
+  'Загружаем достижения…': 'Loading achievements…',
+  'Достижения доступны в группах. Выберите группу в списке чатов.':
+    'Achievements are available in groups. Select a group from the chat list.',
+  'У вас больше нет доступа к достижениям этого чата.': 'You no longer have access to achievements for this group.',
+  'Не удалось загрузить достижения.': 'Could not load achievements.',
+  'Недельные карточки выключены. Администратор может включить их в Telegram командой /achievements.':
+    'Weekly cards are off. A group administrator can enable them in Telegram with /achievements.',
+  'Откройте /badges в личной переписке с ботом и выберите эту группу, чтобы начать коллекцию.':
+    'To start your collection, open /badges in a private chat with the bot and choose this group.',
+  'Личный альбом можно начать, когда администратор включит достижения в группе.':
+    'You can start a personal album once an administrator enables achievements in this group.',
+  'Альбом на паузе. Заработанные бейджи сохранены.': 'Your album is paused. Your unlocked badges are saved.',
   'Кто делает репосты': 'Top forwarders',
   'Источники репостов': 'Forward sources',
   'Источник': 'Source',
@@ -503,6 +528,58 @@ const ADMIN_EN: Record<string, string> = {
 
 /** Bucket labels that the stats API returns in Russian. */
 const SERVER_LABEL_KEYS = ['Утро', 'День', 'Вечер', 'Ночь'];
+
+// Badge IDs remain stable across languages and are also the keys of the poster gallery.
+const EN_BADGES: Record<string, [string, string]> = {
+  'rush-hour': ['Rush Hour', 'Post 30 messages in an hour and beat the record from the previous four weeks.'],
+  'relay-cup': ['Relay Cup', 'Have three different outright daily leaders in one week, with at least three authors on each qualifying day.'],
+  'round-table': ['Round Table', 'On three days in a week, have at least four authors and keep the leading author at or below 40% of messages.'],
+  podcast: ['Podcast Studio', 'Record 60 minutes of voice notes in one week.'],
+  'seven-days': ['Seven Days', 'Have at least three different authors on each of the seven days of a week.'],
+  choir: ['Choir', 'Have four different members send voice notes in one week.'],
+  tomorrow: ['See You Tomorrow', 'Post on two consecutive UTC days.'],
+  regular: ['The Regular', 'Post at least once in each of four consecutive full weeks.'],
+  calendar: ['Full Calendar', 'Post on all seven days of the week within 42 days.'],
+  columnist: ['Columnist', 'Write 100 words on each of three different days within 28 days.'],
+  'night-shift': ['Night Shift', 'Post between 22:00 and 04:59 UTC on three dates within 28 days.'],
+  'three-shifts': ['Three Shifts', 'Post on three dates in three different UTC time slots within 28 days. The slots are 05–11, 12–16, 17–21 and 22–04.'],
+  'radio-diary': ['Radio Diary', 'Send voice notes on three different days within 28 days.'],
+  film: ['Newsreel', 'Send video notes on three different days within seven days.'],
+  'dual-air': ['Dual Broadcast', 'Send both a voice note and a video note on each of two days within 28 days.'],
+  newsstand: ['Newsstand', 'Manually forward posts from at least three channels across three different dates within 28 days.'],
+  'ping-pong': ['Ping-Pong', 'Exchange four messages in a direct reply chain between two people within 24 hours.'],
+  spark: ['Spark', 'Get direct replies from three different people to the same message within 48 hours.'],
+  connector: ['The Connector', 'Get replies from three different people to your own direct replies within 28 days.'],
+  'to-be-continued': ['To Be Continued', 'Reply to a message after one to seven days and get a reply within 24 hours.'],
+};
+
+// Old awards retain their original result, including minute-only Podcast Studio records.
+const EN_AWARD_TERMS: Record<string, string> = {
+  'сообщений, прежний рекорд': 'messages, previous record',
+  'Разных лидеров': 'Different leaders', 'Дней за круглым столом': 'Round-table days',
+  'Минут': 'Minutes', ' мин': ' min', ' с,': ' s,', 'записей': 'recordings',
+  'Дней с тремя авторами': 'Days with three authors', 'Разных голосов': 'Different voices',
+  'Недель подряд': 'Consecutive weeks', 'Разных дней недели': 'Different weekdays',
+  'Дней со 100 словами': 'Days with 100 words', 'Ночных дат UTC': 'Night dates (UTC)',
+  'Разных смен': 'Different time slots', 'Дней с голосовыми': 'Days with voice notes',
+  'Дней с кружочками': 'Days with video notes', 'Дней с обоими форматами': 'Days with both formats',
+  'Каналов': 'Channels', ', дат': ', dates', 'Реплик в цепочке': 'Messages in the chain',
+  'Ответивших участников': 'Members who replied', 'Взаимных диалогов': 'Two-way conversations',
+  'Ответов в продолжении': 'Follow-up replies', ' из ': ' of ',
+};
+
+/** Translate the catalogue and measurements while preserving the values recorded at unlock. */
+export function localizeAchievementBadge<T extends {
+  id: string; title: string; description: string; result: string | null;
+}>(language: AdminLanguage, badge: T): T {
+  if (language === 'ru' || !Object.hasOwn(EN_BADGES, badge.id)) return badge;
+  const [title, description] = EN_BADGES[badge.id];
+  let result = badge.result;
+  if (result) {
+    for (const [ru, en] of Object.entries(EN_AWARD_TERMS)) result = result.replaceAll(ru, en);
+  }
+  return { ...badge, title, description, result };
+}
 
 function escapeHtml(value: string): string {
   return value

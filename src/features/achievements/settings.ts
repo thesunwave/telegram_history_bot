@@ -48,9 +48,15 @@ export async function callTelegram<T>(env: Env, method: string, args: Record<str
   throw new Error('Telegram ' + method + ' failed');
 }
 
-export async function botUsername(env: Env): Promise<string> {
+/** Return the configured bot username without making a Telegram request. */
+export function configuredBotUsername(env: Env): string | null {
   const configured = env.TELEGRAM_BOT_USERNAME?.replace(/^@/, '');
-  if (configured && /^\w{5,32}$/.test(configured)) return configured;
+  return configured && /^\w{5,32}$/.test(configured) ? configured : null;
+}
+
+export async function botUsername(env: Env): Promise<string> {
+  const configured = configuredBotUsername(env);
+  if (configured) return configured;
   const me = await callTelegram<{ username: string }>(env, 'getMe', {});
   if (!/^\w{5,32}$/.test(me.username)) throw new Error('Invalid Telegram bot username');
   return me.username;

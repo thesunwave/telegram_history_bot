@@ -200,6 +200,11 @@ same message within 48 hours. This uses message and parent IDs, author IDs and t
 from eligible participants. The evidence window is 28 days, with scheduled expiry.
 Albums and cards work in Statistics Only mode.
 
+In the web dashboard, select a group and open **Achievements** (**Достижения**).
+The group collection shows which week earned each badge. **My album** shows your
+personal unlocks and progress for that group. Use the Telegram commands above to
+start or manage a collection.
+
 **Upgrading self-hosted installations.** Apply the D1 migrations and include the
 `*/5 * * * *` scheduled trigger alongside the existing daily trigger. The current
 self-hosting template sets `ENABLE_CONVERSATION_ACHIEVEMENTS=true`. For an existing
