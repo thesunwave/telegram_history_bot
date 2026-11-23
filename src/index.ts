@@ -16,6 +16,7 @@ import {
 } from "./features/stats/stats";
 import { handleUpdate, recordForwardedUpdate, recordMessage, getTextMessage } from "./api/update";
 import { handleAchievementUpdate } from "./features/achievements/telegram";
+import { socialAvailable } from "./features/achievements/settings";
 import { observeConversationMessage, pruneConversationEvidence } from "./features/achievements/social";
 import { ACHIEVEMENT_CRON, runAchievementJobs } from "./features/achievements/jobs";
 import { handleAdminRequest } from "./api/admin";
@@ -77,21 +78,19 @@ function adminUnavailableResponse(requestId: string): Response {
   );
 }
 
-function conversationEnabled(env: Env): boolean {
-  return String(env.ENABLE_CONVERSATION_ACHIEVEMENTS) === 'true'
-    && String(env.ENABLE_ACTIVITY_TRACKING) !== 'false';
-}
-
 async function acceptTelegramUpdate(update: unknown, env: Env, ctx: ExecutionContext, origin: string) {
   if (await handleAchievementUpdate(env, update)) return Response.json({});
   if (!(await recordForwardedUpdate(update, env))) {
     return new Response("Forward statistics temporarily unavailable", { status: 503 });
   }
   const incoming = (update as { message?: unknown } | null)?.message;
-  if (incoming && conversationEnabled(env)) {
-    ctx.waitUntil(observeConversationMessage(env.DB, incoming).catch(() => {
+  if (incoming && socialAvailable(env)) {
+    try {
+      await observeConversationMessage(env.DB, incoming);
+    } catch {
       Logger.warn('Conversation evidence unavailable', { op: 'observeReply' });
-    }));
+      return new Response("Conversation statistics temporarily unavailable", { status: 503 });
+    }
   }
   const message = getTextMessage(update);
   await recordMessage(message, env, ctx);

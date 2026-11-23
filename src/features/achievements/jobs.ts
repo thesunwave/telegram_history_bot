@@ -13,7 +13,7 @@ function midnight(day: string): number {
   return Date.parse(day + 'T00:00:00Z') / 1000;
 }
 
-async function processGroup(env: Env, chat: number, week: string, now: number): Promise<number> {
+async function processGroup(env: Env, chat: number, generation: string, week: string, now: number): Promise<number> {
   const nextWeek = midnight(shiftDay(week, 14));
   const report = await evaluateWeek(env, chat, week);
   if (!report) return now + 6 * HOUR;
@@ -21,10 +21,11 @@ async function processGroup(env: Env, chat: number, week: string, now: number): 
   const count = (await listAwards(env.DB, chat)).length;
   // A persisted reservation represents an ambiguous delivery after a crash.
   // Only an explicit transport refusal can safely return it to the ready state.
+  const groupGuard = `EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=achievement_reports.chat_id
+    AND enabled=1 AND generation=? AND start_day<=achievement_reports.week)`;
   const claim = await env.DB.prepare(`UPDATE achievement_reports SET state='sending'
-    WHERE chat_id=? AND week=? AND state='ready' AND next_send_at<=? AND EXISTS (
-      SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1 AND start_day<=?)`)
-    .bind(chat, week, now, chat, week).run();
+    WHERE chat_id=? AND week=? AND state='ready' AND next_send_at<=? AND ${groupGuard}`)
+    .bind(chat, week, now, generation).run();
   if (!claim.meta.changes) {
     const row = await env.DB.prepare('SELECT state,next_send_at FROM achievement_reports WHERE chat_id=? AND week=?')
       .bind(chat, week).first<{ state: string; next_send_at: number }>();
@@ -33,12 +34,14 @@ async function processGroup(env: Env, chat: number, week: string, now: number): 
     if (row?.state === 'sending') return now + HOUR;
     return row?.state === 'ready' ? Math.max(now + SHORT_LEASE, row.next_send_at) : nextWeek;
   }
-  const result = await sendWeeklyPhoto(env, chat, report, count);
+  const stillReserved = async () => Boolean(await env.DB.prepare(`SELECT 1 FROM achievement_reports
+    WHERE chat_id=? AND week=? AND state='sending' AND ${groupGuard}`).bind(chat, week, generation).first());
+  const result = await sendWeeklyPhoto(env, chat, report, count, stillReserved);
   const state = result.status === 'retry' ? 'ready' : result.status;
   const next = result.status === 'retry' ? now + Math.max(SHORT_LEASE, result.retryAfter) : nextWeek;
   await env.DB.prepare(`UPDATE achievement_reports SET state=?,telegram_message_id=?,next_send_at=?
-    WHERE chat_id=? AND week=? AND state='sending'`)
-    .bind(state, result.status === 'sent' ? result.messageId : null, next, chat, week).run();
+    WHERE chat_id=? AND week=? AND state='sending' AND ${groupGuard}`)
+    .bind(state, result.status === 'sent' ? result.messageId : null, next, chat, week, generation).run();
   return next;
 }
 
@@ -49,7 +52,7 @@ async function weeklyStep(env: Env, today: string, now: number) {
     ORDER BY next_report_check, chat_id LIMIT 1) RETURNING chat_id,generation`)
     .bind(now + SHORT_LEASE, now, week).first<{chat_id: number; generation: string}>();
   if (!row) return;
-  const next = await processGroup(env, row.chat_id, week, now);
+  const next = await processGroup(env, row.chat_id, row.generation, week, now);
   await env.DB.prepare(`UPDATE achievement_groups SET next_report_check=?
     WHERE chat_id=? AND generation=? AND next_report_check=?`)
     .bind(next, row.chat_id, row.generation, now + SHORT_LEASE).run();
@@ -69,8 +72,11 @@ async function personalStep(env: Env, today: string, now: number) {
     const day = album.last_day ? shiftDay(album.last_day, 1) : album.start_day;
     try {
       await evaluatePersonal(env, album.chat_id, album.user_id, day);
-    } catch {
-      Logger.warn('Album evaluation deferred', { op: 'achievementAlbum' });
+    } catch (error) {
+      const errorClass = error instanceof Error
+        ? [TypeError, RangeError, SyntaxError, ReferenceError].find(type => error instanceof type)?.name ?? 'Error'
+        : 'UnknownError';
+      Logger.warn('Album evaluation deferred', { op: 'achievementAlbum', errorClass });
     }
   }
 }

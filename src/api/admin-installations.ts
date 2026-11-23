@@ -92,7 +92,9 @@ export async function recordBotMembership(
             json_extract(settings_json,'$.statusChangedAt')=? AND
             COALESCE(json_extract(settings_json,'$.updateId'),-1)>=?)))`)
       .bind(generation, update.chat.id, scope, update.date, update.date, updateId ?? -1);
-    const batch = await env.DB.batch([pause, ...pauseGroupDependents(env.DB, update.chat.id, generation), membership]);
+    const batch = await env.DB.batch([
+      pause, ...pauseGroupDependents(env.DB, update.chat.id, generation), membership,
+    ]);
     result = batch[batch.length - 1];
   } else {
     result = await membership.run();

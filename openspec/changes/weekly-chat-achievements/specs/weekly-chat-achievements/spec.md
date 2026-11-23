@@ -48,7 +48,7 @@ The bot SHALL evaluate six group milestones against verified activity for the cl
 - **THEN** the group earns «Хор» with its number of participating voices, even if each recording lasted only a few seconds
 
 #### Scenario: Переходящий кубок
-- **WHEN** at least three different people each held the sole highest daily message count on a different date that week with at least three active participants
+- **WHEN** at least three different people each held the sole highest daily message count on a different date that week, and at least three distinct participants posted on each of those qualifying UTC dates
 - **THEN** the group earns «Переходящий кубок» with the number of distinct leaders and no names
 - **AND** a date tied for first place contributes no leader
 

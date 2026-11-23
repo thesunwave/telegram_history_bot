@@ -1,7 +1,7 @@
 import type { Env } from '../../core/env';
 import { shiftDay } from './calendar';
-import { getEnrollment, getGroup, getProgress, listAwards } from './repository';
-import { GROUP_BADGES, PERSONAL_BADGES } from './rules';
+import { getEnrollment, getGroup, listAwards } from './repository';
+import { GROUP_BADGES, PERSONAL_BADGES, type BadgeProgress } from './rules';
 import { button, botUsername, groupTitle, socialAvailable, type Buttons, type View } from './settings';
 import { CONVERSATION_BADGES, getConversationProgress, getConversationStatus } from './social';
 
@@ -11,7 +11,7 @@ export async function groupCollection(env: Env, chat: number, user: number, admi
   const lines = ['Коллекция чата · ' + earned.length + ' из ' + GROUP_BADGES.length];
   for (const badge of GROUP_BADGES) {
     const win = earned.find(entry => entry.badge_id === badge.id);
-    lines.push(win ? '🏅 ' + badge.title + ' · ' + win.earned_day + '\n' + win.result
+    lines.push(win ? '🏅 ' + badge.title + ' · ' + shiftDay(win.earned_day, -6) + ' — ' + win.earned_day + ' UTC\n' + win.result
       : '◇ ' + badge.title + '\n' + badge.description);
   }
   if (group?.enabled) {
@@ -50,8 +50,9 @@ export async function personalAlbum(env: Env, chat: number, owner: number, page 
       buttons: [[button('Начать коллекцию', 'join', chat)]],
     };
   }
-  const [awards, progress, social] = await Promise.all([
-    listAwards(env.DB, chat, owner), getProgress(env.DB, chat, owner),
+  const progress: BadgeProgress[] = enrollment.enabled ? JSON.parse(enrollment.progress_json) : [];
+  const [awards, social] = await Promise.all([
+    listAwards(env.DB, chat, owner),
     socialAvailable(env) ? getConversationStatus(env.DB, chat, owner) : { groupSince: null, memberSince: null },
   ]);
   // Retain earned social badges when the group later turns off reply observation.

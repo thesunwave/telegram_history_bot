@@ -97,6 +97,21 @@ describe.each(['/telegram/webhook', '/tg/test-token/webhook'])('achievement disp
     } });
   });
 
+  it('requests redelivery before downstream processing when reply observation fails', async () => {
+    const { store, send, counterFetch } = fixture(path);
+    const prepare = store.db.prepare.bind(store.db);
+    const spy = vi.spyOn(store.db, 'prepare').mockImplementation(sql => {
+      if (sql.includes('FROM conversation_members')) throw new Error('temporary D1 failure');
+      return prepare(sql);
+    });
+    const event = { message: { message_id: 71, chat: groupChat, from: actor,
+      date: Math.floor(Date.now() / 1000), photo: [{ file_id: 'dummy' }] } };
+    expect(await send(event)).toBe(503);
+    expect(counterFetch).not.toHaveBeenCalled();
+    spy.mockRestore();
+    expect(await send(event)).toBe(200);
+  });
+
   it('pauses albums and removes consent atomically on removal, with ordered replay after reinstall', async () => {
     const { store, send } = fixture(path);
     const membership = (date: number, update_id: number, status: 'member' | 'kicked', chat = group) => ({

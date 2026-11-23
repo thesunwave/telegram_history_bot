@@ -11,7 +11,8 @@ import {
 } from '../src/features/achievements/rules.ts';
 
 const [path, first, last] = process.argv.slice(2);
-const isDay = value => /^\d{4}-\d{2}-\d{2}$/.test(value) && shiftDay(value, 0) === value;
+const isDay = value => /^\d{4}-\d{2}-\d{2}$/.test(value)
+  && Number.isFinite(Date.parse(value + 'T00:00:00Z')) && shiftDay(value, 0) === value;
 if (!path || !isDay(first) || !isDay(last) || first > last || last > shiftDay(first, 179)
   || last >= new Date().toISOString().slice(0, 10)) {
   throw new Error('Usage: node --experimental-strip-types scripts/calibrate-achievements.mjs SNAPSHOT.sqlite FROM TO (1–180 closed UTC days)');
@@ -39,7 +40,8 @@ function summarize() {
     unavailableGroupWeeks: 0, excludedPartialPersonalGroups: 0, cohorts: {}
   };
   const samples = new Map();
-  const historyStart = shiftDay(first, -28);
+  const historyStart = shiftDay(first, -41);
+  const evidenceDays = daysBetween(historyStart, last);
   const firstActivity = db.prepare('SELECT MIN(day) AS day FROM stats_daily_user WHERE chat_id=?');
   const traceTables = [
     'stats_daily_coverage', 'stats_daily_pipeline_progress', 'activity', 'stats_daily_user',
@@ -67,11 +69,12 @@ function summarize() {
     if (state?.version === JOB_VERSION && state.status === 'done') {
       const traces = new Set(traceQueries.flatMap(query => query.all(chat, historyStart, last).map(r => r.day)));
       const earliest = firstActivity.get(chat)?.day;
-      for (const day of daysBetween(historyStart, last)) {
+      for (const day of evidenceDays) {
         if (earliest && day >= earliest && day < state.cutoff_day && !traces.has(day)) verified.add(day);
       }
     }
-    const rows = allRows.all(chat, first, last).filter(r => verified.has(r.day));
+    const history = allRows.all(chat, historyStart, last).filter(r => verified.has(r.day));
+    const rows = history.filter(r => r.day >= first);
     if (!rows.length) { result.skippedUnverifiedGroups++; continue; }
     result.groupCount++;
     const authors = new Set(rows.filter(r => r.messages > 0).map(r => r.user_id));
@@ -80,20 +83,19 @@ function summarize() {
     const sample = samples.get(key);
     sample.groups++;
     const days = daysBetween(first, last);
-    // A missing day could hide a qualifying action. Exclude the personal cohort
-    // rather than turning uncertain observation into an apparent low unlock rate.
-    const completeObservation = days.every(date => verified.has(date));
-    if (!completeObservation) result.excludedPartialPersonalGroups++;
-    for (const owner of completeObservation ? authors : []) {
+    // Missing evidence in the lookback could also hide an unlock on the first observed day.
+    const completePersonalEvidence = evidenceDays.every(date => verified.has(date));
+    if (!completePersonalEvidence) result.excludedPartialPersonalGroups++;
+    for (const owner of completePersonalEvidence ? authors : []) {
       sample.participants++;
-      const own = rows.filter(r => r.user_id === owner);
-      const buckets = userBuckets.all(chat, owner, first, last).filter(r => verified.has(r.day));
+      const own = history.filter(r => r.user_id === owner);
+      const buckets = userBuckets.all(chat, owner, shiftDay(first, -27), last).filter(r => verified.has(r.day));
       const unlocked = new Set();
       for (const b of PERSONAL_BADGES) sample.metrics.get(b.id).eligible++;
       for (const [i, day] of days.entries()) {
         const from = shiftDay(day, -41);
         const scores = personalRules(own.filter(r => r.day >= from && r.day <= day),
-          buckets.filter(r => r.day <= day), userForwards.get(chat, owner, first > shiftDay(day, -27) ? first : shiftDay(day, -27), day), first, day);
+          buckets.filter(r => r.day <= day), userForwards.get(chat, owner, shiftDay(day, -27), day), historyStart, day);
         for (const s of scores) if (s.earned && !unlocked.has(s.id)) {
           if (!unlocked.size) sample.firstUnlock.push(i + 1);
           unlocked.add(s.id);
@@ -105,7 +107,7 @@ function summarize() {
       const shelf = id => ['tomorrow', 'regular', 'calendar'].includes(id) ? 'rhythm' :
         ['columnist', 'night-shift', 'three-shifts'].includes(id) ? 'style' : 'formats';
       if (new Set([...unlocked].map(shelf)).size >= 2) sample.multiShelf++;
-      if (own.filter(r => r.messages > 0).length * 7 / days.length <= 2) {
+      if (own.filter(r => r.day >= first && r.messages > 0).length * 7 / days.length <= 2) {
         sample.quietParticipants++;
         if (unlocked.size) sample.quietWithUnlock++;
       }
@@ -135,7 +137,8 @@ function summarize() {
   }
   for (const [key, s] of samples) {
     result.cohorts[key] = {
-      groups: s.groups, participants: s.participants, medianDaysToFirstPersonalUnlock: median(s.firstUnlock),
+      groups: s.groups, participants: s.participants, participantsWithoutObservedUnlock: s.participants - s.firstUnlock.length,
+      medianDaysToFirstPersonalUnlock: median(s.firstUnlock),
       quietParticipants: s.quietParticipants, quietWithUnlock: s.quietWithUnlock, participantsWithTwoShelves: s.multiShelf,
       badges: Object.fromEntries([...s.metrics].map(([id, m]) => [id, {
         eligible: m.eligible, unlocked: m.unlocked,

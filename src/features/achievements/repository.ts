@@ -23,7 +23,7 @@ export function pauseGroupDependents(db: D1Database, chatId: number, generation?
     db.prepare(`UPDATE achievement_enrollments SET enabled=0,progress_json='[]',
       last_day=NULL, generation=hex(randomblob(16)) WHERE chat_id=? AND enabled=1` + guard).bind(...params),
     db.prepare(`UPDATE achievement_reports SET state='cancelled'
-      WHERE chat_id=? AND state='ready'` + guard).bind(...params),
+      WHERE chat_id=? AND state IN ('ready','sending')` + guard).bind(...params),
   ];
 }
 

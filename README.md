@@ -111,6 +111,19 @@ expires under the retention policy.
   default on a new self-hosted install; the hosted @stat_history_bot runs
   criminal analysis.
 - Counters and usernames do not expire automatically yet.
+- A group that enables **achievements** keeps its group ID, weekly activity totals
+  and earned badges. Opening a personal album and choosing **Начать коллекцию**
+  saves the member's Telegram ID for that group, badge progress, unlock dates and
+  results. In a private chat, open `/badges`, choose the group and confirm
+  **Удалить мой альбом** to erase that album's progress, awards and reply evidence.
+- When a group enables **conversation badges** and a member opts in, D1 records
+  the group, message and author IDs and timestamps for that member's new messages.
+  A direct reply also records the parent message ID, author ID and timestamp when
+  both authors have opted in. Scoring uses a rolling 28-day window. Daily cleanup
+  deletes older records. **Прекратить учёт ответов** in the private album removes
+  the member's evidence and links to their messages while preserving earned badges.
+  Disabling the conversation shelf in the group's `/achievements` menu removes
+  the group's reply evidence and consent settings.
 
 **Forwards.** The dashboard’s Forwards tab ranks members and sources by the number
 of manual forwards in a group during the selected period. This includes media.
@@ -188,8 +201,10 @@ from eligible participants. The evidence window is 28 days, with scheduled expir
 Albums and cards work in Statistics Only mode.
 
 **Upgrading self-hosted installations.** Apply the D1 migrations and include the
-`*/5 * * * *` scheduled trigger alongside the existing daily trigger. To offer conversation
-badges set `ENABLE_CONVERSATION_ACHIEVEMENTS=true`. If the webhook already specifies
+`*/5 * * * *` scheduled trigger alongside the existing daily trigger. The current
+self-hosting template sets `ENABLE_CONVERSATION_ACHIEVEMENTS=true`. For an existing
+installation, set this flag to offer conversation badges. Each group and member still
+has to opt in before reply tracking starts. If the webhook already specifies
 `allowed_updates`, add `callback_query` (the setup page does this when reconnecting the
 webhook). Keep your deployment's current URL and webhook secret. The instance must have
 activity tracking enabled and Telegram must deliver ordinary group messages.

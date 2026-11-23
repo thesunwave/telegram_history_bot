@@ -73,6 +73,28 @@ describe('Telegram achievement collections', () => {
     expect(JSON.stringify(sent)).not.toContain('Закрытый тестовый чат');
   });
 
+  it('retries an unavailable membership check without offering to delete the album', async () => {
+    await setGroupEnabled(database.db, group, true);
+    await setEnrolled(database.db, group, owner, true);
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 503 }));
+    await handleAchievementUpdate(env, command('/badges', owner));
+    const markup = sent.at(-1)?.reply_markup as { inline_keyboard: { text: string; callback_data: string }[][] };
+    expect(markup.inline_keyboard).toEqual([[{
+      text: 'Повторить проверку членства', callback_data: 'ach:album:' + group,
+    }]]);
+    expect(JSON.stringify(sent.at(-1))).not.toContain('Закрытый тестовый чат');
+    await handleAchievementUpdate(env, forward(markup.inline_keyboard[0][0].callback_data, owner));
+    expect(sent.at(-1)?.text).toContain('Мой альбом · Закрытый тестовый чат');
+  });
+
+  it('identifies the full UTC week of a group award', async () => {
+    await setGroupEnabled(database.db, group, true);
+    database.sqlite.prepare(`INSERT INTO achievement_awards(chat_id,user_id,badge_id,earned_day,result)
+      VALUES(?,0,'rush-hour','2026-11-22','35 сообщений')`).run(group);
+    await handleAchievementUpdate(env, command('/badges', group));
+    expect(sent.at(-1)?.text).toContain('Час пик · 2026-11-16 — 2026-11-22 UTC\n35 сообщений');
+  });
+
   it('shows admins an actionable hint when a pre-existing webhook discards callbacks', async () => {
     role = 'administrator';
     webhookFilters = ['message', 'my_chat_member'];

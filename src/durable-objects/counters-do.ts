@@ -344,6 +344,26 @@ export class CountersDO {
     return `dayproof:${day}`;
   }
 
+  /** Legacy writes can leave just a counter or deduplication key without a day proof or sequence. */
+  private async isUnobservedDay(day: string): Promise<boolean> {
+    const keys = [this.dayProofKey(day), this.seqKey(day), this.totChatKey(day),
+      ...PROGRESS_CATEGORIES.map(category => this.integrityStateKey(day, category)),
+      ...PROGRESS_CATEGORIES.map(category => this.progressStateKey(day, category)),
+    ];
+    const exact = await Promise.all(keys.map(key => this.storage().get(key)));
+    if (exact.some(value => value !== undefined)) return false;
+    const prefixes = ['msgseq', 'tot:u', 'tot:h', 'tot:b', 'tot:p', 'tot:pw', 'tot:pwu', 'tot:c',
+      'profDone', 'crimDone'].map(namespace => `${namespace}:${day}:`);
+    if (this.memoryStorage) {
+      for (const key of this.memoryStorage.keys()) {
+        if (prefixes.some(prefix => key.startsWith(prefix))) return false;
+      }
+      return true;
+    }
+    const matches = await Promise.all(prefixes.map(prefix => this.state.storage.list({ prefix, limit: 1 })));
+    return matches.every(match => match.size === 0);
+  }
+
   /**
    * Reads the durable proof marker for a day. A stored marker is only proven
    * when it carries the current fixed version and `initialized: true`; a
@@ -553,14 +573,7 @@ export class CountersDO {
           const emptyDays: string[] = [];
           for (const row of proof.days) {
             if (row.initialized || row.accepted !== 0) continue;
-            // A failed first write can leave an integrity fence before allocating a sequence.
-            // The absence of the marker alone is not an empty-day proof.
-            const traces = await Promise.all([
-              this.dayProofKey(row.day), this.seqKey(row.day), this.totChatKey(row.day),
-              ...PROGRESS_CATEGORIES.map(category => this.integrityStateKey(row.day, category)),
-              ...PROGRESS_CATEGORIES.map(category => this.progressStateKey(row.day, category)),
-            ].map(key => this.storage().get(key)));
-            if (traces.every(value => value === undefined)) emptyDays.push(row.day);
+            if (await this.isUnobservedDay(row.day)) emptyDays.push(row.day);
           }
           return { ...proof, emptyDays };
         });

@@ -140,7 +140,7 @@ export function weeklyRules(start: string, rows: GroupDay[], hours: Hour[], auth
         peak.day + ' ' + String(peak.hour).padStart(2, '0') + ':00 UTC · ' + peak.count + ' сообщений, прежний рекорд: ' + (previousPeak ?? '—')),
       score('relay-cup', leaders, 3, 'Разных лидеров: ' + leaders),
       score('round-table', tables, 3, 'Дней за круглым столом: ' + tables),
-      score('podcast', seconds, 3600, 'Минут: ' + Math.floor(seconds / 60) + ', записей: ' + voices),
+      score('podcast', seconds, 3600, Math.floor(seconds / 60) + ' мин ' + (seconds % 60) + ' с, записей: ' + voices),
       score('seven-days', full, 7, 'Дней с тремя авторами: ' + full),
       score('choir', voiceAuthors, 4, 'Разных голосов: ' + voiceAuthors),
     ],

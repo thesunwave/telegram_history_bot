@@ -18,10 +18,13 @@ def encode(data):
 
 def pack(path):
     with Image.open(path) as source:
-        thumb = source.convert("RGB").resize((168, 168), Image.Resampling.LANCZOS)
-    indexed = thumb.quantize(colors=128, dither=Image.Dither.NONE)
-    # Index zero stays available for transparent pixels on the card canvas.
-    pixels = bytes(value + 1 for value in indexed.tobytes())
+        thumb = source.convert("RGBA").resize((168, 168), Image.Resampling.LANCZOS)
+    alpha = thumb.getchannel("A")
+    # The indexed card supports binary transparency. Blend soft edges onto its paper color.
+    paper = Image.new("RGB", thumb.size, (249, 246, 232))
+    paper.paste(thumb, mask=alpha)
+    indexed = paper.quantize(colors=128, dither=Image.Dither.NONE)
+    pixels = bytes(value + 1 if opacity else 0 for value, opacity in zip(indexed.tobytes(), alpha.tobytes()))
     colors = bytes([0, 0, 0] + indexed.getpalette()[:128 * 3])
     return {"colors": encode(colors), "pixels": encode(gzip.compress(pixels, mtime=0))}
 

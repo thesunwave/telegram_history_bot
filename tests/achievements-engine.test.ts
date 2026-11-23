@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,7 +8,8 @@ import { CountersDO } from '../src/durable-objects/counters-do';
 import type { Env } from '../src/core/env';
 import { withRealCountersDO } from './helpers/real-counters-do';
 import { createRealD1 } from './helpers/real-d1';
-import { daysBetween, shiftDay, personalRules, weeklyRules, type PersonalDay } from '../src/features/achievements/rules';
+import { daysBetween, shiftDay, personalRules, weeklyRules, type GroupDay, type PersonalDay } from '../src/features/achievements/rules';
+import { GROUP_DAY_SQL } from '../src/features/achievements/queries';
 import { evaluateWeek, evaluatePersonal } from '../src/features/achievements/evaluate';
 import { eraseAlbum, getEnrollment, getProgress, listAwards, setEnrolled, setGroupEnabled } from '../src/features/achievements/repository';
 import { JOB_VERSION } from '../src/features/stats/daily-backfill';
@@ -76,13 +77,32 @@ describe('achievement rules', () => {
     expect(regular(shiftDay(monday, 27), monday)).toBe(true);
     expect(regular(shiftDay(monday, 27), shiftDay(monday, 1))).toBe(false);
   });
-  it('rejects missing or tied hourly baselines, 3,599 seconds, and tied leaders', () => {
+  it('rejects missing or tied hourly baselines and preserves the measured podcast duration', () => {
     const row = { day: monday, authors: 4, messages: 30, maximum: 12, voice_seconds: 3599, voices: 20, leader: null };
     const hour = { day: monday, hour: 12, count: 30 };
     const run = (baseline: number | null) => weeklyRules(monday, [row], [hour], 4, 4, baseline);
     expect(run(null).badges.filter(s => s.earned).map(s => s.id)).toEqual(['choir']);
     expect(run(30).badges[0].earned).toBe(false);
     expect(run(29).badges[0].earned).toBe(true);
+    row.voice_seconds = 3600;
+    expect(run(null).badges.find(b => b.id === 'podcast')).toMatchObject({ earned: true, current: 3600 });
+    row.voice_seconds = 3661;
+    expect(run(null).badges.find(b => b.id === 'podcast')?.result).toBe('61 мин 1 с, записей: 20');
+  });
+  it('counts only sole leaders on UTC dates with three or more posting participants', () => {
+    const f = fixture(); seed(f);
+    const wednesday = shiftDay(monday, 2), thursday = shiftDay(monday, 3);
+    // Monday and Tuesday have different sole leaders. Wednesday has two joint leaders.
+    const change = f.sqlite.prepare('UPDATE stats_daily_user SET message_count=? WHERE day=? AND user_id=?');
+    change.run(11, wednesday, person);
+    // Thursday has a third sole leader but only two posting participants.
+    change.run(0, thursday, person);
+    change.run(0, thursday, person + 1);
+    const leaders = () => weeklyRules(monday, f.sqlite.prepare(GROUP_DAY_SQL).all(chat, monday, thursday) as GroupDay[],
+      [], 4, 0, null).badges.find(b => b.id === 'relay-cup');
+    expect(leaders()).toMatchObject({ current: 2, earned: false });
+    change.run(10, wednesday, person);
+    expect(leaders()).toMatchObject({ current: 3, earned: true });
   });
 });
 
@@ -144,6 +164,7 @@ describe('achievement persistence and calibration', () => {
       storage: {
         get: async (key: string) => storage.get(key),
         put: async (key: string, value: unknown) => { storage.set(key, value); },
+        list: async ({ prefix }: { prefix: string }) => new Map([...storage].filter(([key]) => key.startsWith(prefix))),
       },
       blockConcurrencyWhile: async <T>(callback: () => Promise<T>) => callback(),
     } as unknown as ConstructorParameters<typeof CountersDO>[0], f.env);
@@ -208,16 +229,61 @@ describe('achievement persistence and calibration', () => {
   });
   it('calibrates a read-only historical fixture without printing chat/user IDs', async () => {
     const f = fixture(); seed(f);
+    markReady(f, shiftDay(monday, -41), shiftDay(monday, -29));
+    const add = f.sqlite.prepare('INSERT INTO stats_daily_user (chat_id,user_id,day,message_count) VALUES (?,?,?,1)');
+    for (const owner of [person, person + 1, person + 2, person + 10]) add.run(chat, owner, shiftDay(monday, -1));
+    add.run(chat, person + 4, monday);
     const dir = mkdtempSync(join(tmpdir(), 'badge-calibration-'));
     try {
       const dbPath = join(dir, 'history.sqlite'); await f.sqlite.backup(dbPath);
       const json = execFileSync(process.execPath, ['--experimental-strip-types', 'scripts/calibrate-achievements.mjs',
         dbPath, monday, shiftDay(monday, 6)], { encoding: 'utf8' });
       const result = JSON.parse(json);
-      expect(result.cohorts['1–5'].participants).toBe(4);
+      expect(result.cohorts['1–5'].participants).toBe(5);
+      expect(result.cohorts['1–5'].participantsWithoutObservedUnlock).toBe(1);
       expect(result.cohorts['1–5'].badges['rush-hour'].unlocked).toBe(1);
-      expect(result.cohorts['1–5'].medianDaysToFirstPersonalUnlock).toBe(2);
+      expect(result.cohorts['1–5'].medianDaysToFirstPersonalUnlock).toBe(1);
+      expect(result.cohorts['1–5'].badges.tomorrow.medianDaysToUnlock).toBe(1);
       expect(json).not.toContain(String(chat));
     } finally { rmSync(dir, { force: true, recursive: true }); }
+  });
+  it('uses inclusive 7-, 28- and 42-day windows and excludes missing lookback coverage', async () => {
+    const f = fixture();
+    markReady(f, shiftDay(monday, -41), monday);
+    const add = f.sqlite.prepare(`INSERT INTO stats_daily_user
+      (chat_id,user_id,day,message_count,word_count,video_note_count) VALUES (?,?,?,1,?,?)`);
+    for (const [owner, offsets] of [[1, [-6, -1, 0]], [2, [-7, -1, 0]],
+      [3, [-27, -1, 0]], [4, [-28, -1, 0]],
+      [5, [-41, -5, -4, -3, -2, -1, 0]], [6, [-48, -5, -4, -3, -2, -1, 0]]] as const) {
+      for (const offset of offsets) add.run(chat, owner, shiftDay(monday, offset),
+        owner === 3 || owner === 4 ? 100 : 0, owner <= 2 ? 1 : 0);
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'badge-lookback-'));
+    try {
+      const run = async (name: string) => {
+        const dbPath = join(dir, name + '.sqlite'); await f.sqlite.backup(dbPath);
+        return JSON.parse(execFileSync(process.execPath, ['--experimental-strip-types',
+          'scripts/calibrate-achievements.mjs', dbPath, monday, monday], { encoding: 'utf8' }));
+      };
+      const complete = (await run('complete')).cohorts['6–20'];
+      expect(complete.participants).toBe(6);
+      for (const id of ['film', 'columnist', 'calendar']) {
+        expect(complete.badges[id]).toMatchObject({ eligible: 6, unlocked: 1, medianDaysToUnlock: 1 });
+      }
+      f.sqlite.prepare("UPDATE stats_daily_coverage SET base_status='partial' WHERE day=?").run(shiftDay(monday, -41));
+      const partial = await run('partial');
+      expect(partial.excludedPartialPersonalGroups).toBe(1);
+      expect(partial.cohorts['6–20'].participants).toBe(0);
+      expect(partial.cohorts['6–20'].badges.calendar).toMatchObject({ eligible: 0, fraction: null });
+    } finally { rmSync(dir, { force: true, recursive: true }); }
+  });
+  it('reports invalid calendar dates through CLI usage before opening the snapshot', () => {
+    for (const day of ['2026-13-01', '2026-02-30']) {
+      const run = spawnSync(process.execPath, ['--experimental-strip-types', 'scripts/calibrate-achievements.mjs',
+        'unused.sqlite', day, day], { encoding: 'utf8' });
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('1–180 closed UTC days');
+      expect(run.stderr).not.toContain('RangeError');
+    }
   });
 });

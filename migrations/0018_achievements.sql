@@ -9,7 +9,6 @@ CREATE TABLE achievement_enrollments (
   last_day TEXT, progress_json TEXT NOT NULL DEFAULT '[]',
   PRIMARY KEY(chat_id,user_id)
 );
-CREATE INDEX achievement_personal_due ON achievement_enrollments(enabled,last_day,chat_id,user_id);
 CREATE INDEX achievement_owned_albums ON achievement_enrollments(user_id,chat_id);
 CREATE TABLE achievement_awards (
   chat_id INTEGER NOT NULL, user_id INTEGER NOT NULL CHECK(user_id >= 0),

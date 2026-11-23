@@ -132,13 +132,17 @@ export async function sendCard(
 }
 
 /** Send one weekly photo with a collection button bound to its originating group. */
-export async function sendWeeklyPhoto(env: Env, chatId: number, report: WeeklyReport, unlockedCount: number): Promise<Delivery> {
+export async function sendWeeklyPhoto(
+  env: Env, chatId: number, report: WeeklyReport, unlockedCount: number, stillReserved: () => Promise<boolean>,
+): Promise<Delivery | { status: 'cancelled' }> {
   let card: Awaited<ReturnType<typeof weeklyCard>>;
   try {
     card = await weeklyCard(report);
+    // Consent can change while preparing the PNG. Recheck immediately before dispatch.
+    if (!await stillReserved()) return { status: 'cancelled' };
   } catch {
-    // Rendering precedes the Telegram request, so a later retry cannot duplicate a send.
-    console.warn('Weekly achievement photo rendering failed');
+    // No Telegram request has started, so preparation can be retried.
+    console.warn('Weekly achievement photo preparation failed');
     return { status: 'retry', retryAfter: 300 };
   }
   const { png, caption } = card;

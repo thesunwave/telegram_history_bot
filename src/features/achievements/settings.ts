@@ -77,6 +77,9 @@ export async function groupPicker(env: Env, owner: number, before = 0): Promise<
     if (role === 'admin' || role === 'member') {
       return [button(await groupTitle(env, row.chat_id), 'album', row.chat_id)];
     }
+    if (role === 'unverified') {
+      return [button('Повторить проверку членства', 'album', row.chat_id)];
+    }
     // People who left can still delete their own stored data without exposing group metadata.
     return row.album ? [button('Удалить мой альбом · ' + row.chat_id, 'delete', row.chat_id)] : [];
   }));

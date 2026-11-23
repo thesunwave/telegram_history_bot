@@ -1481,6 +1481,17 @@ describe('CountersDO D1 aggregate writes', () => {
     }
   });
 
+  it('excludes every sequence-less counter and deduplication trace from empty-day certificates', async () => {
+    const namespaces = ['msgseq', 'tot:u', 'tot:h', 'tot:b', 'tot:p', 'tot:pw', 'tot:pwu',
+      'tot:c', 'profDone', 'crimDone'];
+    const tracedDays = namespaces.map((_, index) => '2026-05-' + String(index + 1).padStart(2, '0'));
+    const storage = new Map(namespaces.map((namespace, index) => [namespace + ':' + tracedDays[index] + ':123', 1]));
+    const counter = new CountersDO(makeState(storage), doEnv);
+    const response = await post(counter, '/pipeline-snapshots', { days: [...tracedDays, '2026-05-20'], verifyEmpty: true });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ emptyDays: ['2026-05-20'] });
+  });
+
   it('/pipeline-snapshots reports explicit initialized:false for a missing or malformed marker day', async () => {
     const stateMap = new Map<string, unknown>();
     const { env } = makeEnv(harness as unknown as D1Database, stateMap);

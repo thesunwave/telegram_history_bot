@@ -87,6 +87,7 @@ describe('conversation achievements', () => {
   it('does not attribute foreign, anonymous, self or bot replies to an author', async () => {
     const a = message(1, 1, 0), b = message(2, 2, 1, a);
     await observe(a);
+    await observe(message(3, 1, 2, a));
     for (const bad of [
       { ...b, sender_chat: { id: chat } }, { ...b, from: { id: 2, is_bot: true } },
       { ...b, external_reply: {} }, { ...b, reply_to_message: { ...a, chat: { id: -444, type: 'group' } } },

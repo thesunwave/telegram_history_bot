@@ -41,6 +41,10 @@ export class CardCanvas {
 
   image(image: { width: number; height: number; pixels: Uint8Array; palette: Uint8Array },
     x: number, y: number, boxSize: number, locked = false) {
+    if (![x, y, boxSize].every(Number.isInteger) || x < 0 || y < 0 || boxSize <= 0 ||
+      x + boxSize > WIDTH || y + boxSize > HEIGHT) {
+      throw new RangeError('Badge image box exceeds card bounds');
+    }
     const offset = palette.length / 3;
     if (image.palette.length > (256 - offset) * 3 || image.pixels.length !== image.width * image.height) {
       throw new Error('Invalid badge raster');

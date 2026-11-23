@@ -304,7 +304,7 @@ export function interpretRollingReadiness(
   return interpretReadinessInputs(parseReadinessInputs(results), days, liveDay);
 }
 
-/** Computes independent per-day verdicts from one parsed transactional batch. */
+/** Computes per-day verdicts for closed UTC days only. Use interpretRollingReadiness for the open day. */
 export function interpretIndividualReadiness(
   results: readonly D1Result<unknown>[], days: string[],
 ): Map<string, RollingReadiness> {
