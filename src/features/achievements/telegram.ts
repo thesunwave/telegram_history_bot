@@ -10,6 +10,7 @@ import { CONVERSATION_BADGES, getConversationProgress, getConversationStatus, se
 interface Actor { id?: number; is_bot?: boolean }
 interface Message {
   chat?: { id?: number; type?: string }; from?: Actor; message_id?: number;
+  is_topic_message?: boolean; message_thread_id?: number;
   sender_chat?: unknown; text?: string; date?: number;
 }
 interface Callback { id?: string; from?: Actor; message?: Message; data?: string }
@@ -21,6 +22,16 @@ function parseCallback(input: string): Request | null {
   if (!match || input.length > 64) return null;
   const group = Number(match[2]);
   return Number.isSafeInteger(group) && group < 0 ? { action: match[1], group, extra: match[3] } : null;
+}
+
+function callbackFeedback(req: Request | null, chat: Message['chat']): { text?: string; show_alert?: boolean } {
+  if (req && GROUP_ACTIONS.has(req.action) && chat?.id && chat.id !== req.group) {
+    const text = chat.type === 'private' ? 'Отправьте /achievements в своей группе.'
+      : 'Чтобы открыть коллекцию этой группы, отправьте здесь /achievements.';
+    return { text, show_alert: true };
+  }
+  if (req?.action === 'group-card' || req?.action === 'preview') return { text: 'Открываю карточку…' };
+  return {};
 }
 
 export async function achievementCommand(env: Env, message: Message): Promise<Request | null> {
@@ -37,12 +48,12 @@ export async function achievementCommand(env: Env, message: Message): Promise<Re
   return privateChat ? { action: 'pick', group: 0 } : { action: 'group', group: message.chat!.id! };
 }
 
-async function groupAction(env: Env, request: Request, owner: number, fromCommand: boolean): Promise<View | null> {
+async function groupAction(env: Env, request: Request, owner: number, fromCommand: boolean, threadId?: number): Promise<View | null> {
   const { group, action } = request;
   const role = await roleOf(env, group, owner);
   if (role === 'unverified') return { text: 'Telegram пока не подтвердил членство. Попробуйте позднее.' };
   if (role === 'none') return { text: 'Коллекция доступна участникам этой группы.' };
-  if (action === 'group-card') return inspect(env, group, 0, request.extra);
+  if (action === 'group-card') return inspect(env, group, 0, request.extra, threadId);
   if (action !== 'group' && role !== 'admin') return { text: 'Менять настройки может администратор группы.' };
   if (action === 'on' || action === 'off') {
     if (action === 'on' && (String(env.ENABLE_ACTIVITY_TRACKING) === 'false' || env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured')) {
@@ -78,12 +89,34 @@ async function share(env: Env, group: number, owner: number, id?: string): Promi
   const badge = [...PERSONAL_BADGES, ...CONVERSATION_BADGES].find(entry => entry.id === id);
   const award = (await listAwards(env.DB, group, owner)).find(entry => entry.badge_id === id);
   if (!badge || !award) return { text: 'Сначала нужно открыть этот бейдж.' };
-  const png = await personalCard(badge.id, badge.title, award.earned_day, award.result);
+  let png: Uint8Array<ArrayBuffer>;
+  try { png = await personalCard(badge.id, badge.title, award.earned_day, award.result); }
+  catch {
+    console.warn('Achievement card rendering failed');
+    return { text: 'Не удалось подготовить фотографию. Альбом сохранён.' };
+  }
   const delivery = await sendCard(env, owner, png, [badge.title, award.earned_day + ' UTC', award.result].join('\n'));
   return delivery.status === 'sent' ? null : { text: 'Доставку фотографии подтвердить не удалось. Альбом сохранён.' };
 }
 
-async function inspect(env: Env, group: number, owner: number, id?: string): Promise<View | null> {
+async function deliverInspection(env: Env, chatId: number, caption: string, png?: Uint8Array<ArrayBuffer>, threadId?: number) {
+  const photo = png ? await sendCard(env, chatId, png, caption, undefined, threadId) : null;
+  if (photo?.status === 'sent') return 'sent';
+  // A lost sendPhoto response may follow a successful delivery. Never repeat its content in that case.
+  const uncertain = photo?.status === 'unknown';
+  try {
+    await callTelegram(env, 'sendMessage', {
+      chat_id: chatId, text: uncertain ? 'Не удалось подтвердить доставку фотографии.' : caption,
+      ...(threadId !== undefined ? { message_thread_id: threadId } : {}),
+    });
+  } catch {
+    // Avoid replaying a possibly delivered photo or text by retrying the webhook.
+    return uncertain ? 'unknown' : 'text_fallback_unconfirmed';
+  }
+  return uncertain ? 'unknown' : 'text_fallback';
+}
+
+async function inspect(env: Env, group: number, owner: number, id?: string, threadId?: number): Promise<View | null> {
   const groupCard = owner === 0;
   if (!groupCard && !await getEnrollment(env.DB, group, owner)) return { text: 'Сначала откройте /badges.' };
   const choices = groupCard ? GROUP_BADGES : [...PERSONAL_BADGES, ...CONVERSATION_BADGES];
@@ -99,11 +132,17 @@ async function inspect(env: Env, group: number, owner: number, id?: string): Pro
       if (state.memberSince !== null) progress = (await getConversationProgress(env.DB, group, owner)).find(p => p.id === id);
     } else progress = (await getProgress(env.DB, group, owner)).find(p => p.id === id);
   }
-  const png = await collectionCard(badge.id, badge.title, badge.description, groupCard, award, progress);
-  const caption = [badge.title, badge.description, award ? award.earned_day + ' UTC · ' + award.result
+  const caption = [badge.title, badge.description, award ? 'Открыто · ' + award.earned_day + ' UTC · ' + award.result
     : progress ? 'Пока закрыто · ' + progress.result : 'Пока закрыто'].join('\n');
-  const outcome = await sendCard(env, groupCard ? group : owner, png, caption);
-  return outcome.status === 'sent' ? null : { text: 'Не удалось подтвердить доставку карточки.' };
+  let png: Uint8Array<ArrayBuffer> | undefined;
+  try {
+    png = await collectionCard(badge.id, badge.title, badge.description, groupCard, award, progress);
+  } catch {
+    console.warn('Achievement card rendering failed');
+  }
+  const status = await deliverInspection(env, groupCard ? group : owner, caption, png, threadId);
+  console.info({ event: 'achievement_card_delivery', status });
+  return null;
 }
 
 async function privateAction(env: Env, req: Request, owner: number): Promise<View | null> {
@@ -143,18 +182,24 @@ export async function handleAchievementUpdate(env: Env, update: unknown): Promis
   if (!cb && isForwardedMessage(msg)) return false;
   const req = cb ? parseCallback(cb.data!) : await achievementCommand(env, msg!);
   if (!cb && !req) return false;
+  const chat = msg?.chat;
   if (cb?.id) {
-    try { await callTelegram(env, 'answerCallbackQuery', { callback_query_id: cb.id }); }
-    catch { console.warn('Achievement callback acknowledgment unavailable'); }
+    try {
+      await callTelegram(env, 'answerCallbackQuery', {
+        callback_query_id: cb.id, ...callbackFeedback(req, chat),
+      });
+    } catch { console.warn('Achievement callback acknowledgment unavailable'); }
   }
   const caller = cb ? cb.from : msg?.from;
-  const chat = msg?.chat;
   if (!req || !chat?.id || !Number.isSafeInteger(chat.id) || !caller?.id || !Number.isSafeInteger(caller.id)
     || caller.id <= 0 || caller.is_bot || (!cb && msg?.sender_chat)) return true;
   let view: View | null;
+  let threadId: number | undefined;
   if (GROUP_ACTIONS.has(req.action)) {
     if (chat.id !== req.group || chat.id >= 0 || !['group','supergroup'].includes(chat.type || '')) return true;
-    view = await groupAction(env, req, caller.id, !cb);
+    if (msg?.is_topic_message === true && typeof msg.message_thread_id === 'number'
+      && Number.isSafeInteger(msg.message_thread_id) && msg.message_thread_id > 0) threadId = msg.message_thread_id;
+    view = await groupAction(env, req, caller.id, !cb, threadId);
   } else {
     if (chat.type !== 'private' || chat.id !== caller.id) return true;
     view = await privateAction(env, req, caller.id);
@@ -162,10 +207,12 @@ export async function handleAchievementUpdate(env: Env, update: unknown): Promis
   if (!view) return true;
   // A shared group message is visible to everyone. Send role-specific menus separately
   // and never edit the caption of the forwarded weekly photo.
-  const edit = cb?.message?.message_id && cb.message.text && chat.type === 'private';
+  const edit = cb?.message?.message_id && cb.message.text && chat.type === 'private'
+    && req.action !== 'preview' && req.action !== 'share';
   const method = edit ? 'editMessageText' : 'sendMessage';
   await callTelegram(env, method, {
     chat_id: chat.id, text: view.text,
+    ...(threadId !== undefined ? { message_thread_id: threadId } : {}),
     ...(edit ? { message_id: msg!.message_id } : {}),
     reply_markup: { inline_keyboard: view.buttons || [] },
   });

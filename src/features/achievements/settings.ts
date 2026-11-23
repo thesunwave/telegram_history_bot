@@ -19,8 +19,8 @@ export async function callbackSetupHint(env: Env): Promise<string> {
     const info = await callTelegram<{ url?: string; allowed_updates?: unknown }>(env, 'getWebhookInfo', {});
     if (info?.url && Array.isArray(info.allowed_updates) && info.allowed_updates.length &&
       !info.allowed_updates.includes('callback_query')) {
-      return '\n\nTelegram пока не доставляет нажатия на кнопки. Владельцу бота нужно заново подключить '
-        + 'webhook в /admin/setup или добавить callback_query в свой список allowed_updates.';
+      return '\n\nФильтр Telegram исключает нажатия кнопок. Владелец бота может открыть /admin/setup '
+        + 'и выбрать «Включить доставку нажатий на кнопки».';
     }
   } catch { /* This diagnostic is optional. Keep the menu available during an API outage. */ }
   return '';

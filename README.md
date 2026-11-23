@@ -209,9 +209,13 @@ start or manage a collection.
 `*/5 * * * *` scheduled trigger alongside the existing daily trigger. The current
 self-hosting template sets `ENABLE_CONVERSATION_ACHIEVEMENTS=true`. For an existing
 installation, set this flag to offer conversation badges. Each group and member still
-has to opt in before reply tracking starts. If the webhook already specifies
-`allowed_updates`, add `callback_query` (the setup page does this when reconnecting the
-webhook). Keep your deployment's current URL and webhook secret. The instance must have
+has to opt in before reply tracking starts. If commands work but inline buttons do
+not respond, the owner can check the webhook subscription at `/admin/setup`. For a
+DNS-based registration on this Worker's webhook with a known secret and no custom
+certificate, the repair button adds `callback_query` to the existing update list.
+For a manually pinned IP, custom certificate or different endpoint, re-register with
+the original URL, webhook secret and delivery options, adding `callback_query`.
+Keep pending updates when re-registering. The instance must have
 activity tracking enabled and Telegram must deliver ordinary group messages.
 
 To evaluate initial thresholds against an authorized local SQLite copy of D1, run

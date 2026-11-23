@@ -321,6 +321,104 @@ describe('owner setup', () => {
     expect(calls[0].body.allowed_updates).toEqual(['message', 'edited_message', 'my_chat_member', 'callback_query']);
   });
 
+  describe('repairing button delivery', () => {
+    const endpoint = '/admin/api/setup/webhook-callbacks';
+    const current = {
+      url: origin + '/telegram/webhook', has_custom_certificate: false,
+      allowed_updates: ['poll_answer', 'message'], max_connections: 17,
+      pending_update_count: 9, ip_address: '192.0.2.42',
+      last_error_date: 1720000000, last_error_message: 'private error details',
+    };
+    function telegram(initial: Record<string, unknown>) {
+      const info = { ...initial };
+      const writes: Record<string, unknown>[] = [];
+      vi.stubGlobal('fetch', vi.fn(async (path: string, options: RequestInit) => {
+        if (path.endsWith('/getWebhookInfo')) return Response.json({ ok: true, result: info });
+        if (!path.endsWith('/setWebhook')) throw Error('Unexpected API call');
+        const payload = JSON.parse(String(options.body));
+        writes.push(payload);
+        info.allowed_updates = payload.allowed_updates;
+        return Response.json({ ok: true, result: true });
+      }));
+      return writes;
+    }
+
+    it('exposes only sanitized status and requires a same-origin owner for a change', async () => {
+      const cookie = await ownerCookie();
+      const writes = telegram({ ...current, url: origin + '/tg/' + env.TOKEN + '/webhook' });
+      const info = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie), env);
+      const text = await info.text();
+      expect(JSON.parse(text).webhookDelivery).toEqual({
+        callbackQueries: false, requiresDnsConfirmation: true, pendingUpdateCount: 9, lastErrorDate: 1720000000,
+      });
+      for (const value of [env.TOKEN, current.ip_address, current.last_error_message, 'poll_answer', origin]) {
+        expect(text).not.toContain(value);
+      }
+      expect((await handleSetupRequest(request(endpoint, 'POST'), env)).status).toBe(401);
+      expect((await handleSetupRequest(request(endpoint, 'POST', undefined, cookie, 'https://other.example'), env)).status).toBe(403);
+      expect(writes).toHaveLength(0);
+    });
+
+    it('adds only callback_query, preserves connections and queue, and is idempotent', async () => {
+      const cookie = await ownerCookie();
+      const writes = telegram(current);
+      const repair = (body?: unknown) => handleSetupRequest(request(endpoint, 'POST', body, cookie), env);
+      for (const body of [undefined, {}, { usesDns: false }, { usesDns: 'true' }]) {
+        expect((await repair(body)).status).toBe(412);
+      }
+      expect(writes).toHaveLength(0);
+      expect(await (await repair({ usesDns: true })).json()).toEqual({ ok: true, changed: true });
+      expect(await (await repair()).json()).toEqual({ ok: true, changed: false });
+      expect(writes).toEqual([{
+        url: current.url, secret_token: await getWebhookSecret(env), max_connections: 17,
+        allowed_updates: ['poll_answer', 'message', 'callback_query'], drop_pending_updates: false,
+      }]);
+    });
+
+    it('allows the owner to repair without IP confirmation when Telegram reports no IP', async () => {
+      const cookie = await ownerCookie();
+      const writes = telegram({ ...current, ip_address: undefined });
+      const info = await handleSetupRequest(request('/admin/api/setup/status', 'GET', undefined, cookie), env);
+      expect(await info.json()).toMatchObject({ webhookDelivery: { requiresDnsConfirmation: false } });
+      expect((await handleSetupRequest(request(endpoint, 'POST', undefined, cookie), env)).status).toBe(200);
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).not.toHaveProperty('ip_address');
+    });
+
+    it.each([{ filters: undefined }, { filters: [] }, { filters: ['message', 'callback_query'] }])('leaves default or enabled update filters intact', async ({ filters }) => {
+      const writes = telegram({ ...current, allowed_updates: filters });
+      const cookie = await ownerCookie();
+      expect(await (await handleSetupRequest(request(endpoint, 'POST', undefined, cookie), env)).json())
+        .toEqual({ ok: true, changed: false });
+      expect(writes).toHaveLength(0);
+    });
+
+    it('preserves the exact legacy hosted URL and the raw secret its receiver requires', async () => {
+      const hosted = 'https://tghistory.thesunwave.space';
+      const url = 'https://telegram-history-bot.thesunwave.workers.dev/tg/' + env.TOKEN + '/webhook';
+      const writes = telegram({ ...current, url });
+      const cookie = await ownerCookie();
+      const req = new Request(hosted + endpoint, { method: 'POST', headers: { Origin: hosted, Cookie: cookie },
+        body: JSON.stringify({ usesDns: true }) });
+      expect((await handleSetupRequest(req, { ...env, PUBLIC_URL: hosted, SECRET: 'legacy-secret' })).status).toBe(200);
+      expect(writes[0]).toMatchObject({ url, secret_token: 'legacy-secret' });
+    });
+
+    it.each([
+      { url: '' }, { url: origin + '/other' }, { url: 'https://example.org/telegram/webhook' },
+      { url: 'https://telegram-history-bot.thesunwave.workers.dev/telegram/webhook' },
+      { url: 'https://user@bot.example/telegram/webhook' }, { url: current.url + '?proxy=1' },
+      { url: origin + '/tg/other/webhook' }, { url: origin + '/tg/' + env.TOKEN + '/webhook' },
+      { has_custom_certificate: true }, { has_custom_certificate: undefined },
+      { max_connections: 0 }, { max_connections: undefined }, { allowed_updates: 'message' },
+    ])('refuses a registration it cannot reconstruct safely', async overrides => {
+      const writes = telegram({ ...current, ...overrides });
+      const cookie = await ownerCookie();
+      expect((await handleSetupRequest(request(endpoint, 'POST', undefined, cookie), env)).status).toBe(409);
+      expect(writes).toHaveLength(0);
+    });
+  });
+
   it('rejects invalid provider configuration before writing to D1', async () => {
     const cookie = await ownerCookie();
     const response = await handleSetupRequest(request('/admin/api/setup/summary', 'PATCH', {

@@ -49,13 +49,14 @@ describe.each(['/telegram/webhook', '/tg/test-token/webhook'])('achievement disp
   it('authenticates before executing an admin button and produces one Telegram reply', async () => {
     const { store, calls, send, historyPut } = fixture(path);
     const update = { callback_query: { id: 'callback', data: 'ach:on:' + group, from: actor,
-      message: { chat: groupChat, message_id: 3, text: 'Коллекция чата' } } };
+      message: { chat: groupChat, message_id: 3, text: 'Коллекция чата', is_topic_message: true, message_thread_id: 312 } } };
     expect(await send(update, 'wrong')).toBe(403);
     expect(calls).toHaveLength(0);
     expect(await send(update)).toBe(200);
     expect(store.rows('SELECT enabled FROM achievement_groups WHERE chat_id=?', [group])).toEqual([{ enabled: 1 }]);
     expect(calls.filter(c => c.method === 'answerCallbackQuery')).toHaveLength(1);
     expect(calls.filter(c => c.method === 'sendMessage')).toHaveLength(1);
+    expect(calls.find(c => c.method === 'sendMessage')?.payload.message_thread_id).toBe(312);
     expect(historyPut).not.toHaveBeenCalled();
   });
 
