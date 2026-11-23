@@ -6,6 +6,7 @@ import { handleAchievementUpdate } from '../src/features/achievements/telegram';
 import { setEnrolled, setGroupEnabled } from '../src/features/achievements/repository';
 import { weeklyRules } from '../src/features/achievements/rules';
 import { DUTCH_RUDDER, DUTCH_RUDDER_RESULT } from '../src/features/achievements/social-score';
+import { setConversationGroup } from '../src/features/achievements/social';
 import { sendCard, weeklyCard } from '../src/features/achievements/cards';
 import * as badgeArtModule from '../src/features/achievements/badge-art-generated';
 
@@ -66,11 +67,14 @@ describe('Telegram achievement collections', () => {
   });
 
   it('hides the paired badge from Telegram until the owner earns it', async () => {
+    env.ENABLE_CONVERSATION_ACHIEVEMENTS = 'true';
     await setGroupEnabled(database.db, group, true);
     await setEnrolled(database.db, group, owner, true);
+    await setConversationGroup(database.db, group, true);
     const album = forward('ach:album:' + group + ':2', owner);
     const preview = forward('ach:preview:' + group + ':' + DUTCH_RUDDER.id, owner);
     await handleAchievementUpdate(env, album);
+    expect(sent.at(-1)?.text).toEqual(expect.stringContaining('Искра'));
     expect(JSON.stringify(sent.at(-1))).not.toContain(DUTCH_RUDDER.title);
     await handleAchievementUpdate(env, preview);
     expect(photos).toHaveLength(0);

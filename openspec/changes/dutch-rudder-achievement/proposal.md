@@ -6,7 +6,7 @@ Reward two participants who take turns drawing other people into each other's co
 
 ## What Changes
 
-- Award a secret personal badge to both participants after they swap roles in a group.
+- Award both participants a secret badge when each replies to the other on a different UTC date within 28 days and both replies draw two outside responders within 24 hours.
 - Reveal the award in both personal albums and permit each owner to share the card.
 
 ## Capabilities

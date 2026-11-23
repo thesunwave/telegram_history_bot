@@ -4,7 +4,8 @@ import { getEnrollment, getGroup, listAwards, type Award } from '../features/ach
 import { GROUP_BADGES, PERSONAL_BADGES, type Badge, type BadgeProgress } from '../features/achievements/rules';
 import { botUsername, socialAvailable } from '../features/achievements/settings';
 import { getConversationProgress, getConversationStatus } from '../features/achievements/social';
-import { visibleConversationBadges } from '../features/achievements/social-score';
+import { DUTCH_RUDDER, visibleConversationBadges } from '../features/achievements/social-score';
+import { badgePoster } from '../features/achievements/badge-art-generated';
 import { localizeAchievementBadge, type AdminLanguage } from './admin-i18n';
 
 export interface AdminAchievementBadge extends Badge {
@@ -12,6 +13,8 @@ export interface AdminAchievementBadge extends Badge {
   result: string | null;
   current: number | null;
   target: number | null;
+  conversation?: true;
+  posterUrl?: string;
 }
 
 function badgeList(
@@ -36,6 +39,15 @@ async function albumLink(env: Env, chat: number): Promise<string | null> {
   }
 }
 
+/** Return a secret poster only after the caller's chat access and badge ownership are verified. */
+export async function getAdminSecretPoster(env: Env, chat: number, viewer: number): Promise<Response> {
+  const awards = await listAwards(env.DB, chat, viewer);
+  if (!awards.some(award => award.badge_id === DUTCH_RUDDER.id)) {
+    return new Response(null, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
+  }
+  return badgePoster(DUTCH_RUDDER.id, 'GET', 'private');
+}
+
 /** Read the selected group's collection and only the authenticated member's own album. */
 export async function getAdminAchievements(env: Env, chat: number, viewer: number, language: AdminLanguage) {
   const [settings, groupAwards, enrollment, social] = await Promise.all([
@@ -53,7 +65,14 @@ export async function getAdminAchievements(env: Env, chat: number, viewer: numbe
     personal: {
       state: !enrollment ? 'not-enrolled' : active ? 'available' : 'paused',
       albumUrl: group.enabled || enrollment ? await albumLink(env, chat) : null,
-      badges: badgeList(language, [...PERSONAL_BADGES, ...conversation], awards, progress),
+      badges: [
+        ...badgeList(language, PERSONAL_BADGES, awards, progress),
+        ...badgeList(language, conversation, awards, progress).map(badge => ({
+          ...badge, conversation: true as const,
+          ...(badge.id === DUTCH_RUDDER.id
+            ? { posterUrl: '/admin/api/achievements/secret-poster?chatId=' + chat } : {}),
+        })),
+      ],
     },
   };
 }

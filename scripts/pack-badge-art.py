@@ -37,8 +37,11 @@ def main():
     public_posters = list(args.directory.glob("*.webp"))
     if not public_posters:
         parser.error("No WebP source artwork found")
-    secret_posters = (root / "docs/images/achievement-posters").glob("*.webp")
-    packed = {p.stem: pack(p) for p in sorted([*public_posters, *secret_posters], key=lambda p: p.stem)}
+    secret_posters = (root / "src/features/achievements/posters").glob("*.webp")
+    sources = sorted([*public_posters, *secret_posters], key=lambda path: path.stem)
+    if len({path.stem for path in sources}) != len(sources):
+        parser.error("Badge poster identifiers must be unique")
+    packed = {path.stem: pack(path) for path in sources}
     target = root / "src/features/achievements/artwork.json"
     target.write_text(json.dumps(packed, indent=2) + "\n")
 

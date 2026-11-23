@@ -39,6 +39,7 @@ function view() {
 
 const badges = catalog.map(b => localizeAchievementBadge('en', {
   ...b, earnedDay: null, current: null, target: null, result: null,
+  conversation: CONVERSATION_BADGES.some(badge => badge.id === b.id),
 }));
 const data = {
   group: { enabled: true, badges: badges.slice(0, 6) },
@@ -59,6 +60,22 @@ describe('dashboard achievement collections', () => {
     expect(all).toContainEqual(expect.objectContaining({ href: data.personal.albumUrl }));
     expect(all.filter(e => e.tag === 'progress')).toHaveLength(0);
     expect(all.map(e => e.textContent)).not.toContain('0 of 14 unlocked');
+  });
+
+  it('uses the protected URL and conversation section supplied for an earned secret badge', () => {
+    const { ui, node, html } = view();
+    const posterUrl = '/admin/api/achievements/secret-poster?chatId=-123';
+    expect(html).not.toContain('dutch-rudder');
+    ui.renderAchievements({
+      group: data.group,
+      personal: { ...data.personal, state: 'available', badges: [{
+        id: 'dutch-rudder', title: 'Dutch Rudder', earnedDay: '2026-11-23',
+        conversation: true, posterUrl,
+      }] },
+    });
+    const all = node('achievementAlbum').all();
+    expect(all).toContainEqual(expect.objectContaining({ tag: 'img', src: posterUrl }));
+    expect(all).toContainEqual(expect.objectContaining({ tag: 'h4', textContent: 'Dutch Rudder' }));
   });
 
   it('shows a dated group result, private progress and the paused-album state', () => {

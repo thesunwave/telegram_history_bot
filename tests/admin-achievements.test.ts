@@ -20,8 +20,10 @@ async function fixture() {
     ADMIN_BASIC_USER: 'operator', ADMIN_BASIC_PASSWORD: 'test-password', ENABLE_CONVERSATION_ACHIEVEMENTS: 'true',
   } as unknown as Env;
   const cookie = (await createTelegramSessionCookie(env, { id: viewer, auth_date: 0 })).split(';')[0];
-  const request = (query: string, headers: Record<string, string> = { Cookie: cookie }, method = 'GET') =>
-    handleAdminRequest(new Request('https://example.test/admin/api/achievements?' + query, { method, headers }), env);
+  const request = (query: string, headers: Record<string, string> = { Cookie: cookie }, method = 'GET',
+    endpoint = '') => handleAdminRequest(
+      new Request('https://example.test/admin/api/achievements' + endpoint + '?' + query, { method, headers }), env,
+    );
   sqlite.prepare('INSERT INTO achievement_groups(chat_id,enabled,start_day,generation) VALUES (?,1,?,?)')
     .run(chat, day, 'private-group-generation');
   const enroll = sqlite.prepare(`INSERT INTO achievement_enrollments
@@ -60,14 +62,25 @@ describe('dashboard achievements access', () => {
       VALUES (?,?,?,?,?)`);
     award.run(chat, other, DUTCH_RUDDER.id, day, DUTCH_RUDDER_RESULT);
     const read = () => request('chatId=' + chat, { Cookie: cookie, 'Accept-Language': 'en' });
+    const poster = (headers?: Record<string, string>) =>
+      request('chatId=' + chat, headers, 'GET', '/secret-poster');
     expect(await (await read()).text()).not.toContain(DUTCH_RUDDER.id);
+    expect((await poster({})).status).toBe(401);
+    expect((await poster()).status).toBe(404);
     award.run(chat, viewer, DUTCH_RUDDER.id, day, DUTCH_RUDDER_RESULT);
     sqlite.prepare('DELETE FROM conversation_groups WHERE chat_id=?').run(chat);
     const data = await (await read()).json() as { personal: { badges: AdminAchievementBadge[] } };
     expect(data.personal.badges).toContainEqual(expect.objectContaining({
       id: DUTCH_RUDDER.id, title: 'Dutch Rudder', earnedDay: day,
       result: 'You took turns at the helm, and the chat followed both times.',
+      conversation: true, posterUrl: '/admin/api/achievements/secret-poster?chatId=' + chat,
     }));
+    const image = await poster();
+    expect(image.status).toBe(200);
+    expect(image.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(image.headers.get('Content-Type')).toBe('image/png');
+    membership('left');
+    expect((await poster()).status).toBe(403);
   });
 
   it('reads only group awards and the signed-in member’s own album from a read-only database', async () => {

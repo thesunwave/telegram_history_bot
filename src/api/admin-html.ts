@@ -1,5 +1,4 @@
 import { AdminLanguage, adminClientI18n, createAdminTranslator } from './admin-i18n';
-import { CONVERSATION_BADGES, DUTCH_RUDDER } from '../features/achievements/social-score';
 
 interface AdminHtmlOptions {
   language?: AdminLanguage;
@@ -2233,7 +2232,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       image.alt = '';
       image.width = image.height = 168;
       image.loading = 'lazy';
-      image.src = '/admin/badge-art/' + encodeURIComponent(badge.id) + '.png';
+      image.src = badge.posterUrl || '/admin/badge-art/' + encodeURIComponent(badge.id) + '.png';
       const body = el('div', 'badgeBody');
       body.append(el('span', 'badgeState', badge.earnedDay ? ${js('Открыт')} : ${js('Закрыт')}),
         el(heading, '', badge.title), el('p', 'badgeDescription', badge.description));
@@ -2288,9 +2287,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     function renderAchievements({ group, personal }) {
       const groupShelf = achievementShelf(${js('Коллекция чата')}, group.badges, group.enabled ? '' :
         ${js('Недельные карточки выключены. Администратор может включить их в Telegram командой /achievements.')}, { groupAward: true });
-      const socialIds = ${JSON.stringify([...CONVERSATION_BADGES, DUTCH_RUDDER].map(badge => badge.id))};
-      const social = personal.badges.filter(badge => socialIds.includes(badge.id));
-      const regular = personal.badges.filter(badge => !socialIds.includes(badge.id));
+      const social = personal.badges.filter(badge => badge.conversation);
+      const regular = personal.badges.filter(badge => !badge.conversation);
       let hint = '';
       if (personal.state === 'not-enrolled') hint = group.enabled
         ? ${js('Откройте /badges в личной переписке с ботом и выберите эту группу, чтобы начать коллекцию.')}

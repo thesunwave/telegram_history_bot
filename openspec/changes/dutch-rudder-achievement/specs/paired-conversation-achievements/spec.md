@@ -2,7 +2,7 @@
 
 ### Requirement: Dutch Rudder unlocks for both participants
 
-The bot SHALL award «Голландский штурвал» to both participants in one atomic write. In the same chat and rolling 28-day window, each must directly reply to the other on a different UTC date and draw direct replies from two distinct people outside the pair within 24 hours of that reply. Only verified replies from consenting participants qualify.
+The bot SHALL award «Голландский штурвал» to both participants in one atomic write. In the same chat and rolling 28-day window, each must directly reply to the other on a different UTC date and draw direct replies from two distinct people outside the pair within 24 hours. The chat must enable the conversation shelf and the two recipients and all outside responders must individually opt in. Windows use Telegram message timestamps.
 
 #### Scenario: Two successful branches with reversed roles
 
@@ -16,7 +16,7 @@ The bot SHALL award «Голландский штурвал» to both participan
 
 ### Requirement: The secret stays out of a locked collection
 
-The Telegram album and dashboard SHALL reveal the badge only to an album owner who earned it. The poster and unlock text SHALL appear with the earned badge, and each recipient SHALL be able to share their own card.
+The Telegram album and dashboard SHALL reveal the badge only to an album owner who earned it. The poster and unlock text SHALL appear with the earned badge, and each recipient SHALL be able to share their own card. The dashboard SHALL require membership and an earned award before serving the poster.
 
 #### Scenario: An album has no award
 

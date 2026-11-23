@@ -40,6 +40,7 @@ it('serves the portable dashboard poster without chat data or a landing binding'
   expect(head.status).toBe(200);
   expect(await head.text()).toBe('');
   expect((await fetchPoster('missing')).status).toBe(404);
+  expect((await fetchPoster(DUTCH_RUDDER.id)).status).toBe(404);
   expect((await fetchPoster('spark', 'POST')).status).toBe(405);
 });
 
