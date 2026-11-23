@@ -314,7 +314,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     }
     .achievementCard { overflow: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
     .achievementCard img { display: block; width: 100%; height: auto; aspect-ratio: 1; background: var(--surface); }
-    .achievementCard.locked img { filter: saturate(.55); }
+    .achievementCard.locked img { filter: grayscale(1); opacity: .72; }
     .badgeBody { padding: 14px; overflow-wrap: anywhere; }
     .badgeBody h3, .badgeBody h4 { margin: 4px 0 6px; font-size: 17px; }
     .badgeBody p { margin: 6px 0 0; font-size: 13px; }
