@@ -5,6 +5,8 @@ import { createRealD1 } from './helpers/real-d1';
 import { handleAchievementUpdate } from '../src/features/achievements/telegram';
 import { setEnrolled, setGroupEnabled } from '../src/features/achievements/repository';
 import { weeklyRules } from '../src/features/achievements/rules';
+import { DUTCH_RUDDER, DUTCH_RUDDER_RESULT } from '../src/features/achievements/social-score';
+import { setConversationGroup } from '../src/features/achievements/social';
 import { sendCard, weeklyCard } from '../src/features/achievements/cards';
 import * as badgeArtModule from '../src/features/achievements/badge-art-generated';
 
@@ -62,6 +64,27 @@ describe('Telegram achievement collections', () => {
     const forwarded = command('/badges', group);
     expect(await handleAchievementUpdate(env, { message: { ...forwarded.message, forward_date: 55 } })).toBe(false);
     expect(methods).toEqual([]);
+  });
+
+  it('hides the paired badge from Telegram until the owner earns it', async () => {
+    env.ENABLE_CONVERSATION_ACHIEVEMENTS = 'true';
+    await setGroupEnabled(database.db, group, true);
+    await setEnrolled(database.db, group, owner, true);
+    await setConversationGroup(database.db, group, true);
+    const album = forward('ach:album:' + group + ':2', owner);
+    const preview = forward('ach:preview:' + group + ':' + DUTCH_RUDDER.id, owner);
+    await handleAchievementUpdate(env, album);
+    expect(sent.at(-1)?.text).toEqual(expect.stringContaining('Искра'));
+    expect(JSON.stringify(sent.at(-1))).not.toContain(DUTCH_RUDDER.title);
+    await handleAchievementUpdate(env, preview);
+    expect(photos).toHaveLength(0);
+
+    database.sqlite.prepare(`INSERT INTO achievement_awards(chat_id,user_id,badge_id,earned_day,result)
+      VALUES(?,?,?,'2026-11-23',?)`).run(group, owner, DUTCH_RUDDER.id, DUTCH_RUDDER_RESULT);
+    await handleAchievementUpdate(env, album);
+    expect(sent.at(-1)?.text).toEqual(expect.stringContaining(DUTCH_RUDDER_RESULT));
+    await handleAchievementUpdate(env, forward('ach:share:' + group + ':' + DUTCH_RUDDER.id, owner));
+    expect(photos[0]?.get('caption')).toBe(DUTCH_RUDDER.title + '\n2026-11-23 UTC\n' + DUTCH_RUDDER_RESULT);
   });
 
   it('checks admin privileges on every group switch and offers the scoped private link', async () => {

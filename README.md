@@ -194,7 +194,8 @@ manual channel reposts. Once a UTC day closes, the bot evaluates progress in bat
 Only the album owner can open it and choose a badge to share. Pausing keeps unlocks,
 and deleting an album removes that person's achievement progress and awards for that group.
 
-Groups and individual participants can separately enable four conversation badges.
+Groups and individual participants can separately enable the conversation shelf.
+Four badges are visible up front, and a rare paired badge appears when earned.
 For example, **Spark** recognizes three different participants replying directly to the
 same message within 48 hours. This uses message and parent IDs, author IDs and timestamps
 from eligible participants. The evidence window is 28 days, with scheduled expiry.

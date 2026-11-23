@@ -3,7 +3,8 @@ import { shiftDay } from './calendar';
 import { getEnrollment, getGroup, listAwards } from './repository';
 import { GROUP_BADGES, PERSONAL_BADGES, type BadgeProgress } from './rules';
 import { button, botUsername, groupTitle, socialAvailable, type Buttons, type View } from './settings';
-import { CONVERSATION_BADGES, getConversationProgress, getConversationStatus } from './social';
+import { getConversationProgress, getConversationStatus } from './social';
+import { visibleConversationBadges } from './social-score';
 
 export async function groupCollection(env: Env, chat: number, user: number, admin: boolean): Promise<View> {
   const group = await getGroup(env.DB, chat);
@@ -56,7 +57,7 @@ export async function personalAlbum(env: Env, chat: number, owner: number, page 
     socialAvailable(env) ? getConversationStatus(env.DB, chat, owner) : { groupSince: null, memberSince: null },
   ]);
   // Retain earned social badges when the group later turns off reply observation.
-  const extra = CONVERSATION_BADGES.filter(b => social.groupSince !== null || awards.some(a => a.badge_id === b.id));
+  const extra = visibleConversationBadges(social.groupSince !== null, awards);
   const badges = [...PERSONAL_BADGES, ...extra];
   const socialProgress = social.memberSince !== null ? await getConversationProgress(env.DB, chat, owner) : [];
   const size = 5;

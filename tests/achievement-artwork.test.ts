@@ -3,7 +3,7 @@ import { inflateSync } from 'node:zlib';
 import worker from '../src/index';
 import type { Env } from '../src/core/env';
 import { GROUP_BADGES, PERSONAL_BADGES } from '../src/features/achievements/rules';
-import { CONVERSATION_BADGES } from '../src/features/achievements/social-score';
+import { CONVERSATION_BADGES, DUTCH_RUDDER } from '../src/features/achievements/social-score';
 import { badgeArt } from '../src/features/achievements/badge-art-generated';
 import { CardCanvas } from '../src/features/achievements/cards-raster';
 import artwork from '../src/features/achievements/artwork.json';
@@ -40,6 +40,7 @@ it('serves the portable dashboard poster without chat data or a landing binding'
   expect(head.status).toBe(200);
   expect(await head.text()).toBe('');
   expect((await fetchPoster('missing')).status).toBe(404);
+  expect((await fetchPoster(DUTCH_RUDDER.id)).status).toBe(404);
   expect((await fetchPoster('spark', 'POST')).status).toBe(405);
 });
 
@@ -53,7 +54,7 @@ it('rejects an image box that would overwrite a neighboring PNG scanline', () =>
 });
 
 it('ships a distinct decodable poster for every available achievement', async () => {
-  const ids = [...GROUP_BADGES, ...PERSONAL_BADGES, ...CONVERSATION_BADGES].map(b => b.id);
+  const ids = [...GROUP_BADGES, ...PERSONAL_BADGES, ...CONVERSATION_BADGES, DUTCH_RUDDER].map(b => b.id);
   expect(Object.keys(artwork).sort()).toEqual(ids.sort());
   const content = new Set<string>();
   for (const id of ids) {
@@ -68,6 +69,6 @@ it('ships a distinct decodable poster for every available achievement', async ()
     expect(Math.max(...used), id).toBeLessThan(image!.palette.length / 3);
     content.add(Buffer.from(await crypto.subtle.digest('SHA-256', image!.pixels)).toString('hex'));
   }
-  expect(content.size).toBe(20);
+  expect(content.size).toBe(ids.length);
   expect(await badgeArt('__proto__')).toBeNull();
 });

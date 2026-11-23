@@ -1,7 +1,9 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import { DAY } from '../../core/env';
 import type { BadgeProgress } from './rules';
-import { asProgress, CONVERSATION_BADGES, SCORE_SQL } from './social-score';
+import {
+  asProgress, CONVERSATION_BADGES, DUTCH_RUDDER, DUTCH_RUDDER_AWARD_SQL, DUTCH_RUDDER_RESULT, SCORE_SQL,
+} from './social-score';
 
 export { CONVERSATION_BADGES } from './social-score';
 
@@ -106,6 +108,7 @@ async function flushPending(db: D1Database, chat: number | null, ts: number, lim
         WHERE current>=target AND EXISTS (
           SELECT 1 FROM conversation_members WHERE chat_id=scope.chat AND user_id=scope.owner
         )`).bind(chat_id, user_id, ts - RETENTION, ts),
+      db.prepare(DUTCH_RUDDER_AWARD_SQL).bind(chat_id, user_id, ts - RETENTION, ts, DUTCH_RUDDER_RESULT),
       db.prepare('DELETE FROM conversation_dirty WHERE chat_id=? AND user_id=?').bind(chat_id, user_id),
     ]);
   }
@@ -147,16 +150,25 @@ export async function observeConversationMessage(db: D1Database, value: unknown,
     WHERE ${touched} AND verified=0 AND parent_id IS NOT NULL
       AND EXISTS (SELECT 1 FROM conversation_messages p WHERE p.chat_id=c.chat_id
         AND p.message_id=c.parent_id AND p.user_id=c.parent_user AND p.sent_at=c.parent_sent)`).bind(...key);
-  const badgeIds = CONVERSATION_BADGES.map(badge => badge.id);
-  const enqueue = db.prepare(`INSERT OR IGNORE INTO conversation_dirty(chat_id,user_id)
+  const badgeIds = [...CONVERSATION_BADGES.map(badge => badge.id), DUTCH_RUDDER.id];
+  // A new outsider reply can finish a pair's branch even when the reply's
+  // immediate parent has already earned the secret badge with someone else.
+  const enqueue = db.prepare(`WITH updated AS MATERIALIZED (
+      SELECT * FROM conversation_messages WHERE ${touched} AND verified=1
+    )
+    INSERT OR IGNORE INTO conversation_dirty(chat_id,user_id)
     SELECT chat_id,user_id FROM (
-      SELECT chat_id,user_id FROM conversation_messages WHERE ${touched} AND verified=1
+      SELECT chat_id,user_id FROM updated
       UNION
-      SELECT chat_id,parent_user FROM conversation_messages WHERE ${touched} AND verified=1
+      SELECT chat_id,parent_user FROM updated
+      UNION
+      SELECT u.chat_id,p.parent_user FROM updated u JOIN conversation_messages p
+        ON p.chat_id=u.chat_id AND p.message_id=u.parent_id
+      WHERE p.verified=1
     ) endpoints WHERE (SELECT COUNT(*) FROM achievement_awards a
       WHERE a.chat_id=endpoints.chat_id AND a.user_id=endpoints.user_id
         AND a.badge_id IN (${badgeIds.map(() => '?').join(',')})) < ?`)
-    .bind(...key, ...key, ...badgeIds, badgeIds.length);
+    .bind(...key, ...badgeIds, badgeIds.length);
   const [, links, queued] = await db.batch([insert, verify, enqueue]);
   if (links.meta.changes || queued.meta.changes || parent) await flushPending(db, child.chat, ts, 8);
 }

@@ -1,3 +1,5 @@
+import { DUTCH_RUDDER, DUTCH_RUDDER_RESULT } from '../features/achievements/social-score';
+
 /**
  * Russian/English copy for the admin dashboard. Russian is the canonical
  * source language. Translation keys use the Russian strings from the templates.
@@ -568,10 +570,12 @@ const EN_BADGES: Record<string, [string, string]> = {
   spark: ['Spark', 'Get direct replies from three different people to the same message within 48 hours.'],
   connector: ['The Connector', 'Get replies from three different people to your own direct replies within 28 days.'],
   'to-be-continued': ['To Be Continued', 'Reply to a message after one to seven days and get a reply within 24 hours.'],
+  [DUTCH_RUDDER.id]: ['Dutch Rudder', 'Within 28 days, take turns replying to each other on separate days. Each reply must draw direct replies from two members outside the pair within 24 hours.'],
 };
 
 // Old awards retain their original result, including minute-only Podcast Studio records.
 const EN_AWARD_TERMS: Record<string, string> = {
+  [DUTCH_RUDDER_RESULT]: 'You took turns at the helm, and the chat followed both times.',
   'сообщений, прежний рекорд': 'messages, previous record',
   'Разных лидеров': 'Different leaders', 'Дней за круглым столом': 'Round-table days',
   'Минут': 'Minutes', ' мин': ' min', ' с,': ' s,', 'записей': 'recordings',
