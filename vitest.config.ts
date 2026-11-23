@@ -6,7 +6,9 @@ export default defineConfig({
     testTimeout: 30000, // Increased timeout to handle complex tests
     hookTimeout: 10000, // Increased timeout for setup/teardown
     teardownTimeout: 5000, // Increased teardown timeout
-    pool: "threads",
+    // The D1 integration tests load a native SQLite addon. A separate process
+    // prevents its V8 finalizers from running after a worker thread unloads it.
+    pool: "forks",
     fileParallelism: false, // Run test files sequentially to avoid race conditions
     isolate: true, // Isolate modules between test files to prevent mock leakage
     globals: true,

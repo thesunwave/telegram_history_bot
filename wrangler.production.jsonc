@@ -139,6 +139,7 @@
     "ENABLE_PROFANITY_FROM_CRIMINAL_PREFILTER": true,
     "ENABLE_SUMMARY": false,
     "ENABLE_ACTIVITY_TRACKING": true,
+    "ENABLE_CONVERSATION_ACHIEVEMENTS": true,
     // ========================================
     // 🚀 OPTIMIZED SUMMARY SYSTEM CONFIG
     // ========================================
@@ -231,6 +232,7 @@
   "triggers": {
     "crons": [
       "59 23 * * *",
+      "*/5 * * * *",
     ],
   },
   "analytics_engine_datasets": [

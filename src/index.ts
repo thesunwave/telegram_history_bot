@@ -15,6 +15,9 @@ import {
   cleanupOldData
 } from "./features/stats/stats";
 import { handleUpdate, recordForwardedUpdate, recordMessage, getTextMessage } from "./api/update";
+import { handleAchievementUpdate } from "./features/achievements/telegram";
+import { observeConversationMessage, pruneConversationEvidence } from "./features/achievements/social";
+import { ACHIEVEMENT_CRON, runAchievementJobs } from "./features/achievements/jobs";
 import { handleAdminRequest } from "./api/admin";
 import { recordBotMembership } from "./api/admin-installations";
 import { telegramLoginConfig, telegramLoginSession } from "./api/telegram-oidc";
@@ -74,6 +77,28 @@ function adminUnavailableResponse(requestId: string): Response {
   );
 }
 
+function conversationEnabled(env: Env): boolean {
+  return String(env.ENABLE_CONVERSATION_ACHIEVEMENTS) === 'true'
+    && String(env.ENABLE_ACTIVITY_TRACKING) !== 'false';
+}
+
+async function acceptTelegramUpdate(update: unknown, env: Env, ctx: ExecutionContext, origin: string) {
+  if (await handleAchievementUpdate(env, update)) return Response.json({});
+  if (!(await recordForwardedUpdate(update, env))) {
+    return new Response("Forward statistics temporarily unavailable", { status: 503 });
+  }
+  const incoming = (update as { message?: unknown } | null)?.message;
+  if (incoming && conversationEnabled(env)) {
+    ctx.waitUntil(observeConversationMessage(env.DB, incoming).catch(() => {
+      Logger.warn('Conversation evidence unavailable', { op: 'observeReply' });
+    }));
+  }
+  const message = getTextMessage(update);
+  await recordMessage(message, env, ctx);
+  ctx.waitUntil(handleUpdate(message, env, origin));
+  return Response.json({});
+}
+
 export default {
   async fetch(
     req: Request,
@@ -120,13 +145,7 @@ export default {
       if ((update as any).my_chat_member) {
         await recordBotMembership(env, (update as any).my_chat_member, (update as any).update_id);
       }
-      if (!(await recordForwardedUpdate(update, env))) {
-        return new Response("Forward statistics temporarily unavailable", { status: 503 });
-      }
-      const message = getTextMessage(update);
-      await recordMessage(message, env, ctx);
-      ctx.waitUntil(handleUpdate(message, env, url.origin));
-      return Response.json({});
+      return acceptTelegramUpdate(update, env, ctx, url.origin);
     }
 
     if (url.pathname === TELEMETRY_PATH && req.method === "POST") {
@@ -331,19 +350,7 @@ export default {
         isBot: (update as any).message?.from?.is_bot,
       });
 
-      if (!(await recordForwardedUpdate(update, env))) {
-        return new Response("Forward statistics temporarily unavailable", { status: 503 });
-      }
-      const msg = getTextMessage(update);
-      Logger.debug(env, "getTextMessage result", {
-        hasMessage: Boolean(msg),
-        textLength: msg?.text?.length ?? 0,
-        isCommand: msg?.text?.startsWith("/") ?? false,
-      });
-
-      await recordMessage(msg, env, ctx);
-      ctx.waitUntil(handleUpdate(msg, env, url.origin));
-      return Response.json({});
+      return acceptTelegramUpdate(update, env, ctx, url.origin);
     }
 
 
@@ -824,6 +831,12 @@ export default {
     // summary, and cleanup. The exact daily cron (`59 23 * * *`) keeps its
     // original behavior; any unknown cron no-ops safely.
     const cron = event && typeof event.cron === "string" ? event.cron : "";
+    if (cron === ACHIEVEMENT_CRON) {
+      if (env.RAW_MESSAGE_STORAGE_MODE !== 'unconfigured' && String(env.ENABLE_ACTIVITY_TRACKING) !== 'false') {
+        await runAchievementJobs(env, new Date(event.scheduledTime));
+      }
+      return;
+    }
     if (cron === BACKFILL_CRON) {
       try {
         const summary = await runDailyAggregateBackfill(env);
@@ -839,6 +852,11 @@ export default {
     if (cron !== DAILY_SUMMARY_CRON) {
       return;
     }
+
+    // Expire previously collected evidence even after the installation turns observation off.
+    if (env.DB) _ctx?.waitUntil(pruneConversationEvidence(env.DB).catch(() => {
+      Logger.warn('Conversation evidence expiry failed', { op: 'expireReplies' });
+    }));
 
     // Initialize provider for scheduled events if not already initialized
     if (!ProviderInitializer.isProviderInitialized()) {

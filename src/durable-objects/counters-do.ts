@@ -538,14 +538,32 @@ export class CountersDO {
       }
     } else if (endpoint === '/pipeline-snapshots') {
       let days: string[];
+      let verifyEmpty = false;
       try {
-        const rawDays = (await request.json() as { days?: unknown }).days;
-        days = this.parsePipelineSnapshotDays(rawDays);
+        const input = await request.json() as { days?: unknown; verifyEmpty?: boolean };
+        days = this.parsePipelineSnapshotDays(input.days);
+        verifyEmpty = input.verifyEmpty === true;
       } catch {
         return new Response('Bad request', { status: 400 });
       }
       try {
-        const snapshots = await this.state.blockConcurrencyWhile(() => this.pipelineSnapshots(days));
+        const snapshots = await this.state.blockConcurrencyWhile(async () => {
+          const proof = await this.pipelineSnapshots(days);
+          if (!verifyEmpty) return proof;
+          const emptyDays: string[] = [];
+          for (const row of proof.days) {
+            if (row.initialized || row.accepted !== 0) continue;
+            // A failed first write can leave an integrity fence before allocating a sequence.
+            // The absence of the marker alone is not an empty-day proof.
+            const traces = await Promise.all([
+              this.dayProofKey(row.day), this.seqKey(row.day), this.totChatKey(row.day),
+              ...PROGRESS_CATEGORIES.map(category => this.integrityStateKey(row.day, category)),
+              ...PROGRESS_CATEGORIES.map(category => this.progressStateKey(row.day, category)),
+            ].map(key => this.storage().get(key)));
+            if (traces.every(value => value === undefined)) emptyDays.push(row.day);
+          }
+          return { ...proof, emptyDays };
+        });
         return new Response(JSON.stringify(snapshots), {
           headers: { 'content-type': 'application/json' },
         });

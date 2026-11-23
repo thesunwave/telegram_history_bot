@@ -1,6 +1,7 @@
 export type ProviderType = "cloudflare" | "openai" | "openai-premium" | "openrouter" | "legal-rag" | "mock";
 
 export interface Env {
+  ENABLE_CONVERSATION_ACHIEVEMENTS?: boolean | string;
   LANDING?: { fetch(request: Request): Promise<Response> };
   HISTORY: import("@cloudflare/workers-types").KVNamespace;
   // Legacy stats KV. Counters live in D1; only the one-off KV -> D1 daily

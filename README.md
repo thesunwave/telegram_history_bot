@@ -167,6 +167,41 @@ The anonymous install ping is described [below](#anonymous-usage-ping).
 
 ## Commands
 
+### Achievement albums
+
+In a group, an administrator opens `/achievements` and enables the shared collection.
+After the first complete Monday–Sunday UTC week with verified activity the bot can post
+a weekly photo. The group can earn six badges, including **Choir** when four different
+participants send voice notes in the same week. The weekly photo is safe to forward and
+contains group totals only.
+
+Open `/badges` in private or tap **Мои бейджи** in the group to start a personal album
+for that group. Ten badges cover participation, time of day, voice and video notes and
+manual channel reposts. Once a UTC day closes, the bot evaluates progress in batches.
+Only the album owner can open it and choose a badge to share. Pausing keeps unlocks,
+and deleting an album removes that person's achievement progress and awards for that group.
+
+Groups and individual participants can separately enable four conversation badges.
+For example, **Spark** recognizes three different participants replying directly to the
+same message within 48 hours. This uses message and parent IDs, author IDs and timestamps
+from eligible participants. The evidence window is 28 days, with scheduled expiry.
+Albums and cards work in Statistics Only mode.
+
+**Upgrading self-hosted installations.** Apply the D1 migrations and include the
+`*/5 * * * *` scheduled trigger alongside the existing daily trigger. To offer conversation
+badges set `ENABLE_CONVERSATION_ACHIEVEMENTS=true`. If the webhook already specifies
+`allowed_updates`, add `callback_query` (the setup page does this when reconnecting the
+webhook). Keep your deployment's current URL and webhook secret. The instance must have
+activity tracking enabled and Telegram must deliver ordinary group messages.
+
+To evaluate initial thresholds against an authorized local SQLite copy of D1, run
+`node --experimental-strip-types scripts/calibrate-achievements.mjs SNAPSHOT.sqlite FROM TO`
+with closed UTC dates in YYYY-MM-DD format. The tool reads the snapshot and emits cohort
+counts and unlock rates. Offline results exclude live coverage that requires a matching
+Durable Object proof.
+
+### Statistics and settings
+
 - `/summary <days>` – summary for last N days (default 1)
 - `/summary_last <n>` – summary of last N messages (default 100, max 1000)
 - `/top <n>` – top N active users for today (default 5)

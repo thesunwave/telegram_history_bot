@@ -483,7 +483,7 @@ export async function handleSetupRequest(req: Request, env: Env): Promise<Respon
       await telegramApi(env, 'setWebhook', {
         url: url.origin + '/telegram/webhook',
         secret_token: secret,
-        allowed_updates: ['message', 'edited_message', 'my_chat_member'],
+        allowed_updates: ['message', 'edited_message', 'my_chat_member', 'callback_query'],
       });
       return Response.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
     } catch {
