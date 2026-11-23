@@ -18,7 +18,7 @@ export async function badgeArt(id: string) {
   return { width: SIDE, height: SIDE, palette: decode(entry.colors), pixels };
 }
 
-/** Serve only the public illustrations bundled with the bot, including on self-hosted installs. */
+/** Serve bundled artwork. Callers must verify ownership before requesting private artwork. */
 export async function badgePoster(
   id: string, method: string, access: 'public' | 'private' = 'public',
 ): Promise<Response> {
