@@ -41,12 +41,48 @@ export function renderInstallationsHtml(): string {
     <button type="button" id="refreshInstallations">Обновить установки</button>
     <div class="tableScroll">
       <table aria-label="Установки бота">
-        <thead><tr><th>Чат / ID</th><th>Тип</th><th>Статус бота</th><th>Последняя установка</th><th>Изменение статуса</th><th>Последнее сообщение</th></tr></thead>
+        <thead><tr><th>Чат / ID</th><th>Достижения</th><th>Тип</th><th>Статус бота</th><th>Последняя установка</th><th>Изменение статуса</th><th>Последнее сообщение</th></tr></thead>
         <tbody id="installationRows"></tbody>
       </table>
     </div>
   </section>
 </main><script>
+    function achievementsCell(row) {
+      const cell = document.createElement('td');
+      if (row.achievementsEnabled !== false) {
+        cell.textContent = row.achievementsEnabled === true ? 'Включены' : '—';
+        return cell;
+      }
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = 'Включить';
+      button.setAttribute('aria-label', 'Включить достижения в чате «' + row.title + '»');
+      const status = document.createElement('div');
+      status.setAttribute('role', 'status');
+      cell.append(button, status);
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        status.textContent = 'Включаем…';
+        try {
+          const res = await fetch('/admin/api/installations/achievements?chatId=' +
+            encodeURIComponent(row.chatId), { method: 'POST' });
+          const body = await res.json();
+          if (!res.ok || body.ok !== true) {
+            status.textContent = res.status === 401 ? 'Войдите в админку ещё раз.'
+              : body.error || 'Не удалось включить достижения. Попробуйте ещё раз.';
+            return;
+          }
+          button.hidden = true;
+          status.textContent = 'Включены';
+        } catch {
+          status.textContent = 'Не удалось включить достижения. Попробуйте ещё раз.';
+        } finally {
+          button.disabled = false;
+        }
+      });
+      return cell;
+    }
+
     async function loadInstallations() {
       const panel = document.getElementById('installationsPanel');
       const summary = document.getElementById('installationsSummary');
@@ -98,6 +134,7 @@ export function renderInstallationsHtml(): string {
         const date = value => value ? new Date(value * 1000).toLocaleString('ru-RU') : 'Неизвестно';
         for (const row of rows) {
           const tr = document.createElement('tr');
+          tr.id = 'installation-' + row.chatId;
           const membership = row.membership;
           const values = [row.title + ' (' + row.chatId + ')', types[row.type] || 'Неизвестно',
             membership ? statuses[membership.status] + (membership.active ? ' · активен' : ' · неактивен') : 'Неизвестно',
@@ -107,11 +144,14 @@ export function renderInstallationsHtml(): string {
             cell.textContent = value;
             tr.append(cell);
           }
+          tr.insertBefore(achievementsCell(row), tr.children[1]);
           tbody.append(tr);
         }
+        const targetRow = document.getElementById(location.hash.slice(1));
+        if (targetRow?.parentElement === tbody) targetRow.scrollIntoView({ block: 'center' });
         if (!rows.length) {
           const cell = document.createElement('td');
-          cell.colSpan = 6;
+          cell.colSpan = 7;
           cell.textContent = 'Известных установок пока нет';
           const tr = document.createElement('tr');
           tr.append(cell);

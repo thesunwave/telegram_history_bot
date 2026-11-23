@@ -1,7 +1,8 @@
 import type { Env } from '../core/env';
 import { BOT_MEMBERSHIP_PREFIX } from '../core/consts';
-import { pauseGroupDependents } from '../features/achievements/repository';
-import { listAdminChats, saveAdminChatMeta } from './admin-chats';
+import { getGroup, pauseGroupDependents, setGroupEnabled } from '../features/achievements/repository';
+import { callTelegram } from '../features/achievements/settings';
+import { isTelegramUserInChat, listAdminChats, saveAdminChatMeta, type AdminChatMeta } from './admin-chats';
 
 const MEMBER_STATUSES = ['creator', 'administrator', 'member', 'restricted', 'left', 'kicked'];
 
@@ -38,6 +39,14 @@ async function readInstallation(env: Env, chatId: number): Promise<InstallationS
   } catch {
     return null;
   }
+}
+
+function isGroup(type?: string): boolean {
+  return type === 'group' || type === 'supergroup';
+}
+
+function canBeGroup(chat: AdminChatMeta): boolean {
+  return chat.chatId < 0 && (!chat.type || isGroup(chat.type));
 }
 
 /** Records bot membership events without storing the actor or Telegram payload. */
@@ -117,12 +126,49 @@ export async function listBotInstallations(env: Env) {
   const chats = await listAdminChats(env);
   const installations = [];
   for (let offset = 0; offset < chats.length; offset += 10) {
-    installations.push(...await Promise.all(chats.slice(offset, offset + 10).map(async (chat) => ({
-      ...chat,
-      membership: await readInstallation(env, chat.chatId),
-    }))));
+    installations.push(...await Promise.all(chats.slice(offset, offset + 10).map(async chat => {
+      const [membership, achievements] = await Promise.all([
+        readInstallation(env, chat.chatId),
+        canBeGroup(chat) ? getGroup(env.DB, chat.chatId) : null,
+      ]);
+      const achievementsEnabled = canBeGroup(chat) && membership?.active !== false
+        ? Boolean(achievements?.enabled) : null;
+      return { ...chat, membership, achievementsEnabled };
+    })));
   }
   return installations;
+}
+
+/** Activate a known group for the verified bot owner. Bot removal still fences the write. */
+export async function enableInstallationAchievements(env: Env, chatId: number): Promise<Response> {
+  const json = (body: { ok: true } | { error: string }, status = 200) =>
+    Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+  const chat = (await listAdminChats(env)).find(entry => entry.chatId === chatId);
+  if (!chat || !canBeGroup(chat)) return json({ error: 'Этой группы нет в установках бота.' }, 404);
+  if (String(env.ENABLE_ACTIVITY_TRACKING) === 'false' || env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured') {
+    return json({ error: 'Сначала включите сбор статистики в настройках бота.' }, 409);
+  }
+  const installation = await readInstallation(env, chatId);
+  if (installation?.active === false) return json({ error: 'Бот больше не подключён к этой группе.' }, 409);
+
+  try {
+    if (!chat.type) {
+      const live = await callTelegram<{ type: string }>(env, 'getChat', { chat_id: chatId });
+      if (!isGroup(live.type)) return json({ error: 'Достижения доступны только в группах.' }, 404);
+    }
+    if (!installation) {
+      const bot = await callTelegram<{ id: number }>(env, 'getMe', {});
+      if (!Number.isSafeInteger(bot.id) || bot.id <= 0) throw new Error('Bot identity unavailable');
+      if (!await isTelegramUserInChat(env, chatId, bot.id)) {
+        return json({ error: 'Бот больше не подключён к этой группе.' }, 409);
+      }
+    }
+  } catch {
+    return json({ error: 'Telegram не подтвердил подключение бота. Попробуйте ещё раз.' }, 503);
+  }
+
+  const updated = await setGroupEnabled(env.DB, chatId, true);
+  return updated?.enabled ? json({ ok: true }) : json({ error: 'Бот больше не подключён к этой группе.' }, 409);
 }
 
 /** Anonymous self-hosted installations received by the hosted instance; owner-only data. */
