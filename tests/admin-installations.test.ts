@@ -92,6 +92,9 @@ describe('bot installations', () => {
       headers: { ...origin, Cookie: owner },
     }), env);
     expect(get.status).toBe(405);
+    env.ENABLE_ACTIVITY_TRACKING = 'false';
+    expect((await enable(-100, { ...origin, Cookie: owner })).status).toBe(409);
+    env.ENABLE_ACTIVITY_TRACKING = 'true';
     await recordBotMembership(env, event(120, 'kicked', 'member'));
     expect((await enable(-100, { ...origin, Cookie: owner })).status).toBe(409);
     expect(database.rows('SELECT * FROM achievement_groups')).toEqual([]);
@@ -105,14 +108,18 @@ describe('bot installations', () => {
     const telegram = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Telegram unavailable'));
     expect((await enable(-100, headers)).status).toBe(503);
     expect(database.rows('SELECT * FROM achievement_groups')).toEqual([]);
+    let botStatus = 'left';
     telegram.mockImplementation(async (request, init) => {
       const method = String(request).split('/').at(-1);
       if (method === 'getChat') return Response.json({ ok: true, result: { type: 'supergroup' } });
       if (method === 'getMe') return Response.json({ ok: true, result: { id: 12345 } });
       expect(method).toBe('getChatMember');
       expect(JSON.parse(String(init?.body))).toEqual({ chat_id: -100, user_id: 12345 });
-      return Response.json({ ok: true, result: { status: 'member' } });
+      return Response.json({ ok: true, result: { status: botStatus } });
     });
+    expect((await enable(-100, headers)).status).toBe(409);
+    expect(database.rows('SELECT * FROM achievement_groups')).toEqual([]);
+    botStatus = 'member';
     expect((await enable(-100, headers)).status).toBe(200);
     expect(database.rows('SELECT chat_id,enabled FROM achievement_groups')).toEqual([{ chat_id: -100, enabled: 1 }]);
   });

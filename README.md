@@ -183,8 +183,8 @@ The anonymous install ping is described [below](#anonymous-usage-ping).
 ### Achievement albums
 
 In a group, an administrator opens `/achievements` and enables the shared collection.
-The bot owner can also enable it under **Bot installations** in the web dashboard,
-in the **Achievements** column for a connected group.
+The bot owner can also enable it on the **Установки бота** (Bot installations)
+page in the **Достижения** (Achievements) column for a connected group.
 After the first complete Monday–Sunday UTC week with verified activity the bot can post
 a weekly photo. The group can earn six badges, including **Choir** when four different
 participants send voice notes in the same week. The weekly photo is safe to forward and

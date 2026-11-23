@@ -14,7 +14,22 @@ The bot SHALL let the authenticated bot owner enable achievements for a connecte
 - **WHEN** the request lacks an owner session, originates from another origin, or targets a private chat, channel, unknown group or disconnected installation
 - **THEN** the bot makes no group setting changes.
 
-#### Scenario: Chat statistics are limited to group administrators
+#### Scenario: Activation preserves the chat dashboard's access policy
 
 - **WHEN** the bot owner activates achievements for a group with restricted dashboard access
-- **THEN** activation succeeds while access to statistics and personal albums continues to follow the existing dashboard policy.
+- **THEN** activation succeeds. Access to statistics and personal albums still requires Telegram-confirmed membership and a confirmed administrator role where the chat's policy requires it.
+
+#### Scenario: The bot has left a legacy installation
+
+- **WHEN** an old installation has no saved membership record and Telegram confirms the bot is no longer a member
+- **THEN** activation returns HTTP 409 and makes no changes.
+
+#### Scenario: Telegram membership verification is unavailable
+
+- **WHEN** Telegram fails to verify the bot's membership for an old installation
+- **THEN** activation returns HTTP 503 and makes no changes.
+
+#### Scenario: The bot cannot collect activity statistics
+
+- **WHEN** activity tracking is disabled or the bot has no configured message storage mode
+- **THEN** activation returns HTTP 409 and makes no changes.
