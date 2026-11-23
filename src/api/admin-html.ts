@@ -2300,8 +2300,12 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         hint = ${js('Прогресс появится после первого проверенного дня по UTC.')};
       }
       const preview = personal.state === 'not-enrolled';
+      if (!preview && !personal.albumUrl) {
+        hint = [hint, ${js('Чтобы управлять альбомом, откройте /badges в личной переписке с ботом и выберите эту группу.')}]
+          .filter(Boolean).join(' ');
+      }
       const personalShelf = achievementShelf(${js('Мой альбом')}, regular, hint, {
-        counted: preview ? [] : personal.badges, albumUrl: group.enabled ? personal.albumUrl : null,
+        counted: preview ? [] : personal.badges, albumUrl: group.enabled || !preview ? personal.albumUrl : null,
       });
       if (social.length) personalShelf.append(achievementShelf(${js('Разговор')}, social,
         ${js('Для учёта ответов оба участника включают полку «Разговор» в личных альбомах.')},

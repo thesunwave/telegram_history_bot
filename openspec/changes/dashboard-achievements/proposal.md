@@ -1,3 +1,5 @@
+# Dashboard achievements
+
 ## Why
 
 Group members who use the statistics dashboard need a way to see which badges their chat has earned and follow their own progress there.

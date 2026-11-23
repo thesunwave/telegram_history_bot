@@ -30,6 +30,8 @@ const ADMIN_EN: Record<string, string> = {
   'Коллекция чата': 'Group collection',
   'Мой альбом': 'My album',
   'Открыть личный альбом в Telegram': 'Open my album in Telegram',
+  'Чтобы управлять альбомом, откройте /badges в личной переписке с ботом и выберите эту группу.':
+    'To manage your album, open /badges in a private chat with the bot and choose this group.',
   'Прогресс появится после первого проверенного дня по UTC.':
     'Progress will appear after the first verified UTC day.',
   'Для учёта ответов оба участника включают полку «Разговор» в личных альбомах.':

@@ -4,6 +4,7 @@ import type { AdminAchievementBadge } from '../src/api/admin-achievements';
 import { createTelegramSessionCookie } from '../src/api/admin-auth';
 import { resetChatSettingsCache } from '../src/core/chat-settings';
 import type { Env } from '../src/core/env';
+import { Logger } from '../src/core/logger';
 import { createRealD1 } from './helpers/real-d1';
 
 const chat = -101;
@@ -14,7 +15,7 @@ const day = '2026-01-11';
 async function fixture() {
   const { db, sqlite } = createRealD1();
   const env = {
-    DB: db, HISTORY: { get: async () => null }, TOKEN: 'test', SECRET: 'test-secret',
+    DB: db, HISTORY: { get: async () => null }, TOKEN: 'test', SECRET: 'test-secret', TELEGRAM_BOT_USERNAME: 'MyTestBot',
     ADMIN_BASIC_USER: 'operator', ADMIN_BASIC_PASSWORD: 'test-password', ENABLE_CONVERSATION_ACHIEVEMENTS: 'true',
   } as unknown as Env;
   const cookie = (await createTelegramSessionCookie(env, { id: viewer, auth_date: 0 })).split(';')[0];
@@ -35,8 +36,10 @@ async function fixture() {
   return { env, sqlite, request, cookie };
 }
 
-function membership(status: string) {
-  const fetchMember = vi.fn(async (_url: string, init: RequestInit) => {
+function membership(status: string, getMe?: () => Response) {
+  const fetchMember = vi.fn(async (url: string, init: RequestInit) => {
+    if (url.endsWith('/getMe') && getMe) return getMe();
+    expect(url).toMatch(/\/getChatMember$/);
     expect(JSON.parse(String(init.body))).toEqual({ chat_id: chat, user_id: viewer });
     return Response.json({ ok: true, result: { status } });
   });
@@ -123,7 +126,7 @@ describe('dashboard achievements access', () => {
     sqlite.prepare('DELETE FROM achievement_enrollments WHERE user_id=?').run(viewer);
     sqlite.pragma('query_only = ON');
     const unseen = await (await request('chatId=' + chat)).json() as { personal: { badges: AdminAchievementBadge[] } };
-    expect(unseen).toMatchObject({ group: { enabled: true }, personal: { state: 'not-enrolled', albumUrl: null } });
+    expect(unseen).toMatchObject({ group: { enabled: true }, personal: { state: 'not-enrolled', albumUrl: 'https://t.me/MyTestBot?start=ach_101' } });
     expect(unseen.personal.badges).toHaveLength(10);
     expect(unseen.personal.badges.every(b => b.earnedDay === null && b.current === null)).toBe(true);
   });
@@ -143,9 +146,39 @@ describe('dashboard achievements access', () => {
     expect(data.personal.badges).toHaveLength(14);
     expect(data.personal.badges.find(b => b.id === 'spark')).toMatchObject({ title: 'Spark', earnedDay: null, current: null });
     expect(data.group.badges.find(b => b.id === 'podcast')?.result).toBe('61 min 1 s, recordings: 7');
-    env.TELEGRAM_BOT_USERNAME = 'wrong.example/path';
-    expect((await read()).personal.albumUrl).toBeNull();
-    expect(check).toHaveBeenCalledTimes(2);
+    expect(check).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves self-hosted links for active and paused albums and skips lookup for a disabled group with no album', async () => {
+    const { env, request, sqlite } = await fixture();
+    delete env.TELEGRAM_BOT_USERNAME;
+    const getMe = vi.fn(() => Response.json({ ok: true, result: { username: 'SelfHostedBot' } }));
+    membership('member', getMe);
+    expect(await (await request('chatId=' + chat)).json()).toMatchObject({
+      personal: { albumUrl: 'https://t.me/SelfHostedBot?start=ach_101' },
+    });
+    sqlite.prepare('UPDATE achievement_groups SET enabled=0 WHERE chat_id=?').run(chat);
+    expect(await (await request('chatId=' + chat)).json()).toMatchObject({
+      personal: { state: 'paused', albumUrl: 'https://t.me/SelfHostedBot?start=ach_101' },
+    });
+    sqlite.prepare('DELETE FROM achievement_enrollments WHERE chat_id=? AND user_id=?').run(chat, viewer);
+    expect(await (await request('chatId=' + chat)).json()).toMatchObject({ personal: { albumUrl: null } });
+    expect(getMe).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves the album when getMe is unavailable or returns no usable username', async () => {
+    const { env, request } = await fixture();
+    delete env.TELEGRAM_BOT_USERNAME;
+    const warning = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    try {
+      for (const reply of [() => new Response('', { status: 503 }), () => Response.json({ ok: true, result: {} })]) {
+        membership('member', reply);
+        const response = await request('chatId=' + chat);
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ group: { enabled: true }, personal: { state: 'available', albumUrl: null } });
+      }
+      expect(warning.mock.calls).toEqual(Array(2).fill(['Telegram bot name unavailable for dashboard album link']));
+    } finally { warning.mockRestore(); }
   });
 
   it('reads conversation progress only after the album owner gives consent', async () => {

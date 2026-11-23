@@ -1,7 +1,8 @@
 import type { Env } from '../core/env';
+import { Logger } from '../core/logger';
 import { getEnrollment, getGroup, listAwards, type Award } from '../features/achievements/repository';
 import { GROUP_BADGES, PERSONAL_BADGES, type Badge, type BadgeProgress } from '../features/achievements/rules';
-import { configuredBotUsername, socialAvailable } from '../features/achievements/settings';
+import { botUsername, socialAvailable } from '../features/achievements/settings';
 import { CONVERSATION_BADGES, getConversationProgress, getConversationStatus } from '../features/achievements/social';
 import { localizeAchievementBadge, type AdminLanguage } from './admin-i18n';
 
@@ -25,6 +26,15 @@ function badgeList(
   });
 }
 
+async function albumLink(env: Env, chat: number): Promise<string | null> {
+  try {
+    return 'https://t.me/' + await botUsername(env) + '?start=ach_' + Math.abs(chat);
+  } catch {
+    Logger.warn('Telegram bot name unavailable for dashboard album link');
+    return null;
+  }
+}
+
 /** Read the selected group's collection and only the authenticated member's own album. */
 export async function getAdminAchievements(env: Env, chat: number, viewer: number, language: AdminLanguage) {
   const [settings, groupAwards, enrollment, social] = await Promise.all([
@@ -38,12 +48,11 @@ export async function getAdminAchievements(env: Env, chat: number, viewer: numbe
     (group.enabled && social.groupSince !== null) || awards.some(award => award.badge_id === badge.id));
   const progress: BadgeProgress[] = active && enrollment ? JSON.parse(enrollment.progress_json) : [];
   if (active && social.memberSince !== null) progress.push(...await getConversationProgress(env.DB, chat, viewer));
-  const username = configuredBotUsername(env);
   return {
     group,
     personal: {
       state: !enrollment ? 'not-enrolled' : active ? 'available' : 'paused',
-      albumUrl: username ? 'https://t.me/' + username + '?start=ach_' + Math.abs(chat) : null,
+      albumUrl: group.enabled || enrollment ? await albumLink(env, chat) : null,
       badges: badgeList(language, [...PERSONAL_BADGES, ...conversation], awards, progress),
     },
   };

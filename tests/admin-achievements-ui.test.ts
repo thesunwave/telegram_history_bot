@@ -74,9 +74,27 @@ describe('dashboard achievement collections', () => {
     ]);
     expect(all.map(e => e.textContent)).toEqual(expect.arrayContaining(['42 messages', '1 / 2', '1 of 1 unlocked']));
     expect(all.find(e => e.tag === 'progress')).toMatchObject({ value: 1, max: 2 });
-    ui.renderAchievements({ ...data, personal: { state: 'paused', badges: [] } });
+    ui.renderAchievements({ ...data, personal: { ...data.personal, state: 'paused', badges: [] } });
     all = node('achievementAlbum').all();
     expect(all.map(e => e.textContent)).toContain('Your album is paused. Your unlocked badges are saved.');
+  });
+
+  it('preserves Telegram management for existing albums when the group disables achievements', () => {
+    const { ui, node } = view();
+    const group = { ...data.group, enabled: false };
+    const paused = { ...data.personal, state: 'paused' };
+    ui.renderAchievements({ group, personal: paused });
+    const album = node('achievementAlbum');
+    expect(album.all()).toContainEqual(expect.objectContaining({ href: paused.albumUrl }));
+
+    ui.renderAchievements({ group, personal: { ...paused, albumUrl: null } });
+    expect(album.all().filter(e => e.tag === 'a')).toEqual([]);
+    expect(album.all().some(e => e.textContent.includes('To manage your album, open /badges'))).toBe(true);
+
+    ui.renderAchievements({ group, personal: data.personal });
+    expect(album.all().filter(e => e.tag === 'a')).toEqual([]);
+    expect(album.all().map(e => e.textContent)).toContain('You can start a personal album once an administrator enables achievements in this group.');
+    expect(album.all().every(e => !e.textContent.includes('/badges'))).toBe(true);
   });
 
   it('clears the previous chat immediately and discards its late response, including a stale 401', async () => {
