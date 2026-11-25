@@ -161,8 +161,11 @@ describe('dashboard achievement collections', () => {
     expect(collection.children).toBe(cards);
     expect(node('achievementStatus').textContent).toContain('Showing the last loaded data');
 
-    fetch.mockResolvedValueOnce(new Response(null, { status: 403 }));
-    await ui.loadAchievements(true);
+    fetch.mockReturnValueOnce(new Promise<Response>(resolve => { finish = resolve; }));
+    const retry = ui.loadAchievements(true);
+    expect(collection.children).toBe(cards);
+    finish(new Response(null, { status: 403 }));
+    await retry;
     expect(collection.children).toEqual([]);
   });
 

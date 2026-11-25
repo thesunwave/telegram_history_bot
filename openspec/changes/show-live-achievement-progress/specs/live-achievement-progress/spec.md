@@ -20,6 +20,11 @@ The dashboard and Telegram SHALL show the current value, target, and remaining a
 - **THEN** the interface shows the last available confirmed score and its date or a waiting state if no score is known.
 - **AND** an unknown hourly record does not produce a numeric target for Rush Hour.
 
+#### Scenario: An older day could not be verified
+
+- **WHEN** today's personal statistics are verified but an older day has unverified evidence
+- **THEN** the provisional personal score includes today's activity and excludes the unverified evidence.
+
 #### Scenario: The week is still in progress
 
 - **WHEN** a member views progress during an eligible UTC week

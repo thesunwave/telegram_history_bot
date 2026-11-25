@@ -1,6 +1,6 @@
 ## Evidence and scoring
 
-The read path uses the existing achievement rules and a D1 snapshot of aggregates and coverage. Live-owned days use the existing CountersDO proof contract. The open day preview verifies the base counters, so delayed language analysis does not postpone the preview. Closed days and award jobs use the existing full proof. The group preview uses a contiguous verified prefix of the current eligible week. The personal preview uses only eligible owner data and falls back to the saved evaluation when the daily aggregates are incomplete. Forwards and direct replies use their existing independent evidence. The most recent finished week counts toward the consecutive-week condition, with current-week activity shown separately.
+The read path uses the existing achievement rules and a D1 snapshot of aggregates and coverage. Live-owned days use the existing CountersDO proof contract. The open day preview verifies the base counters, so delayed language analysis does not postpone the preview. Closed days and award jobs use the existing full proof. The group preview uses a contiguous verified prefix of the current eligible week. The personal preview uses eligible, verified owner data. It skips older unverified days and falls back to the saved evaluation when today's aggregates cannot be verified. Forwards and direct replies use their existing independent evidence. The most recent finished week counts toward the consecutive-week condition, with current-week activity shown separately.
 
 ## Presentation and delivery
 

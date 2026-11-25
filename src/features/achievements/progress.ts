@@ -79,7 +79,7 @@ function savedPersonalProgress(album: Enrollment): CollectionProgress {
   return result;
 }
 
-/** Read the owner's active album. Unverified activity falls back to the last saved evaluation. */
+/** Read the owner's active album, falling back to the saved evaluation if today is unverified. */
 export async function personalProgress(env: Env, chat: number, owner: number, group: GroupState | null,
   album: Enrollment | null, now = new Date()): Promise<CollectionProgress> {
   if (!group?.enabled || !album?.enabled) return {};
@@ -87,8 +87,8 @@ export async function personalProgress(env: Env, chat: number, owner: number, gr
   if (today < album.start_day) return unavailable(PERSONAL_BADGES, 'scheduled', album.start_day);
   const saved = savedPersonalProgress(album);
   try {
-    const { complete, rows, buckets, forwards } = await readPersonalEvidence(env, chat, owner, album.start_day, today, true);
-    if (complete) {
+    const { dayVerified, rows, buckets, forwards } = await readPersonalEvidence(env, chat, owner, album.start_day, today, true);
+    if (dayVerified) {
       const scores = personalRules(rows, buckets, forwards, album.start_day, today, true);
       const result = Object.fromEntries(scores.map(score => [score.id, present(score, 'provisional', today, forwards)]));
       const monday = mondayOf(today);

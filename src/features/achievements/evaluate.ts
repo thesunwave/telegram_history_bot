@@ -102,7 +102,6 @@ export async function readPersonalEvidence(env: Env, chat: number, owner: number
   const buckets = typedRows<Bucket>(data[1]);
   return {
     dayVerified: verified.has(day),
-    complete: verified.has(day) && [...rows, ...buckets].every(row => verified.has(row.day)),
     rows: rows.filter(row => verified.has(row.day)),
     buckets: buckets.filter(row => verified.has(row.day)),
     // Reposts have their own deduplicated ledger and need no base coverage.

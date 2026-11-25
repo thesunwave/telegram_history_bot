@@ -194,6 +194,32 @@ describe('live achievement progress', () => {
       .toMatchObject({ status: 'scheduled', day: monday, conditions: [] });
     expect(await personalProgress(env, chat, person, group, { ...album!, enabled: 0 }, after)).toEqual({});
   });
+
+  it('updates the personal preview with certified activity even when an older day is unverified', async () => {
+    const f = fixture();
+    const env = withRealCountersDO(f.env);
+    const today = shiftDay(monday, 20);
+    const start = new Date(monday + 'T00:00:00Z');
+    const group = await setGroupEnabled(f.db, chat, true, start);
+    const album = await setEnrolled(f.db, chat, person, true, start);
+    markReady(f, today, today);
+    const user = f.sqlite.prepare(`INSERT INTO stats_daily_user(chat_id,day,user_id,message_count,voice_count)
+      VALUES (?,?,?,1,1)`);
+    user.run(chat, monday, person);
+    user.run(chat, today, person);
+    const bucket = f.sqlite.prepare(`INSERT INTO stats_daily_bucket_user(chat_id,day,user_id,bucket,message_count)
+      VALUES (?,?,?,'night',1)`);
+    bucket.run(chat, monday, person);
+    bucket.run(chat, today, person);
+
+    f.sqlite.pragma('query_only = ON');
+    const progress = await personalProgress(env, chat, person, group, album, new Date(today + 'T12:00:00Z'));
+    for (const badge of ['radio-diary', 'night-shift']) {
+      expect(progress[badge]).toMatchObject({
+        status: 'provisional', day: today, conditions: [{ current: 1, remaining: 2 }],
+      });
+    }
+  });
 });
 
 describe('achievement persistence and calibration', () => {
