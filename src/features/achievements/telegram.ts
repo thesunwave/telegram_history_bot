@@ -6,7 +6,7 @@ import { eraseAlbum, getEnrollment, getGroup, listAwards, setComebackReplies, se
 import { COMEBACK, GROUP_BADGES, PERSONAL_BADGES } from './rules';
 import { conversationProgress, groupProgress, personalProgress, type AchievementProgress } from './progress';
 import { progressCopy, telegramProgress } from './progress-copy';
-import { botUsername, button, callbackSetupHint, callTelegram, groupPicker, roleOf, socialAvailable, type View } from './settings';
+import { botUsername, button, callbackSetupHint, callTelegram, comebackAvailable, groupPicker, roleOf, socialAvailable, type View } from './settings';
 import { CONVERSATION_BADGES, getConversationStatus, setConversationConsent, setConversationGroup } from './social';
 import { DUTCH_RUDDER } from './social-score';
 
@@ -165,13 +165,20 @@ async function privateAction(env: Env, req: Request, owner: number): Promise<Vie
   if (action === 'share') return share(env, group, owner, extra);
   if (action === 'preview') return inspect(env, group, owner, extra);
   if (action === 'join' || action === 'pause') await setEnrolled(env.DB, group, owner, action === 'join');
-  else if (action === 'comeback-consent') return {
-    text: 'Если вы получите «' + COMEBACK.title + '», бот ответит карточкой на ваше сообщение прямо в группе. '
-      + 'Анонс можно выключить в личном альбоме.',
-    buttons: [[button('Разрешить ответ в группе', 'comeback-on', group)]],
-  };
-  else if (action === 'comeback-on' || action === 'comeback-off') {
-    await setComebackReplies(env.DB, group, owner, action === 'comeback-on');
+  else if (action === 'comeback-consent') {
+    const [settings, enrollment, awards] = await Promise.all([
+      getGroup(env.DB, group), getEnrollment(env.DB, group, owner), listAwards(env.DB, group, owner),
+    ]);
+    if (comebackAvailable(env) && settings?.enabled && enrollment?.enabled &&
+      enrollment.comeback_replies_since === null && !awards.some(award => award.badge_id === COMEBACK.id)) return {
+      text: 'Если вы получите «' + COMEBACK.title + '», бот ответит карточкой на ваше сообщение прямо в группе. '
+        + 'Анонс можно выключить в личном альбоме.',
+      buttons: [[button('Разрешить ответ в группе', 'comeback-on', group)]],
+    };
+  } else if (action === 'comeback-on' || action === 'comeback-off') {
+    if (action === 'comeback-off' || comebackAvailable(env)) {
+      await setComebackReplies(env.DB, group, owner, action === 'comeback-on');
+    }
   } else if (['consent', 'join-social', 'leave-social'].includes(action)) {
     const enrollment = await getEnrollment(env.DB, group, owner);
     if (!socialAvailable(env) || !enrollment?.enabled) return { text: 'Учёт диалогов сейчас недоступен.' };

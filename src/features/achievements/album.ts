@@ -4,7 +4,7 @@ import { getEnrollment, getGroup, listAwards } from './repository';
 import { COMEBACK, GROUP_BADGES, PERSONAL_BADGES } from './rules';
 import { conversationProgress, groupProgress, personalProgress, type CollectionProgress } from './progress';
 import { telegramProgress } from './progress-copy';
-import { button, botUsername, groupTitle, socialAvailable, type Buttons, type View } from './settings';
+import { button, botUsername, comebackAvailable, groupTitle, socialAvailable, type Buttons, type View } from './settings';
 import { getConversationStatus } from './social';
 import { visibleConversationBadges } from './social-score';
 
@@ -93,7 +93,8 @@ export async function personalAlbum(env: Env, chat: number, owner: number, page 
   if ((page + 1) * size < badges.length) pages.push(button('Дальше →', 'album', chat, String(page + 1)));
   if (pages.length) buttons.push(pages);
   if (active) buttons.push([button('Обновить', 'album', chat, String(page))]);
-  if (active && !awards.some(award => award.badge_id === COMEBACK.id)) {
+  if (active && (enrollment.comeback_replies_since !== null ||
+    (comebackAvailable(env) && !awards.some(award => award.badge_id === COMEBACK.id)))) {
     buttons.push([enrollment.comeback_replies_since === null
       ? button('Анонс «' + COMEBACK.title + '»', 'comeback-consent', chat)
       : button('Выключить анонс возвращения', 'comeback-off', chat)]);

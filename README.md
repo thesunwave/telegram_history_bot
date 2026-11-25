@@ -115,7 +115,8 @@ expires under the retention policy.
   and earned badges. Opening a personal album and choosing **Начать коллекцию**
   saves the member's Telegram ID for that group, badge progress, unlock dates and
   results. The comeback badge uses the last message timestamp and stores the
-  member's choice to allow a public reply. In a private chat, open `/badges`, choose
+  member's choice to allow a public reply. A pending announcement also stores the
+  target message and topic IDs. In a private chat, open `/badges`, choose
   the group and confirm **Удалить мой альбом** to erase its progress, awards and reply evidence.
 - When a group enables **conversation badges** and a member opts in, D1 records
   the group, message and author IDs and timestamps for that member's new messages.
@@ -202,6 +203,8 @@ posts again after at least 30 days in the same group. A qualifying gap starts wi
 a previous message from the active album period. After a participant enables the
 announcement in their private album, the bot replies to the returning message
 with a card in the group. The badge can be earned once per album.
+If Telegram explicitly rate-limits the card, the achievement job can retry it
+within 24 hours while the announcement remains enabled.
 
 Groups and individual participants can separately enable the conversation shelf.
 Four badges are visible up front, and a rare paired badge appears when earned.

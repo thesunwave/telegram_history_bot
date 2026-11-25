@@ -2,7 +2,7 @@ import type { D1Database } from '@cloudflare/workers-types';
 import { BOT_MEMBERSHIP_PREFIX } from '../../core/consts';
 import { revokeConversationGroup, revokeConversationMember } from './social';
 import { eligibleDay, mondayOf, shiftDay } from './calendar';
-import type { BadgeProgress } from './rules';
+import { COMEBACK, type BadgeProgress } from './rules';
 
 export interface GroupState { enabled: number; start_day: string; generation: string }
 export interface Enrollment extends GroupState {
@@ -79,8 +79,9 @@ export async function setComebackReplies(db: D1Database, chat: number, user: num
   await db.prepare(`UPDATE achievement_enrollments SET comeback_replies_since=CASE
     WHEN ?=1 THEN COALESCE(comeback_replies_since,unixepoch()) END
     WHERE chat_id=? AND user_id=? AND enabled=1
-    AND EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1)`)
-    .bind(Number(enabled), chat, user, chat).run();
+    AND EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1)
+    AND (?=0 OR NOT EXISTS (SELECT 1 FROM achievement_awards WHERE chat_id=? AND user_id=? AND badge_id=?))`)
+    .bind(Number(enabled), chat, user, chat, Number(enabled), chat, user, COMEBACK.id).run();
 }
 export async function eraseAlbum(db: D1Database, chatId: number, userId: number, generation?: string) {
   if (!Number.isSafeInteger(userId) || userId <= 0) throw new Error('invalid album owner');

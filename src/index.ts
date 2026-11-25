@@ -101,7 +101,6 @@ async function acceptTelegramUpdate(update: unknown, env: Env, ctx: ExecutionCon
     }));
   } catch {
     Logger.warn('Comeback activity unavailable', { op: 'observeComeback' });
-    return new Response("Comeback activity temporarily unavailable", { status: 503 });
   }
   const message = getTextMessage(update);
   await recordMessage(message, env, ctx);
