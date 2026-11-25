@@ -33,7 +33,7 @@ async function fixture() {
   const progress = JSON.stringify([{ id: 'radio-diary', current: 2, target: 3, result: 'progress-internals' }]);
   enroll.run(chat, viewer, day, progress, day);
   enroll.run(chat, other, day, '[]', null);
-  // Simulate a lagging aggregate today so the enrolled member's saved snapshot is used.
+  // Leave today's coverage unverified to exercise the saved snapshot through the API.
   sqlite.prepare('INSERT INTO activity (chat_id,day,count) VALUES (?,?,1)').run(chat, new Date().toISOString().slice(0, 10));
   const award = sqlite.prepare('INSERT INTO achievement_awards(chat_id,user_id,badge_id,earned_day,result) VALUES (?,?,?,?,?)');
   award.run(chat, 0, 'podcast', day, '61 мин 1 с, записей: 7');
@@ -244,7 +244,9 @@ describe('dashboard achievements access', () => {
     expect(await readSpark()).toMatchObject({ current: null, target: null });
     sqlite.prepare('INSERT INTO conversation_members VALUES (?,?,1)').run(chat, viewer);
     sqlite.pragma('query_only = ON');
-    expect(await readSpark()).toMatchObject({ current: 0, target: 3, progress: { status: 'live' } });
+    expect(await readSpark()).toMatchObject({ current: 0, target: 3, progress: {
+      status: 'live', display: { notes: ['По проверенным ответам'] },
+    } });
     sqlite.pragma('query_only = OFF');
     sqlite.prepare('DELETE FROM conversation_members WHERE chat_id=? AND user_id=?').run(chat, viewer);
     expect((await readSpark())?.progress).toBeUndefined();

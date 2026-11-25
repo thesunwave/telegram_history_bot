@@ -54,9 +54,15 @@ export function progressCopy(progress: AchievementProgress, language: Language =
   });
   const notes = [];
   if (progress.pendingAward) notes.push(ru ? 'Условия выполнены · ждём подтверждения' : 'Goal reached · awaiting confirmation');
-  if (progress.activeThisWeek) notes.push(ru ? 'На этой неделе активность уже есть' : 'Activity recorded this week');
+  if (progress.thisWeekActivity === 'eligible') {
+    notes.push(ru ? 'На этой неделе активность уже есть' : 'Activity recorded this week');
+  } else if (progress.thisWeekActivity === 'partial') {
+    notes.push(ru ? 'На этой неделе активность уже есть. Первая полная неделя начнётся в понедельник.'
+      : 'Activity recorded this week. Your first full week starts Monday.');
+  }
   switch (progress.status) {
     case 'provisional': notes.push(ru ? 'Предварительно · по UTC' : 'Provisional · UTC'); break;
+    case 'live': notes.push(ru ? 'По проверенным ответам' : 'Based on verified replies'); break;
     case 'confirmed':
       if (progress.day) notes.push((ru ? 'Подтверждено по ' : 'Confirmed through ') + progress.day + ' UTC');
       break;

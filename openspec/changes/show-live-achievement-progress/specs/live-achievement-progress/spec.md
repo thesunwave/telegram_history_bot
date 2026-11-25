@@ -2,11 +2,11 @@
 
 ### Requirement: Locked badges show measurable progress
 
-The dashboard and Telegram SHALL show the current value, target, and remaining amount for locked badges in active collections. The dashboard response SHALL retain the existing scalar fields. Badges with independent thresholds SHALL show each threshold separately.
+The dashboard and Telegram SHALL show the current value, target, and remaining amount for visible locked badges in active collections when the required evidence and target are known. The dashboard response SHALL retain the existing scalar fields. Badges with independent thresholds SHALL show each threshold separately. The waiting state SHALL identify when the current score or the record needed to determine the target is unavailable.
 
 #### Scenario: A member checks their collection after new activity
 
-- **WHEN** eligible activity from the current UTC day is available in processed aggregates
+- **WHEN** eligible activity from the current UTC day is verified, and for group progress every earlier day in the current week is also verified
 - **THEN** both surfaces include it and identify the resulting daily or weekly score as provisional.
 
 #### Scenario: Progress reaches the target before the award job runs

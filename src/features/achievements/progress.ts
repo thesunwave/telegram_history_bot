@@ -22,7 +22,7 @@ export interface AchievementProgress {
   day?: string;
   conditions: Condition[];
   pendingAward: boolean;
-  activeThisWeek?: true;
+  thisWeekActivity?: 'eligible' | 'partial';
 }
 export type CollectionProgress = Record<string, AchievementProgress>;
 
@@ -92,8 +92,8 @@ export async function personalProgress(env: Env, chat: number, owner: number, gr
       const scores = personalRules(rows, buckets, forwards, album.start_day, today, true);
       const result = Object.fromEntries(scores.map(score => [score.id, present(score, 'provisional', today, forwards)]));
       const monday = mondayOf(today);
-      if (monday >= album.start_day && rows.some(row => row.day >= monday && row.messages > 0)) {
-        result.regular.activeThisWeek = true;
+      if (rows.some(row => row.day >= monday && row.messages > 0)) {
+        result.regular.thisWeekActivity = monday >= album.start_day ? 'eligible' : 'partial';
       }
       return result;
     }

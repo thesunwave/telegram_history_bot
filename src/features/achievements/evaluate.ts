@@ -50,7 +50,9 @@ async function snapshot(env: Env, chat: number, days: string[], statements: D1Pr
       const chunk = requested.slice(i, i + 30);
       const proof = await readProof(stub, chunk, chunk.some(d => quiet.has(d))).catch(error => {
         if (!openDay) throw error;
-        Logger.warn('Achievement progress coverage proof unavailable');
+        Logger.warn('Achievement progress coverage proof unavailable', {
+          error: error instanceof Error ? error.message : 'Unknown coverage proof error',
+        });
         return null;
       });
       if (!proof) continue;
@@ -71,7 +73,7 @@ async function readProof(stub: ReturnType<Env['COUNTERS_DO']['get']>, days: stri
   const response = await stub.fetch('https://do/pipeline-snapshots', {
     method: 'POST', body: JSON.stringify({ days, verifyEmpty }),
   });
-  if (!response.ok) throw new Error('Achievement coverage proof unavailable');
+  if (!response.ok) throw new Error(`Achievement coverage proof unavailable (HTTP ${response.status})`);
   return response.json<{ version: number; days: CountersDODayProofSnapshot[]; emptyDays?: string[] }>();
 }
 

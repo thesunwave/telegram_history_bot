@@ -183,8 +183,15 @@ describe('live achievement progress', () => {
     }
     const before = new Date(sunday + 'T23:59:59Z');
     expect((await personalProgress(env, chat, person, group, album, before)).regular).toMatchObject({
-      activeThisWeek: true, pendingAward: false, conditions: [{ current: 3, remaining: 1 }],
+      thisWeekActivity: 'eligible', pendingAward: false, conditions: [{ current: 3, remaining: 1 }],
     });
+    const midweek = shiftDay(sunday, -2);
+    const newAlbum = await setEnrolled(f.db, chat, person + 1, true, new Date(midweek + 'T00:00:00Z'));
+    f.sqlite.prepare('INSERT INTO stats_daily_user(chat_id,day,user_id,message_count) VALUES (?,?,?,1)')
+      .run(chat, midweek, person + 1);
+    const partial = (await personalProgress(env, chat, person + 1, group, newAlbum, before)).regular;
+    expect(partial).toMatchObject({ thisWeekActivity: 'partial', conditions: [{ current: 0, remaining: 4 }] });
+    expect(telegramProgress(partial)).toContain('На этой неделе активность уже есть. Первая полная неделя начнётся в понедельник.');
     const after = new Date(shiftDay(sunday, 1) + 'T00:00:00Z');
     expect((await personalProgress(env, chat, person, group, album, after)).regular).toMatchObject({
       pendingAward: true, conditions: [{ current: 4, remaining: 0 }],
