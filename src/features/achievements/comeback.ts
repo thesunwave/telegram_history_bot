@@ -1,7 +1,7 @@
 import { DAY, type Env } from '../../core/env';
 import { personalCard, sendCard } from './cards';
 import { identifyGroupMessage, messageRecord } from './group-message';
-import { getEnrollment } from './repository';
+import { autoEnrollParticipant, getEnrollment, getParticipationForActivity } from './repository';
 import { COMEBACK, COMEBACK_DAYS } from './rules';
 import { comebackAvailable } from './settings';
 
@@ -28,30 +28,28 @@ interface ReplyTarget {
 
 const replyColumns = 'chat_id,user_id,earned_day,comeback_reply_json,comeback_reply_at';
 
-/** Record a return before normal stats overwrite the previous activity timestamp. */
-export async function observeComeback(env: Env, incoming: unknown) {
+/** Enroll observed members and check returns before stats overwrite the previous activity. */
+export async function observeAchievementActivity(env: Env, incoming: unknown) {
   if (!comebackAvailable(env)) return;
-  const message = identifyGroupMessage(incoming);
-  const now = nowSeconds();
+  const message = identifyGroupMessage(incoming, true);
+  const receivedAt = new Date();
+  const now = Math.floor(receivedAt.getTime() / 1000);
   if (!message || message.date > now + CLOCK_SKEW_SECONDS) return;
-  const { text, caption } = messageRecord(incoming);
-  if ((typeof text === 'string' && text.startsWith('/')) ||
-    (typeof caption === 'string' && caption.startsWith('/'))) return;
-
   const { chat, user, date } = message;
-  // A primary-key read keeps the write transaction off chats without active albums.
-  const eligible = await env.DB.prepare(`SELECT 1 FROM achievement_enrollments e
-    JOIN achievement_groups g USING(chat_id)
-    WHERE e.chat_id=? AND e.user_id=? AND e.enabled=1 AND g.enabled=1 AND ?>=unixepoch(e.start_day)
-    AND NOT EXISTS (SELECT 1 FROM achievement_awards WHERE chat_id=? AND user_id=? AND badge_id=?)`)
-    .bind(chat, user, date, chat, user, COMEBACK.id).first();
-  if (!eligible) return;
-
+  const state = await getParticipationForActivity(env.DB, chat, user);
+  if (!state || (state.enrolled === 0 && !state.group_pause)) return;
+  const enrollment = state.enrolled === 1 ? null : autoEnrollParticipant(env.DB, chat, user, receivedAt);
+  const { text, caption } = messageRecord(incoming);
+  if (state.earned || !identifyGroupMessage(incoming) ||
+    (typeof text === 'string' && text.startsWith('/')) ||
+    (typeof caption === 'string' && caption.startsWith('/'))) {
+    if (enrollment) await enrollment.run();
+    return;
+  }
   const statements = [
-    // Older albums can use their existing stats timestamp. The baseline must
-    // be a real message from this enrollment period, never the join date.
+    // Existing chat statistics provide the baseline even if the author has never opened /badges.
     env.DB.prepare(`WITH prior AS (
-      SELECT e.start_day,e.generation,e.comeback_replies_since,
+      SELECT e.generation,e.comeback_replies_since,
         MAX(COALESCE(e.comeback_last_message_ts,0),COALESCE(p.last_message_ts,0)) AS seen
       FROM achievement_enrollments e JOIN achievement_groups g USING(chat_id)
       LEFT JOIN stats_chat_user_profile p USING(chat_id,user_id)
@@ -61,20 +59,23 @@ export async function observeComeback(env: Env, incoming: unknown) {
         CASE WHEN comeback_replies_since<=? THEN json_object('message',?,'thread',?,'generation',generation,
           'consent',comeback_replies_since,'queued',?) END,
         CASE WHEN comeback_replies_since<=? THEN ? END
-      FROM prior WHERE seen>0 AND seen>=unixepoch(start_day) AND ?-seen>=?
+      FROM prior WHERE seen>0 AND ?-seen>=?
       ON CONFLICT(chat_id,user_id,badge_id) DO NOTHING
       RETURNING ${replyColumns}`)
       .bind(chat, user, chat, user, COMEBACK.id, date, date, DAY, date, message.id, message.thread ?? null,
         now, date, now, date, COMEBACK_DAYS * DAY),
     env.DB.prepare(`UPDATE achievement_enrollments SET comeback_last_message_ts=?
-      WHERE chat_id=? AND user_id=? AND enabled=1 AND ?>=unixepoch(start_day)
-      AND ?>COALESCE(comeback_last_message_ts,0)
+      WHERE chat_id=? AND user_id=? AND enabled=1 AND ?>COALESCE(comeback_last_message_ts,0)
       AND EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1)
       AND NOT EXISTS (SELECT 1 FROM achievement_awards WHERE chat_id=? AND user_id=? AND badge_id=?)`)
-      .bind(date, chat, user, date, date, chat, chat, user, COMEBACK.id),
+      .bind(date, chat, user, date, chat, chat, user, COMEBACK.id),
   ];
-  const [inserted, advanced] = await env.DB.batch<PendingReply>(statements);
-  if (!inserted?.success || !advanced?.success) throw new Error('Comeback activity write failed');
+  if (enrollment) statements.unshift(enrollment);
+  const results = await env.DB.batch<PendingReply>(statements);
+  if (results.length !== statements.length || results.some(result => !result.success)) {
+    throw new Error('Achievement activity write failed');
+  }
+  const inserted = results[results.length - 2];
   const award = inserted.results[0];
   if (award?.comeback_reply_json) return award;
 }

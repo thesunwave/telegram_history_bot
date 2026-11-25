@@ -182,7 +182,7 @@ describe('dashboard achievements access', () => {
     sqlite.prepare('DELETE FROM achievement_enrollments WHERE user_id=?').run(viewer);
     sqlite.pragma('query_only = ON');
     const unseen = await (await request('chatId=' + chat)).json() as { personal: { badges: AdminAchievementBadge[] } };
-    expect(unseen).toMatchObject({ group: { enabled: true }, personal: { state: 'not-enrolled', albumUrl: 'https://t.me/MyTestBot?start=ach_101' } });
+    expect(unseen).toMatchObject({ group: { enabled: true }, personal: { state: 'available', albumUrl: 'https://t.me/MyTestBot?start=ach_101' } });
     expect(unseen.personal.badges).toHaveLength(11);
     expect(unseen.personal.badges.every(b => b.earnedDay === null && b.current === null)).toBe(true);
   });

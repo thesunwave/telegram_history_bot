@@ -8,6 +8,9 @@ import { button, botUsername, comebackAvailable, groupTitle, socialAvailable, ty
 import { getConversationStatus } from './social';
 import { visibleConversationBadges } from './social-score';
 
+const automaticParticipation = 'Личные бейджи считаются автоматически. Для дневных бейджей учёт начинается '
+  + 'с первого полного дня по UTC после сообщения в группе.';
+
 export async function groupCollection(env: Env, chat: number, user: number, admin: boolean): Promise<View> {
   const [group, earned] = await Promise.all([getGroup(env.DB, chat), listAwards(env.DB, chat)]);
   const now = new Date();
@@ -23,6 +26,7 @@ export async function groupCollection(env: Env, chat: number, user: number, admi
     const start = [monday, group.start_day].sort()[1];
     lines.push((monday < group.start_day ? 'Первая неделя · ' : 'Текущая неделя · ') + start + ' — ' + shiftDay(start, 6)
       + ' UTC. Карточка приходит после закрытия недели и проверки статистики.');
+    lines.push(automaticParticipation);
   } else {
     lines.push('Недельные карточки выключены. Включить их может администратор группы.');
   }
@@ -48,21 +52,13 @@ export async function personalAlbum(env: Env, chat: number, owner: number, page 
   const [group, enrollment, title] = await Promise.all([
     getGroup(env.DB, chat), getEnrollment(env.DB, chat, owner), groupTitle(env, chat),
   ]);
-  if (!enrollment) {
-    if (!group?.enabled) return { text: 'В этой группе достижения выключены.' };
-    return {
-      text: 'Личный альбом · ' + title + '\n\nБейджи за привычки, голосовые, кружочки, находки и возвращение в чат. '
-        + 'Учёт начнётся с ближайшей полуночи по UTC. Прогресс за день предварительный. '
-        + 'Прогресс видите вы. Отдельной карточкой можно поделиться самостоятельно.',
-      buttons: [[button('Начать коллекцию', 'join', chat)]],
-    };
-  }
+  if (!enrollment && !group?.enabled) return { text: 'В этой группе достижения выключены.' };
   const [awards, social] = await Promise.all([
-    listAwards(env.DB, chat, owner),
+    enrollment ? listAwards(env.DB, chat, owner) : [],
     socialAvailable(env) ? getConversationStatus(env.DB, chat, owner) : { groupSince: null, memberSince: null },
   ]);
   // Retain earned social badges when the group later turns off reply observation.
-  const active = group?.enabled && enrollment.enabled;
+  const active = group?.enabled && enrollment?.enabled;
   const extra = visibleConversationBadges(Boolean(group?.enabled && social.groupSince !== null), awards);
   const badges = [...PERSONAL_BADGES, ...extra];
   const [progress, replies] = await Promise.all([
@@ -73,7 +69,8 @@ export async function personalAlbum(env: Env, chat: number, owner: number, page 
   page = Math.min(page, Math.floor((badges.length - 1) / size));
   const lines = ['Мой альбом · ' + title, 'Открыто ' + awards.length + ' из ' + badges.length];
   const buttons: Buttons = [];
-  if (!active) lines.push('Сбор на паузе. Открытые бейджи сохранены.');
+  if (!enrollment || (group?.enabled && enrollment.group_pause)) lines.push(automaticParticipation);
+  else if (!active) lines.push('Сбор на паузе. Открытые бейджи сохранены.');
   else lines.push('Учёт с ' + enrollment.start_day + ' UTC. Дневные бейджи выдаются после проверки статистики.');
   if (active && social.memberSince !== null) lines.push('Ответы учитываются с '
     + new Date(social.memberSince * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC.');
@@ -93,7 +90,7 @@ export async function personalAlbum(env: Env, chat: number, owner: number, page 
   if ((page + 1) * size < badges.length) pages.push(button('Дальше →', 'album', chat, String(page + 1)));
   if (pages.length) buttons.push(pages);
   if (active) buttons.push([button('Обновить', 'album', chat, String(page))]);
-  if (active && (enrollment.comeback_replies_since !== null ||
+  if (active && enrollment && (enrollment.comeback_replies_since !== null ||
     (comebackAvailable(env) && !awards.some(award => award.badge_id === COMEBACK.id)))) {
     buttons.push([enrollment.comeback_replies_since === null
       ? button('Анонс «' + COMEBACK.title + '»', 'comeback-consent', chat)
@@ -103,8 +100,11 @@ export async function personalAlbum(env: Env, chat: number, owner: number, page 
     buttons.push([button(social.memberSince === null ? 'Как работает полка «Разговор»' : 'Прекратить учёт ответов',
       social.memberSince === null ? 'consent' : 'leave-social', chat)]);
   }
-  if (group?.enabled) buttons.push([button(enrollment.enabled ? 'Поставить на паузу' : 'Возобновить',
-    enrollment.enabled ? 'pause' : 'join', chat)]);
-  buttons.push([button('Удалить мой альбом', 'delete', chat)]);
+  if (enrollment) {
+    if (group?.enabled) buttons.push([button(enrollment.enabled ? 'Поставить на паузу' : 'Возобновить',
+      enrollment.enabled ? 'pause' : 'join', chat)]);
+    else if (enrollment.group_pause) buttons.push([button('Оставить на паузе', 'pause', chat)]);
+    buttons.push([button('Удалить мой альбом', 'delete', chat)]);
+  }
   return { text: lines.join('\n\n'), buttons };
 }

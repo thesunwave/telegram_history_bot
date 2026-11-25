@@ -67,8 +67,8 @@ const ADMIN_EN: Record<string, string> = {
   'Недельные карточки выключены. Администратор группы может включить их в Telegram командой /achievements.':
     'Weekly cards are off. A group administrator can enable them in Telegram with /achievements.',
   'Включить в разделе «Установки бота»': 'Enable in Bot installations',
-  'Откройте /badges в личной переписке с ботом и выберите эту группу, чтобы начать коллекцию.':
-    'To start your collection, open /badges in a private chat with the bot and choose this group.',
+  'Откройте /badges в личной переписке с ботом и выберите эту группу, чтобы посмотреть коллекцию.':
+    'Open /badges in a private chat with the bot and select this group to view your collection.',
   'Личный альбом можно начать, когда администратор включит достижения в группе.':
     'You can start a personal album once an administrator enables achievements in this group.',
   'Альбом на паузе. Заработанные бейджи сохранены.': 'Your album is paused. Your unlocked badges are saved.',
