@@ -278,13 +278,11 @@ describe('Telegram achievement collections', () => {
     expect(sent.at(-1)?.text).not.toContain('Включить доставку нажатий на кнопки');
   });
 
-  it('enrolls only after a personal confirmation and requires separate consent for replies', async () => {
+  it('opens an active album for a verified member without a join confirmation', async () => {
     await setGroupEnabled(database.db, group, true);
     await handleAchievementUpdate(env, command('/start ach_223', owner));
-    expect(database.rows('SELECT * FROM achievement_enrollments')).toEqual([]);
-    expect(JSON.stringify(sent.at(-1))).toContain('Начать коллекцию');
-    await handleAchievementUpdate(env, forward('ach:join:' + group, owner));
     expect(database.rows('SELECT user_id, enabled FROM achievement_enrollments')).toEqual([{ user_id: owner, enabled: 1 }]);
+    expect(JSON.stringify(sent.at(-1))).not.toContain('Начать коллекцию');
     expect(JSON.stringify(sent.at(-1))).toContain('Открыто 0 из 11');
     expect(JSON.stringify(sent.at(-1))).not.toContain('Поделиться');
   });

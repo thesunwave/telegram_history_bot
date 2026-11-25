@@ -7,18 +7,18 @@
 ## ADDED Requirements
 
 ### Requirement: Вход в свой альбом
-The bot SHALL open a private album per Telegram account and group. «Мои бейджи» in a group SHALL lead to the bot's private chat. Enrollment SHALL require an enabled group, current membership and the participant's own confirmation. A group administrator cannot enroll another participant.
+The bot SHALL open a private album per Telegram account and group. «Мои бейджи» in a group SHALL lead to the bot's private chat. Members of an enabled group participate automatically when the bot receives their activity. A verified member can view the album directly.
 
 #### Scenario: First visit
 - **WHEN** a member enters via the group button or opens the bot privately and chooses an eligible group
-- **THEN** they see the scope, UTC schedule and «Начать коллекцию» before accrual begins
+- **THEN** they see their group collection and any results already recorded for them
 
 #### Scenario: Forwarded link or failed membership check
 - **WHEN** a user supplies a foreign user ID, opens a copied link or membership cannot be verified
 - **THEN** the bot derives the owner from the Telegram sender and displays results only for that owner after a successful membership check
 
 ### Requirement: Periods and evidence
-The bot SHALL evaluate an enrolled participant after each closed UTC date. Only verified, enabled dates starting at the first UTC midnight on or after enrollment count. A qualifying personal award unlocks once per group and owner. Day-based windows end on the evaluation date and include it. A known qualifying event can count once even when its delivery is retried.
+The bot SHALL evaluate a participant after each closed UTC date. Only verified, enabled dates on or after their first observed participation day count towards daily rules. The comeback badge uses the most recent previous group message, including an existing timestamp recorded before participation. A qualifying personal award unlocks once per group and owner. Day-based windows end on the evaluation date and include it. A known qualifying event can count once even when its delivery is retried.
 
 #### Scenario: Early unlock and incomplete history
 - **WHEN** three verified qualifying dates occur during the first five days of a 28-day window
@@ -93,4 +93,4 @@ The album SHALL show a rule, window and progress for each available badge and th
 - **WHEN** the owner pauses enrollment or the group disables achievements
 - **THEN** new progress stops, earned entries remain, and re-enrollment starts a fresh window at the next eligible midnight
 - **WHEN** the owner confirms «Удалить мой альбом» for a group in private
-- **THEN** enrollment, progress and earned results for that owner/group are erased without affecting group awards or other albums, including if the owner has left the group
+- **THEN** participation, progress and earned results for that owner/group are erased without affecting group awards or other albums. The bot starts a new collection when it observes that member's group activity again.

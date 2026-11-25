@@ -24,7 +24,7 @@ export function pauseGroupDependents(db: D1Database, chatId: number, generation?
   const params = generation === undefined ? [chatId] : [chatId, chatId, generation];
   return [
     ...revokeConversationGroup(db, chatId, generation),
-    db.prepare(`UPDATE achievement_enrollments SET enabled=0,progress_json='[]',
+    db.prepare(`UPDATE achievement_enrollments SET enabled=0,paused_by_group=1,progress_json='[]',
       last_day=NULL, comeback_last_message_ts=NULL, comeback_replies_since=NULL,
       generation=hex(randomblob(16)) WHERE chat_id=? AND enabled=1` + guard).bind(...params),
     db.prepare(`UPDATE achievement_reports SET state='cancelled'
@@ -36,15 +36,21 @@ export function pauseGroupDependents(db: D1Database, chatId: number, generation?
 export async function setGroupEnabled(db: D1Database, chatId: number, enabled: boolean, now = new Date()) {
   const start = eligibleDay(now);
   const monday = mondayOf(start);
+  const generation = crypto.randomUUID();
   const update = db.prepare(`INSERT INTO achievement_groups(chat_id,enabled,start_day,generation)
     SELECT ?,?,?,? WHERE ?=0 OR NOT EXISTS (
       SELECT 1 FROM app_settings WHERE scope=? AND json_extract(settings_json,'$.active')=0
     ) ON CONFLICT(chat_id) DO UPDATE SET enabled=excluded.enabled,
     start_day=excluded.start_day,generation=excluded.generation WHERE enabled<>excluded.enabled`)
-    .bind(chatId, Number(enabled), start === monday ? start : shiftDay(monday, 7), crypto.randomUUID(),
+    .bind(chatId, Number(enabled), start === monday ? start : shiftDay(monday, 7), generation,
       Number(enabled), BOT_MEMBERSHIP_PREFIX + chatId);
   const changes = [update];
-  if (!enabled) changes.push(...pauseGroupDependents(db, chatId));
+  if (enabled) {
+    changes.push(db.prepare(`UPDATE achievement_enrollments SET enabled=1,paused_by_group=0,start_day=?,
+      generation=hex(randomblob(16)),next_album_check=0 WHERE chat_id=? AND paused_by_group=1
+      AND EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1 AND generation=?)`)
+      .bind(start, chatId, chatId, generation));
+  } else changes.push(...pauseGroupDependents(db, chatId));
   await db.batch(changes);
   return getGroup(db, chatId);
 }
@@ -53,19 +59,27 @@ export function getEnrollment(db: D1Database, chatId: number, userId: number) {
     .bind(chatId, userId).first<Enrollment>();
 }
 
+/** Start counting from the first observed UTC day without replacing an existing album or a member pause. */
+export function autoEnrollParticipant(db: D1Database, chatId: number, userId: number, observedAt: number) {
+  return db.prepare(`INSERT INTO achievement_enrollments(chat_id,user_id,enabled,start_day,generation)
+    SELECT ?,?,1,date(?,'unixepoch'),hex(randomblob(16))
+    WHERE EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1)
+    ON CONFLICT(chat_id,user_id) DO NOTHING`).bind(chatId, userId, observedAt, chatId);
+}
+
 /** Enrollment requires a currently enabled group. Replayed confirmations retain earned progress. */
 export async function setEnrolled(db: D1Database, chatId: number, userId: number, enabled: boolean,
   now = new Date()) {
   if (enabled) {
     await db.prepare(`INSERT INTO achievement_enrollments(chat_id,user_id,enabled,start_day,generation)
       SELECT ?,?,1,?,? WHERE EXISTS(SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1)
-      ON CONFLICT(chat_id,user_id) DO UPDATE SET enabled=1,start_day=excluded.start_day,
+      ON CONFLICT(chat_id,user_id) DO UPDATE SET enabled=1,paused_by_group=0,start_day=excluded.start_day,
       generation=excluded.generation,last_day=NULL,progress_json='[]' WHERE enabled=0`)
       .bind(chatId, userId, eligibleDay(now), crypto.randomUUID(), chatId).run();
   } else {
     await db.batch([
       ...revokeConversationMember(db, chatId, userId),
-      db.prepare(`UPDATE achievement_enrollments SET enabled=0,last_day=NULL,progress_json='[]',
+      db.prepare(`UPDATE achievement_enrollments SET enabled=0,paused_by_group=0,last_day=NULL,progress_json='[]',
         comeback_last_message_ts=NULL,comeback_replies_since=NULL,generation=?
         WHERE chat_id=? AND user_id=? AND enabled=1`)
         .bind(crypto.randomUUID(), chatId, userId),

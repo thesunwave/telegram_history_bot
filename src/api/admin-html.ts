@@ -2315,7 +2315,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       const regular = personal.badges.filter(badge => !badge.conversation);
       let hint = '';
       if (personal.state === 'not-enrolled') hint = group.enabled
-        ? ${js('Откройте /badges в личной переписке с ботом и выберите эту группу, чтобы начать коллекцию.')}
+        ? ${js('Откройте /badges в личной переписке с ботом и выберите эту группу, чтобы посмотреть коллекцию.')}
         : ${js('Личный альбом можно начать, когда администратор включит достижения в группе.')};
       if (personal.state === 'paused') hint = ${js('Альбом на паузе. Заработанные бейджи сохранены.')};
       const preview = personal.state === 'not-enrolled';

@@ -1,6 +1,6 @@
 import type { Env } from '../../core/env';
 import { mondayOf, shiftDay } from './calendar';
-import { getEnrollment, getGroup, listAwards } from './repository';
+import { autoEnrollParticipant, getEnrollment, getGroup, listAwards } from './repository';
 import { COMEBACK, GROUP_BADGES, PERSONAL_BADGES } from './rules';
 import { conversationProgress, groupProgress, personalProgress, type CollectionProgress } from './progress';
 import { telegramProgress } from './progress-copy';
@@ -45,18 +45,15 @@ export async function groupCollection(env: Env, chat: number, user: number, admi
 }
 
 export async function personalAlbum(env: Env, chat: number, owner: number, page = 0): Promise<View> {
-  const [group, enrollment, title] = await Promise.all([
+  const [group, existing, title] = await Promise.all([
     getGroup(env.DB, chat), getEnrollment(env.DB, chat, owner), groupTitle(env, chat),
   ]);
-  if (!enrollment) {
-    if (!group?.enabled) return { text: 'В этой группе достижения выключены.' };
-    return {
-      text: 'Личный альбом · ' + title + '\n\nБейджи за привычки, голосовые, кружочки, находки и возвращение в чат. '
-        + 'Учёт начнётся с ближайшей полуночи по UTC. Прогресс за день предварительный. '
-        + 'Прогресс видите вы. Отдельной карточкой можно поделиться самостоятельно.',
-      buttons: [[button('Начать коллекцию', 'join', chat)]],
-    };
+  let enrollment = existing;
+  if (!enrollment && group?.enabled) {
+    await autoEnrollParticipant(env.DB, chat, owner, Math.floor(Date.now() / 1000)).run();
+    enrollment = await getEnrollment(env.DB, chat, owner);
   }
+  if (!enrollment) return { text: 'В этой группе достижения выключены.' };
   const [awards, social] = await Promise.all([
     listAwards(env.DB, chat, owner),
     socialAvailable(env) ? getConversationStatus(env.DB, chat, owner) : { groupSince: null, memberSince: null },

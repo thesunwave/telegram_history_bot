@@ -58,19 +58,20 @@ describe('comeback badge', () => {
     "INSERT INTO stats_chat_user_profile(chat_id,user_id,username,last_message_ts) VALUES (?,?,'test',?)",
   ).run(chat, actor.id, date);
 
-  async function setup() {
+  async function setup(enrolled = true) {
     const result = fixture('/telegram/webhook');
     const past = new Date((now() - 100 * DAY) * 1000);
     await setGroupEnabled(result.store.db, group, true, past);
-    await setEnrolled(result.store.db, group, actor.id, true, past);
+    if (enrolled) await setEnrolled(result.store.db, group, actor.id, true, past);
     return result;
   }
 
   it('requires earlier group activity, advances after media and awards at exactly 30 days', async () => {
-    const { store, send, calls } = await setup();
+    const { store, send, calls } = await setup(false);
     const start = now() - 65 * DAY;
     seedProfile(store, start - gap, group - 1);
     expect(await send({ message: text(1, start) })).toBe(200);
+    expect(store.rows('SELECT user_id,enabled FROM achievement_enrollments')).toEqual([{ user_id: actor.id, enabled: 1 }]);
     expect(store.rows('SELECT * FROM achievement_awards')).toEqual([]);
     const mediaDate = start + gap - 1;
     expect(await send({ message: { ...text(2, mediaDate), text: undefined, sticker: { file_id: 'dummy' } } })).toBe(200);
@@ -142,7 +143,7 @@ describe('comeback badge', () => {
     expect(calls.filter(call => call.method === 'sendPhoto')).toEqual([]);
   });
 
-  it('drops the old baseline and announcement consent on rejoining an album', async () => {
+  it('uses historical group activity when returning after an album pause, with the announcement still off', async () => {
     const { store, send, calls } = await setup();
     const time = now();
     seedProfile(store, time - 63 * DAY);
@@ -152,9 +153,32 @@ describe('comeback badge', () => {
     expect(JSON.stringify(calls.at(-1)?.payload)).not.toContain('Разрешить ответ в группе');
     await setEnrolled(store.db, group, actor.id, true, new Date((time - 32 * DAY) * 1000));
     expect(await send({ message: text(61, time) })).toBe(200);
-    expect(store.rows('SELECT * FROM achievement_awards')).toEqual([]);
+    expect(store.rows('SELECT badge_id,comeback_reply_at FROM achievement_awards'))
+      .toEqual([{ badge_id: 'comeback', comeback_reply_at: null }]);
     expect(store.rows('SELECT comeback_replies_since FROM achievement_enrollments'))
       .toEqual([{ comeback_replies_since: null }]);
+  });
+
+  it('automatically awards a return using historical stats before any album has been opened', async () => {
+    const { store, send, calls } = await setup(false);
+    const time = now();
+    seedProfile(store, time - 36 * DAY);
+    expect(await send({ message: text(62, time) })).toBe(200);
+    expect(store.rows('SELECT user_id,badge_id,result FROM achievement_awards'))
+      .toEqual([{ user_id: actor.id, badge_id: 'comeback', result: '36 дн. тишины' }]);
+    expect(calls.filter(call => call.method === 'sendPhoto')).toEqual([]);
+  });
+
+  it('resumes members after a group reactivation and keeps personal pauses', async () => {
+    const { store, send } = await setup(false);
+    const secondAuthor = { ...actor, id: actor.id + 1 };
+    await send({ message: text(64, now()) });
+    await send({ message: { ...text(65, now()), from: secondAuthor } });
+    await setEnrolled(store.db, group, secondAuthor.id, false);
+    await setGroupEnabled(store.db, group, false);
+    await setGroupEnabled(store.db, group, true);
+    expect(store.rows('SELECT user_id,enabled FROM achievement_enrollments ORDER BY user_id'))
+      .toEqual([{ user_id: actor.id, enabled: 1 }, { user_id: secondAuthor.id, enabled: 0 }]);
   });
 
   it('ignores commands in media captions', async () => {

@@ -64,7 +64,7 @@ export async function getAdminAchievements(env: Env, chat: number, viewer: numbe
     socialAvailable(env) ? getConversationStatus(env.DB, chat, viewer) : { groupSince: null, memberSince: null },
   ]);
   const enabled = Boolean(settings?.enabled);
-  const active = enabled && Boolean(enrollment?.enabled);
+  const active = enabled && (!enrollment || Boolean(enrollment.enabled));
   const [awards, weekly, personal, replies, url] = await Promise.all([
     enrollment ? listAwards(env.DB, chat, viewer) : [],
     groupProgress(env, chat, settings, now),
@@ -81,7 +81,7 @@ export async function getAdminAchievements(env: Env, chat: number, viewer: numbe
       badges: badgeList(language, GROUP_BADGES, groupAwards, weekly),
     },
     personal: {
-      state: !enrollment ? 'not-enrolled' : active ? 'available' : 'paused',
+      state: active ? 'available' : enrollment ? 'paused' : 'not-enrolled',
       albumUrl: url,
       badges: [
         ...badgeList(language, PERSONAL_BADGES, awards, personal),
