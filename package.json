@@ -10,6 +10,7 @@
 		"deploy": "wrangler deploy && npm run db:migrate",
 		"deploy:production": "wrangler deploy --config wrangler.production.jsonc",
 		"deploy:public": "npm run deploy",
+		"deploy:upgrade": "npm run db:migrate && wrangler deploy",
 		"db:migrate": "wrangler d1 migrations apply DB --remote",
 		"check:production": "wrangler deploy --dry-run --config wrangler.production.jsonc",
 		"check:public": "wrangler deploy --dry-run",

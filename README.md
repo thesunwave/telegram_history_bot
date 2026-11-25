@@ -218,8 +218,9 @@ The group collection shows which week earned each badge. **My album** shows your
 personal unlocks and progress for that group. Use the Telegram commands above to
 start or manage a collection.
 
-**Upgrading self-hosted installations.** Apply the D1 migrations and include the
-`*/5 * * * *` scheduled trigger alongside the existing daily trigger. The current
+**Upgrading self-hosted installations.** Run `npm run deploy:upgrade` to apply the
+D1 migrations before publishing the Worker. Include the `*/5 * * * *` scheduled
+trigger alongside the existing daily trigger. The current
 self-hosting template sets `ENABLE_CONVERSATION_ACHIEVEMENTS=true`. For an existing
 installation, set this flag to offer conversation badges. Each group and member still
 has to opt in before reply tracking starts. If commands work but inline buttons do
@@ -334,10 +335,11 @@ cp .dev.vars.example .dev.vars
 npm run dev
 ```
 
-**CLI deployment:** configure `TOKEN` as a Worker Secret, then run
-`npm run deploy` (Wrangler deployment followed by remote D1 migrations).
-The root config is intentionally portable and has no pre-existing resource IDs.
-Your installation's generated IDs must be retained when upgrading.
+**CLI deployment:** for a new installation, configure `TOKEN` as a Worker Secret,
+then run `npm run deploy` to provision the bindings and apply the D1 migrations.
+For upgrades, keep the installation's existing bindings and use `npm run deploy:upgrade`.
+If Workers Builds deploys your updates automatically, set its deploy command to
+`npm run deploy:upgrade` before merging the upgrade.
 
 ### Anonymous usage ping
 

@@ -144,6 +144,10 @@ in the upstream source repository do **not** automatically update that copy.
 For now, users can add this repository as an `upstream` Git remote and merge a
 reviewed release tag into a branch, then open a PR in their own copy. They must
 retain their `wrangler.jsonc` bindings and review migrations before merging.
+Use `npm run deploy:upgrade` with those bindings. It applies the remote D1
+migrations before publishing the Worker. If Cloudflare Workers Builds deploys
+your copy on merge, set its deploy command to `npm run deploy:upgrade` before
+merging the update.
 
 The `Update from upstream release` workflow creates a PR to update a cloned
 installation. Choose a reviewed SemVer tag; it merges the upstream commit while
