@@ -33,14 +33,23 @@ async function fixture() {
   const progress = JSON.stringify([{ id: 'radio-diary', current: 2, target: 3, result: 'progress-internals' }]);
   enroll.run(chat, viewer, day, progress, day);
   enroll.run(chat, other, day, '[]', null);
-  // Leave today's coverage unverified to exercise the saved snapshot through the API.
-  sqlite.prepare('INSERT INTO activity (chat_id,day,count) VALUES (?,?,1)').run(chat, new Date().toISOString().slice(0, 10));
+  const today = new Date().toISOString().slice(0, 10);
+  const stub = env.COUNTERS_DO.get(env.COUNTERS_DO.idFromName(String(chat)));
+  const increment = await stub.fetch('https://do/inc', {
+    method: 'POST', body: JSON.stringify({ chatId: chat, userId: viewer, username: 'fixture',
+      day: today, hour: 12, messageId: 1, voiceCount: 1, voiceDurationSeconds: 30 }),
+  });
+  expect(increment.ok).toBe(true);
+  // Keep the live aggregate but make its D1 watermark lag behind the DO's proof.
+  const baseWatermark = sqlite.prepare(`UPDATE stats_daily_pipeline_progress SET accepted_seq=?,completed_seq=?
+    WHERE chat_id=? AND day=? AND category='base'`);
+  expect(baseWatermark.run(0, 0, chat, today).changes).toBe(1);
   const award = sqlite.prepare('INSERT INTO achievement_awards(chat_id,user_id,badge_id,earned_day,result) VALUES (?,?,?,?,?)');
   award.run(chat, 0, 'podcast', day, '61 мин 1 с, записей: 7');
   award.run(chat, viewer, 'columnist', day, 'Дней со 100 словами: 3');
   award.run(chat, other, 'regular', day, 'another-private-album');
   award.run(-102, viewer, 'regular', day, 'other-private-group');
-  return { env, sqlite, request, cookie };
+  return { env, sqlite, request, cookie, today, baseWatermark };
 }
 
 function membership(status: string, getMe?: () => Response) {
@@ -88,7 +97,7 @@ describe('dashboard achievements access', () => {
   });
 
   it('reads only group awards and the signed-in member’s own album from a read-only database', async () => {
-    const { request, sqlite } = await fixture();
+    const { request, sqlite, today, baseWatermark } = await fixture();
     sqlite.pragma('query_only = ON');
     membership('member');
     const response = await request('chatId=' + chat);
@@ -112,6 +121,14 @@ describe('dashboard achievements access', () => {
     for (const internal of ['another-private-album', 'other-private-group', 'generation', 'progress-internals', String(other)]) {
       expect(text).not.toContain(internal);
     }
+    sqlite.pragma('query_only = OFF');
+    baseWatermark.run(1, 1, chat, today);
+    sqlite.pragma('query_only = ON');
+    const live = await (await request('chatId=' + chat)).json() as { personal: { badges: AdminAchievementBadge[] } };
+    expect(live.personal.badges.find(badge => badge.id === 'radio-diary')).toMatchObject({
+      current: 1, target: 3, earnedDay: null,
+      progress: { status: 'provisional', day: today, conditions: [{ current: 1, remaining: 2 }] },
+    });
   });
 
   it('denies anonymous visitors, shared URLs and Basic operators without Telegram identity', async () => {
