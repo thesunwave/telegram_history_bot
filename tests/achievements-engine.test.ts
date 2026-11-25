@@ -3,7 +3,6 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { D1Database } from '@cloudflare/workers-types';
 import { CountersDO } from '../src/durable-objects/counters-do';
 import type { Env } from '../src/core/env';
 import { withRealCountersDO } from './helpers/real-counters-do';
@@ -11,6 +10,8 @@ import { createRealD1 } from './helpers/real-d1';
 import { daysBetween, shiftDay, personalRules, weeklyRules, type GroupDay, type PersonalDay } from '../src/features/achievements/rules';
 import { GROUP_DAY_SQL } from '../src/features/achievements/queries';
 import { evaluateWeek, evaluatePersonal } from '../src/features/achievements/evaluate';
+import { groupProgress, personalProgress } from '../src/features/achievements/progress';
+import { telegramProgress } from '../src/features/achievements/progress-copy';
 import { eraseAlbum, getEnrollment, getProgress, listAwards, setEnrolled, setGroupEnabled } from '../src/features/achievements/repository';
 import { JOB_VERSION } from '../src/features/stats/daily-backfill';
 
@@ -19,19 +20,9 @@ const friday = '2026-01-09';
 const chat = -123;
 const person = 456;
 
-/** The repository helper's write-only batch lacks SELECT resultsets. Read batches use the same SQLite snapshot. */
 function fixture() {
   const real = createRealD1();
-  const writeBatch = real.db.batch.bind(real.db);
-  const db = {
-    ...real.db, batch: async (statements: Parameters<D1Database['batch']>[0]) => {
-      const first = statements[0] as unknown as { sql: string };
-      if (first.sql.trimStart().startsWith('SELECT')) return Promise.all(statements.map(s => s.all()));
-      return writeBatch(statements);
-    }
-  } as D1Database;
-  const env = { DB: db } as Env;
-  return { ...real, db, env };
+  return { ...real, env: { DB: real.db } as Env };
 }
 type Fixture = ReturnType<typeof fixture>;
 function markReady(f: Fixture, start: string, end: string) {
@@ -103,6 +94,105 @@ describe('achievement rules', () => {
     expect(leaders()).toMatchObject({ current: 2, earned: false });
     change.run(10, wednesday, person);
     expect(leaders()).toMatchObject({ current: 3, earned: true });
+  });
+});
+
+describe('live achievement progress', () => {
+  it('reads processed media and forwarding conditions, falls back while the pipeline is behind, and only reads awards', async () => {
+    const f = fixture();
+    const env = withRealCountersDO(f.env);
+    const stub = env.COUNTERS_DO.get(env.COUNTERS_DO.idFromName(String(chat)));
+    const post = (path: string, body: object) => stub.fetch('https://do/' + path, {
+      method: 'POST', body: JSON.stringify(body),
+    });
+    const tuesday = shiftDay(monday, 1);
+    const now = new Date(tuesday + 'T12:00:00Z');
+    markReady(f, shiftDay(monday, -28), monday);
+    const group = await setGroupEnabled(f.db, chat, true, new Date(monday + 'T00:00:00Z'));
+    await setEnrolled(f.db, chat, person, true, new Date(monday + 'T00:00:00Z'));
+    f.sqlite.prepare(`INSERT INTO stats_daily_user(chat_id,day,user_id,message_count,voice_count,voice_duration_seconds)
+      VALUES (?,?,?,1,1,1200)`).run(chat, monday, person);
+    await evaluatePersonal(env, chat, person, monday);
+    const album = await getEnrollment(f.db, chat, person);
+    const groupRead = () => groupProgress(env, chat, group, now);
+    const personalRead = () => personalProgress(env, chat, person, group, album, now);
+    const source = f.sqlite.prepare(`INSERT INTO stats_forwards(chat_id,message_id,day,user_id,username,source_type,channel_id)
+      VALUES (?,?,?,?,'member','channel',?)`);
+    source.run(chat, 10, monday, person, -111);
+    source.run(chat, 11, tuesday, person, -111);
+    source.run(chat, 12, tuesday, person, -222);
+    source.run(chat, 13, tuesday, person, -333);
+    source.run(chat, 14, tuesday, person + 1, -444);
+
+    const inc = await post('inc', { chatId: chat, userId: person, username: 'fixture', day: tuesday, hour: 12,
+      messageId: 1, wordCount: 100, voiceCount: 1, voiceDurationSeconds: 2400, videoNoteCount: 1 });
+    expect(inc.ok).toBe(true);
+    const watermark = f.sqlite.prepare(`UPDATE stats_daily_pipeline_progress SET accepted_seq=?,completed_seq=?
+      WHERE chat_id=? AND day=? AND category='base'`);
+    // An older D1 base watermark cannot certify the current day's aggregates.
+    watermark.run(0, 0, chat, tuesday);
+    f.sqlite.pragma('query_only = ON');
+    expect((await groupRead()).podcast).toMatchObject({ status: 'confirmed', day: monday, conditions: [
+      { current: 1200, remaining: 2400 },
+    ] });
+    const lagged = await personalRead();
+    expect(lagged['radio-diary']).toMatchObject({ status: 'confirmed', day: monday, conditions: [{ current: 1, remaining: 2 }] });
+    expect(lagged.newsstand.conditions).toEqual([
+      { current: 3, target: 3, remaining: 0, unit: 'channel' }, { current: 2, target: 3, remaining: 1, unit: 'day' },
+    ]);
+    f.sqlite.pragma('query_only = OFF');
+    // The base events are usable in today's preview while language analysis is pending.
+    watermark.run(1, 1, chat, tuesday);
+
+    f.sqlite.pragma('query_only = ON');
+    const weekly = await groupRead();
+    expect(weekly.podcast).toMatchObject({ status: 'provisional', day: tuesday, pendingAward: true,
+      conditions: [{ current: 3600, remaining: 0 }] });
+    expect(weekly.choir.conditions[0].current).toBe(1);
+    expect(telegramProgress(weekly.podcast)).toContain('60:00 / 60:00');
+    const personal = await personalRead();
+    expect(personal.tomorrow.pendingAward).toBe(true);
+    expect(personal['radio-diary'].conditions[0]).toMatchObject({ current: 2, remaining: 1 });
+    expect(personal.film.conditions[0]).toMatchObject({ current: 1, remaining: 2 });
+    expect(personal.columnist.conditions[0]).toMatchObject({ current: 1, remaining: 2 });
+    expect(personal['dual-air'].conditions[0]).toMatchObject({ current: 1, remaining: 1 });
+    expect(await listAwards(f.db, chat)).toEqual([]);
+    expect(await listAwards(f.db, chat, person)).toEqual([]);
+    expect((await getEnrollment(f.db, chat, person))?.last_day).toBe(monday);
+    expect(f.rows('SELECT * FROM achievement_reports')).toEqual([]);
+
+    const wednesday = new Date(shiftDay(tuesday, 1) + 'T00:00:00Z');
+    expect((await groupProgress(env, chat, group, wednesday)).podcast).toMatchObject({
+      status: 'confirmed', day: monday, conditions: [{ current: 1200 }],
+    });
+    const nextMonday = new Date(shiftDay(monday, 7) + 'T00:00:00Z');
+    expect((await groupProgress(env, chat, group, nextMonday)).podcast.conditions[0].current).toBe(0);
+  });
+
+  it('keeps the open Sunday separate from completed weeks and reports an unknown record without a target', async () => {
+    const f = fixture();
+    const env = withRealCountersDO(f.env);
+    const sunday = shiftDay(monday, 27);
+    markReady(f, monday, sunday);
+    const started = new Date(monday + 'T00:00:00Z');
+    const group = await setGroupEnabled(f.db, chat, true, started);
+    const album = await setEnrolled(f.db, chat, person, true, started);
+    for (const offset of [0, 7, 14, 21]) {
+      f.sqlite.prepare('INSERT INTO stats_daily_user(chat_id,day,user_id,message_count) VALUES (?,?,?,1)')
+        .run(chat, shiftDay(monday, offset), person);
+    }
+    const before = new Date(sunday + 'T23:59:59Z');
+    expect((await personalProgress(env, chat, person, group, album, before)).regular).toMatchObject({
+      activeThisWeek: true, pendingAward: false, conditions: [{ current: 3, remaining: 1 }],
+    });
+    const after = new Date(shiftDay(sunday, 1) + 'T00:00:00Z');
+    expect((await personalProgress(env, chat, person, group, album, after)).regular).toMatchObject({
+      pendingAward: true, conditions: [{ current: 4, remaining: 0 }],
+    });
+    expect((await groupProgress(env, chat, group, before))['rush-hour']).toMatchObject({ status: 'baseline', conditions: [] });
+    expect((await groupProgress(env, chat, group, new Date(shiftDay(monday, -1) + 'T23:59:59Z'))).podcast)
+      .toMatchObject({ status: 'scheduled', day: monday, conditions: [] });
+    expect(await personalProgress(env, chat, person, group, { ...album!, enabled: 0 }, after)).toEqual({});
   });
 });
 

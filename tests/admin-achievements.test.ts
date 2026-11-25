@@ -6,6 +6,7 @@ import { resetChatSettingsCache } from '../src/core/chat-settings';
 import type { Env } from '../src/core/env';
 import { Logger } from '../src/core/logger';
 import { DUTCH_RUDDER, DUTCH_RUDDER_RESULT } from '../src/features/achievements/social-score';
+import { withRealCountersDO } from './helpers/real-counters-do';
 import { createRealD1 } from './helpers/real-d1';
 
 const chat = -101;
@@ -15,10 +16,10 @@ const day = '2026-01-11';
 
 async function fixture() {
   const { db, sqlite } = createRealD1();
-  const env = {
+  const env = withRealCountersDO({
     DB: db, HISTORY: { get: async () => null }, TOKEN: 'test', SECRET: 'test-secret', TELEGRAM_BOT_USERNAME: 'MyTestBot',
     ADMIN_BASIC_USER: 'operator', ADMIN_BASIC_PASSWORD: 'test-password', ENABLE_CONVERSATION_ACHIEVEMENTS: 'true',
-  } as unknown as Env;
+  } as unknown as Env);
   const cookie = (await createTelegramSessionCookie(env, { id: viewer, auth_date: 0 })).split(';')[0];
   const request = (query: string, headers: Record<string, string> = { Cookie: cookie }, method = 'GET',
     endpoint = '') => handleAdminRequest(
@@ -27,10 +28,13 @@ async function fixture() {
   sqlite.prepare('INSERT INTO achievement_groups(chat_id,enabled,start_day,generation) VALUES (?,1,?,?)')
     .run(chat, day, 'private-group-generation');
   const enroll = sqlite.prepare(`INSERT INTO achievement_enrollments
-    (chat_id,user_id,enabled,start_day,generation,progress_json) VALUES (?,?,1,?,'private-album-generation',?)`);
+    (chat_id,user_id,enabled,start_day,generation,progress_json,last_day)
+    VALUES (?,?,1,?,'private-album-generation',?,?)`);
   const progress = JSON.stringify([{ id: 'radio-diary', current: 2, target: 3, result: 'progress-internals' }]);
-  enroll.run(chat, viewer, day, progress);
-  enroll.run(chat, other, day, '[]');
+  enroll.run(chat, viewer, day, progress, day);
+  enroll.run(chat, other, day, '[]', null);
+  // Simulate a lagging aggregate today so the enrolled member's saved snapshot is used.
+  sqlite.prepare('INSERT INTO activity (chat_id,day,count) VALUES (?,?,1)').run(chat, new Date().toISOString().slice(0, 10));
   const award = sqlite.prepare('INSERT INTO achievement_awards(chat_id,user_id,badge_id,earned_day,result) VALUES (?,?,?,?,?)');
   award.run(chat, 0, 'podcast', day, '61 мин 1 с, записей: 7');
   award.run(chat, viewer, 'columnist', day, 'Дней со 100 словами: 3');
@@ -100,7 +104,10 @@ describe('dashboard achievements access', () => {
     expect(data.personal.state).toBe('available');
     expect(data.personal.badges).toHaveLength(10);
     expect(data.personal.badges.find((b: AdminAchievementBadge) => b.id === 'radio-diary'))
-      .toMatchObject({ current: 2, target: 3, earnedDay: null, result: null });
+      .toMatchObject({ current: 2, target: 3, earnedDay: null, result: null, progress: {
+        status: 'confirmed', day, conditions: [{ current: 2, target: 3, remaining: 1, unit: 'day' }],
+        display: { rows: [{ counter: '2 / 3', remaining: 'До цели — 1 день' }] },
+      } });
     expect(data.personal.badges.find((b: AdminAchievementBadge) => b.id === 'columnist')).toMatchObject({ earnedDay: day });
     for (const internal of ['another-private-album', 'other-private-group', 'generation', 'progress-internals', String(other)]) {
       expect(text).not.toContain(internal);
@@ -237,7 +244,10 @@ describe('dashboard achievements access', () => {
     expect(await readSpark()).toMatchObject({ current: null, target: null });
     sqlite.prepare('INSERT INTO conversation_members VALUES (?,?,1)').run(chat, viewer);
     sqlite.pragma('query_only = ON');
-    expect(await readSpark()).toMatchObject({ current: 0, target: 3 });
+    expect(await readSpark()).toMatchObject({ current: 0, target: 3, progress: { status: 'live' } });
+    sqlite.pragma('query_only = OFF');
+    sqlite.prepare('DELETE FROM conversation_members WHERE chat_id=? AND user_id=?').run(chat, viewer);
+    expect((await readSpark())?.progress).toBeUndefined();
     env.ENABLE_CONVERSATION_ACHIEVEMENTS = 'false';
     expect(await readSpark()).toBeUndefined();
   });

@@ -84,7 +84,7 @@ function distinctShifts(buckets: Bucket[]): number {
 
 /** Computes personal progress from verified days already scoped to the enrollment. */
 export function personalRules(rows: PersonalDay[], bucketRows: Bucket[], forwards: ForwardSummary,
-  start: string, day: string): BadgeProgress[] {
+  start: string, day: string, preview = false): BadgeProgress[] {
   const since = shiftDay(day, -27);
   const lastWeek = shiftDay(day, -6);
   const active = new Set(rows.filter(r => r.messages > 0).map(r => r.day));
@@ -92,7 +92,7 @@ export function personalRules(rows: PersonalDay[], bucketRows: Bucket[], forward
   const buckets = bucketRows.filter(r => r.day >= since);
   const pair = [...active].sort().find(date => active.has(shiftDay(date, -1)));
   const monday = mondayOf(day);
-  const lastMonday = day === shiftDay(monday, 6) ? monday : shiftDay(monday, -7);
+  const lastMonday = !preview && day === shiftDay(monday, 6) ? monday : shiftDay(monday, -7);
   let weeks = 0;
   for (let week = lastMonday; weeks < 4 && week >= start; week = shiftDay(week, -7)) {
     if (!daysBetween(week, shiftDay(week, 6)).some(date => active.has(date))) break;
@@ -106,7 +106,8 @@ export function personalRules(rows: PersonalDay[], bucketRows: Bucket[], forward
   const film = month.filter(r => r.day >= lastWeek && r.videos > 0).length;
   const dual = month.filter(r => r.voices > 0 && r.videos > 0).length;
   return [
-    score('tomorrow', pair ? 2 : Number(active.has(day)), 2, pair ? shiftDay(pair, -1) + ' — ' + pair : day),
+    score('tomorrow', pair ? 2 : Number(active.has(day) || (preview && active.has(shiftDay(day, -1)))),
+      2, pair ? shiftDay(pair, -1) + ' — ' + pair : day),
     score('regular', weeks, 4, 'Недель подряд: ' + weeks),
     score('calendar', dates, 7, 'Разных дней недели: ' + dates),
     score('columnist', words, 3, 'Дней со 100 словами: ' + words),

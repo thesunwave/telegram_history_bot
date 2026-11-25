@@ -2,10 +2,12 @@ import type { Env } from '../../core/env';
 import { isForwardedMessage } from '../../api/update';
 import { groupCollection, personalAlbum } from './album';
 import { collectionCard, personalCard, sendCard } from './cards';
-import { eraseAlbum, getEnrollment, getGroup, getProgress, listAwards, setEnrolled, setGroupEnabled } from './repository';
-import { GROUP_BADGES, PERSONAL_BADGES, type BadgeProgress } from './rules';
+import { eraseAlbum, getEnrollment, getGroup, listAwards, setEnrolled, setGroupEnabled } from './repository';
+import { GROUP_BADGES, PERSONAL_BADGES } from './rules';
+import { conversationProgress, groupProgress, personalProgress, type AchievementProgress } from './progress';
+import { progressCopy, telegramProgress } from './progress-copy';
 import { botUsername, button, callbackSetupHint, callTelegram, groupPicker, roleOf, socialAvailable, type View } from './settings';
-import { CONVERSATION_BADGES, getConversationProgress, getConversationStatus, setConversationConsent, setConversationGroup } from './social';
+import { CONVERSATION_BADGES, getConversationStatus, setConversationConsent, setConversationGroup } from './social';
 import { DUTCH_RUDDER } from './social-score';
 
 interface Actor { id?: number; is_bot?: boolean }
@@ -119,26 +121,33 @@ async function deliverInspection(env: Env, chatId: number, caption: string, png?
 
 async function inspect(env: Env, group: number, owner: number, id?: string, threadId?: number): Promise<View | null> {
   const groupCard = owner === 0;
-  if (!groupCard && !await getEnrollment(env.DB, group, owner)) return { text: 'Сначала откройте /badges.' };
-  const award = (await listAwards(env.DB, group, owner)).find(a => a.badge_id === id);
+  const [settings, enrollment, awards] = await Promise.all([
+    getGroup(env.DB, group), groupCard ? null : getEnrollment(env.DB, group, owner), listAwards(env.DB, group, owner),
+  ]);
+  if (!groupCard && !enrollment) return { text: 'Сначала откройте /badges.' };
+  const award = awards.find(a => a.badge_id === id);
   const choices = groupCard ? GROUP_BADGES : [...PERSONAL_BADGES, ...CONVERSATION_BADGES,
     ...(award?.badge_id === DUTCH_RUDDER.id ? [DUTCH_RUDDER] : [])];
   const badge = choices.find(b => b.id === id);
   if (!badge) return { text: 'Откройте коллекцию, чтобы выбрать бейдж.' };
-  let progress: BadgeProgress | undefined;
-  if (!groupCard && !award) {
-    if (CONVERSATION_BADGES.some(b => b.id === id)) {
+  let progress: AchievementProgress | undefined;
+  if (!award) {
+    if (groupCard) progress = (await groupProgress(env, group, settings))[badge.id];
+    else if (CONVERSATION_BADGES.some(b => b.id === id)) {
       if (!socialAvailable(env)) return { text: 'Полка «Разговор» сейчас недоступна.' };
       const state = await getConversationStatus(env.DB, group, owner);
       if (state.groupSince === null) return { text: 'Полка «Разговор» в этой группе выключена.' };
-      if (state.memberSince !== null) progress = (await getConversationProgress(env.DB, group, owner)).find(p => p.id === id);
-    } else progress = (await getProgress(env.DB, group, owner)).find(p => p.id === id);
+      if (settings?.enabled && enrollment?.enabled && state.memberSince !== null) {
+        progress = (await conversationProgress(env, group, owner))[badge.id];
+      }
+    } else progress = (await personalProgress(env, group, owner, settings, enrollment))[badge.id];
   }
   const caption = [badge.title, badge.description, award ? 'Открыто · ' + award.earned_day + ' UTC · ' + award.result
-    : progress ? 'Пока закрыто · ' + progress.result : 'Пока закрыто'].join('\n');
+    : 'Пока закрыто', ...telegramProgress(progress)].join('\n');
+  const counter = progress?.conditions.length === 1 ? progressCopy(progress).rows[0].counter : undefined;
   let png: Uint8Array<ArrayBuffer> | undefined;
   try {
-    png = await collectionCard(badge.id, badge.title, badge.description, groupCard, award, progress);
+    png = await collectionCard(badge.id, badge.title, badge.description, groupCard, award, counter);
   } catch {
     console.warn('Achievement card rendering failed');
   }

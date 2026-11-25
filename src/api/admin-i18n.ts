@@ -49,8 +49,7 @@ const ADMIN_EN: Record<string, string> = {
   'Открыть личный альбом в Telegram': 'Open my album in Telegram',
   'Чтобы управлять альбомом, откройте /badges в личной переписке с ботом и выберите эту группу.':
     'To manage your album, open /badges in a private chat with the bot and choose this group.',
-  'Прогресс появится после первого проверенного дня по UTC.':
-    'Progress will appear after the first verified UTC day.',
+  'Неделя с {date} по UTC': 'Week of {date} (UTC)',
   'Для учёта ответов оба участника включают полку «Разговор» в личных альбомах.':
     'Replies count when both participants enable the Conversation shelf in their personal albums.',
   'Разговор': 'Conversation',
@@ -63,6 +62,8 @@ const ADMIN_EN: Record<string, string> = {
     'Achievements are available in groups. Select a group from the chat list.',
   'У вас больше нет доступа к достижениям этого чата.': 'You no longer have access to achievements for this group.',
   'Не удалось загрузить достижения.': 'Could not load achievements.',
+  'Не удалось обновить счётчики. Показаны последние загруженные данные.':
+    'Could not refresh counters. Showing the last loaded data.',
   'Недельные карточки выключены. Администратор группы может включить их в Telegram командой /achievements.':
     'Weekly cards are off. A group administrator can enable them in Telegram with /achievements.',
   'Включить в разделе «Установки бота»': 'Enable in Bot installations',

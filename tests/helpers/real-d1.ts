@@ -40,8 +40,11 @@ class RealD1Statement {
     return (column ? row[column] : row) as T;
   }
 
-  runSync(): void {
-    this.sqlite.prepare(this.sql).run(...this.params);
+  executeInBatch() {
+    const statement = this.sqlite.prepare(this.sql);
+    if (statement.reader) return { success: true, results: statement.all(...this.params), meta: { changes: 0 } };
+    const { changes } = statement.run(...this.params);
+    return { success: true, results: [], meta: { changes } };
   }
 }
 
@@ -62,17 +65,8 @@ export function createRealD1(): RealD1 {
 
   const db = {
     prepare: (sql: string) => new RealD1Statement(sqlite, sql),
-    batch: async (statements: RealD1Statement[]) => {
-      sqlite.exec('BEGIN');
-      try {
-        for (const stmt of statements) stmt.runSync();
-        sqlite.exec('COMMIT');
-      } catch (err) {
-        sqlite.exec('ROLLBACK');
-        throw err;
-      }
-      return statements.map(() => ({ success: true, results: [], meta: { changes: 1 } }));
-    },
+    batch: async (statements: RealD1Statement[]) =>
+      sqlite.transaction(() => statements.map(statement => statement.executeInBatch()))(),
     exec: async (sql: string) => {
       sqlite.exec(sql);
       return { count: 1, duration: 0 };

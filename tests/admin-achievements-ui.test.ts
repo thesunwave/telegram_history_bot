@@ -2,6 +2,8 @@ import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import { renderAdminHtml } from '../src/api/admin-html';
 import { localizeAchievementBadge } from '../src/api/admin-i18n';
+import { progressCopy } from '../src/features/achievements/progress-copy';
+import type { AchievementProgress } from '../src/features/achievements/progress';
 import { GROUP_BADGES, PERSONAL_BADGES, personalRules, weeklyRules } from '../src/features/achievements/rules';
 import { CONVERSATION_BADGES } from '../src/features/achievements/social-score';
 
@@ -28,13 +30,14 @@ function view() {
   };
   const state = { chatId: '-123', view: 'achievements', achievementRequestId: 0 };
   const fetch = vi.fn(), redirectToLogin = vi.fn();
+  const document = { getElementById: node, hidden: false };
   const ui = runInNewContext(script + '\n({ renderAchievements, loadAchievements })', {
-    state, fetch, redirectToLogin, document: { getElementById: node },
+    state, fetch, redirectToLogin, document,
     el: (tag: string, name?: string, text?: string) => new Element(tag, name, text),
     formatNumber: String, fmt: (text: string, values: Record<string, number>) =>
       text.replace(/\{(\w+)\}/g, (_, key) => String(values[key])),
   });
-  return { ui, node, state, fetch, html, redirectToLogin };
+  return { ui, node, state, fetch, html, redirectToLogin, document };
 }
 
 const badges = catalog.map(b => localizeAchievementBadge('en', {
@@ -112,6 +115,55 @@ describe('dashboard achievement collections', () => {
     expect(album.all().filter(e => e.tag === 'a')).toEqual([]);
     expect(album.all().map(e => e.textContent)).toContain('You can start a personal album once an administrator enables achievements in this group.');
     expect(album.all().every(e => !e.textContent.includes('/badges'))).toBe(true);
+  });
+
+  it('renders both forward counters and their separate remaining conditions', () => {
+    const { ui, node, html } = view();
+    const progress: AchievementProgress = { status: 'provisional', pendingAward: false, conditions: [
+      { unit: 'channel', current: 3, target: 3, remaining: 0 },
+      { unit: 'day', current: 2, target: 3, remaining: 1 },
+    ] };
+    const badge = { ...badges.find(b => b.id === 'newsstand')!, progress: { ...progress, display: progressCopy(progress, 'en') } };
+    ui.renderAchievements({
+      group: { ...data.group, weekStart: '2026-11-23' },
+      personal: { ...data.personal, state: 'available', badges: [badge] },
+    });
+    const all = node('achievementAlbum').all();
+    expect(all.map(el => el.textContent)).toEqual(expect.arrayContaining([
+      'Channels · 3 / 3', 'Complete', 'Dates · 2 / 3', 'Left — 1 day', 'Provisional · UTC', 'Week of 2026-11-23 (UTC)',
+    ]));
+    expect(all.filter(el => el.tag === 'progress')).toMatchObject([{ value: 3, max: 3 }, { value: 2, max: 3 }]);
+    expect(html).toContain('window.setInterval(refreshVisibleAchievements, 60_000)');
+  });
+
+  it('refreshes a visible collection in place and clears it if access is revoked', async () => {
+    const { ui, node, state, fetch, document } = view();
+    const collection = node('achievementAlbum');
+    fetch.mockResolvedValueOnce(Response.json(data));
+    await ui.loadAchievements();
+    const cards = collection.children;
+    document.hidden = true;
+    await ui.loadAchievements(true);
+    document.hidden = false;
+    state.view = 'overview';
+    await ui.loadAchievements(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    state.view = 'achievements';
+
+    let finish!: (res: Response) => void;
+    fetch.mockReturnValueOnce(new Promise<Response>(resolve => { finish = resolve; }));
+    const background = ui.loadAchievements(true);
+    await ui.loadAchievements(true);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(collection.children).toBe(cards);
+    finish(new Response(null, { status: 503 }));
+    await background;
+    expect(collection.children).toBe(cards);
+    expect(node('achievementStatus').textContent).toContain('Showing the last loaded data');
+
+    fetch.mockResolvedValueOnce(new Response(null, { status: 403 }));
+    await ui.loadAchievements(true);
+    expect(collection.children).toEqual([]);
   });
 
   it('clears the previous chat immediately and discards its late response, including a stale 401', async () => {
