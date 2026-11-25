@@ -5,7 +5,11 @@ import { eligibleDay, mondayOf, shiftDay } from './calendar';
 import type { BadgeProgress } from './rules';
 
 export interface GroupState { enabled: number; start_day: string; generation: string }
-export interface Enrollment extends GroupState { last_day: string | null; progress_json: string }
+export interface Enrollment extends GroupState {
+  last_day: string | null;
+  progress_json: string;
+  comeback_replies_since: number | null;
+}
 export interface Award { badge_id: string; earned_day: string; result: string }
 
 export function getGroup(db: D1Database, chatId: number) {
@@ -21,7 +25,8 @@ export function pauseGroupDependents(db: D1Database, chatId: number, generation?
   return [
     ...revokeConversationGroup(db, chatId, generation),
     db.prepare(`UPDATE achievement_enrollments SET enabled=0,progress_json='[]',
-      last_day=NULL, generation=hex(randomblob(16)) WHERE chat_id=? AND enabled=1` + guard).bind(...params),
+      last_day=NULL, comeback_last_message_ts=NULL, comeback_replies_since=NULL,
+      generation=hex(randomblob(16)) WHERE chat_id=? AND enabled=1` + guard).bind(...params),
     db.prepare(`UPDATE achievement_reports SET state='cancelled'
       WHERE chat_id=? AND state IN ('ready','sending')` + guard).bind(...params),
   ];
@@ -61,11 +66,21 @@ export async function setEnrolled(db: D1Database, chatId: number, userId: number
     await db.batch([
       ...revokeConversationMember(db, chatId, userId),
       db.prepare(`UPDATE achievement_enrollments SET enabled=0,last_day=NULL,progress_json='[]',
-        generation=? WHERE chat_id=? AND user_id=? AND enabled=1`)
+        comeback_last_message_ts=NULL,comeback_replies_since=NULL,generation=?
+        WHERE chat_id=? AND user_id=? AND enabled=1`)
         .bind(crypto.randomUUID(), chatId, userId),
     ]);
   }
   return getEnrollment(db, chatId, userId);
+}
+
+/** Accept or withdraw permission to reply publicly when the participant earns the comeback badge. */
+export async function setComebackReplies(db: D1Database, chat: number, user: number, enabled: boolean) {
+  await db.prepare(`UPDATE achievement_enrollments SET comeback_replies_since=CASE
+    WHEN ?=1 THEN COALESCE(comeback_replies_since,unixepoch()) END
+    WHERE chat_id=? AND user_id=? AND enabled=1
+    AND EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1)`)
+    .bind(Number(enabled), chat, user, chat).run();
 }
 export async function eraseAlbum(db: D1Database, chatId: number, userId: number, generation?: string) {
   if (!Number.isSafeInteger(userId) || userId <= 0) throw new Error('invalid album owner');

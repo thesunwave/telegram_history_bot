@@ -6,7 +6,7 @@ import Database from 'better-sqlite3';
 import { JOB_VERSION } from '../src/features/stats/daily-backfill.ts';
 import { GROUP_DAY_SQL } from '../src/features/achievements/queries.ts';
 import {
-  PERSONAL_BADGES, GROUP_BADGES, personalRules, weeklyRules, daysBetween, shiftDay,
+  DAILY_PERSONAL_BADGES, GROUP_BADGES, personalRules, weeklyRules, daysBetween, shiftDay,
   mondayOf
 } from '../src/features/achievements/rules.ts';
 
@@ -21,7 +21,7 @@ const db = new Database(path, { readonly: true, fileMustExist: true });
 db.pragma('query_only = ON');
 
 function counts() {
-  return new Map([...PERSONAL_BADGES, ...GROUP_BADGES].map(b => [b.id, { eligible: 0, unlocked: 0, delays: [] }]));
+  return new Map([...DAILY_PERSONAL_BADGES, ...GROUP_BADGES].map(b => [b.id, { eligible: 0, unlocked: 0, delays: [] }]));
 }
 function cohort(size) {
   return size < 6 ? '1–5' : size < 21 ? '6–20' : '21+';
@@ -91,7 +91,7 @@ function summarize() {
       const own = history.filter(r => r.user_id === owner);
       const buckets = userBuckets.all(chat, owner, shiftDay(first, -27), last).filter(r => verified.has(r.day));
       const unlocked = new Set();
-      for (const b of PERSONAL_BADGES) sample.metrics.get(b.id).eligible++;
+      for (const b of DAILY_PERSONAL_BADGES) sample.metrics.get(b.id).eligible++;
       for (const [i, day] of days.entries()) {
         const from = shiftDay(day, -41);
         const scores = personalRules(own.filter(r => r.day >= from && r.day <= day),

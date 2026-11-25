@@ -111,7 +111,7 @@ describe('dashboard achievements access', () => {
       { id: 'podcast', earnedDay: day, result: '61 мин 1 с, записей: 7' },
     ]);
     expect(data.personal.state).toBe('available');
-    expect(data.personal.badges).toHaveLength(10);
+    expect(data.personal.badges).toHaveLength(11);
     expect(data.personal.badges.find((b: AdminAchievementBadge) => b.id === 'radio-diary'))
       .toMatchObject({ current: 2, target: 3, earnedDay: null, result: null, progress: {
         status: 'confirmed', day, conditions: [{ current: 2, target: 3, remaining: 1, unit: 'day' }],
@@ -183,7 +183,7 @@ describe('dashboard achievements access', () => {
     sqlite.pragma('query_only = ON');
     const unseen = await (await request('chatId=' + chat)).json() as { personal: { badges: AdminAchievementBadge[] } };
     expect(unseen).toMatchObject({ group: { enabled: true }, personal: { state: 'not-enrolled', albumUrl: 'https://t.me/MyTestBot?start=ach_101' } });
-    expect(unseen.personal.badges).toHaveLength(10);
+    expect(unseen.personal.badges).toHaveLength(11);
     expect(unseen.personal.badges.every(b => b.earnedDay === null && b.current === null)).toBe(true);
   });
 
@@ -199,7 +199,10 @@ describe('dashboard achievements access', () => {
     };
     const data = await read();
     expect(data.personal.albumUrl).toBe('https://t.me/MyTestBot?start=ach_101');
-    expect(data.personal.badges).toHaveLength(14);
+    expect(data.personal.badges).toHaveLength(15);
+    expect(data.personal.badges.find(b => b.id === 'comeback')).toMatchObject({
+      title: 'Rise from Read-Only', earnedDay: null, current: null,
+    });
     expect(data.personal.badges.find(b => b.id === 'spark')).toMatchObject({ title: 'Spark', earnedDay: null, current: null });
     expect(data.group.badges.find(b => b.id === 'podcast')?.result).toBe('61 min 1 s, recordings: 7');
     expect(check).toHaveBeenCalledTimes(1);

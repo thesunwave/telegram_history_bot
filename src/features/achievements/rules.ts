@@ -22,6 +22,10 @@ function badge(id: string, title: string, description: string): Badge {
   return { id, title, description };
 }
 
+export const COMEBACK_DAYS = 30;
+export const COMEBACK = badge('comeback', 'Восстание из ридонли',
+  `Снова написать в эту группу после паузы от ${COMEBACK_DAYS} дней.`);
+
 export const GROUP_BADGES = [
   badge('rush-hour', 'Час пик', '30 сообщений за час и новый рекорд последних четырёх недель.'),
   badge('relay-cup', 'Переходящий кубок', 'Три разных единоличных лидера дня за неделю, в каждый из этих дней писали хотя бы трое.'),
@@ -30,7 +34,7 @@ export const GROUP_BADGES = [
   badge('seven-days', 'Без выходных', 'Три разных автора в каждый из семи дней недели.'),
   badge('choir', 'Хор', 'Четыре разных участника прислали голосовые за неделю.'),
 ];
-export const PERSONAL_BADGES = [
+export const DAILY_PERSONAL_BADGES = [
   badge('tomorrow', 'До завтра', 'Написать в два дня подряд по UTC.'),
   badge('regular', 'Завсегдатай', 'Писать хотя бы раз в каждую из четырёх полных недель подряд.'),
   badge('calendar', 'Весь календарь', 'Застать все семь дней недели за 42 дня.'),
@@ -42,6 +46,7 @@ export const PERSONAL_BADGES = [
   badge('dual-air', 'Двойной эфир', 'Отправить и голосовое, и кружочек в каждый из двух дней за 28 дней.'),
   badge('newsstand', 'Киоск прессы', 'Вручную переслать записи минимум из трёх каналов в три разные даты за 28 дней.'),
 ];
+export const PERSONAL_BADGES = [...DAILY_PERSONAL_BADGES, COMEBACK];
 
 function score(id: string, current: number, target: number, result: string): BadgeProgress {
   return { id, current, target, result, earned: current >= target };

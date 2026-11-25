@@ -19,6 +19,7 @@ import { handleAchievementUpdate } from "./features/achievements/telegram";
 import { badgePoster } from "./features/achievements/badge-art-generated";
 import { socialAvailable } from "./features/achievements/settings";
 import { observeConversationMessage, pruneConversationEvidence } from "./features/achievements/social";
+import { observeComeback, replyWithComebackCard } from "./features/achievements/comeback";
 import { ACHIEVEMENT_CRON, runAchievementJobs } from "./features/achievements/jobs";
 import { handleAdminRequest } from "./api/admin";
 import { recordBotMembership } from "./api/admin-installations";
@@ -92,6 +93,15 @@ async function acceptTelegramUpdate(update: unknown, env: Env, ctx: ExecutionCon
       Logger.warn('Conversation evidence unavailable', { op: 'observeReply' });
       return new Response("Conversation statistics temporarily unavailable", { status: 503 });
     }
+  }
+  try {
+    const comeback = await observeComeback(env, incoming);
+    if (comeback) ctx.waitUntil(replyWithComebackCard(env, comeback).catch(() => {
+      Logger.warn('Comeback card unavailable', { op: 'comebackCard' });
+    }));
+  } catch {
+    Logger.warn('Comeback activity unavailable', { op: 'observeComeback' });
+    return new Response("Comeback activity temporarily unavailable", { status: 503 });
   }
   const message = getTextMessage(update);
   await recordMessage(message, env, ctx);

@@ -56,13 +56,13 @@ describe('dashboard achievement collections', () => {
     ui.renderAchievements(data);
     const all = node('achievementAlbum').all();
     const posters = all.filter(e => e.tag === 'img');
-    expect(posters).toHaveLength(20);
+    expect(posters).toHaveLength(21);
     expect(posters).toEqual(expect.arrayContaining(badges.map(b => expect.objectContaining({
       src: '/admin/badge-art/' + b.id + '.png', alt: '',
     }))));
     expect(all).toContainEqual(expect.objectContaining({ href: data.personal.albumUrl }));
     expect(all.filter(e => e.tag === 'progress')).toHaveLength(0);
-    expect(all.map(e => e.textContent)).not.toContain('0 of 14 unlocked');
+    expect(all.map(e => e.textContent)).not.toContain('0 of 15 unlocked');
   });
 
   it('uses the protected URL and conversation section supplied for an earned secret badge', () => {
@@ -194,7 +194,8 @@ describe('dashboard achievement collections', () => {
     const personal = personalRules([], [], { days: 3, channels: 3 }, '2026-11-01', '2026-11-22');
     const group = weeklyRules('2026-11-16', [], [], 0, 0, null).badges;
     const conversation = ['Реплик в цепочке · 4', 'Ответивших участников · 3', 'Взаимных диалогов · 3', 'Ответов в продолжении · 2 из 2'];
-    const results = [...group, ...personal, ...CONVERSATION_BADGES.map((b, i) => ({ id: b.id, result: conversation[i] }))];
+    const results = [...group, ...personal, { id: 'comeback', result: '30 дн. тишины' },
+      ...CONVERSATION_BADGES.map((b, i) => ({ id: b.id, result: conversation[i] }))];
     for (const b of catalog) {
       const result = results.find(r => r.id === b.id)!.result;
       const english = localizeAchievementBadge('en', { ...b, result });

@@ -83,6 +83,9 @@ describe('Telegram achievement collections', () => {
     database.sqlite.prepare(`INSERT INTO achievement_awards(chat_id,user_id,badge_id,earned_day,result)
       VALUES(?,?,?,'2026-11-23',?)`).run(group, owner, DUTCH_RUDDER.id, DUTCH_RUDDER_RESULT);
     await handleAchievementUpdate(env, album);
+    const lastPage = 'ach:album:' + group + ':3';
+    expect(JSON.stringify(sent.at(-1))).toContain(lastPage);
+    await handleAchievementUpdate(env, forward(lastPage, owner));
     expect(sent.at(-1)?.text).toEqual(expect.stringContaining(DUTCH_RUDDER_RESULT));
     await handleAchievementUpdate(env, forward('ach:share:' + group + ':' + DUTCH_RUDDER.id, owner));
     expect(photos[0]?.get('caption')).toBe(DUTCH_RUDDER.title + '\n2026-11-23 UTC\n' + DUTCH_RUDDER_RESULT);
@@ -282,7 +285,7 @@ describe('Telegram achievement collections', () => {
     expect(JSON.stringify(sent.at(-1))).toContain('Начать коллекцию');
     await handleAchievementUpdate(env, forward('ach:join:' + group, owner));
     expect(database.rows('SELECT user_id, enabled FROM achievement_enrollments')).toEqual([{ user_id: owner, enabled: 1 }]);
-    expect(JSON.stringify(sent.at(-1))).toContain('Открыто 0 из 10');
+    expect(JSON.stringify(sent.at(-1))).toContain('Открыто 0 из 11');
     expect(JSON.stringify(sent.at(-1))).not.toContain('Поделиться');
   });
 

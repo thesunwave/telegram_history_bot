@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExecutionContext } from '@cloudflare/workers-types';
-import type { Env } from '../src/core/env';
+import { DAY, type Env } from '../src/core/env';
 import worker from '../src/index';
 import { setEnrolled, setGroupEnabled } from '../src/features/achievements/repository';
 import { setConversationConsent, setConversationGroup } from '../src/features/achievements/social';
@@ -25,8 +25,10 @@ function fixture(path: string) {
   const calls: { method: string; payload: Record<string, unknown> }[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
     const method = new URL(url).pathname.split('/').pop()!;
-    calls.push({ method, payload: JSON.parse(String(init.body)) });
+    const payload = init.body instanceof FormData ? Object.fromEntries(init.body) : JSON.parse(String(init.body));
+    calls.push({ method, payload });
     const result = method === 'getChatMember' ? { status: 'administrator' }
+      : method === 'sendPhoto' ? { message_id: 350 }
       : method === 'getMyCommands' ? [{ command: 'dashboard' }] : true;
     return Response.json({ ok: true, result });
   }));
@@ -44,6 +46,62 @@ function fixture(path: string) {
 }
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe('comeback badge', () => {
+  const now = () => Math.floor(Date.now() / 1000);
+  const gap = 30 * DAY;
+  const text = (message_id: number, date: number) => ({ message_id, date, chat: groupChat, from: actor, text: 'Привет!' });
+
+  async function setup() {
+    const result = fixture('/telegram/webhook');
+    const past = new Date((now() - 100 * DAY) * 1000);
+    await setGroupEnabled(result.store.db, group, true, past);
+    await setEnrolled(result.store.db, group, actor.id, true, past);
+    return result;
+  }
+
+  it('requires earlier group activity, advances after media and awards at exactly 30 days', async () => {
+    const { store, send, calls } = await setup();
+    const start = now() - 65 * DAY;
+    store.sqlite.prepare("INSERT INTO stats_chat_user_profile(chat_id,user_id,username,last_message_ts) VALUES (?,?,'test',?)")
+      .run(group - 1, actor.id, start - gap);
+    expect(await send({ message: text(1, start) })).toBe(200);
+    expect(store.rows('SELECT * FROM achievement_awards')).toEqual([]);
+    const mediaDate = start + gap - 1;
+    expect(await send({ message: { ...text(2, mediaDate), text: undefined, sticker: { file_id: 'dummy' } } })).toBe(200);
+    expect(store.rows('SELECT * FROM achievement_awards')).toEqual([]);
+    expect(await send({ message: text(1, start) })).toBe(200);
+    expect(await send({ message: text(3, mediaDate + gap) })).toBe(200);
+    expect(store.rows('SELECT badge_id,result FROM achievement_awards'))
+      .toEqual([{ badge_id: 'comeback', result: '30 дн. тишины' }]);
+    expect(calls.filter(call => call.method === 'sendPhoto')).toEqual([]);
+  });
+
+  it('uses existing stats and replies once in the same topic after private opt-in', async () => {
+    const { store, send, calls } = await setup();
+    store.sqlite.prepare("INSERT INTO stats_chat_user_profile(chat_id,user_id,username,last_message_ts) VALUES (?,?,'test',?)")
+      .run(group, actor.id, now() - 32 * DAY);
+    const callback = (action: string) => ({ callback_query: { id: action, data: `ach:${action}:${group}`, from: actor,
+      message: { chat: { id: actor.id, type: 'private' }, message_id: 1, text: 'Альбом' } } });
+    expect(await send(callback('comeback-consent'))).toBe(200);
+    expect(calls.at(-1)?.payload).toMatchObject({ reply_markup: { inline_keyboard: [[{
+      text: 'Разрешить ответ в группе', callback_data: `ach:comeback-on:${group}`,
+    }]] } });
+    expect(await send(callback('comeback-on'))).toBe(200);
+    const returning = { ...text(54, now()), text: undefined, photo: [{ file_id: 'dummy' }],
+      is_topic_message: true, message_thread_id: 300 };
+    expect(await Promise.all([send({ message: returning }), send({ message: returning })])).toEqual([200, 200]);
+    expect(await send({ message: text(55, now()) })).toBe(200);
+    expect(store.rows('SELECT badge_id,user_id FROM achievement_awards')).toEqual([{ badge_id: 'comeback', user_id: actor.id }]);
+    const photos = calls.filter(call => call.method === 'sendPhoto');
+    expect(photos).toHaveLength(1);
+    expect(photos[0].payload).toMatchObject({
+      chat_id: String(group), message_thread_id: '300', caption: 'Восстание из ридонли\nМесяц тишины. И тут — тыдыщ.',
+      reply_parameters: JSON.stringify({ message_id: 54, allow_sending_without_reply: false }),
+      photo: expect.objectContaining({ type: 'image/png' }),
+    });
+  });
+});
 
 describe.each(['/telegram/webhook', '/tg/test-token/webhook'])('achievement dispatch on %s', path => {
   it('authenticates before executing an admin button and produces one Telegram reply', async () => {

@@ -1,0 +1,2 @@
+ALTER TABLE achievement_enrollments ADD COLUMN comeback_last_message_ts INTEGER;
+ALTER TABLE achievement_enrollments ADD COLUMN comeback_replies_since INTEGER;

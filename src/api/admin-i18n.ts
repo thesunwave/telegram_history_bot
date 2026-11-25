@@ -568,6 +568,7 @@ const EN_BADGES: Record<string, [string, string]> = {
   film: ['Newsreel', 'Send video notes on three different days within seven days.'],
   'dual-air': ['Dual Broadcast', 'Send both a voice note and a video note on each of two days within 28 days.'],
   newsstand: ['Newsstand', 'Manually forward posts from at least three channels across three different dates within 28 days.'],
+  comeback: ['Rise from Read-Only', 'Post again in this group after at least 30 days of silence.'],
   'ping-pong': ['Ping-Pong', 'Exchange four messages in a direct reply chain between two people within 24 hours.'],
   spark: ['Spark', 'Get direct replies from three different people to the same message within 48 hours.'],
   connector: ['The Connector', 'Get replies from three different people to your own direct replies within 28 days.'],
@@ -577,6 +578,7 @@ const EN_BADGES: Record<string, [string, string]> = {
 
 // Old awards retain their original result, including minute-only Podcast Studio records.
 const EN_AWARD_TERMS: Record<string, string> = {
+  ' дн. тишины': ' days of silence',
   [DUTCH_RUDDER_RESULT]: 'You took turns at the helm, and the chat followed both times.',
   'сообщений, прежний рекорд': 'messages, previous record',
   'Разных лидеров': 'Different leaders', 'Дней за круглым столом': 'Round-table days',

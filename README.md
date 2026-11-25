@@ -114,8 +114,9 @@ expires under the retention policy.
 - A group that enables **achievements** keeps its group ID, weekly activity totals
   and earned badges. Opening a personal album and choosing **Начать коллекцию**
   saves the member's Telegram ID for that group, badge progress, unlock dates and
-  results. In a private chat, open `/badges`, choose the group and confirm
-  **Удалить мой альбом** to erase that album's progress, awards and reply evidence.
+  results. The comeback badge uses the last message timestamp and stores the
+  member's choice to allow a public reply. In a private chat, open `/badges`, choose
+  the group and confirm **Удалить мой альбом** to erase its progress, awards and reply evidence.
 - When a group enables **conversation badges** and a member opts in, D1 records
   the group, message and author IDs and timestamps for that member's new messages.
   A direct reply also records the parent message ID, author ID and timestamp when
@@ -191,10 +192,16 @@ participants send voice notes in the same week. The weekly photo is safe to forw
 contains group totals only.
 
 Open `/badges` in private or tap **Мои бейджи** in the group to start a personal album
-for that group. Ten badges cover participation, time of day, voice and video notes and
-manual channel reposts. Once a UTC day closes, the bot evaluates progress in batches.
-Only the album owner can open it and choose a badge to share. Pausing keeps unlocks,
-and deleting an album removes that person's achievement progress and awards for that group.
+for that group. Personal badges cover participation, time of day, voice and video notes,
+manual channel reposts and returning to the chat. The bot evaluates daily badges in batches.
+The album owner can open it and choose a badge to share. Pausing keeps unlocks, and
+deleting an album removes that person's achievement progress and awards for that group.
+
+**Rise from Read-Only** (**Восстание из ридонли**) unlocks as soon as a participant
+posts again after at least 30 days in the same group. A qualifying gap starts with
+a previous message from the active album period. After a participant enables the
+announcement in their private album, the bot replies to the returning message
+with a card in the group. The badge can be earned once per album.
 
 Groups and individual participants can separately enable the conversation shelf.
 Four badges are visible up front, and a rare paired badge appears when earned.
