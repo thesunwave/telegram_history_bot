@@ -1,10 +1,10 @@
 import type { Env } from '../../core/env';
 import { mondayOf, shiftDay } from './calendar';
 import { getEnrollment, getGroup, listAwards } from './repository';
-import { GROUP_BADGES, PERSONAL_BADGES } from './rules';
+import { COMEBACK, GROUP_BADGES, PERSONAL_BADGES } from './rules';
 import { conversationProgress, groupProgress, personalProgress, type CollectionProgress } from './progress';
 import { telegramProgress } from './progress-copy';
-import { button, botUsername, groupTitle, socialAvailable, type Buttons, type View } from './settings';
+import { button, botUsername, comebackAvailable, groupTitle, socialAvailable, type Buttons, type View } from './settings';
 import { getConversationStatus } from './social';
 import { visibleConversationBadges } from './social-score';
 
@@ -51,8 +51,8 @@ export async function personalAlbum(env: Env, chat: number, owner: number, page 
   if (!enrollment) {
     if (!group?.enabled) return { text: 'В этой группе достижения выключены.' };
     return {
-      text: 'Личный альбом · ' + title + '\n\nДесять бейджей за привычки, голосовые, кружочки и находки. '
-        + 'Учёт начнётся с ближайшей полуночи по UTC. Прогресс за день предварительный, награды выдаются после проверки. '
+      text: 'Личный альбом · ' + title + '\n\nБейджи за привычки, голосовые, кружочки, находки и возвращение в чат. '
+        + 'Учёт начнётся с ближайшей полуночи по UTC. Прогресс за день предварительный. '
         + 'Прогресс видите вы. Отдельной карточкой можно поделиться самостоятельно.',
       buttons: [[button('Начать коллекцию', 'join', chat)]],
     };
@@ -74,7 +74,7 @@ export async function personalAlbum(env: Env, chat: number, owner: number, page 
   const lines = ['Мой альбом · ' + title, 'Открыто ' + awards.length + ' из ' + badges.length];
   const buttons: Buttons = [];
   if (!active) lines.push('Сбор на паузе. Открытые бейджи сохранены.');
-  else lines.push('Учёт с ' + enrollment.start_day + ' UTC. Награды выдаются после проверки статистики.');
+  else lines.push('Учёт с ' + enrollment.start_day + ' UTC. Дневные бейджи выдаются после проверки статистики.');
   if (active && social.memberSince !== null) lines.push('Ответы учитываются с '
     + new Date(social.memberSince * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC.');
   const progressById: CollectionProgress = { ...progress, ...replies };
@@ -93,6 +93,12 @@ export async function personalAlbum(env: Env, chat: number, owner: number, page 
   if ((page + 1) * size < badges.length) pages.push(button('Дальше →', 'album', chat, String(page + 1)));
   if (pages.length) buttons.push(pages);
   if (active) buttons.push([button('Обновить', 'album', chat, String(page))]);
+  if (active && (enrollment.comeback_replies_since !== null ||
+    (comebackAvailable(env) && !awards.some(award => award.badge_id === COMEBACK.id)))) {
+    buttons.push([enrollment.comeback_replies_since === null
+      ? button('Анонс «' + COMEBACK.title + '»', 'comeback-consent', chat)
+      : button('Выключить анонс возвращения', 'comeback-off', chat)]);
+  }
   if (active && social.groupSince !== null) {
     buttons.push([button(social.memberSince === null ? 'Как работает полка «Разговор»' : 'Прекратить учёт ответов',
       social.memberSince === null ? 'consent' : 'leave-social', chat)]);

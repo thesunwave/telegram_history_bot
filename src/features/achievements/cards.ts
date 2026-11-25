@@ -103,10 +103,14 @@ export async function weeklyCard(report: WeeklyReport) {
 
 export async function sendCard(
   env: Env, chatId: number, png: Uint8Array<ArrayBuffer>, caption: string, buttons?: InlineButton[][], threadId?: number,
+  replyToMessageId?: number,
 ): Promise<Delivery> {
   const form = new FormData();
   form.set('chat_id', String(chatId));
   if (threadId !== undefined) form.set('message_thread_id', String(threadId));
+  if (replyToMessageId !== undefined) {
+    form.set('reply_parameters', JSON.stringify({ message_id: replyToMessageId, allow_sending_without_reply: false }));
+  }
   form.set('photo', new Blob([png], { type: 'image/png' }), 'achievement.png');
   form.set('caption', caption);
   if (buttons?.length) form.set('reply_markup', JSON.stringify({ inline_keyboard: buttons }));

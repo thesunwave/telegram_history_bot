@@ -13,6 +13,10 @@ export function socialAvailable(env: Env): boolean {
   return String(env.ENABLE_CONVERSATION_ACHIEVEMENTS) === 'true' && String(env.ENABLE_ACTIVITY_TRACKING) !== 'false';
 }
 
+export function comebackAvailable(env: Env): boolean {
+  return String(env.ENABLE_ACTIVITY_TRACKING) !== 'false' && env.RAW_MESSAGE_STORAGE_MODE !== 'unconfigured';
+}
+
 /** Existing explicit webhook filters may predate the album buttons. Only the owner changes the webhook. */
 export async function callbackSetupHint(env: Env): Promise<string> {
   try {

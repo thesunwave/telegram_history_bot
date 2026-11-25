@@ -3,7 +3,7 @@ import { Logger } from '../../core/logger';
 import { mondayOf } from './calendar';
 import { readPersonalEvidence, readWeeklyProgress } from './evaluate';
 import type { Enrollment, GroupState } from './repository';
-import { GROUP_BADGES, PERSONAL_BADGES, personalRules, type BadgeProgress, type ForwardSummary } from './rules';
+import { DAILY_PERSONAL_BADGES, GROUP_BADGES, personalRules, type BadgeProgress, type ForwardSummary } from './rules';
 import { getConversationProgress } from './social';
 import { CONVERSATION_BADGES } from './social-score';
 
@@ -66,7 +66,7 @@ export async function groupProgress(env: Env, chat: number, group: GroupState | 
 }
 
 function savedPersonalProgress(album: Enrollment): CollectionProgress {
-  const result = unavailable(PERSONAL_BADGES, 'waiting');
+  const result = unavailable(DAILY_PERSONAL_BADGES, 'waiting');
   const scores = JSON.parse(album.progress_json) as BadgeProgress[];
   for (const score of scores) {
     if (!Object.hasOwn(result, score.id)) continue;
@@ -84,7 +84,7 @@ export async function personalProgress(env: Env, chat: number, owner: number, gr
   album: Enrollment | null, now = new Date()): Promise<CollectionProgress> {
   if (!group?.enabled || !album?.enabled) return {};
   const today = now.toISOString().slice(0, 10);
-  if (today < album.start_day) return unavailable(PERSONAL_BADGES, 'scheduled', album.start_day);
+  if (today < album.start_day) return unavailable(DAILY_PERSONAL_BADGES, 'scheduled', album.start_day);
   const saved = savedPersonalProgress(album);
   try {
     const { dayVerified, rows, buckets, forwards } = await readPersonalEvidence(env, chat, owner, album.start_day, today, true);
