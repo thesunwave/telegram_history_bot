@@ -114,9 +114,8 @@ expires under the retention policy.
 - A group that enables **achievements** keeps its group ID, weekly activity totals
   and earned badges. Members participate automatically when the bot observes
   their activity. A personal album saves the member's Telegram ID for that group,
-  badge progress, unlock dates and
-  results. The comeback badge uses the last message timestamp and stores the
-  member's choice to allow a public reply. A pending announcement also stores the
+  badge progress, unlock dates and results. The comeback badge uses the last message
+  timestamp and stores the member's choice to allow a public reply. A pending announcement also stores the
   target message and topic IDs. In a private chat, open `/badges`, choose
   the group and confirm **Удалить мой альбом** to erase its progress, awards and reply evidence.
 - When a group enables **conversation badges** and a member opts in, D1 records
@@ -194,14 +193,16 @@ participants send voice notes in the same week. The weekly photo is safe to forw
 contains group totals only.
 
 Open `/badges` in private or tap **Мои бейджи** in the group to view your personal album.
-Members of groups with achievements enabled can earn badges automatically. Personal badges cover participation, time of day, voice and video notes,
-manual channel reposts and returning to the chat. The bot evaluates daily badges in batches.
+Members participate automatically when they post in a group with achievements enabled.
+Daily badges count verified days from the next UTC midnight. Personal badges cover
+participation, time of day, voice and video notes, manual channel reposts and returning to the chat.
 The album owner can open it and choose a badge to share. Pausing keeps unlocks, and
 deleting an album removes that person's achievement progress and awards for that group.
 
 **Rise from Read-Only** (**Восстание из ридонли**) unlocks as soon as a participant
 posts again after at least 30 days in the same group. A qualifying gap starts with
-a previous message in the same group, including one already recorded before achievements were enabled. After a participant enables the
+a previous message in the same group, including one already recorded before achievements
+were enabled. After a participant enables the
 announcement in their private album, the bot replies to the returning message
 with a card in the group. The badge can be earned once per album.
 If Telegram explicitly rate-limits the card, the achievement job can retry it

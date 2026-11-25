@@ -7,18 +7,19 @@
 ## ADDED Requirements
 
 ### Requirement: Вход в свой альбом
-The bot SHALL open a private album per Telegram account and group. «Мои бейджи» in a group SHALL lead to the bot's private chat. Members of an enabled group participate automatically when the bot receives their activity. A verified member can view the album directly.
+The bot SHALL open a private album per Telegram account and group. «Мои бейджи» in a group SHALL lead to the bot's private chat. The bot SHALL begin participation automatically when it receives a member's activity in an enabled group. A verified member can view the album before participation begins. Viewing or previewing a badge SHALL only read the album.
 
 #### Scenario: First visit
 - **WHEN** a member enters via the group button or opens the bot privately and chooses an eligible group
-- **THEN** they see their group collection and any results already recorded for them
+- **THEN** they see their collection, any results already recorded, and when daily activity starts counting if the bot has yet to record their participation
+- **AND** `/achievements` in the group explains automatic participation and the UTC schedule
 
 #### Scenario: Forwarded link or failed membership check
 - **WHEN** a user supplies a foreign user ID, opens a copied link or membership cannot be verified
 - **THEN** the bot derives the owner from the Telegram sender and displays results only for that owner after a successful membership check
 
 ### Requirement: Periods and evidence
-The bot SHALL evaluate a participant after each closed UTC date. Only verified, enabled dates on or after their first observed participation day count towards daily rules. The comeback badge uses the most recent previous group message, including an existing timestamp recorded before participation. A qualifying personal award unlocks once per group and owner. Day-based windows end on the evaluation date and include it. A known qualifying event can count once even when its delivery is retried.
+The bot SHALL evaluate a participant after each closed UTC date. Daily rules count verified dates from the first UTC midnight on or after the bot receives the activity that starts or resumes participation. A qualifying personal award unlocks once per group and owner. Day-based windows end on the evaluation date and include it. A known qualifying event can count once even when its delivery is retried.
 
 #### Scenario: Early unlock and incomplete history
 - **WHEN** three verified qualifying dates occur during the first five days of a 28-day window
@@ -37,12 +38,19 @@ The album SHALL offer three badges for returning to the chat. An active date req
 - **THEN** unlock «До завтра» with the two dates
 
 #### Scenario: Завсегдатай
-- **WHEN** the owner is active at least once in each of four consecutive completed Monday–Sunday UTC weeks entirely within enrollment
+- **WHEN** the owner is active at least once in each of four consecutive completed Monday–Sunday UTC weeks entirely within their current participation period
 - **THEN** unlock «Завсегдатай» even if the owner posted just once per week
 
 #### Scenario: Весь календарь
 - **WHEN** all seven distinct weekdays appear among the owner's active dates within the last 42 days
 - **THEN** unlock «Весь календарь», including when the seven weekdays occurred in different weeks
+
+### Requirement: Восстание из ридонли
+The bot SHALL unlock «Восстание из ридонли» immediately on the first qualifying message sent at least 30 days after that author's most recent previous message in the same group. A recorded timestamp from before participation can establish the baseline. The first known message establishes the baseline without awarding the badge.
+
+#### Scenario: Announce a return
+- **WHEN** the member earns «Восстание из ридонли» and enabled its public announcement before the qualifying message
+- **THEN** the bot can reply with the personal card to that message in the group while the member's announcement consent remains active
 
 ### Requirement: Время и слово
 The album SHALL offer three badges based on text totals and UTC activity buckets. The album SHALL show the UTC boundaries wherever a time-of-day condition appears.
@@ -90,7 +98,9 @@ The album SHALL show a rule, window and progress for each available badge and th
 - **THEN** the bot returns one forwardable photo in private with its badge, date and result, omitting names, handles, group titles, source channels, quotes and private album links
 
 #### Scenario: Pause and erase
-- **WHEN** the owner pauses enrollment or the group disables achievements
-- **THEN** new progress stops, earned entries remain, and re-enrollment starts a fresh window at the next eligible midnight
+- **WHEN** the owner pauses participation or the group disables achievements
+- **THEN** new progress stops and earned entries remain available
+- **WHEN** the group re-enables achievements
+- **THEN** group-paused participants resume from the next eligible midnight and personal pauses stay in effect until the member resumes their collection
 - **WHEN** the owner confirms «Удалить мой альбом» for a group in private
 - **THEN** participation, progress and earned results for that owner/group are erased without affecting group awards or other albums. The bot starts a new collection when it observes that member's group activity again.

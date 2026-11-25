@@ -2,7 +2,7 @@ import type { Env } from '../../core/env';
 import { isForwardedMessage } from '../../api/update';
 import { groupCollection, personalAlbum } from './album';
 import { collectionCard, personalCard, sendCard } from './cards';
-import { eraseAlbum, getEnrollment, getGroup, listAwards, setComebackReplies, setEnrolled, setGroupEnabled } from './repository';
+import { eraseAlbum, getEnrollment, getGroup, listAwards, resumeParticipant, setComebackReplies, setEnrolled, setGroupEnabled } from './repository';
 import { COMEBACK, GROUP_BADGES, PERSONAL_BADGES } from './rules';
 import { conversationProgress, groupProgress, personalProgress, type AchievementProgress } from './progress';
 import { progressCopy, telegramProgress } from './progress-copy';
@@ -124,7 +124,7 @@ async function inspect(env: Env, group: number, owner: number, id?: string, thre
   const [settings, enrollment, awards] = await Promise.all([
     getGroup(env.DB, group), groupCard ? null : getEnrollment(env.DB, group, owner), listAwards(env.DB, group, owner),
   ]);
-  if (!groupCard && !enrollment) return { text: 'Сначала откройте /badges.' };
+  if (!groupCard && !enrollment && !settings?.enabled) return { text: 'В этой группе достижения выключены.' };
   const award = awards.find(a => a.badge_id === id);
   const choices = groupCard ? GROUP_BADGES : [...PERSONAL_BADGES, ...CONVERSATION_BADGES,
     ...(award?.badge_id === DUTCH_RUDDER.id ? [DUTCH_RUDDER] : [])];
@@ -164,7 +164,8 @@ async function privateAction(env: Env, req: Request, owner: number): Promise<Vie
   if (role !== 'admin' && role !== 'member') return { text: 'Не удалось подтвердить членство в этой группе.' };
   if (action === 'share') return share(env, group, owner, extra);
   if (action === 'preview') return inspect(env, group, owner, extra);
-  if (action === 'join' || action === 'pause') await setEnrolled(env.DB, group, owner, action === 'join');
+  if (action === 'join') await resumeParticipant(env.DB, group, owner);
+  else if (action === 'pause') await setEnrolled(env.DB, group, owner, false);
   else if (action === 'comeback-consent') {
     const [settings, enrollment, awards] = await Promise.all([
       getGroup(env.DB, group), getEnrollment(env.DB, group, owner), listAwards(env.DB, group, owner),

@@ -9,8 +9,17 @@ export interface Enrollment extends GroupState {
   last_day: string | null;
   progress_json: string;
   comeback_replies_since: number | null;
+  group_pause: number;
 }
 export interface Award { badge_id: string; earned_day: string; result: string }
+
+// Before paused_by_group existed, only group pauses wrote a 32-character hex
+// generation. A personal pause wrote a hyphenated UUID.
+function groupPause(prefix = '') {
+  const generation = prefix + 'generation';
+  return `${prefix}enabled=0 AND (${prefix}paused_by_group=1 OR
+    (length(${generation})=32 AND ${generation} NOT GLOB '*[^0-9A-F]*'))`;
+}
 
 export function getGroup(db: D1Database, chatId: number) {
   return db.prepare('SELECT enabled,start_day,generation FROM achievement_groups WHERE chat_id=?')
@@ -47,7 +56,7 @@ export async function setGroupEnabled(db: D1Database, chatId: number, enabled: b
   const changes = [update];
   if (enabled) {
     changes.push(db.prepare(`UPDATE achievement_enrollments SET enabled=1,paused_by_group=0,start_day=?,
-      generation=hex(randomblob(16)),next_album_check=0 WHERE chat_id=? AND paused_by_group=1
+      generation=hex(randomblob(16)),next_album_check=0 WHERE chat_id=? AND ${groupPause()}
       AND EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1 AND generation=?)`)
       .bind(start, chatId, chatId, generation));
   } else changes.push(...pauseGroupDependents(db, chatId));
@@ -55,16 +64,35 @@ export async function setGroupEnabled(db: D1Database, chatId: number, enabled: b
   return getGroup(db, chatId);
 }
 export function getEnrollment(db: D1Database, chatId: number, userId: number) {
-  return db.prepare('SELECT * FROM achievement_enrollments WHERE chat_id=? AND user_id=?')
+  return db.prepare(`SELECT *,(${groupPause()}) AS group_pause FROM achievement_enrollments WHERE chat_id=? AND user_id=?`)
     .bind(chatId, userId).first<Enrollment>();
 }
 
-/** Start counting from the first observed UTC day without replacing an existing album or a member pause. */
-export function autoEnrollParticipant(db: D1Database, chatId: number, userId: number, observedAt: number) {
+/** Read the sender's participation and comeback award only in enabled groups. */
+export function getParticipationForActivity(db: D1Database, chatId: number, userId: number) {
+  return db.prepare(`SELECT e.enabled AS enrolled,(${groupPause('e.')}) AS group_pause,
+    EXISTS (SELECT 1 FROM achievement_awards WHERE chat_id=g.chat_id AND user_id=? AND badge_id=?) AS earned
+    FROM achievement_groups g LEFT JOIN achievement_enrollments e ON e.chat_id=g.chat_id AND e.user_id=?
+    WHERE g.chat_id=? AND g.enabled=1`).bind(userId, COMEBACK.id, userId, chatId)
+    .first<{ enrolled: number | null; group_pause: number | null; earned: number }>();
+}
+
+/** Start daily scoring at the next full UTC day after receipt, even for delayed messages. */
+export function autoEnrollParticipant(db: D1Database, chatId: number, userId: number, now = new Date()) {
   return db.prepare(`INSERT INTO achievement_enrollments(chat_id,user_id,enabled,start_day,generation)
-    SELECT ?,?,1,date(?,'unixepoch'),hex(randomblob(16))
+    SELECT ?,?,1,?,?
     WHERE EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1)
-    ON CONFLICT(chat_id,user_id) DO NOTHING`).bind(chatId, userId, observedAt, chatId);
+    ON CONFLICT(chat_id,user_id) DO UPDATE SET enabled=1,paused_by_group=0,start_day=excluded.start_day,
+      generation=excluded.generation,next_album_check=0 WHERE ${groupPause('achievement_enrollments.')}`)
+    .bind(chatId, userId, eligibleDay(now), crypto.randomUUID(), chatId);
+}
+
+/** Resume only an existing collection so an old button cannot recreate an erased album. */
+export async function resumeParticipant(db: D1Database, chatId: number, userId: number, now = new Date()) {
+  await db.prepare(`UPDATE achievement_enrollments SET enabled=1,paused_by_group=0,start_day=?,
+    generation=?,next_album_check=0,last_day=NULL,progress_json='[]' WHERE chat_id=? AND user_id=? AND enabled=0
+    AND EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1)`)
+    .bind(eligibleDay(now), crypto.randomUUID(), chatId, userId, chatId).run();
 }
 
 /** Enrollment requires a currently enabled group. Replayed confirmations retain earned progress. */
@@ -81,7 +109,7 @@ export async function setEnrolled(db: D1Database, chatId: number, userId: number
       ...revokeConversationMember(db, chatId, userId),
       db.prepare(`UPDATE achievement_enrollments SET enabled=0,paused_by_group=0,last_day=NULL,progress_json='[]',
         comeback_last_message_ts=NULL,comeback_replies_since=NULL,generation=?
-        WHERE chat_id=? AND user_id=? AND enabled=1`)
+        WHERE chat_id=? AND user_id=? AND (enabled=1 OR (${groupPause()}))`)
         .bind(crypto.randomUUID(), chatId, userId),
     ]);
   }

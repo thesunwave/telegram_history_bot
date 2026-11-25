@@ -100,7 +100,7 @@ async function acceptTelegramUpdate(update: unknown, env: Env, ctx: ExecutionCon
       Logger.warn('Comeback card unavailable', { op: 'comebackCard' });
     }));
   } catch {
-    Logger.warn('Comeback activity unavailable', { op: 'observeComeback' });
+    Logger.warn('Achievement activity unavailable', { op: 'observeAchievementActivity' });
   }
   const message = getTextMessage(update);
   await recordMessage(message, env, ctx);

@@ -278,13 +278,24 @@ describe('Telegram achievement collections', () => {
     expect(sent.at(-1)?.text).not.toContain('Включить доставку нажатий на кнопки');
   });
 
-  it('opens an active album for a verified member without a join confirmation', async () => {
+  it('shows the album and schedule without writing a row for an unobserved member', async () => {
     await setGroupEnabled(database.db, group, true);
     await handleAchievementUpdate(env, command('/start ach_223', owner));
-    expect(database.rows('SELECT user_id, enabled FROM achievement_enrollments')).toEqual([{ user_id: owner, enabled: 1 }]);
-    expect(JSON.stringify(sent.at(-1))).not.toContain('Начать коллекцию');
-    expect(JSON.stringify(sent.at(-1))).toContain('Открыто 0 из 11');
-    expect(JSON.stringify(sent.at(-1))).not.toContain('Поделиться');
+    expect(sent.at(-1)?.text).toContain('Открыто 0 из 11');
+    expect(sent.at(-1)?.text).toContain('с первого полного дня по UTC после сообщения в группе');
+    await handleAchievementUpdate(env, forward('ach:preview:' + group + ':tomorrow', owner));
+    expect(photos.at(-1)?.get('caption')).toContain('Пока закрыто');
+    expect(database.rows('SELECT * FROM achievement_enrollments')).toEqual([]);
+  });
+
+  it('leaves the album erased when a member opens it again or presses an old join button', async () => {
+    await setGroupEnabled(database.db, group, true);
+    const enrollment = await setEnrolled(database.db, group, owner, true);
+    await handleAchievementUpdate(env, forward('ach:erase:' + group + ':' + enrollment!.generation, owner));
+    await handleAchievementUpdate(env, command('/start ach_223', owner));
+    await handleAchievementUpdate(env, forward('ach:join:' + group, owner));
+    expect(database.rows('SELECT * FROM achievement_enrollments')).toEqual([]);
+    expect(sent.at(-1)?.text).toContain('Открыто 0 из 11');
   });
 
   it('lets a departed owner erase only their own confirmed album', async () => {

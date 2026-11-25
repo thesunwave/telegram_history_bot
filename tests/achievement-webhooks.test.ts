@@ -46,7 +46,7 @@ function fixture(path: string) {
   return { store, env, calls, send, historyPut, counterFetch };
 }
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('comeback badge', () => {
   const now = () => Math.floor(Date.now() / 1000);
@@ -126,7 +126,7 @@ describe('comeback badge', () => {
     expect(await send({ message: text(2, now()) })).toBe(200);
     expect(batch).toHaveBeenCalledTimes(1);
     expect(counterFetch).toHaveBeenCalledTimes(2);
-    expect(warn).toHaveBeenCalledWith('Comeback activity unavailable', { op: 'observeComeback' });
+    expect(warn).toHaveBeenCalledWith('Achievement activity unavailable', { op: 'observeAchievementActivity' });
     expect(store.rows('SELECT * FROM achievement_awards')).toEqual([]);
   });
 
@@ -169,6 +169,17 @@ describe('comeback badge', () => {
     expect(calls.filter(call => call.method === 'sendPhoto')).toEqual([]);
   });
 
+  it('starts daily scoring at the next UTC midnight when an earlier message is delivered late', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-25T13:00:00Z'));
+    const { store, send } = fixture('/telegram/webhook');
+    await setGroupEnabled(store.db, group, true, new Date('2026-11-25T12:00:00Z'));
+    expect(await send({ message: text(63, now() - 2 * 3600) })).toBe(200);
+    expect(store.rows('SELECT user_id,start_day FROM achievement_enrollments'))
+      .toEqual([{ user_id: actor.id, start_day: '2026-11-26' }]);
+    expect(store.rows('SELECT * FROM achievement_awards')).toEqual([]);
+  });
+
   it('resumes members after a group reactivation and keeps personal pauses', async () => {
     const { store, send } = await setup(false);
     const secondAuthor = { ...actor, id: actor.id + 1 };
@@ -179,6 +190,35 @@ describe('comeback badge', () => {
     await setGroupEnabled(store.db, group, true);
     expect(store.rows('SELECT user_id,enabled FROM achievement_enrollments ORDER BY user_id'))
       .toEqual([{ user_id: actor.id, enabled: 1 }, { user_id: secondAuthor.id, enabled: 0 }]);
+  });
+
+  it('keeps a personal pause requested while the group is disabled', async () => {
+    const { store, send, calls } = await setup();
+    await setGroupEnabled(store.db, group, false);
+    await send(callback('album'));
+    expect(JSON.stringify(calls.at(-1)?.payload)).toContain('Оставить на паузе');
+    await send(callback('pause'));
+    await setGroupEnabled(store.db, group, true);
+    expect(store.rows('SELECT enabled,paused_by_group FROM achievement_enrollments'))
+      .toEqual([{ enabled: 0, paused_by_group: 0 }]);
+  });
+
+  it.each(['on group reactivation', 'on new activity'])('recognizes legacy group pauses %s', async trigger => {
+    const { store, send } = await setup();
+    const other = actor.id + 1;
+    await setEnrolled(store.db, group, other, true);
+    await setEnrolled(store.db, group, other, false);
+    store.sqlite.prepare(`UPDATE achievement_enrollments SET enabled=0,paused_by_group=0,
+      generation=hex(randomblob(16)),last_day=NULL,progress_json='[]' WHERE chat_id=? AND user_id=?`).run(group, actor.id);
+    if (trigger === 'on group reactivation') {
+      store.sqlite.prepare('UPDATE achievement_groups SET enabled=0 WHERE chat_id=?').run(group);
+      await setGroupEnabled(store.db, group, true);
+    } else {
+      expect(await send({ message: text(66, now()) })).toBe(200);
+      expect(await send({ message: { ...text(67, now()), from: { ...actor, id: other } } })).toBe(200);
+    }
+    expect(store.rows('SELECT user_id,enabled FROM achievement_enrollments ORDER BY user_id'))
+      .toEqual([{ user_id: actor.id, enabled: 1 }, { user_id: other, enabled: 0 }]);
   });
 
   it('ignores commands in media captions', async () => {

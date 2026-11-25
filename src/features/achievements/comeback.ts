@@ -1,7 +1,7 @@
 import { DAY, type Env } from '../../core/env';
 import { personalCard, sendCard } from './cards';
 import { identifyGroupMessage, messageRecord } from './group-message';
-import { autoEnrollParticipant, getEnrollment } from './repository';
+import { autoEnrollParticipant, getEnrollment, getParticipationForActivity } from './repository';
 import { COMEBACK, COMEBACK_DAYS } from './rules';
 import { comebackAvailable } from './settings';
 
@@ -32,16 +32,13 @@ const replyColumns = 'chat_id,user_id,earned_day,comeback_reply_json,comeback_re
 export async function observeAchievementActivity(env: Env, incoming: unknown) {
   if (!comebackAvailable(env)) return;
   const message = identifyGroupMessage(incoming, true);
-  const now = nowSeconds();
+  const receivedAt = new Date();
+  const now = Math.floor(receivedAt.getTime() / 1000);
   if (!message || message.date > now + CLOCK_SKEW_SECONDS) return;
   const { chat, user, date } = message;
-  const state = await env.DB.prepare(`SELECT e.enabled AS enrolled,
-    EXISTS (SELECT 1 FROM achievement_awards WHERE chat_id=g.chat_id AND user_id=? AND badge_id=?) AS earned
-    FROM achievement_groups g LEFT JOIN achievement_enrollments e ON e.chat_id=g.chat_id AND e.user_id=?
-    WHERE g.chat_id=? AND g.enabled=1`).bind(user, COMEBACK.id, user, chat)
-    .first<{ enrolled: number | null; earned: number }>();
-  if (!state || state.enrolled === 0) return;
-  const enrollment = state.enrolled === null ? autoEnrollParticipant(env.DB, chat, user, date) : null;
+  const state = await getParticipationForActivity(env.DB, chat, user);
+  if (!state || (state.enrolled === 0 && !state.group_pause)) return;
+  const enrollment = state.enrolled === 1 ? null : autoEnrollParticipant(env.DB, chat, user, receivedAt);
   const { text, caption } = messageRecord(incoming);
   if (state.earned || !identifyGroupMessage(incoming) ||
     (typeof text === 'string' && text.startsWith('/')) ||
