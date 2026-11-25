@@ -5,6 +5,7 @@ import { createRealD1 } from './helpers/real-d1';
 import { handleAchievementUpdate } from '../src/features/achievements/telegram';
 import { setEnrolled, setGroupEnabled } from '../src/features/achievements/repository';
 import { weeklyRules } from '../src/features/achievements/rules';
+import { JOB_VERSION } from '../src/features/stats/daily-backfill';
 import { DUTCH_RUDDER, DUTCH_RUDDER_RESULT } from '../src/features/achievements/social-score';
 import { setConversationGroup } from '../src/features/achievements/social';
 import { sendCard, weeklyCard } from '../src/features/achievements/cards';
@@ -94,6 +95,43 @@ describe('Telegram achievement collections', () => {
     await handleAchievementUpdate(env, forward('ach:on:' + group, group));
     expect(database.rows('SELECT enabled FROM achievement_groups')).toEqual([{ enabled: 1 }]);
     expect(JSON.stringify(sent.at(-1))).toContain('https://t.me/example_bot?start=ach_223');
+  });
+
+  it('shows current counters in the collection, refreshes them for a member and includes them in the badge caption', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const day = '2026-11-23';
+      vi.setSystemTime(new Date(day + 'T13:00:00Z'));
+      const start = new Date(day + 'T00:00:00Z');
+      await setGroupEnabled(database.db, group, true, start);
+      await setEnrolled(database.db, group, owner, true, start);
+      database.sqlite.prepare(`INSERT INTO stats_backfill_state(job_name,version,status,phase,cutoff_day,created_at,updated_at)
+        VALUES ('daily_aggregates_v1',?,'done','done','2026-11-24',0,0)`).run(JOB_VERSION);
+      database.sqlite.prepare(`INSERT INTO stats_daily_coverage
+        (chat_id,day,base_status,profanity_status,criminal_status,source,updated_at)
+        VALUES (?,?,'complete','complete','complete','backfill',0)`).run(group, day);
+      database.sqlite.prepare(`INSERT INTO stats_daily_user
+        (chat_id,day,user_id,message_count,voice_count,voice_duration_seconds) VALUES (?,?,?,1,1,2520)`)
+        .run(group, day, owner);
+
+      await handleAchievementUpdate(env, command('/achievements', group));
+      expect(sent.at(-1)?.text).toEqual(expect.stringContaining('42:00 / 60:00 · До цели — 18 мин'));
+      expect(JSON.stringify(sent.at(-1))).toContain('Обновить');
+      database.sqlite.prepare('UPDATE stats_daily_user SET voice_duration_seconds=3600').run();
+      await handleAchievementUpdate(env, forward('ach:group:' + group, group));
+      expect(sent.at(-1)?.text).toEqual(expect.stringContaining('Условия выполнены · ждём подтверждения'));
+      await handleAchievementUpdate(env, forward('ach:group-card:' + group + ':podcast', group));
+      expect(photos.at(-1)?.get('caption')).toEqual(expect.stringContaining('60:00 / 60:00'));
+
+      await handleAchievementUpdate(env, forward('ach:album:' + group + ':1', owner));
+      expect(sent.at(-1)?.text).toEqual(expect.stringContaining('1 / 3 · До цели — 2 дня'));
+      expect(sent.at(-1)?.reply_markup).toMatchObject({ inline_keyboard: expect.arrayContaining([
+        [{ text: 'Обновить', callback_data: 'ach:album:' + group + ':1' }],
+      ]) });
+      expect(database.rows('SELECT * FROM achievement_awards')).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('allows no cross-group, forwarded or foreign-DM access', async () => {

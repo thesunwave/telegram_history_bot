@@ -55,13 +55,13 @@ export async function personalCard(id: string, title: string, day: string, resul
 /** A member can inspect a locked badge's outline and unlock condition before earning it. */
 export async function collectionCard(
   id: string, title: string, rule: string, group: boolean,
-  award?: { result: string; earned_day: string }, progress?: { current: number; target: number },
+  award?: { result: string; earned_day: string }, counter?: string,
 ) {
   const canvas = header(group ? 'КОЛЛЕКЦИЯ ЧАТА' : 'ЛИЧНАЯ КОЛЛЕКЦИЯ');
   await medal(canvas, id, title, award?.result ?? rule, !award);
   if (award) footer(canvas, 'ДОСТИЖЕНИЕ ОТКРЫТО', award.earned_day + ' UTC');
-  else footer(canvas, 'ПОКА ЗАКРЫТО', progress
-    ? 'ПРОГРЕСС: ' + Math.min(progress.current, progress.target) + ' ИЗ ' + progress.target
+  else footer(canvas, 'ПОКА ЗАКРЫТО', counter
+    ? 'ПРОГРЕСС: ' + counter
     : group ? 'ЗА ПОЛНУЮ НЕДЕЛЮ ПО UTC' : '');
   return canvas.png();
 }

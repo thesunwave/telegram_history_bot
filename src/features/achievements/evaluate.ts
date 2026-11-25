@@ -1,6 +1,7 @@
 import { GROUP_DAY_SQL } from './queries';
 import type { D1PreparedStatement, D1Result } from '@cloudflare/workers-types';
 import type { Env } from '../../core/env';
+import { Logger } from '../../core/logger';
 import {
   createD1RangeReadinessQueryPlan, interpretIndividualReadiness, isLiveProgressExact,
   type LiveProgressSnapshot
@@ -16,7 +17,7 @@ export type { WeeklyReport } from './rules';
 
 /** Read evidence and coverage in one D1 snapshot, then compare live watermarks with CountersDO. */
 async function snapshot(env: Env, chat: number, days: string[], statements: D1PreparedStatement[],
-  observedFrom: string, personal = false) {
+  observedFrom: string, personal = false, openDay?: string) {
   const plan = createD1RangeReadinessQueryPlan(env.DB, chat, days, days, true);
   const results = await env.DB.batch([...plan.statements, ...statements]);
   const evidence = results.slice(0, plan.statements.length);
@@ -29,8 +30,9 @@ async function snapshot(env: Env, chat: number, days: string[], statements: D1Pr
   ])] : days;
   const verified = new Set<string>();
   const live = new Map<string, LiveProgressSnapshot>();
-  for (const [day, readiness] of interpretIndividualReadiness(evidence, needed)) {
-    if (readiness.kind !== 'final') continue;
+  const readinessByDay = interpretIndividualReadiness(evidence, needed, openDay);
+  for (const [day, readiness] of readinessByDay) {
+    if (readiness.kind !== 'final' && readiness.kind !== 'provisional') continue;
     if (readiness.live.liveDays.length) live.set(day, readiness.live.snapshots[day]);
     else verified.add(day);
   }
@@ -46,22 +48,33 @@ async function snapshot(env: Env, chat: number, days: string[], statements: D1Pr
     const stub = env.COUNTERS_DO.get(env.COUNTERS_DO.idFromName(String(chat)));
     for (let i = 0; i < requested.length; i += 30) {
       const chunk = requested.slice(i, i + 30);
-      const response = await stub.fetch('https://do/pipeline-snapshots', {
-        method: 'POST', body: JSON.stringify({ days: chunk, verifyEmpty: chunk.some(d => quiet.has(d)) }),
+      const proof = await readProof(stub, chunk, chunk.some(d => quiet.has(d))).catch(error => {
+        if (!openDay) throw error;
+        Logger.warn('Achievement progress coverage proof unavailable', {
+          error: error instanceof Error ? error.message : 'Unknown coverage proof error',
+        });
+        return null;
       });
-      if (!response.ok) throw new Error('Achievement coverage proof unavailable');
-      const proof = await response.json<{ version: number; days: CountersDODayProofSnapshot[]; emptyDays?: string[] }>();
+      if (!proof) continue;
       if (proof.version !== PIPELINE_PROOF_VERSION || !Array.isArray(proof.days)) continue;
       const empty = new Set(proof.emptyDays);
       for (const entry of proof.days) {
         if (quiet.has(entry.day) && chunk.includes(entry.day) && !entry.initialized && entry.accepted === 0 &&
           entry.version === PIPELINE_PROOF_VERSION && empty.has(entry.day)) verified.add(entry.day);
         const recorded = live.get(entry.day);
-        if (recorded && entry.categories && isLiveProgressExact(recorded, entry)) verified.add(entry.day);
+        if (recorded && entry.categories && isLiveProgressExact(recorded, entry, entry.day === openDay)) verified.add(entry.day);
       }
     }
   }
   return { verified, data };
+}
+
+async function readProof(stub: ReturnType<Env['COUNTERS_DO']['get']>, days: string[], verifyEmpty: boolean) {
+  const response = await stub.fetch('https://do/pipeline-snapshots', {
+    method: 'POST', body: JSON.stringify({ days, verifyEmpty }),
+  });
+  if (!response.ok) throw new Error(`Achievement coverage proof unavailable (HTTP ${response.status})`);
+  return response.json<{ version: number; days: CountersDODayProofSnapshot[]; emptyDays?: string[] }>();
 }
 
 function typedRows<T>(result: D1Result<unknown>): T[] {
@@ -72,12 +85,10 @@ function closed(day: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(day) && day < new Date().toISOString().slice(0, 10);
 }
 
-/** Evaluates a closed date, while excluding unknown activity days and pre-consent evidence. */
-export async function evaluatePersonal(env: Env, chat: number, owner: number, day: string): Promise<void> {
-  if (!closed(day) || owner <= 0) return;
-  const [group, album] = await Promise.all([getGroup(env.DB, chat), getEnrollment(env.DB, chat, owner)]);
-  if (!group?.enabled || !album?.enabled || day < album.start_day || (album.last_day && album.last_day >= day)) return;
-  const start = [album.start_day, shiftDay(day, -41)].sort()[1];
+/** Read the owner's evidence for both closed-day scoring and the current-day preview. */
+export async function readPersonalEvidence(env: Env, chat: number, owner: number, startDay: string,
+  day: string, preview = false) {
+  const start = [startDay, shiftDay(day, -41)].sort()[1];
   const since = [start, shiftDay(day, -27)].sort()[1];
   const { verified, data } = await snapshot(env, chat, daysBetween(start, day), [
     env.DB.prepare(`SELECT day,message_count AS messages,word_count AS words,voice_count AS voices,
@@ -88,14 +99,28 @@ export async function evaluatePersonal(env: Env, chat: number, owner: number, da
     env.DB.prepare(`SELECT COUNT(DISTINCT day) AS days,COUNT(DISTINCT channel_id) AS channels
       FROM stats_forwards WHERE chat_id=? AND user_id=? AND day BETWEEN ? AND ? AND source_type='channel'`)
       .bind(chat, owner, since, day),
-  ], day, true);
+  ], day, true, preview ? day : undefined);
+  const rows = typedRows<PersonalDay>(data[0]);
+  const buckets = typedRows<Bucket>(data[1]);
+  return {
+    dayVerified: verified.has(day),
+    rows: rows.filter(row => verified.has(row.day)),
+    buckets: buckets.filter(row => verified.has(row.day)),
+    // Reposts have their own deduplicated ledger and need no base coverage.
+    forwards: typedRows<ForwardSummary>(data[2])[0],
+  };
+}
+
+/** Evaluates a closed date, while excluding unknown activity days and pre-consent evidence. */
+export async function evaluatePersonal(env: Env, chat: number, owner: number, day: string): Promise<void> {
+  if (!closed(day) || owner <= 0) return;
+  const [group, album] = await Promise.all([getGroup(env.DB, chat), getEnrollment(env.DB, chat, owner)]);
+  if (!group?.enabled || !album?.enabled || day < album.start_day || (album.last_day && album.last_day >= day)) return;
+  const { dayVerified, rows, buckets, forwards } = await readPersonalEvidence(env, chat, owner, album.start_day, day);
   // Hold the cursor while this date can still settle. A single permanently poisoned
   // date must not strand an album; after a week only independently verified facts count.
-  if (!verified.has(day) && day >= shiftDay(new Date().toISOString().slice(0, 10), -7)) return;
-  // Reposts have their own deduplicated message ledger; a forward-only date need not have base coverage.
-  const scores = personalRules(typedRows<PersonalDay>(data[0]).filter(r => verified.has(r.day)),
-    typedRows<Bucket>(data[1]).filter(r => verified.has(r.day)), typedRows<ForwardSummary>(data[2])[0],
-    album.start_day, day);
+  if (!dayVerified && day >= shiftDay(new Date().toISOString().slice(0, 10), -7)) return;
+  const scores = personalRules(rows, buckets, forwards, album.start_day, day);
   const guard = `EXISTS (SELECT 1 FROM achievement_enrollments e JOIN achievement_groups g USING(chat_id)
     WHERE e.chat_id=? AND e.user_id=? AND e.enabled=1 AND e.generation=? AND g.enabled=1 AND g.generation=?
     AND (e.last_day IS NULL OR e.last_day<?))`;
@@ -106,6 +131,39 @@ export async function evaluatePersonal(env: Env, chat: number, owner: number, da
   statements.push(env.DB.prepare(`UPDATE achievement_enrollments SET last_day=?, progress_json=?
     WHERE chat_id=? AND user_id=? AND ${guard}`).bind(day, JSON.stringify(scores), chat, owner, ...params));
   await env.DB.batch(statements);
+}
+
+function weeklyBaseline(monday: string, hours: Hour[], verified: Set<string>): number | null {
+  return daysBetween(shiftDay(monday, -28), shiftDay(monday, -1)).every(day => verified.has(day))
+    ? Math.max(0, ...hours.filter(hour => hour.day < monday).map(hour => hour.count)) : null;
+}
+
+function weeklyEvidenceStatements(env: Env, chat: number, monday: string, end: string) {
+  return [env.DB.prepare(GROUP_DAY_SQL).bind(chat, monday, end),
+    env.DB.prepare(`SELECT day,hour,message_count AS count FROM stats_daily_hour
+      WHERE chat_id=? AND day BETWEEN ? AND ?`).bind(chat, shiftDay(monday, -28), end)];
+}
+
+/** Score the verified prefix of the open week without publishing a report or persisting awards. */
+export async function readWeeklyProgress(env: Env, chat: number, startDay: string, today: string) {
+  const monday = mondayOf(today);
+  const { verified, data } = await snapshot(env, chat, daysBetween(shiftDay(monday, -28), today), [
+    ...weeklyEvidenceStatements(env, chat, monday, today),
+    env.DB.prepare(`SELECT MIN(day) AS day FROM stats_daily_user
+      WHERE chat_id=? AND day BETWEEN ? AND ? AND user_id>0 AND message_count>0 AND voice_count>0
+      GROUP BY user_id`).bind(chat, monday, today),
+  ], startDay, false, today);
+  const week = daysBetween(monday, today);
+  const gap = week.findIndex(day => !verified.has(day));
+  const throughDay = gap === 0 ? null : gap === -1 ? today : week[gap - 1];
+  const hours = typedRows<Hour>(data[1]);
+  const baseline = weeklyBaseline(monday, hours, verified);
+  if (!throughDay) return { throughDay, baselineKnown: baseline !== null, scores: [] };
+  const rows = typedRows<GroupDay>(data[0]).filter(row => row.day <= throughDay);
+  const singers = typedRows<{ day: string }>(data[2]).filter(row => row.day <= throughDay).length;
+  const report = weeklyRules(monday, rows, hours.filter(row => row.day >= monday && row.day <= throughDay),
+    0, singers, baseline);
+  return { throughDay, baselineKnown: baseline !== null, scores: report.badges };
 }
 
 /** Creates an immutable weekly report and first unlocks together. Replays read the winning transaction. */
@@ -122,17 +180,14 @@ export async function evaluateWeek(env: Env, chat: number, monday: string): Prom
   if (existing) return JSON.parse(existing);
   const start = shiftDay(monday, -28);
   const { verified, data } = await snapshot(env, chat, daysBetween(start, end), [
-    env.DB.prepare(GROUP_DAY_SQL).bind(chat, monday, end),
-    env.DB.prepare(`SELECT day,hour,message_count AS count FROM stats_daily_hour
-      WHERE chat_id=? AND day BETWEEN ? AND ?`).bind(chat, start, end),
+    ...weeklyEvidenceStatements(env, chat, monday, end),
     env.DB.prepare(`SELECT COUNT(DISTINCT user_id) AS authors,
       COUNT(DISTINCT CASE WHEN voice_count>0 THEN user_id END) AS singers FROM stats_daily_user
       WHERE chat_id=? AND user_id>0 AND message_count>0 AND day BETWEEN ? AND ?`).bind(chat, monday, end),
   ], group.start_day);
   if (daysBetween(monday, end).some(d => !verified.has(d))) return null;
   const hours = typedRows<Hour>(data[1]);
-  const baseline = daysBetween(start, shiftDay(monday, -1)).every(d => verified.has(d))
-    ? Math.max(0, ...hours.filter(h => h.day < monday).map(h => h.count)) : null;
+  const baseline = weeklyBaseline(monday, hours, verified);
   const { authors, singers } = typedRows<{ authors: number; singers: number }>(data[2])[0];
   const report = weeklyRules(monday, typedRows<GroupDay>(data[0]), hours.filter(h => h.day >= monday), authors, singers, baseline);
   report.badges = report.badges.filter(s => s.earned);

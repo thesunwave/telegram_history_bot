@@ -1101,6 +1101,8 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       loading: false,
       forwardRequestId: 0,
       achievementRequestId: 0,
+      achievementPending: 0,
+      achievementChatId: null,
       currentActivity: null,
       leaderMetric: 'messages',
       peopleSort: { key: 'messages', dir: -1 },
@@ -2251,15 +2253,30 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         date.append(end);
         body.append(date);
         if (badge.result) body.append(el('p', '', badge.result));
+      } else if (badge.progress) {
+        const { conditions, display } = badge.progress;
+        display.rows.forEach(({ label, counter, remaining }, index) => {
+          const { current, target } = conditions[index];
+          const labelText = label ? label + ' · ' : '';
+          const progress = badgeProgressBar(current, target, badge.title + ' · ' + (label || ${js('Прогресс')}));
+          body.append(el('p', 'num', labelText + counter), progress);
+          if (remaining) body.append(el('p', '', remaining));
+        });
+        for (const note of display.notes) body.append(el('p', 'muted', note));
       } else if (Number.isFinite(badge.current) && badge.target > 0) {
-        const progress = el('progress');
-        progress.max = badge.target;
-        progress.value = Math.min(badge.current, badge.target);
-        progress.setAttribute('aria-label', badge.title + ' · ' + ${js('Прогресс')});
-        body.append(el('p', 'num', formatNumber(badge.current) + ' / ' + formatNumber(badge.target)), progress);
+        body.append(el('p', 'num', formatNumber(badge.current) + ' / ' + formatNumber(badge.target)),
+          badgeProgressBar(badge.current, badge.target, badge.title + ' · ' + ${js('Прогресс')}));
       }
       card.append(image, body);
       return card;
+    }
+
+    function badgeProgressBar(current, target, label) {
+      const progress = el('progress');
+      progress.max = target;
+      progress.value = Math.min(current, target);
+      progress.setAttribute('aria-label', label);
+      return progress;
     }
 
     function achievementShelf(title, badges, hint, { groupAward, nested, counted = badges, albumUrl } = {}) {
@@ -2284,12 +2301,14 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       return shelf;
     }
 
-    function renderAchievements({ group, personal }) {
-      const groupShelf = achievementShelf(${js('Коллекция чата')}, group.badges, group.enabled ? '' :
-        ${js('Недельные карточки выключены. Администратор группы может включить их в Telegram командой /achievements.')}, { groupAward: true });
+    function renderAchievements({ group, personal }, chatId = state.chatId) {
+      const groupHint = group.enabled
+        ? group.weekStart ? fmt(${js('Неделя с {date} по UTC')}, { date: group.weekStart }) : ''
+        : ${js('Недельные карточки выключены. Администратор группы может включить их в Telegram командой /achievements.')};
+      const groupShelf = achievementShelf(${js('Коллекция чата')}, group.badges, groupHint, { groupAward: true });
       if (!group.enabled && ${Boolean(options.canAccessInstallations)}) {
         const link = el('a', 'secondary', ${js('Включить в разделе «Установки бота»')});
-        link.href = '/admin/installations#installation-' + encodeURIComponent(state.chatId);
+        link.href = '/admin/installations#installation-' + encodeURIComponent(chatId);
         groupShelf.insertBefore(link, groupShelf.querySelector('ul'));
       }
       const social = personal.badges.filter(badge => badge.conversation);
@@ -2299,9 +2318,6 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
         ? ${js('Откройте /badges в личной переписке с ботом и выберите эту группу, чтобы начать коллекцию.')}
         : ${js('Личный альбом можно начать, когда администратор включит достижения в группе.')};
       if (personal.state === 'paused') hint = ${js('Альбом на паузе. Заработанные бейджи сохранены.')};
-      if (personal.state === 'available' && regular.every(b => !b.earnedDay && b.current === null)) {
-        hint = ${js('Прогресс появится после первого проверенного дня по UTC.')};
-      }
       const preview = personal.state === 'not-enrolled';
       if (!preview && !personal.albumUrl) {
         hint = [hint, ${js('Чтобы управлять альбомом, откройте /badges в личной переписке с ботом и выберите эту группу.')}]
@@ -2316,38 +2332,56 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       document.getElementById('achievementAlbum').replaceChildren(groupShelf, personalShelf);
     }
 
-    async function loadAchievements() {
-      const chatId = state.chatId;
+    async function loadAchievements(background = false) {
+      const chatId = document.getElementById('chatSelect').value || state.chatId;
       if (!chatId || state.view !== 'achievements') return;
+      if (background && (document.hidden || state.achievementPending)) return;
       const requestId = ++state.achievementRequestId;
+      state.achievementPending = requestId;
       const status = document.getElementById('achievementStatus');
       const retry = document.getElementById('achievementRetry');
-      document.getElementById('achievementAlbum').replaceChildren();
+      const collection = document.getElementById('achievementAlbum');
+      const keepCards = background && state.achievementChatId === chatId;
+      if (!keepCards) {
+        collection.replaceChildren();
+        state.achievementChatId = null;
+      }
       document.getElementById('main').classList.add('showingAchievements');
       retry.classList.add('hidden');
       if (Number(chatId) >= 0) {
         status.textContent = ${js('Достижения доступны в группах. Выберите группу в списке чатов.')};
+        state.achievementPending = 0;
         return;
       }
-      status.textContent = ${js('Загружаем достижения…')};
+      if (!keepCards) status.textContent = ${js('Загружаем достижения…')};
       try {
         const res = await fetch('/admin/api/achievements?chatId=' + encodeURIComponent(chatId), { cache: 'no-store' });
         if (requestId !== state.achievementRequestId) return;
-        if (res.status === 401) return redirectToLogin();
-        if (res.status === 403) {
+        if (res.status === 401 || res.status === 403) {
+          collection.replaceChildren();
+          state.achievementChatId = null;
+          if (res.status === 401) return redirectToLogin();
           status.textContent = ${js('У вас больше нет доступа к достижениям этого чата.')};
           return;
         }
         if (!res.ok) throw new Error('achievement album unavailable');
         const album = await res.json();
         if (requestId !== state.achievementRequestId) return;
-        renderAchievements(album);
+        renderAchievements(album, chatId);
+        state.achievementChatId = chatId;
         status.textContent = '';
       } catch {
         if (requestId !== state.achievementRequestId) return;
-        status.textContent = ${js('Не удалось загрузить достижения.')};
+        status.textContent = keepCards ? ${js('Не удалось обновить счётчики. Показаны последние загруженные данные.')}
+          : ${js('Не удалось загрузить достижения.')};
         retry.classList.remove('hidden');
+      } finally {
+        if (state.achievementPending === requestId) state.achievementPending = 0;
       }
+    }
+
+    function refreshVisibleAchievements() {
+      void loadAchievements(true);
     }
 
     // ---------- forwards ----------
@@ -3750,8 +3784,13 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
     for (const button of document.querySelectorAll('#periodSeg button')) {
       button.addEventListener('click', () => selectPeriod(button.dataset.period));
     }
-    document.getElementById('chatSelect').addEventListener('change', () => loadDashboard());
-    document.getElementById('achievementRetry').addEventListener('click', loadAchievements);
+    document.getElementById('chatSelect').addEventListener('change', () => {
+      if (state.loading && state.view === 'achievements') void loadAchievements();
+      else void loadDashboard();
+    });
+    document.getElementById('achievementRetry').addEventListener('click', () => void loadAchievements());
+    document.addEventListener('visibilitychange', refreshVisibleAchievements);
+    window.setInterval(refreshVisibleAchievements, 60_000);
     for (const tab of document.querySelectorAll('#leaderTabs .tab')) {
       tab.addEventListener('click', () => {
         state.leaderMetric = tab.dataset.metric;

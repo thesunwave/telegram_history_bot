@@ -2,6 +2,7 @@ import type { D1Database, D1PreparedStatement, D1Result } from '@cloudflare/work
 import { JOB_VERSION } from './daily-backfill';
 import {
   PIPELINE_PROOF_VERSION,
+  PROGRESS_CATEGORIES,
   type CountersDODayProofSnapshot,
   type ProgressRow,
 } from './pipeline-progress';
@@ -267,8 +268,7 @@ function buildSnapshot(liveDay: string, rows: ProgressRow[]): LiveProgressSnapsh
   };
 }
 
-function validateProgressInvariants(snapshot: LiveProgressSnapshot): { ok: boolean } {
-  const cats = [snapshot.categories.base, snapshot.categories.profanity, snapshot.categories.criminal] as const;
+function validateProgressInvariants(cats: CategoryProgressCounts[]): { ok: boolean } {
   const acceptedValues = cats.map((c) => c.accepted);
   const firstAccepted = acceptedValues[0];
   for (const v of acceptedValues.slice(1)) {
@@ -304,16 +304,17 @@ export function interpretRollingReadiness(
   return interpretReadinessInputs(parseReadinessInputs(results), days, liveDay);
 }
 
-/** Computes per-day verdicts for closed UTC days only. Use interpretRollingReadiness for the open day. */
+/** Computes per-day verdicts. Only an opted-in open day may use the base projection alone. */
 export function interpretIndividualReadiness(
-  results: readonly D1Result<unknown>[], days: string[],
+  results: readonly D1Result<unknown>[], days: string[], openBaseDay?: string,
 ): Map<string, RollingReadiness> {
   const inputs = parseReadinessInputs(results);
-  return new Map(days.map(day => [day, interpretReadinessInputs(inputs, [day], null)]));
+  return new Map(days.map(day => [day, day === openBaseDay
+    ? interpretReadinessInputs(inputs, [day], day, true) : interpretReadinessInputs(inputs, [day], null)]));
 }
 
 function interpretReadinessInputs(
-  inputs: ReadinessInputs, days: string[], liveDay: string | null,
+  inputs: ReadinessInputs, days: string[], liveDay: string | null, baseOnly = false,
 ): RollingReadiness {
   const liveDays = days.filter((day) => inputs.coverage.get(day)?.source === 'live');
 
@@ -336,21 +337,18 @@ function interpretReadinessInputs(
     }
   }
 
-  // Every live-owned day must carry base/profanity/criminal progress rows from
-  // the same batch and satisfy the integrity invariants. Missing categories or
-  // an invariant failure make the day unknown; a permanent D1 failure rejects
-  // with the truthful snapshot.
+  // All requested categories must carry progress rows from the same batch.
+  // Some provisional counters use only the base aggregate and its proof.
+  const categories = baseOnly ? ['base'] as const : PROGRESS_CATEGORIES;
   const snapshots: Record<string, LiveProgressSnapshot> = {};
   for (const liveDayName of liveDays) {
     const rows = inputs.progress.filter((row) => row.day === liveDayName);
-    const hasAllCategories =
-      rows.some((row) => row.category === 'base') &&
-      rows.some((row) => row.category === 'profanity') &&
-      rows.some((row) => row.category === 'criminal');
+    const hasAllCategories = categories.every(category => rows.some(row => row.category === category));
     if (!hasAllCategories) return { kind: 'unknown', day: liveDayName };
     const progress = buildSnapshot(liveDayName, rows);
-    if (!validateProgressInvariants(progress).ok) return { kind: 'unknown', day: liveDayName };
-    if (progress.failedCount > 0) return { kind: 'failed', day: liveDayName, progress };
+    const counts = categories.map(category => progress.categories[category]);
+    if (!validateProgressInvariants(counts).ok) return { kind: 'unknown', day: liveDayName };
+    if (counts.some(count => count.failed > 0)) return { kind: 'failed', day: liveDayName, progress };
     snapshots[liveDayName] = progress;
   }
 
@@ -366,20 +364,20 @@ function interpretReadinessInputs(
 
 /**
  * Pure live-day integrity gate: true only when the D1 snapshot and the
- * serialized CountersDO day proof agree exactly for all three categories, the
- * day proof carries the current contract version, the day is proven
- * initialized, and no stream is pending/failed/poisoned.
+ * serialized CountersDO day proof agree for the requested categories, the day
+ * proof carries the current version, and those streams are clean and complete.
  */
 export function isLiveProgressExact(
   d1: LiveProgressSnapshot,
   doSnapshot: CountersDODayProofSnapshot,
+  baseOnly = false,
 ): boolean {
   if (d1.day !== doSnapshot.day) return false;
   // Defense in depth: a day proof from a previous proof-contract version is
   // stale or malformed and must never validate, even when its counts match.
   if (doSnapshot.version !== PIPELINE_PROOF_VERSION) return false;
   if (doSnapshot.initialized !== true) return false;
-  for (const category of ['base', 'profanity', 'criminal'] as const) {
+  for (const category of baseOnly ? ['base'] as const : PROGRESS_CATEGORIES) {
     const left = d1.categories[category];
     const right = doSnapshot.categories[category];
     // Top-level accepted watermark must match each category's accepted.

@@ -6,6 +6,7 @@ import { resetChatSettingsCache } from '../src/core/chat-settings';
 import type { Env } from '../src/core/env';
 import { Logger } from '../src/core/logger';
 import { DUTCH_RUDDER, DUTCH_RUDDER_RESULT } from '../src/features/achievements/social-score';
+import { withRealCountersDO } from './helpers/real-counters-do';
 import { createRealD1 } from './helpers/real-d1';
 
 const chat = -101;
@@ -15,10 +16,10 @@ const day = '2026-01-11';
 
 async function fixture() {
   const { db, sqlite } = createRealD1();
-  const env = {
+  const env = withRealCountersDO({
     DB: db, HISTORY: { get: async () => null }, TOKEN: 'test', SECRET: 'test-secret', TELEGRAM_BOT_USERNAME: 'MyTestBot',
     ADMIN_BASIC_USER: 'operator', ADMIN_BASIC_PASSWORD: 'test-password', ENABLE_CONVERSATION_ACHIEVEMENTS: 'true',
-  } as unknown as Env;
+  } as unknown as Env);
   const cookie = (await createTelegramSessionCookie(env, { id: viewer, auth_date: 0 })).split(';')[0];
   const request = (query: string, headers: Record<string, string> = { Cookie: cookie }, method = 'GET',
     endpoint = '') => handleAdminRequest(
@@ -27,16 +28,28 @@ async function fixture() {
   sqlite.prepare('INSERT INTO achievement_groups(chat_id,enabled,start_day,generation) VALUES (?,1,?,?)')
     .run(chat, day, 'private-group-generation');
   const enroll = sqlite.prepare(`INSERT INTO achievement_enrollments
-    (chat_id,user_id,enabled,start_day,generation,progress_json) VALUES (?,?,1,?,'private-album-generation',?)`);
+    (chat_id,user_id,enabled,start_day,generation,progress_json,last_day)
+    VALUES (?,?,1,?,'private-album-generation',?,?)`);
   const progress = JSON.stringify([{ id: 'radio-diary', current: 2, target: 3, result: 'progress-internals' }]);
-  enroll.run(chat, viewer, day, progress);
-  enroll.run(chat, other, day, '[]');
+  enroll.run(chat, viewer, day, progress, day);
+  enroll.run(chat, other, day, '[]', null);
+  const today = new Date().toISOString().slice(0, 10);
+  const stub = env.COUNTERS_DO.get(env.COUNTERS_DO.idFromName(String(chat)));
+  const increment = await stub.fetch('https://do/inc', {
+    method: 'POST', body: JSON.stringify({ chatId: chat, userId: viewer, username: 'fixture',
+      day: today, hour: 12, messageId: 1, voiceCount: 1, voiceDurationSeconds: 30 }),
+  });
+  expect(increment.ok).toBe(true);
+  // Keep the live aggregate but make its D1 watermark lag behind the DO's proof.
+  const baseWatermark = sqlite.prepare(`UPDATE stats_daily_pipeline_progress SET accepted_seq=?,completed_seq=?
+    WHERE chat_id=? AND day=? AND category='base'`);
+  expect(baseWatermark.run(0, 0, chat, today).changes).toBe(1);
   const award = sqlite.prepare('INSERT INTO achievement_awards(chat_id,user_id,badge_id,earned_day,result) VALUES (?,?,?,?,?)');
   award.run(chat, 0, 'podcast', day, '61 мин 1 с, записей: 7');
   award.run(chat, viewer, 'columnist', day, 'Дней со 100 словами: 3');
   award.run(chat, other, 'regular', day, 'another-private-album');
   award.run(-102, viewer, 'regular', day, 'other-private-group');
-  return { env, sqlite, request, cookie };
+  return { env, sqlite, request, cookie, today, baseWatermark };
 }
 
 function membership(status: string, getMe?: () => Response) {
@@ -84,7 +97,7 @@ describe('dashboard achievements access', () => {
   });
 
   it('reads only group awards and the signed-in member’s own album from a read-only database', async () => {
-    const { request, sqlite } = await fixture();
+    const { request, sqlite, today, baseWatermark } = await fixture();
     sqlite.pragma('query_only = ON');
     membership('member');
     const response = await request('chatId=' + chat);
@@ -100,11 +113,22 @@ describe('dashboard achievements access', () => {
     expect(data.personal.state).toBe('available');
     expect(data.personal.badges).toHaveLength(10);
     expect(data.personal.badges.find((b: AdminAchievementBadge) => b.id === 'radio-diary'))
-      .toMatchObject({ current: 2, target: 3, earnedDay: null, result: null });
+      .toMatchObject({ current: 2, target: 3, earnedDay: null, result: null, progress: {
+        status: 'confirmed', day, conditions: [{ current: 2, target: 3, remaining: 1, unit: 'day' }],
+        display: { rows: [{ counter: '2 / 3', remaining: 'До цели — 1 день' }] },
+      } });
     expect(data.personal.badges.find((b: AdminAchievementBadge) => b.id === 'columnist')).toMatchObject({ earnedDay: day });
     for (const internal of ['another-private-album', 'other-private-group', 'generation', 'progress-internals', String(other)]) {
       expect(text).not.toContain(internal);
     }
+    sqlite.pragma('query_only = OFF');
+    baseWatermark.run(1, 1, chat, today);
+    sqlite.pragma('query_only = ON');
+    const live = await (await request('chatId=' + chat)).json() as { personal: { badges: AdminAchievementBadge[] } };
+    expect(live.personal.badges.find(badge => badge.id === 'radio-diary')).toMatchObject({
+      current: 1, target: 3, earnedDay: null,
+      progress: { status: 'provisional', day: today, conditions: [{ current: 1, remaining: 2 }] },
+    });
   });
 
   it('denies anonymous visitors, shared URLs and Basic operators without Telegram identity', async () => {
@@ -237,7 +261,12 @@ describe('dashboard achievements access', () => {
     expect(await readSpark()).toMatchObject({ current: null, target: null });
     sqlite.prepare('INSERT INTO conversation_members VALUES (?,?,1)').run(chat, viewer);
     sqlite.pragma('query_only = ON');
-    expect(await readSpark()).toMatchObject({ current: 0, target: 3 });
+    expect(await readSpark()).toMatchObject({ current: 0, target: 3, progress: {
+      status: 'live', display: { notes: ['По проверенным ответам'] },
+    } });
+    sqlite.pragma('query_only = OFF');
+    sqlite.prepare('DELETE FROM conversation_members WHERE chat_id=? AND user_id=?').run(chat, viewer);
+    expect((await readSpark())?.progress).toBeUndefined();
     env.ENABLE_CONVERSATION_ACHIEVEMENTS = 'false';
     expect(await readSpark()).toBeUndefined();
   });
