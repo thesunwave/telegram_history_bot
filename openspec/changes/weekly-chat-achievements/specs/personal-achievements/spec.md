@@ -49,7 +49,8 @@ The album SHALL offer three badges for returning to the chat. An active date req
 The bot SHALL unlock «Восстание из ридонли» immediately on the first qualifying message sent at least 30 days after that author's most recent previous message in the same group. A recorded timestamp from before participation can establish the baseline. The first known message establishes the baseline without awarding the badge.
 
 #### Scenario: Announce a return
-- **WHEN** the member earns «Восстание из ридонли» and enabled its public announcement before the qualifying message
+- **WHEN** a qualifying message earns the member «Восстание из ридонли»
+- **AND** the member enabled its public announcement before sending that message
 - **THEN** the bot can reply with the personal card to that message in the group while the member's announcement consent remains active
 
 ### Requirement: Время и слово
