@@ -207,3 +207,53 @@ describe('dashboard achievement collections', () => {
       .toBe('Minutes: 61, recordings: 12');
   });
 });
+
+describe('dashboard member card badges', () => {
+  it('renders the opened member badges, ignores stale responses and skips private chats', async () => {
+    const html = renderAdminHtml({ language: 'en', principal });
+    const achievements = html.split('// ---------- achievements ----------')[1].split('// ---------- forwards ----------')[0];
+    const member = html.split('// ---------- participant card ----------')[1].split('// ---------- data loading ----------')[0];
+    const elements = new Map<string, Element & { hiddenFlag?: boolean }>();
+    const node = (id: string) => {
+      if (!elements.has(id)) {
+        const created = new Element('div') as Element & { hiddenFlag?: boolean };
+        created.classList = {
+          add: vi.fn(() => { created.hiddenFlag = true; }),
+          remove: vi.fn(() => { created.hiddenFlag = false; }),
+          toggle: vi.fn((_: string, on: boolean) => { created.hiddenFlag = on; }),
+        } as unknown as Element['classList'];
+        elements.set(id, created);
+      }
+      return elements.get(id)!;
+    };
+    const state = { memberRequestId: 3 };
+    const payload = { state: 'paused', total: 12, badges: [localizeAchievementBadge('en', {
+      ...PERSONAL_BADGES[0], earnedDay: '2026-11-20', result: 'Два дня подряд',
+    })] };
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => payload }));
+    const ui = runInNewContext(achievements + member + '\n({ loadMemberAchievements })', {
+      state, fetch, document: { getElementById: node }, URLSearchParams,
+      el: (tag: string, name?: string, text?: string) => new Element(tag, name, text),
+      formatNumber: String, fmt: (text: string, values: Record<string, number>) =>
+        text.replace(/\{(\w+)\}/g, (_, key) => String(values[key])),
+    });
+    await ui.loadMemberAchievements('-123', 288, 3);
+    expect(fetch).toHaveBeenCalledWith('/admin/api/member-achievements?chatId=-123&userId=288', { cache: 'no-store' });
+    expect(node('memberAchievements').hiddenFlag).toBe(false);
+    expect(node('memberAchievementsHint').textContent).toBe('1 of 12 unlocked');
+    expect(node('memberAchievementsNote').textContent).toBe('This album is paused. Unlocked badges are saved.');
+    const cards = node('memberAchievementGrid').children;
+    expect(cards).toHaveLength(1);
+    expect(cards[0].all().find(e => e.tag === 'h3')?.textContent).toBe(payload.badges[0].title);
+    expect(cards[0].className).toContain('unlocked');
+
+    node('memberAchievementGrid').replaceChildren();
+    await ui.loadMemberAchievements('-123', 299, 2);
+    expect(node('memberAchievementGrid').children).toHaveLength(0);
+
+    // Private chats have no achievements, so the card skips the request.
+    await ui.loadMemberAchievements('77', 288, 3);
+    expect(node('memberAchievements').hiddenFlag).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
