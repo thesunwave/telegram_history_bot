@@ -1,13 +1,20 @@
 import type { Env } from '../../core/env';
 import { getEnrollment, getGroup, listAwards, type Award } from './repository';
 import { PERSONAL_BADGES, type Badge } from './rules';
-import { socialAvailable } from './settings';
+import { roleOf, socialAvailable } from './settings';
 import { getConversationStatus } from './social';
 import { DUTCH_RUDDER, visibleConversationBadges } from './social-score';
 
 export type ProfileState = 'active' | 'paused' | 'waiting' | 'disabled';
 export interface ProfileBadge { badge: Badge; award: Award; conversation: boolean }
 export interface MemberProfile { state: ProfileState; total: number; earned: ProfileBadge[] }
+
+/** Only current members have a public profile. The owner can always see their own. */
+export async function profileAccess(env: Env, chat: number, member: number, viewer: number) {
+  if (member === viewer) return 'ok' as const;
+  const role = await roleOf(env, chat, member);
+  return role === 'admin' || role === 'member' ? 'ok' as const : role;
+}
 
 /**
  * Collect the badges a member has earned in a group, for any member of that group.
@@ -54,5 +61,5 @@ export function profileText(name: string, profile: MemberProfile): string {
 export function displayName(user: { first_name?: unknown; last_name?: unknown; username?: unknown }): string {
   const parts = [user.first_name, user.last_name].filter((part): part is string => typeof part === 'string' && !!part.trim());
   const name = parts.join(' ').trim() || (typeof user.username === 'string' && user.username ? '@' + user.username : '');
-  return (name || 'Участник').slice(0, 64);
+  return Array.from(name || 'Участник').slice(0, 64).join('');
 }

@@ -9,7 +9,7 @@ import { progressCopy, telegramProgress } from './progress-copy';
 import { botUsername, button, callbackSetupHint, callTelegram, comebackAvailable, groupPicker, roleOf, socialAvailable, type View } from './settings';
 import { CONVERSATION_BADGES, getConversationStatus, setConversationConsent, setConversationGroup } from './social';
 import { DUTCH_RUDDER } from './social-score';
-import { displayName, memberProfile, profileText } from './profile';
+import { displayName, memberProfile, profileAccess, profileText } from './profile';
 
 interface Actor { id?: number; is_bot?: boolean; first_name?: string; last_name?: string; username?: string }
 interface Message {
@@ -66,6 +66,9 @@ function profileTarget(message: Message): Actor | undefined {
 
 async function profileView(env: Env, group: number, viewer: number, target?: Actor): Promise<View> {
   if (!target?.id) return { text: 'Профиль есть только у участников группы. Ответьте командой /profile на сообщение человека.' };
+  const access = await profileAccess(env, group, target.id, viewer);
+  if (access === 'unverified') return { text: 'Telegram пока не подтвердил членство. Попробуйте позднее.' };
+  if (access === 'none') return { text: 'Профиль виден, только пока человек состоит в группе.' };
   const profile = await memberProfile(env, group, target.id, viewer);
   const text = profileText(displayName(target), profile);
   if (target.id !== viewer) return { text };

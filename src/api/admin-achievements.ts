@@ -10,7 +10,7 @@ import { botUsername, socialAvailable } from '../features/achievements/settings'
 import { getConversationStatus } from '../features/achievements/social';
 import { DUTCH_RUDDER, visibleConversationBadges } from '../features/achievements/social-score';
 import { badgePoster } from '../features/achievements/badge-art-generated';
-import { memberProfile } from '../features/achievements/profile';
+import { memberProfile, profileAccess } from '../features/achievements/profile';
 import { localizeAchievementBadge, type AdminLanguage } from './admin-i18n';
 
 export interface AdminAchievementBadge extends Badge {
@@ -100,6 +100,7 @@ export async function getAdminAchievements(env: Env, chat: number, viewer: numbe
 export async function getAdminMemberAchievements(
   env: Env, chat: number, member: number, viewer: number, language: AdminLanguage,
 ) {
+  if (await profileAccess(env, chat, member, viewer) !== 'ok') return null;
   const profile = await memberProfile(env, chat, member, viewer);
   return {
     state: profile.state,

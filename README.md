@@ -202,7 +202,8 @@ deleting an album removes that person's achievement progress and awards for that
 Every participant has a **profile** that other members of the group can see. Send
 `/profile` in the group to show your earned badges, or reply `/profile` to someone's
 message to show theirs. The profile lists earned badges with their dates and results.
-Progress toward locked badges stays in the owner's private album. In the web dashboard,
+Only current members have a public profile. Progress toward locked badges and the secret
+«Голландский штурвал» badge stay in the owner's private album. In the web dashboard,
 the member card on the **People** tab shows the same badges.
 
 **Rise from Read-Only** (**Восстание из ридонли**) unlocks as soon as a participant

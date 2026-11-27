@@ -13,6 +13,7 @@ describe('member achievement profiles', () => {
   let database: ReturnType<typeof createRealD1>;
   let env: Env;
   let role: string;
+  let roles: Record<number, string>;
   const sent: Array<Record<string, unknown>> = [];
   const viewer = 177, friend = 288, group = -223;
   const profile = (extra: Record<string, unknown> = {}, text = '/profile') => ({
@@ -31,9 +32,13 @@ describe('member achievement profiles', () => {
       HISTORY: { get: async () => null } } as unknown as Env;
     sent.length = 0;
     role = 'member';
+    roles = {};
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: { body: string }) => {
       const method = url.split('/').pop()!;
-      if (method === 'getChatMember') return Response.json({ ok: true, result: { status: role } });
+      if (method === 'getChatMember') {
+        const user = JSON.parse(init.body).user_id as number;
+        return Response.json({ ok: true, result: { status: roles[user] ?? role } });
+      }
       if (method === 'sendMessage') sent.push(JSON.parse(init.body));
       return Response.json({ ok: true, result: { message_id: 45 } });
     }));
@@ -49,11 +54,13 @@ describe('member achievement profiles', () => {
 
   it('shows the caller their own profile with a link to the private album', async () => {
     award(viewer, 'calendar', '2026-11-22', 'Все семь дней');
+    award(viewer, DUTCH_RUDDER.id, '2026-11-23', DUTCH_RUDDER_RESULT);
     expect(await handleAchievementUpdate(env, profile())).toBe(true);
     const reply = sent.at(-1)!;
     expect(reply.chat_id).toBe(group);
     expect(reply.text).toContain('Профиль · Артур');
-    expect(reply.text).toContain('Бейджи: 1 из');
+    expect(reply.text).toContain('Бейджи: 2 из');
+    expect(reply.text).toContain(DUTCH_RUDDER.title);
     expect(reply.text).toContain('Весь календарь · 2026-11-22');
     expect(JSON.stringify(reply.reply_markup)).toContain('https://t.me/example_bot?start=ach_223');
   });
@@ -85,6 +92,25 @@ describe('member achievement profiles', () => {
     expect(sent.at(-1)!.text).toContain('Участие автоматическое');
   });
 
+  it('keeps earned badges with a note when the album is paused or achievements are off', async () => {
+    const reply = { reply_to_message: { message_id: 3, from: { id: friend, first_name: 'Лена' } } };
+    await setEnrolled(database.db, group, friend, false);
+    await handleAchievementUpdate(env, profile(reply));
+    expect(sent.at(-1)!.text).toContain('Альбом на паузе. Открытые бейджи сохранены.');
+    expect(sent.at(-1)!.text).toContain('Завсегдатай · 2026-11-24');
+    await setGroupEnabled(database.db, group, false);
+    await handleAchievementUpdate(env, profile(reply));
+    expect(sent.at(-1)!.text).toContain('Достижения в этой группе сейчас выключены');
+    expect(sent.at(-1)!.text).toContain('До завтра · 2026-11-20');
+  });
+
+  it('hides the profile of someone who left the group', async () => {
+    roles[friend] = 'left';
+    const reply = { reply_to_message: { message_id: 3, from: { id: friend, first_name: 'Лена' } } };
+    await handleAchievementUpdate(env, profile(reply));
+    expect(sent.at(-1)!.text).toBe('Профиль виден, только пока человек состоит в группе.');
+  });
+
   it('refuses bots and people outside the group', async () => {
     await handleAchievementUpdate(env, profile({ reply_to_message: { message_id: 3, from: { id: 55, is_bot: true } } }));
     expect(sent.at(-1)!.text).toContain('Профиль есть только у участников группы');
@@ -107,6 +133,9 @@ describe('member achievement profiles', () => {
     expect(body.badges[0]).not.toHaveProperty('progress');
     expect(body.total).toBeGreaterThan(body.badges.length);
 
+    roles[friend] = 'kicked';
+    expect((await read('chatId=' + group + '&userId=' + friend)).status).toBe(404);
+    delete roles[friend];
     role = 'left';
     expect((await read('chatId=' + group + '&userId=' + friend)).status).toBe(403);
     role = 'member';

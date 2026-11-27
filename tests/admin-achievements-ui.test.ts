@@ -209,7 +209,7 @@ describe('dashboard achievement collections', () => {
 });
 
 describe('dashboard member card badges', () => {
-  it('renders the earned badges of the opened member with their state note', async () => {
+  it('renders the opened member badges, ignores stale responses and skips private chats', async () => {
     const html = renderAdminHtml({ language: 'en', principal });
     const achievements = html.split('// ---------- achievements ----------')[1].split('// ---------- forwards ----------')[0];
     const member = html.split('// ---------- participant card ----------')[1].split('// ---------- data loading ----------')[0];
@@ -247,8 +247,13 @@ describe('dashboard member card badges', () => {
     expect(cards[0].all().find(e => e.tag === 'h3')?.textContent).toBe(payload.badges[0].title);
     expect(cards[0].className).toContain('unlocked');
 
+    node('memberAchievementGrid').replaceChildren();
+    await ui.loadMemberAchievements('-123', 299, 2);
+    expect(node('memberAchievementGrid').children).toHaveLength(0);
+
+    // Private chats have no achievements, so the card skips the request.
     await ui.loadMemberAchievements('77', 288, 3);
     expect(node('memberAchievements').hiddenFlag).toBe(true);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
