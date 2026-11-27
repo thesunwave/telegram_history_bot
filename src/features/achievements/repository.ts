@@ -9,6 +9,7 @@ export interface Enrollment extends GroupState {
   last_day: string | null;
   progress_json: string;
   comeback_replies_since: number | null;
+  comeback_muted: number;
   group_pause: number;
 }
 export interface Award { badge_id: string; earned_day: string; result: string }
@@ -36,6 +37,8 @@ export function pauseGroupDependents(db: D1Database, chatId: number, generation?
     db.prepare(`UPDATE achievement_enrollments SET enabled=0,paused_by_group=1,progress_json='[]',
       last_day=NULL, comeback_last_message_ts=NULL, comeback_replies_since=NULL,
       generation=hex(randomblob(16)) WHERE chat_id=? AND enabled=1` + guard).bind(...params),
+    db.prepare(`UPDATE achievement_awards SET announce_at=NULL
+      WHERE chat_id=? AND announce_at IS NOT NULL` + guard).bind(...params),
     db.prepare(`UPDATE achievement_reports SET state='cancelled'
       WHERE chat_id=? AND state IN ('ready','sending')` + guard).bind(...params),
   ];
@@ -116,14 +119,15 @@ export async function setEnrolled(db: D1Database, chatId: number, userId: number
   return getEnrollment(db, chatId, userId);
 }
 
-/** Accept or withdraw permission to reply publicly when the participant earns the comeback badge. */
+/** Announcements are on by default. Muting also drops a queued reply, so a later unmute cannot revive it. */
 export async function setComebackReplies(db: D1Database, chat: number, user: number, enabled: boolean) {
-  await db.prepare(`UPDATE achievement_enrollments SET comeback_replies_since=CASE
-    WHEN ?=1 THEN COALESCE(comeback_replies_since,unixepoch()) END
+  const statements = [db.prepare(`UPDATE achievement_enrollments SET comeback_muted=?
     WHERE chat_id=? AND user_id=? AND enabled=1
-    AND EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1)
-    AND (?=0 OR NOT EXISTS (SELECT 1 FROM achievement_awards WHERE chat_id=? AND user_id=? AND badge_id=?))`)
-    .bind(Number(enabled), chat, user, chat, Number(enabled), chat, user, COMEBACK.id).run();
+    AND EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1)`)
+    .bind(Number(!enabled), chat, user, chat)];
+  if (!enabled) statements.push(db.prepare(`UPDATE achievement_awards SET comeback_reply_json=NULL,comeback_reply_at=NULL
+    WHERE chat_id=? AND user_id=? AND badge_id=? AND comeback_reply_json IS NOT NULL`).bind(chat, user, COMEBACK.id));
+  await db.batch(statements);
 }
 export async function eraseAlbum(db: D1Database, chatId: number, userId: number, generation?: string) {
   if (!Number.isSafeInteger(userId) || userId <= 0) throw new Error('invalid album owner');

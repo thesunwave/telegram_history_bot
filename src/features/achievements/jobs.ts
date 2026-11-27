@@ -2,6 +2,7 @@ import type { Env } from '../../core/env';
 import { Logger } from '../../core/logger';
 import { mondayOf, shiftDay } from './calendar';
 import { sendWeeklyPhoto } from './cards';
+import { announceGroupBadges, liveWeeklyStep } from './announce';
 import { retryComebackReplies } from './comeback';
 import { evaluatePersonal, evaluateWeek } from './evaluate';
 import { listAwards } from './repository';
@@ -86,13 +87,21 @@ async function personalStep(env: Env, today: string, now: number) {
 export async function runAchievementJobs(env: Env, time: Date) {
   const today = time.toISOString().slice(0, 10);
   const now = Math.floor(time.getTime() / 1000);
-  try {
-    await weeklyStep(env, today, now);
-  } finally {
+  // Each step owns its own leases, so a failure in one must not starve the others.
+  const steps = [
+    () => weeklyStep(env, today, now),
+    () => personalStep(env, today, now),
+    () => retryComebackReplies(env, now),
+    () => liveWeeklyStep(env, time),
+    () => announceGroupBadges(env, now),
+  ];
+  let failure: unknown;
+  for (const step of steps) {
     try {
-      await personalStep(env, today, now);
-    } finally {
-      await retryComebackReplies(env, now);
+      await step();
+    } catch (error) {
+      failure ??= error;
     }
   }
+  if (failure !== undefined) throw failure;
 }

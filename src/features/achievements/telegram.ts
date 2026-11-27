@@ -196,17 +196,7 @@ async function privateAction(env: Env, req: Request, owner: number): Promise<Vie
   if (action === 'preview') return inspect(env, group, owner, extra);
   if (action === 'join') await resumeParticipant(env.DB, group, owner);
   else if (action === 'pause') await setEnrolled(env.DB, group, owner, false);
-  else if (action === 'comeback-consent') {
-    const [settings, enrollment, awards] = await Promise.all([
-      getGroup(env.DB, group), getEnrollment(env.DB, group, owner), listAwards(env.DB, group, owner),
-    ]);
-    if (comebackAvailable(env) && settings?.enabled && enrollment?.enabled &&
-      enrollment.comeback_replies_since === null && !awards.some(award => award.badge_id === COMEBACK.id)) return {
-      text: 'Если вы получите «' + COMEBACK.title + '», бот ответит карточкой на ваше сообщение прямо в группе. '
-        + 'Анонс можно выключить в личном альбоме.',
-      buttons: [[button('Разрешить ответ в группе', 'comeback-on', group)]],
-    };
-  } else if (action === 'comeback-on' || action === 'comeback-off') {
+  else if (action === 'comeback-on' || action === 'comeback-off') {
     if (action === 'comeback-off' || comebackAvailable(env)) {
       await setComebackReplies(env.DB, group, owner, action === 'comeback-on');
     }

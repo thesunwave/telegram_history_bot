@@ -90,10 +90,14 @@ export async function personalAlbum(env: Env, chat: number, owner: number, page 
   if ((page + 1) * size < badges.length) pages.push(button('Дальше →', 'album', chat, String(page + 1)));
   if (pages.length) buttons.push(pages);
   if (active) buttons.push([button('Обновить', 'album', chat, String(page))]);
-  if (active && enrollment && (enrollment.comeback_replies_since !== null ||
-    (comebackAvailable(env) && !awards.some(award => award.badge_id === COMEBACK.id)))) {
-    buttons.push([enrollment.comeback_replies_since === null
-      ? button('Анонс «' + COMEBACK.title + '»', 'comeback-consent', chat)
+  // Keep the switch while an earned comeback reply is still queued, so it can be muted in time.
+  const comebackPending = awards.some(award => award.badge_id === COMEBACK.id) && Boolean(await env.DB.prepare(
+    'SELECT 1 FROM achievement_awards WHERE chat_id=? AND user_id=? AND badge_id=? AND comeback_reply_json IS NOT NULL',
+  ).bind(chat, owner, COMEBACK.id).first());
+  if (active && enrollment && ((comebackAvailable(env) && !awards.some(award => award.badge_id === COMEBACK.id))
+    || (comebackPending && !enrollment.comeback_muted))) {
+    buttons.push([enrollment.comeback_muted
+      ? button('Включить анонс «' + COMEBACK.title + '»', 'comeback-on', chat)
       : button('Выключить анонс возвращения', 'comeback-off', chat)]);
   }
   if (active && social.groupSince !== null) {

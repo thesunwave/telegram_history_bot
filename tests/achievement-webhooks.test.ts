@@ -80,17 +80,14 @@ describe('comeback badge', () => {
     expect(await send({ message: text(3, mediaDate + gap) })).toBe(200);
     expect(store.rows('SELECT badge_id,result FROM achievement_awards'))
       .toEqual([{ badge_id: 'comeback', result: '30 дн. тишины' }]);
-    expect(calls.filter(call => call.method === 'sendPhoto')).toEqual([]);
+    expect(calls.filter(call => call.method === 'sendPhoto')).toHaveLength(1);
   });
 
-  it('uses existing stats and replies once in the same topic after private opt-in', async () => {
+  it('uses existing stats and replies once in the same topic by default', async () => {
     const { store, send, calls } = await setup();
     seedProfile(store, now() - 32 * DAY);
-    expect(await send(callback('comeback-consent'))).toBe(200);
-    expect(calls.at(-1)?.payload).toMatchObject({ reply_markup: { inline_keyboard: [[{
-      text: 'Разрешить ответ в группе', callback_data: `ach:comeback-on:${group}`,
-    }]] } });
-    expect(await send(callback('comeback-on'))).toBe(200);
+    expect(await send(callback('album'))).toBe(200);
+    expect(JSON.stringify(calls.at(-1)?.payload)).toContain(`ach:comeback-off:${group}`);
     const returning = { ...text(54, now() + 1), text: undefined, photo: [{ file_id: 'dummy' }],
       is_topic_message: true, message_thread_id: 300 };
     const batch = store.db.batch.bind(store.db);
@@ -130,33 +127,32 @@ describe('comeback badge', () => {
     expect(store.rows('SELECT * FROM achievement_awards')).toEqual([]);
   });
 
-  it.each(['revoked', 'later'])('keeps the badge private when announcement consent was %s', async reason => {
+  it('keeps the badge private after the member turns the announcement off', async () => {
     const { store, send, calls } = await setup();
     const time = now();
     seedProfile(store, time - 32 * DAY);
-    await send(callback('comeback-on'));
-    if (reason === 'revoked') await send(callback('comeback-off'));
-    const date = reason === 'later' ? time - 60 : time;
-    expect(await send({ message: text(71, date) })).toBe(200);
+    await send(callback('comeback-off'));
+    await send(callback('album'));
+    expect(JSON.stringify(calls.at(-1)?.payload)).toContain(`ach:comeback-on:${group}`);
+    expect(await send({ message: text(71, time) })).toBe(200);
     expect(store.rows('SELECT badge_id,comeback_reply_at FROM achievement_awards'))
       .toEqual([{ badge_id: 'comeback', comeback_reply_at: null }]);
     expect(calls.filter(call => call.method === 'sendPhoto')).toEqual([]);
   });
 
-  it('uses historical group activity when returning after an album pause, with the announcement still off', async () => {
+  it('uses historical group activity after an album pause and keeps a muted announcement off', async () => {
     const { store, send, calls } = await setup();
     const time = now();
     seedProfile(store, time - 63 * DAY);
-    await send(callback('comeback-on'));
+    await send(callback('comeback-off'));
     await send(callback('pause'));
-    await send(callback('comeback-consent'));
-    expect(JSON.stringify(calls.at(-1)?.payload)).not.toContain('Разрешить ответ в группе');
+    await send(callback('comeback-on'));
     await setEnrolled(store.db, group, actor.id, true, new Date((time - 32 * DAY) * 1000));
     expect(await send({ message: text(61, time) })).toBe(200);
     expect(store.rows('SELECT badge_id,comeback_reply_at FROM achievement_awards'))
       .toEqual([{ badge_id: 'comeback', comeback_reply_at: null }]);
-    expect(store.rows('SELECT comeback_replies_since FROM achievement_enrollments'))
-      .toEqual([{ comeback_replies_since: null }]);
+    expect(store.rows('SELECT comeback_muted FROM achievement_enrollments')).toEqual([{ comeback_muted: 1 }]);
+    expect(calls.filter(call => call.method === 'sendPhoto')).toEqual([]);
   });
 
   it('automatically awards a return using historical stats before any album has been opened', async () => {
@@ -166,7 +162,7 @@ describe('comeback badge', () => {
     expect(await send({ message: text(62, time) })).toBe(200);
     expect(store.rows('SELECT user_id,badge_id,result FROM achievement_awards'))
       .toEqual([{ user_id: actor.id, badge_id: 'comeback', result: '36 дн. тишины' }]);
-    expect(calls.filter(call => call.method === 'sendPhoto')).toEqual([]);
+    expect(calls.filter(call => call.method === 'sendPhoto')).toHaveLength(1);
   });
 
   it('starts daily scoring at the next UTC midnight when an earlier message is delivered late', async () => {
@@ -229,15 +225,15 @@ describe('comeback badge', () => {
     expect(store.rows('SELECT * FROM achievement_awards')).toEqual([]);
   });
 
-  it('hides the announcement opt-in and rejects a stale confirmation when activity tracking is off', async () => {
+  it('hides the announcement switch and rejects a stale re-enable when activity tracking is off', async () => {
     const { env, store, send, calls } = await setup();
+    await send(callback('comeback-off'));
     env.ENABLE_ACTIVITY_TRACKING = 'false';
     for (const action of ['album', 'comeback-consent', 'comeback-on']) {
       expect(await send(callback(action))).toBe(200);
-      expect(JSON.stringify(calls.at(-1)?.payload)).not.toMatch(/comeback-consent|comeback-on/);
+      expect(JSON.stringify(calls.at(-1)?.payload)).not.toMatch(/comeback-/);
     }
-    expect(store.rows('SELECT comeback_replies_since FROM achievement_enrollments'))
-      .toEqual([{ comeback_replies_since: null }]);
+    expect(store.rows('SELECT comeback_muted FROM achievement_enrollments')).toEqual([{ comeback_muted: 1 }]);
   });
 
   it('retries a confirmed rate limit only when due and does not replay an ambiguous response', async () => {
@@ -272,7 +268,10 @@ describe('comeback badge', () => {
       'SELECT comeback_reply_at FROM achievement_awards',
     );
     expect(due).toBeGreaterThan(now());
+    await send(callback('album'));
+    expect(JSON.stringify(calls.at(-1)?.payload)).toContain(`ach:comeback-off:${group}`);
     await send(callback('comeback-off'));
+    await send(callback('comeback-on'));
     await retryComebackReplies(env, due);
     expect(calls.filter(call => call.method === 'sendPhoto')).toEqual([]);
     expect(store.rows('SELECT badge_id,comeback_reply_at FROM achievement_awards'))
