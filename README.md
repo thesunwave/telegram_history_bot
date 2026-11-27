@@ -199,6 +199,12 @@ participation, time of day, voice and video notes, manual channel reposts and re
 The album owner can open it and choose a badge to share. Pausing keeps unlocks, and
 deleting an album removes that person's achievement progress and awards for that group.
 
+Every participant has a **profile** that other members of the group can see. Send
+`/profile` in the group to show your earned badges, or reply `/profile` to someone's
+message to show theirs. The profile lists earned badges with their dates and results.
+Progress toward locked badges stays in the owner's private album. In the web dashboard,
+the member card on the **People** tab shows the same badges.
+
 **Rise from Read-Only** (**Восстание из ридонли**) unlocks as soon as a participant
 posts again after at least 30 days in the same group. A qualifying gap starts with
 a previous message in the same group, including one already recorded before achievements

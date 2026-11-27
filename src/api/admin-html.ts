@@ -1060,6 +1060,11 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
           <div class="chips" id="memberWords"></div>
         </section>
       </div>
+      <section class="card hidden" id="memberAchievements" aria-labelledby="memberAchievementsTitle">
+        <div class="cardHead"><h2 id="memberAchievementsTitle">${h('Бейджи')}</h2><span class="cardHint" id="memberAchievementsHint"></span></div>
+        <p class="muted hidden" id="memberAchievementsNote"></p>
+        <ul class="achievementGrid" id="memberAchievementGrid"></ul>
+      </section>
       <div class="formActions">
         <button type="button" class="secondary hidden" id="memberCriminalButton">${h('Показать нарушения УК')}</button>
       </div>
@@ -3549,6 +3554,43 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       criminalButton.textContent = ${js('Показать нарушения УК (')} + formatNumber(totals.criminal) + ')';
     }
 
+    const MEMBER_ACHIEVEMENT_NOTES = {
+      waiting: ${js('Участие автоматическое: бейджи начнут считаться после первого сообщения в группе.')},
+      paused: ${js('Альбом на паузе. Открытые бейджи сохранены.')},
+      disabled: ${js('Достижения в этой группе сейчас выключены. Открытые бейджи сохранены.')}
+    };
+
+    function renderMemberAchievements(payload) {
+      const section = document.getElementById('memberAchievements');
+      const badges = (payload && payload.badges) || [];
+      document.getElementById('memberAchievementsHint').textContent = fmt(${js('Открыто {count} из {total}')}, {
+        count: badges.length, total: Number(payload && payload.total) || 0
+      });
+      let note = MEMBER_ACHIEVEMENT_NOTES[payload && payload.state] || '';
+      if (!note && !badges.length) note = ${js('Пока ни одного бейджа.')};
+      const noteNode = document.getElementById('memberAchievementsNote');
+      noteNode.textContent = note;
+      noteNode.classList.toggle('hidden', !note);
+      document.getElementById('memberAchievementGrid')
+        .replaceChildren(...badges.map(badge => achievementCard(badge, false, 'h3')));
+      section.classList.remove('hidden');
+    }
+
+    async function loadMemberAchievements(chatId, userId, requestId) {
+      const section = document.getElementById('memberAchievements');
+      section.classList.add('hidden');
+      if (!(Number(chatId) < 0)) return;
+      try {
+        const params = new URLSearchParams({ chatId: String(chatId), userId: String(userId) });
+        const res = await fetch('/admin/api/member-achievements?' + params, { cache: 'no-store' });
+        if (!res.ok) return;
+        const payload = await res.json();
+        if (requestId === state.memberRequestId) renderMemberAchievements(payload);
+      } catch (_error) {
+        // Badges are an optional part of the member card.
+      }
+    }
+
     function closeMember() {
       state.memberRequestId += 1;
       state.memberUserId = null;
@@ -3574,6 +3616,7 @@ export function renderAdminHtml(options: AdminHtmlOptions): string {
       status.classList.remove('hidden');
       status.textContent = ${js('Загрузка...')};
       if (!dialog.open) dialog.showModal();
+      void loadMemberAchievements(state.chatId, userId, requestId);
       try {
         const res = await fetch(buildMemberUrl(state.chatId, userId, state.loadedCriminalRange));
         if (res.status === 401) {

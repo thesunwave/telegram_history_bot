@@ -54,6 +54,13 @@ const ADMIN_EN: Record<string, string> = {
     'Replies count when both participants enable the Conversation shelf in their personal albums.',
   'Разговор': 'Conversation',
   'Открыто {count} из {total}': '{count} of {total} unlocked',
+  'Бейджи': 'Badges',
+  'Пока ни одного бейджа.': 'No badges yet.',
+  'Альбом на паузе. Открытые бейджи сохранены.': 'This album is paused. Unlocked badges are saved.',
+  'Участие автоматическое: бейджи начнут считаться после первого сообщения в группе.':
+    'Everyone takes part automatically. Badges start counting after their first message in the group.',
+  'Достижения в этой группе сейчас выключены. Открытые бейджи сохранены.':
+    'Achievements are off in this group right now. Unlocked badges are saved.',
   'Открыт': 'Unlocked',
   'Закрыт': 'Locked',
   'Прогресс': 'Progress',

@@ -9,16 +9,18 @@ import { progressCopy, telegramProgress } from './progress-copy';
 import { botUsername, button, callbackSetupHint, callTelegram, comebackAvailable, groupPicker, roleOf, socialAvailable, type View } from './settings';
 import { CONVERSATION_BADGES, getConversationStatus, setConversationConsent, setConversationGroup } from './social';
 import { DUTCH_RUDDER } from './social-score';
+import { displayName, memberProfile, profileText } from './profile';
 
-interface Actor { id?: number; is_bot?: boolean }
+interface Actor { id?: number; is_bot?: boolean; first_name?: string; last_name?: string; username?: string }
 interface Message {
   chat?: { id?: number; type?: string }; from?: Actor; message_id?: number;
   is_topic_message?: boolean; message_thread_id?: number;
   sender_chat?: unknown; text?: string; date?: number;
+  reply_to_message?: { from?: Actor; message_id?: number; forum_topic_created?: unknown };
 }
 interface Callback { id?: string; from?: Actor; message?: Message; data?: string }
-interface Request { action: string; group: number; extra?: string }
-const GROUP_ACTIONS = new Set(['group', 'group-card', 'on', 'off', 'group-social', 'group-unsocial']);
+interface Request { action: string; group: number; extra?: string; target?: Actor }
+const GROUP_ACTIONS = new Set(['group', 'group-card', 'on', 'off', 'group-social', 'group-unsocial', 'profile']);
 
 function parseCallback(input: string): Request | null {
   const match = /^ach:([a-z-]+):(-\d{1,16})(?::([a-z\d-]{1,36}))?$/.exec(input);
@@ -38,7 +40,7 @@ function callbackFeedback(req: Request | null, chat: Message['chat']): { text?: 
 }
 
 export async function achievementCommand(env: Env, message: Message): Promise<Request | null> {
-  const match = /^\/(achievements|badges|start)(?:@(\w+))?(?:\s+(\S+))?\s*$/i.exec(message.text || '');
+  const match = /^\/(achievements|badges|start|profile)(?:@(\w+))?(?:\s+(\S+))?\s*$/i.exec(message.text || '');
   if (!match) return null;
   const privateChat = message.chat?.type === 'private';
   const name = match[1].toLowerCase();
@@ -48,7 +50,31 @@ export async function achievementCommand(env: Env, message: Message): Promise<Re
     const group = -Number(match[3].slice(4));
     return Number.isSafeInteger(group) && group < 0 ? { action: 'album', group } : null;
   }
-  return privateChat ? { action: 'pick', group: 0 } : { action: 'group', group: message.chat!.id! };
+  if (privateChat) return { action: 'pick', group: 0 };
+  if (name === 'profile') return { action: 'profile', group: message.chat!.id!, target: profileTarget(message) };
+  return { action: 'group', group: message.chat!.id! };
+}
+
+/** A reply to someone's message opens their profile. A topic's implicit reply does not count. */
+function profileTarget(message: Message): Actor | undefined {
+  const parent = message.reply_to_message;
+  if (!parent || parent.forum_topic_created !== undefined) return message.from;
+  if (message.is_topic_message && parent.message_id === message.message_thread_id) return message.from;
+  const user = parent.from;
+  return user?.id && Number.isSafeInteger(user.id) && user.id > 0 && !user.is_bot ? user : undefined;
+}
+
+async function profileView(env: Env, group: number, viewer: number, target?: Actor): Promise<View> {
+  if (!target?.id) return { text: 'Профиль есть только у участников группы. Ответьте командой /profile на сообщение человека.' };
+  const profile = await memberProfile(env, group, target.id, viewer);
+  const text = profileText(displayName(target), profile);
+  if (target.id !== viewer) return { text };
+  try {
+    const url = 'https://t.me/' + await botUsername(env) + '?start=ach_' + Math.abs(group);
+    return { text, buttons: [[{ text: 'Мой альбом', url }]] };
+  } catch {
+    return { text };
+  }
 }
 
 async function groupAction(env: Env, request: Request, owner: number, fromCommand: boolean, threadId?: number): Promise<View | null> {
@@ -57,6 +83,7 @@ async function groupAction(env: Env, request: Request, owner: number, fromComman
   if (role === 'unverified') return { text: 'Telegram пока не подтвердил членство. Попробуйте позднее.' };
   if (role === 'none') return { text: 'Коллекция доступна участникам этой группы.' };
   if (action === 'group-card') return inspect(env, group, 0, request.extra, threadId);
+  if (action === 'profile') return profileView(env, group, owner, request.target);
   if (action !== 'group' && role !== 'admin') return { text: 'Менять настройки может администратор группы.' };
   if (action === 'on' || action === 'off') {
     if (action === 'on' && (String(env.ENABLE_ACTIVITY_TRACKING) === 'false' || env.RAW_MESSAGE_STORAGE_MODE === 'unconfigured')) {
@@ -204,7 +231,7 @@ export async function handleAchievementUpdate(env: Env, update: unknown): Promis
   const cb = incoming.callback_query;
   if (cb && (typeof cb.data !== 'string' || !cb.data.startsWith('ach:'))) return false;
   const msg = cb ? cb.message : incoming.message;
-  if (!cb && (typeof msg?.text !== 'string' || !/^\/(achievements|badges|start)\b/i.test(msg.text))) return false;
+  if (!cb && (typeof msg?.text !== 'string' || !/^\/(achievements|badges|start|profile)\b/i.test(msg.text))) return false;
   if (!cb && isForwardedMessage(msg)) return false;
   const req = cb ? parseCallback(cb.data!) : await achievementCommand(env, msg!);
   if (!cb && !req) return false;

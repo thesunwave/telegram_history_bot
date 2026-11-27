@@ -10,6 +10,7 @@ import { botUsername, socialAvailable } from '../features/achievements/settings'
 import { getConversationStatus } from '../features/achievements/social';
 import { DUTCH_RUDDER, visibleConversationBadges } from '../features/achievements/social-score';
 import { badgePoster } from '../features/achievements/badge-art-generated';
+import { memberProfile } from '../features/achievements/profile';
 import { localizeAchievementBadge, type AdminLanguage } from './admin-i18n';
 
 export interface AdminAchievementBadge extends Badge {
@@ -92,5 +93,24 @@ export async function getAdminAchievements(env: Env, chat: number, viewer: numbe
         })),
       ],
     },
+  };
+}
+
+/** Show any group member the badges another member has earned. Progress and the secret poster stay private. */
+export async function getAdminMemberAchievements(
+  env: Env, chat: number, member: number, viewer: number, language: AdminLanguage,
+) {
+  const profile = await memberProfile(env, chat, member, viewer);
+  return {
+    state: profile.state,
+    total: profile.total,
+    badges: profile.earned.map(({ badge, award, conversation }) => ({
+      ...localizeAchievementBadge(language, {
+        id: badge.id, title: badge.title, description: badge.description,
+        earnedDay: award.earned_day, result: award.result,
+      }),
+      ...(conversation ? { conversation: true as const } : {}),
+      ...(badge.id === DUTCH_RUDDER.id ? { posterUrl: '/admin/api/achievements/secret-poster?chatId=' + chat } : {}),
+    })),
   };
 }
