@@ -100,7 +100,8 @@ export async function getAdminAchievements(env: Env, chat: number, viewer: numbe
 export async function getAdminMemberAchievements(
   env: Env, chat: number, member: number, viewer: number, language: AdminLanguage,
 ) {
-  if (await profileAccess(env, chat, member, viewer) !== 'ok') return null;
+  const access = await profileAccess(env, chat, member, viewer);
+  if (access !== 'ok') return access;
   const profile = await memberProfile(env, chat, member, viewer);
   return {
     state: profile.state,

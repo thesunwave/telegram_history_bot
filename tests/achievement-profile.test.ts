@@ -37,6 +37,7 @@ describe('member achievement profiles', () => {
       const method = url.split('/').pop()!;
       if (method === 'getChatMember') {
         const user = JSON.parse(init.body).user_id as number;
+        if (roles[user] === 'outage') return Response.json({ ok: false }, { status: 502 });
         return Response.json({ ok: true, result: { status: roles[user] ?? role } });
       }
       if (method === 'sendMessage') sent.push(JSON.parse(init.body));
@@ -135,6 +136,8 @@ describe('member achievement profiles', () => {
 
     roles[friend] = 'kicked';
     expect((await read('chatId=' + group + '&userId=' + friend)).status).toBe(404);
+    roles[friend] = 'outage';
+    expect((await read('chatId=' + group + '&userId=' + friend)).status).toBe(503);
     delete roles[friend];
     role = 'left';
     expect((await read('chatId=' + group + '&userId=' + friend)).status).toBe(403);

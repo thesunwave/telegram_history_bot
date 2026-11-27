@@ -479,7 +479,8 @@ export async function handleAdminRequest(req: Request, env: Env): Promise<Respon
     if (denied) return denied;
     const data = await getAdminMemberAchievements(env, chatId, userId, principal.telegramId ?? 0,
       resolveAdminLanguage(req));
-    if (!data) return jsonError('this member profile is unavailable', 404);
+    if (data === 'unverified') return jsonError('membership could not be verified, try again later', 503);
+    if (data === 'none') return jsonError('this member profile is unavailable', 404);
     return Response.json(data, { headers: { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Accept-Language' } });
   }
 
