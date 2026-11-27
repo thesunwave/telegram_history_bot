@@ -6,6 +6,7 @@ import { GROUP_BADGES } from './rules';
 const SHORT_LEASE = 5 * 60;
 const GROUPS_PER_RUN = 3;
 const ANNOUNCEMENTS_PER_RUN = 5;
+const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 interface PendingAnnouncement {
   chat_id: number;
@@ -48,24 +49,32 @@ export async function announceGroupBadges(env: Env, now: number) {
     if (!claim.meta.changes) continue;
     const badge = GROUP_BADGES.find(b => b.id === award.badge_id);
     if (!badge) continue;
+    const requeue = async (delay: number) => {
+      const next = Math.max(now, nowSeconds()) + Math.max(SHORT_LEASE, Math.ceil(delay));
+      if (next < award.live_at + DAY) await env.DB.prepare(`UPDATE achievement_awards SET announce_at=?
+        WHERE chat_id=? AND user_id=0 AND badge_id=? AND announce_at IS NULL AND ${groupGuard}`)
+        .bind(next, ...key).run();
+    };
+    let png: Awaited<ReturnType<typeof collectionCard>>;
+    let count: number;
     try {
-      const png = await collectionCard(badge.id, badge.title, '', true, award);
-      const { count } = await env.DB.prepare('SELECT COUNT(*) AS count FROM achievement_awards WHERE chat_id=? AND user_id=0')
-        .bind(award.chat_id).first<{ count: number }>() ?? { count: 1 };
-      const delivery = await sendCard(env, award.chat_id, png,
-        'Чат открыл бейдж «' + badge.title + '»!\n' + award.result, [[{
-          text: 'Коллекция чата · ' + count + ' из ' + GROUP_BADGES.length,
-          callback_data: 'ach:group:' + award.chat_id,
-        }]]);
-      if (delivery.status === 'retry') {
-        const next = now + Math.max(SHORT_LEASE, Math.ceil(delivery.retryAfter));
-        if (next < award.live_at + DAY) await env.DB.prepare(`UPDATE achievement_awards SET announce_at=?
-          WHERE chat_id=? AND user_id=0 AND badge_id=? AND announce_at IS NULL AND ${groupGuard}`)
-          .bind(next, ...key).run();
-      }
-      if (delivery.status !== 'sent') console.warn({ event: 'group_badge_announcement', status: delivery.status });
+      png = await collectionCard(badge.id, badge.title, '', true, award);
+      count = (await env.DB.prepare(`SELECT COUNT(*) AS count FROM achievement_awards
+        WHERE chat_id=? AND user_id=0 AND ${groupGuard}`).bind(award.chat_id).first<{ count: number }>())?.count ?? 0;
     } catch {
-      console.warn('Group badge announcement unavailable');
+      // No Telegram request has started, so preparation can be retried safely.
+      console.warn('Group badge announcement preparation failed');
+      await requeue(SHORT_LEASE);
+      continue;
     }
+    // The group can be disabled while the card renders. Its pause cannot see a claimed row.
+    if (!count) continue;
+    const delivery = await sendCard(env, award.chat_id, png,
+      'Чат открыл бейдж «' + badge.title + '»!\n' + award.result, [[{
+        text: 'Коллекция чата · ' + count + ' из ' + GROUP_BADGES.length,
+        callback_data: 'ach:group:' + award.chat_id,
+      }]]);
+    if (delivery.status === 'retry') await requeue(delivery.retryAfter);
+    if (delivery.status !== 'sent') console.warn({ event: 'group_badge_announcement', status: delivery.status });
   }
 }

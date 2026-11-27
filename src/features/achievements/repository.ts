@@ -119,12 +119,15 @@ export async function setEnrolled(db: D1Database, chatId: number, userId: number
   return getEnrollment(db, chatId, userId);
 }
 
-/** Announcements are on by default; the member can mute or restore the public comeback reply. */
+/** Announcements are on by default. Muting also drops a queued reply, so a later unmute cannot revive it. */
 export async function setComebackReplies(db: D1Database, chat: number, user: number, enabled: boolean) {
-  await db.prepare(`UPDATE achievement_enrollments SET comeback_muted=?
+  const statements = [db.prepare(`UPDATE achievement_enrollments SET comeback_muted=?
     WHERE chat_id=? AND user_id=? AND enabled=1
     AND EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1)`)
-    .bind(Number(!enabled), chat, user, chat).run();
+    .bind(Number(!enabled), chat, user, chat)];
+  if (!enabled) statements.push(db.prepare(`UPDATE achievement_awards SET comeback_reply_json=NULL,comeback_reply_at=NULL
+    WHERE chat_id=? AND user_id=? AND badge_id=? AND comeback_reply_json IS NOT NULL`).bind(chat, user, COMEBACK.id));
+  await db.batch(statements);
 }
 export async function eraseAlbum(db: D1Database, chatId: number, userId: number, generation?: string) {
   if (!Number.isSafeInteger(userId) || userId <= 0) throw new Error('invalid album owner');

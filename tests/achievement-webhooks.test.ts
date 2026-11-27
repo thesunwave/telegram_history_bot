@@ -268,7 +268,10 @@ describe('comeback badge', () => {
       'SELECT comeback_reply_at FROM achievement_awards',
     );
     expect(due).toBeGreaterThan(now());
+    await send(callback('album'));
+    expect(JSON.stringify(calls.at(-1)?.payload)).toContain(`ach:comeback-off:${group}`);
     await send(callback('comeback-off'));
+    await send(callback('comeback-on'));
     await retryComebackReplies(env, due);
     expect(calls.filter(call => call.method === 'sendPhoto')).toEqual([]);
     expect(store.rows('SELECT badge_id,comeback_reply_at FROM achievement_awards'))

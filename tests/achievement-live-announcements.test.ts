@@ -5,6 +5,7 @@ import { daysBetween, shiftDay } from '../src/features/achievements/rules';
 import { evaluateWeek, unlockLiveWeekly } from '../src/features/achievements/evaluate';
 import { announceGroupBadges, liveWeeklyStep } from '../src/features/achievements/announce';
 import { setGroupEnabled } from '../src/features/achievements/repository';
+import { CardCanvas } from '../src/features/achievements/cards-raster';
 import { JOB_VERSION } from '../src/features/stats/daily-backfill';
 
 const monday = '2026-01-05';
@@ -62,23 +63,51 @@ describe('live group badge announcements', () => {
     expect(report?.badges.map(s => s.id)).toEqual(['podcast', 'seven-days']);
   });
 
-  it('retries a rate-limited announcement and drops pending ones when the group is disabled', async () => {
+  async function pending() {
     const f = fixture();
     await setGroupEnabled(f.db, chat, true, new Date(monday + 'T00:00:00Z'));
     const thursday = new Date('2026-01-08T12:00:00Z');
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(thursday);
     expect(await unlockLiveWeekly(f.env, chat, thursday)).toBe(4);
-    const now = Math.floor(+thursday / 1000);
-    const send = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
-      Response.json({ ok: false, error_code: 429, parameters: { retry_after: 60 } }, { status: 429 }));
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await announceGroupBadges(f.env, now);
+    return { ...f, now: Math.floor(+thursday / 1000) };
+  }
+  const rateLimited = () => Response.json({ ok: false, error_code: 429, parameters: { retry_after: 60 } }, { status: 429 });
+
+  it('retries a rate-limited announcement once due and stops after 24 hours', async () => {
+    const f = await pending();
+    const send = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => rateLimited());
+    await announceGroupBadges(f.env, f.now);
     expect(send).toHaveBeenCalledTimes(4);
-    expect(f.rows('SELECT DISTINCT announce_at FROM achievement_awards')).toEqual([{ announce_at: now + 300 }]);
-    await setGroupEnabled(f.db, chat, false);
-    await announceGroupBadges(f.env, now + 300);
+    expect(f.rows('SELECT DISTINCT announce_at FROM achievement_awards')).toEqual([{ announce_at: f.now + 300 }]);
+    await announceGroupBadges(f.env, f.now + 299);
     expect(send).toHaveBeenCalledTimes(4);
+    send.mockImplementation(async () => Response.json({ ok: true, result: { message_id: 8 } }));
+    await announceGroupBadges(f.env, f.now + 300);
+    expect(send).toHaveBeenCalledTimes(8);
+    expect(f.rows('SELECT DISTINCT announce_at FROM achievement_awards')).toEqual([{ announce_at: null }]);
+
+    f.sqlite.prepare('UPDATE achievement_awards SET announce_at=?').run(f.now + 86100);
+    send.mockImplementation(async () => rateLimited());
+    await announceGroupBadges(f.env, f.now + 86100);
+    expect(send).toHaveBeenCalledTimes(12);
+    expect(f.rows('SELECT DISTINCT announce_at FROM achievement_awards')).toEqual([{ announce_at: null }]);
+  });
+
+  it('requeues a card that failed before dispatch and drops pending ones when the group is disabled', async () => {
+    const f = await pending();
+    const send = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => rateLimited());
+    vi.spyOn(CardCanvas.prototype, 'png').mockRejectedValueOnce(new Error('render failed'));
+    await announceGroupBadges(f.env, f.now);
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(f.rows('SELECT DISTINCT announce_at FROM achievement_awards')).toEqual([{ announce_at: f.now + 300 }]);
+    vi.spyOn(CardCanvas.prototype, 'png').mockImplementationOnce(async () => {
+      await setGroupEnabled(f.db, chat, false);
+      return new Uint8Array(0);
+    });
+    await announceGroupBadges(f.env, f.now + 300);
+    expect(send).toHaveBeenCalledTimes(3);
     expect(f.rows('SELECT DISTINCT announce_at FROM achievement_awards')).toEqual([{ announce_at: null }]);
   });
 });
