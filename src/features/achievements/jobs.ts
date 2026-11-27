@@ -2,6 +2,7 @@ import type { Env } from '../../core/env';
 import { Logger } from '../../core/logger';
 import { mondayOf, shiftDay } from './calendar';
 import { sendWeeklyPhoto } from './cards';
+import { announceGroupBadges, liveWeeklyStep } from './announce';
 import { retryComebackReplies } from './comeback';
 import { evaluatePersonal, evaluateWeek } from './evaluate';
 import { listAwards } from './repository';
@@ -92,7 +93,15 @@ export async function runAchievementJobs(env: Env, time: Date) {
     try {
       await personalStep(env, today, now);
     } finally {
-      await retryComebackReplies(env, now);
+      try {
+        await retryComebackReplies(env, now);
+      } finally {
+        try {
+          await liveWeeklyStep(env, time);
+        } finally {
+          await announceGroupBadges(env, now);
+        }
+      }
     }
   }
 }

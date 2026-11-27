@@ -144,8 +144,7 @@ function weeklyEvidenceStatements(env: Env, chat: number, monday: string, end: s
       WHERE chat_id=? AND day BETWEEN ? AND ?`).bind(chat, shiftDay(monday, -28), end)];
 }
 
-/** Score the verified prefix of the open week without publishing a report or persisting awards. */
-export async function readWeeklyProgress(env: Env, chat: number, startDay: string, today: string) {
+async function weeklyPrefix(env: Env, chat: number, startDay: string, today: string) {
   const monday = mondayOf(today);
   const { verified, data } = await snapshot(env, chat, daysBetween(shiftDay(monday, -28), today), [
     ...weeklyEvidenceStatements(env, chat, monday, today),
@@ -158,12 +157,42 @@ export async function readWeeklyProgress(env: Env, chat: number, startDay: strin
   const throughDay = gap === 0 ? null : gap === -1 ? today : week[gap - 1];
   const hours = typedRows<Hour>(data[1]);
   const baseline = weeklyBaseline(monday, hours, verified);
-  if (!throughDay) return { throughDay, baselineKnown: baseline !== null, scores: [] };
-  const rows = typedRows<GroupDay>(data[0]).filter(row => row.day <= throughDay);
-  const singers = typedRows<{ day: string }>(data[2]).filter(row => row.day <= throughDay).length;
-  const report = weeklyRules(monday, rows, hours.filter(row => row.day >= monday && row.day <= throughDay),
-    0, singers, baseline);
-  return { throughDay, baselineKnown: baseline !== null, scores: report.badges };
+  const score = (until: string) => weeklyRules(monday,
+    typedRows<GroupDay>(data[0]).filter(row => row.day <= until),
+    hours.filter(row => row.day >= monday && row.day <= until), 0,
+    typedRows<{ day: string }>(data[2]).filter(row => row.day <= until).length, baseline).badges;
+  return { monday, throughDay, baseline, score };
+}
+
+/** Score the verified prefix of the open week without publishing a report or persisting awards. */
+export async function readWeeklyProgress(env: Env, chat: number, startDay: string, today: string) {
+  const { throughDay, baseline, score } = await weeklyPrefix(env, chat, startDay, today);
+  return { throughDay, baselineKnown: baseline !== null, scores: throughDay ? score(throughDay) : [] };
+}
+
+// Daily leaders and leader shares can still change before the day closes.
+const CLOSED_DAY_GROUP_BADGES = new Set(['relay-cup', 'round-table']);
+
+/** Unlock group badges as soon as the verified prefix of the open week proves them. */
+export async function unlockLiveWeekly(env: Env, chat: number, now: Date) {
+  const today = now.toISOString().slice(0, 10);
+  const group = await getGroup(env.DB, chat);
+  if (!group?.enabled || mondayOf(today) < group.start_day) return 0;
+  const { monday, throughDay, score } = await weeklyPrefix(env, chat, group.start_day, today);
+  if (!throughDay) return 0;
+  const yesterday = shiftDay(today, -1);
+  const closedThrough = throughDay < today ? throughDay : yesterday;
+  const closedScores = closedThrough >= monday ? score(closedThrough) : [];
+  const earned = score(throughDay).map(s => CLOSED_DAY_GROUP_BADGES.has(s.id)
+    ? closedScores.find(c => c.id === s.id) : s).filter(s => s?.earned);
+  if (!earned.length) return 0;
+  const at = Math.floor(now.getTime() / 1000);
+  const guard = 'EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1 AND generation=?)';
+  const results = await env.DB.batch(earned.map(s => env.DB.prepare(`INSERT OR IGNORE INTO achievement_awards
+    (chat_id,user_id,badge_id,earned_day,result,live_at,announce_at) SELECT ?,0,?,?,?,?,? WHERE ${guard}`)
+    .bind(chat, s!.id, CLOSED_DAY_GROUP_BADGES.has(s!.id) ? closedThrough : throughDay, s!.result, at, at,
+      chat, group.generation)));
+  return results.reduce((sum, r) => sum + (r.meta.changes ?? 0), 0);
 }
 
 /** Creates an immutable weekly report and first unlocks together. Replays read the winning transaction. */
@@ -199,6 +228,7 @@ export async function evaluateWeek(env: Env, chat: number, monday: string): Prom
       SELECT json_group_array(json(value)) FROM (
       SELECT b.value FROM json_each(?) b JOIN achievement_awards a
       ON a.chat_id=? AND a.user_id=0 AND a.earned_day=? AND a.badge_id=json_extract(b.value,'$.id')
+        AND a.live_at IS NULL
       ORDER BY b.key)
     ),'[]'))) WHERE ${guard}`).bind(chat, monday, report.messages ? 'ready' : 'silent', JSON.stringify(report), JSON.stringify(report.badges), chat, end, chat, group.generation));
   await env.DB.batch(statements);

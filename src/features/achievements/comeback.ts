@@ -22,7 +22,6 @@ interface ReplyTarget {
   message: number;
   thread: number | null;
   generation: string;
-  consent: number;
   queued: number;
 }
 
@@ -49,21 +48,20 @@ export async function observeAchievementActivity(env: Env, incoming: unknown) {
   const statements = [
     // Existing chat statistics provide the baseline even if the author has never opened /badges.
     env.DB.prepare(`WITH prior AS (
-      SELECT e.generation,e.comeback_replies_since,
+      SELECT e.generation,e.comeback_muted,
         MAX(COALESCE(e.comeback_last_message_ts,0),COALESCE(p.last_message_ts,0)) AS seen
       FROM achievement_enrollments e JOIN achievement_groups g USING(chat_id)
       LEFT JOIN stats_chat_user_profile p USING(chat_id,user_id)
       WHERE e.chat_id=? AND e.user_id=? AND e.enabled=1 AND g.enabled=1
     ) INSERT INTO achievement_awards(chat_id,user_id,badge_id,earned_day,result,comeback_reply_json,comeback_reply_at)
       SELECT ?,?,?,date(?,'unixepoch'),CAST((?-seen)/? AS INTEGER) || ' дн. тишины',
-        CASE WHEN comeback_replies_since<=? THEN json_object('message',?,'thread',?,'generation',generation,
-          'consent',comeback_replies_since,'queued',?) END,
-        CASE WHEN comeback_replies_since<=? THEN ? END
+        CASE WHEN comeback_muted=0 THEN json_object('message',?,'thread',?,'generation',generation,'queued',?) END,
+        CASE WHEN comeback_muted=0 THEN ? END
       FROM prior WHERE seen>0 AND ?-seen>=?
       ON CONFLICT(chat_id,user_id,badge_id) DO NOTHING
       RETURNING ${replyColumns}`)
-      .bind(chat, user, chat, user, COMEBACK.id, date, date, DAY, date, message.id, message.thread ?? null,
-        now, date, now, date, COMEBACK_DAYS * DAY),
+      .bind(chat, user, chat, user, COMEBACK.id, date, date, DAY, message.id, message.thread ?? null,
+        now, now, date, COMEBACK_DAYS * DAY),
     env.DB.prepare(`UPDATE achievement_enrollments SET comeback_last_message_ts=?
       WHERE chat_id=? AND user_id=? AND enabled=1 AND ?>COALESCE(comeback_last_message_ts,0)
       AND EXISTS (SELECT 1 FROM achievement_groups WHERE chat_id=? AND enabled=1)
@@ -82,7 +80,7 @@ export async function observeAchievementActivity(env: Env, incoming: unknown) {
 
 const consentGuard = `EXISTS (SELECT 1 FROM achievement_enrollments e JOIN achievement_groups g USING(chat_id)
   WHERE e.chat_id=achievement_awards.chat_id AND e.user_id=achievement_awards.user_id
-  AND e.enabled=1 AND g.enabled=1 AND e.generation=? AND e.comeback_replies_since=?)`;
+  AND e.enabled=1 AND g.enabled=1 AND e.generation=? AND e.comeback_muted=0)`;
 
 /** Clear the pending reply before dispatch so an ambiguous send can never be replayed. */
 export async function replyWithComebackCard(env: Env, reply: PendingReply, now = nowSeconds()) {
@@ -91,11 +89,11 @@ export async function replyWithComebackCard(env: Env, reply: PendingReply, now =
   const key = [chat, user, COMEBACK.id];
   const clear = `UPDATE achievement_awards SET comeback_reply_json=NULL,comeback_reply_at=NULL
     WHERE chat_id=? AND user_id=? AND badge_id=? AND comeback_reply_json=? AND comeback_reply_at=?`;
-  const consent = [target.generation, target.consent];
+  const consent = [target.generation];
   const enrollment = await getEnrollment(env.DB, chat, user);
   const expires = target.queued + MAX_REPLY_AGE;
   if (now >= expires || !enrollment?.enabled || enrollment.generation !== target.generation ||
-    enrollment.comeback_replies_since !== target.consent) {
+    enrollment.comeback_muted) {
     await env.DB.prepare(clear).bind(...key, payload, due).run();
     return;
   }

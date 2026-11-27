@@ -187,10 +187,14 @@ The anonymous install ping is described [below](#anonymous-usage-ping).
 In a group, an administrator opens `/achievements` and enables the shared collection.
 The bot owner can also enable it on the **Установки бота** (Bot installations)
 page in the **Достижения** (Achievements) column for a connected group.
-After the first complete Monday–Sunday UTC week with verified activity the bot can post
-a weekly photo. The group can earn six badges, including **Choir** when four different
-participants send voice notes in the same week. The weekly photo is safe to forward and
-contains group totals only.
+Group badges count Monday–Sunday UTC weeks from the first full week after enabling.
+The bot announces a group badge in the chat as soon as verified activity in the current
+week proves it, usually within a few minutes. **Переходящий кубок** and **Круглый стол**
+depend on daily leaders, so they are announced once the deciding UTC day closes. After each
+complete week the bot also posts a weekly photo, which features badges that were only
+settled when the week closed. The group can earn six badges, including **Choir** when four
+different participants send voice notes in the same week. The cards are safe to forward and
+contain group totals only.
 
 Open `/badges` in private or tap **Мои бейджи** in the group to view your personal album.
 Members participate automatically when they post in a group with achievements enabled.
@@ -202,9 +206,9 @@ deleting an album removes that person's achievement progress and awards for that
 **Rise from Read-Only** (**Восстание из ридонли**) unlocks as soon as a participant
 posts again after at least 30 days in the same group. A qualifying gap starts with
 a previous message in the same group, including one already recorded before achievements
-were enabled. After a participant enables the
-announcement in their private album, the bot replies to the returning message
-with a card in the group. The badge can be earned once per album.
+were enabled. By default the bot replies to the returning message with a card in the
+group. A participant can turn this announcement off in their private album.
+The badge can be earned once per album.
 If Telegram explicitly rate-limits the card, the achievement job can retry it
 within 24 hours while the announcement remains enabled.
 
